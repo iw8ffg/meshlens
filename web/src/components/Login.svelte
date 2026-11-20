@@ -25,8 +25,19 @@
     }
     busy = true
     try {
-      if (setup) await send('POST', '/auth/setup', { pin })
-      await send('POST', '/auth/login', { pin })
+      if (setup) {
+        await send('POST', '/auth/setup', { pin })
+        // Il PIN ora esiste: aggiorna lo stato anche se il login seguente fallisce
+        try {
+          await send('POST', '/auth/login', { pin })
+        } catch (err) {
+          pin = confirm = ''
+          onsuccess()
+          throw err
+        }
+      } else {
+        await send('POST', '/auth/login', { pin })
+      }
       pin = confirm = ''
       onsuccess()
     } catch (err) {

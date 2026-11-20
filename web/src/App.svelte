@@ -6,6 +6,8 @@
   import NodeDetail from './components/NodeDetail.svelte'
   import Filters from './components/Filters.svelte'
   import StatusBar from './components/StatusBar.svelte'
+  import MessageFeed from './components/MessageFeed.svelte'
+  import Settings from './components/Settings.svelte'
   import { matchNode } from './lib/filters'
   import { getJSON, AUTH_REQUIRED } from './lib/api'
   import { connectWS } from './lib/ws'
@@ -39,6 +41,12 @@
     app.selectedId = n.id
     if (n.lat !== null && n.lon !== null) focus = { lat: n.lat, lon: n.lon, seq: (focus?.seq ?? 0) + 1 }
     if (mobile) tab = 'map'
+  }
+
+  function pickId(id: string) {
+    const n = app.nodes.get(id)
+    if (n) pick(n)
+    else app.selectedId = id
   }
 
   function close() {
@@ -109,9 +117,9 @@
             <Filters />
             <NodeList nodes={visible} {now} onpick={pick} />
           {:else if activeTab === 'chat'}
-            <p class="ph">Chat: in arrivo</p>
+            <MessageFeed {now} onpick={pickId} />
           {:else if activeTab === 'settings'}
-            <p class="ph">Impostazioni: in arrivo</p>
+            <Settings onlogout={refresh} />
           {/if}
         </div>
       </aside>
@@ -171,10 +179,6 @@
   .content {
     flex: 1;
     overflow: auto;
-  }
-  .ph {
-    padding: 16px;
-    color: #9ca3af;
   }
   /* Mobile: mappa a tutto schermo, schede in basso, pannello dal basso */
   .mobile .main {
