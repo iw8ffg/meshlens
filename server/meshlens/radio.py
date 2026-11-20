@@ -18,6 +18,8 @@ BROADCAST = "^all"
 MSG_PORT_BUSY = "Porta in uso da un altro programma (chiudi l'app o la CLI Meshtastic)"
 MSG_PORT_MISSING = "Porta non trovata: radio scollegata?"
 MSG_BLE_MISSING = "Radio Bluetooth non trovata: è accesa e vicina?"
+MSG_BLE_MULTIPLE = "Più radio Bluetooth corrispondono: usa l'indirizzo esatto"
+CLOSE_TIMEOUT = 12.0
 
 
 def describe_error(exc: BaseException) -> str:
@@ -27,8 +29,12 @@ def describe_error(exc: BaseException) -> str:
         return MSG_PORT_BUSY
     if isinstance(exc, FileNotFoundError) or "could not open port" in text:
         return MSG_PORT_MISSING
-    if type(exc).__name__ == "BLEError" and "found" in text:
-        return MSG_BLE_MISSING
+    if type(exc).__name__ == "BLEError":
+        code = exc.args[1] if len(exc.args) > 1 else None
+        if code == "multiple_devices":
+            return MSG_BLE_MULTIPLE
+        if code == "device_not_found" or "No Meshtastic BLE peripheral" in text:
+            return MSG_BLE_MISSING
     return f"Errore di connessione: {type(exc).__name__}"
 
 
@@ -104,6 +110,7 @@ class RadioConnector:
         self._task: asyncio.Task | None = None
         self._lost = asyncio.Event()
         self._pending: dict[int, float] = {}
+        self._early: dict[int, tuple[float, int | None, bool, str | None]] = {}
         self._state = "disconnected"
         self._error: str | None = None
         self._my_node_id: str | None = None
@@ -232,7 +239,9 @@ class RadioConnector:
             return
         self._hub.unregister(iface)
         try:
-            await self._call(iface.close)
+            await asyncio.wait_for(asyncio.shield(self._call(iface.close)), CLOSE_TIMEOUT)
+        except asyncio.TimeoutError:
+            log.warning("close() radio %s: timeout, procedo comunque", self.radio_id)
         except _LibraryError as err:
             log.warning("close() radio %s: %r", self.radio_id, err.original)
 
@@ -273,21 +282,32 @@ class RadioConnector:
         packet_id = packet.id
         if dest is not None:  # per i broadcast nessun ack atteso
             self._pending[packet_id] = self._clock()
+            early = self._early.pop(packet_id, None)
+            if early is not None:  # ack arrivato mentre sendText era ancora in thread
+                self._resolve(packet_id, early[1], early[2], early[3])
         return packet_id
 
     def _handle_routing(self, packet: dict, decoded: dict) -> None:
         rid = decoded.get("requestId")
-        if rid not in self._pending:
+        if rid is None:
             return
         reason = (decoded.get("routing") or {}).get("errorReason")
         ok = reason in (None, "NONE")
-        if ok and packet.get("from") == self._my_node_num:
+        if rid not in self._pending:
+            self._early[rid] = (self._clock(), packet.get("from"), ok, reason)
+            return
+        self._resolve(rid, packet.get("from"), ok, reason)
+
+    def _resolve(self, rid: int, sender, ok: bool, reason) -> None:
+        if ok and sender == self._my_node_num:
             return  # ack dal nodo locale: la radio l'ha solo accodato (resta "sent")
-        del self._pending[rid]
+        self._pending.pop(rid, None)
         self._emit(self._on_ack, self.radio_id, rid, ok, None if ok else reason)
 
     def check_acks(self) -> None:
         now = self._clock()
+        for rid in [r for r, e in self._early.items() if now - e[0] >= ACK_TIMEOUT]:
+            del self._early[rid]
         for pid in [p for p, t in self._pending.items() if now - t >= ACK_TIMEOUT]:
             del self._pending[pid]
             self._emit(self._on_ack, self.radio_id, pid, False, "TIMEOUT")

@@ -30,15 +30,21 @@ class FakeIface:
         self.closed = 0
         self.send_thread = None
         self.next_id = 1000
+        self.close_block = None
+        self.on_send = None
 
     def sendText(self, text, destinationId="^all", wantAck=False, channelIndex=0, **kw):
         self.send_thread = threading.current_thread()
         self.sent.append((text, destinationId, wantAck, channelIndex))
         self.next_id += 1
+        if self.on_send:
+            self.on_send(self.next_id)
         return SimpleNamespace(id=self.next_id)
 
     def close(self):
         self.closed += 1
+        if self.close_block is not None:
+            self.close_block.wait(5)
 
 
 class FakePubSub:
@@ -250,3 +256,81 @@ def test_hub_start_subscribes_once():
                                 "meshtastic.connection.established"}
     finally:
         loop.close()
+
+
+async def test_ack_arriving_during_send_is_reconciled():
+    iface = FakeIface()
+    h = Harness(lambda cfg, n: iface)
+    await connected(h)
+    iface.on_send = lambda pid: h.loop.call_soon_threadsafe(
+        h.conn.on_packet, ack_pkt(pid, 0x42))
+    pid = await h.conn.send_text("m", 0, PEER)
+    assert h.acks == [(CFG["id"], pid, True, None)]
+    iface.on_send = lambda pid: h.loop.call_soon_threadsafe(
+        h.conn.on_packet, ack_pkt(pid, 0x42, "NO_RESPONSE"))
+    pid2 = await h.conn.send_text("m", 0, PEER)
+    assert h.acks[-1] == (CFG["id"], pid2, False, "NO_RESPONSE")
+    iface.on_send = lambda pid: h.loop.call_soon_threadsafe(
+        h.conn.on_packet, ack_pkt(pid, MY_NUM))
+    await h.conn.send_text("m", 0, PEER)
+    assert len(h.acks) == 2  # ack locale: resta sent
+    await h.conn.stop()
+
+
+async def test_early_buffer_pruned():
+    h = Harness(lambda cfg, n: FakeIface())
+    h.conn.on_packet(ack_pkt(5, 0x42))
+    assert 5 in h.conn._early
+    h.now += 60
+    h.conn.check_acks()
+    assert not h.conn._early
+
+
+async def test_blocking_close_times_out(monkeypatch):
+    import meshlens.radio as radio
+    monkeypatch.setattr(radio, "CLOSE_TIMEOUT", 0.1)
+    iface = FakeIface()
+    iface.close_block = threading.Event()
+    h = Harness(lambda cfg, n: iface)
+    await connected(h)
+    await asyncio.wait_for(h.conn.stop(), 2.0)
+    assert h.conn.state()["state"] == "disconnected"
+    iface.close_block.set()
+
+
+async def test_ble_error_codes():
+    from meshlens.radio import describe_error
+
+    class BLEError(Exception):
+        pass
+    assert describe_error(BLEError("x", "device_not_found")) == \
+        "Radio Bluetooth non trovata: è accesa e vicina?"
+    assert describe_error(BLEError("x", "multiple_devices")) == \
+        "Più radio Bluetooth corrispondono: usa l'indirizzo esatto"
+    assert describe_error(BLEError("x", "write_error")) == "Errore di connessione: BLEError"
+
+
+async def test_real_pubsub_roundtrip():
+    from pubsub import pub
+    iface = FakeIface()
+    loop = asyncio.get_running_loop()
+    hub = PubSubHub(loop)  # pubsub reale
+    hub.start()
+    try:
+        calls = []
+        hub.register(iface, SimpleNamespace(
+            on_packet=lambda p: calls.append(("pkt", p)),
+            on_lost=lambda: calls.append(("lost",)),
+            on_established=lambda: None))
+        pub.sendMessage("meshtastic.receive", packet={"id": 1}, interface=iface)
+        pub.sendMessage("meshtastic.connection.lost", interface=iface)
+        pub.sendMessage("meshtastic.receive", packet={"id": 2}, interface=FakeIface())
+        for _ in range(100):
+            if len(calls) == 2:
+                break
+            await asyncio.sleep(0.01)
+        assert calls == [("pkt", {"id": 1}), ("lost",)]
+    finally:
+        pub.unsubscribe(hub._on_receive, "meshtastic.receive")
+        pub.unsubscribe(hub._on_lost, "meshtastic.connection.lost")
+        pub.unsubscribe(hub._on_established, "meshtastic.connection.established")
