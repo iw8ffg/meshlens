@@ -80,3 +80,12 @@ export function insertMessage(list: Message[], m: Message, replaced: Set<string>
   if (list.some((x) => x.key === m.key)) return
   list.push(m)
 }
+
+/**
+ * Radio di invio: la scelta manuale resta finche' la radio e' connessa e la conversazione non cambia;
+ * altrimenti la radio della conversazione (se connessa) oppure la prima connessa.
+ */
+export function pickSendRadio(current: string, convRadio: string, connectedIds: string[], convChanged: boolean): string {
+  if (!convChanged && current && connectedIds.includes(current)) return current
+  return connectedIds.includes(convRadio) ? convRadio : (connectedIds[0] ?? '')
+}

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { tick } from 'svelte'
+  import { tick, untrack } from 'svelte'
   import { send } from '../lib/api'
   import { timeAgo } from '../lib/format'
   import {
@@ -8,6 +8,7 @@
     byteLength,
     groupMessages,
     localNodeIds,
+    pickSendRadio,
     statusIcon,
     statusLabel,
   } from '../lib/chat'
@@ -68,10 +69,17 @@
   const msgs = $derived(groups.get(conv) ?? [])
   const connected = $derived(app.radios.filter((r) => r.state === 'connected'))
 
-  // Radio di invio: di default quella della conversazione (se connessa), altrimenti la prima connessa
+  // Radio di invio: la scelta manuale persiste (vedi pickSendRadio)
+  let lastConv = ''
   $effect(() => {
-    void conv
-    radioId = connected.some((r) => r.id === convRadio) ? convRadio : (connected[0]?.id ?? '')
+    const changed = conv !== lastConv
+    lastConv = conv
+    radioId = pickSendRadio(
+      untrack(() => radioId),
+      convRadio,
+      connected.map((r) => r.id),
+      changed,
+    )
   })
 
   const bytes = $derived(byteLength(text))

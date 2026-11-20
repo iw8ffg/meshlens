@@ -1,5 +1,5 @@
 import { test, expect } from 'vitest'
-import { byteLength, conversationKey, groupMessages, insertMessage, statusIcon } from './chat'
+import { byteLength, conversationKey, groupMessages, insertMessage, pickSendRadio, statusIcon } from './chat'
 import type { Message } from './types'
 
 const msg = (o: Partial<Message>): Message => ({
@@ -60,4 +60,14 @@ test('statusIcon', () => {
   expect(statusIcon('acked')).toBe('✓✓')
   expect(statusIcon('failed')).toBe('⚠')
   expect(statusIcon(null)).toBe('')
+})
+
+test('pickSendRadio: scelta manuale persistente, reset su cambio conversazione o radio persa', () => {
+  const ids = ['r1', 'r2']
+  expect(pickSendRadio('r2', 'r1', ids, false)).toBe('r2')
+  expect(pickSendRadio('r2', 'r1', ids, true)).toBe('r1')
+  expect(pickSendRadio('r2', 'r1', ['r1'], false)).toBe('r1')
+  expect(pickSendRadio('r2', 'r9', ['r1'], false)).toBe('r1')
+  expect(pickSendRadio('r2', 'r1', [], false)).toBe('')
+  expect(pickSendRadio('', 'r2', ids, false)).toBe('r2')
 })
