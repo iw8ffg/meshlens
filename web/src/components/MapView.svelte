@@ -28,7 +28,6 @@
     sources: {},
     layers: [{ id: 'bg', type: 'background', paint: { 'background-color': '#dde3ea' } }],
   }
-  const STYLE_TIMEOUT_MS = 8000
   const COLORS = { fresh: '#2e9e44', recent: '#e0a800', old: '#8a8a8a' }
   const EMPTY: FeatureCollection = { type: 'FeatureCollection', features: [] }
 
@@ -99,14 +98,14 @@
 
   onMount(() => {
     maplibregl.setWorkerUrl(workerUrl)
-    map = new maplibregl.Map({ container: el, style: STYLE, center: [12.5, 42.5], zoom: 5, attributionControl: { compact: true } })
+    map = new maplibregl.Map({ container: el, style: navigator.onLine === false ? OFFLINE_STYLE : STYLE, center: [12.5, 42.5], zoom: 5, attributionControl: { compact: true } })
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right')
-    let loaded = false
-    let fellBack = false
-    let styleTimer: ReturnType<typeof setTimeout> | null = null
+    let inFallback = navigator.onLine === false
+    let bound = false
 
     const setup = (hasGlyphs: boolean) => {
       const m = map!
+      if (m.getSource('nodes')) return // gia' montato
       m.addSource('nodes', { type: 'geojson', data: EMPTY, cluster: true, clusterMaxZoom: 7, clusterRadius: 40 })
       m.addSource('selected', { type: 'geojson', data: EMPTY })
       m.addSource('precision', { type: 'geojson', data: EMPTY })
@@ -186,6 +185,8 @@
           'circle-stroke-color': '#2563eb',
         },
       })
+      if (!bound) {
+        bound = true
       m.on('click', 'points', (e: maplibregl.MapLayerMouseEvent) => {
         const id = e.features?.[0]?.properties?.id
         if (typeof id === 'string') app.selectedId = id
@@ -204,37 +205,38 @@
         m.on('mouseenter', l, () => (m.getCanvas().style.cursor = 'pointer'))
         m.on('mouseleave', l, () => (m.getCanvas().style.cursor = ''))
       }
+      }
       ready = true
       pushNodes()
       pushSelection()
       pushTrack()
     }
 
+    // Solo se lo stile non e' davvero raggiungibile: niente timeout, il primo caricamento puo' essere lento
     const fallback = () => {
-      if (loaded || fellBack || !map) return
-      fellBack = true
-      if (styleTimer) clearTimeout(styleTimer)
-      map.once('style.load', () => {
-        loaded = true
-        setup(false)
-      })
+      if (inFallback || ready || !map) return
+      inFallback = true
+      map.once('style.load', () => setup(false))
       map.setStyle(OFFLINE_STYLE)
     }
 
-    map.on('load', () => {
-      if (fellBack) return
-      loaded = true
-      if (styleTimer) clearTimeout(styleTimer)
-      setup(true)
-    })
-    // Offline lo stile non arriva e 'load' non scatta mai: si passa allo stile minimo
+    const recover = () => {
+      if (!inFallback || !map) return
+      inFallback = false
+      ready = false
+      map.once('style.load', () => setup(true))
+      map.setStyle(STYLE)
+    }
+
+    map.on('load', () => setup(!inFallback))
     map.on('error', (e) => {
+      // errore di rete/HTTP sul JSON dello stile; i 404 di tile e glyph hanno altri URL
       if ((e as { error?: { url?: string } }).error?.url === STYLE) fallback()
     })
-    styleTimer = setTimeout(fallback, STYLE_TIMEOUT_MS)
+    window.addEventListener('online', recover)
 
     return () => {
-      if (styleTimer) clearTimeout(styleTimer)
+      window.removeEventListener('online', recover)
       if (timer) clearTimeout(timer)
       map?.remove()
       map = null
