@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Awaitable, Callable
 
-from fastapi import Depends, FastAPI, HTTPException, Request, Response, WebSocket
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, WebSocket
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -97,6 +97,11 @@ def create_app(ctx: AppContext) -> FastAPI:
     def is_local(request: Request) -> bool:
         return request.client is not None and request.client.host in LOCAL_HOSTS
 
+    async def require_json(request: Request) -> None:
+        ctype = request.headers.get("content-type", "").split(";")[0].strip().lower()
+        if ctype != "application/json":
+            raise HTTPException(415, "Content-Type non supportato")
+
     async def require_auth(request: Request) -> None:
         if not ctx.auth.check(request.cookies.get(COOKIE)):
             raise HTTPException(401, "Accesso richiesto")
@@ -108,7 +113,7 @@ def create_app(ctx: AppContext) -> FastAPI:
                 "authenticated": ctx.auth.check(request.cookies.get(COOKIE)),
                 "is_local": is_local(request)}
 
-    @app.post("/api/auth/setup")
+    @app.post("/api/auth/setup", dependencies=[Depends(require_json)])
     async def auth_setup(body: PinBody, request: Request, response: Response):
         if ctx.auth.pin_is_set() or not is_local(request):
             raise HTTPException(403, "Impostazione del PIN non consentita")
@@ -120,7 +125,7 @@ def create_app(ctx: AppContext) -> FastAPI:
         set_cookie(response, token)
         return {"ok": True}
 
-    @app.post("/api/auth/login")
+    @app.post("/api/auth/login", dependencies=[Depends(require_json)])
     async def auth_login(body: PinBody, request: Request, response: Response):
         ip = request.client.host if request.client else "unknown"
         try:
@@ -170,7 +175,8 @@ def create_app(ctx: AppContext) -> FastAPI:
 
     # ---- messaggi ----
     @app.get("/api/messages", dependencies=[Depends(require_auth)])
-    async def live_messages(country: str | None = None, limit: int = 200):
+    async def live_messages(country: str | None = None,
+                            limit: int = Query(200, ge=1, le=1000)):
         wanted = _parse_countries(country)
         out = []
         for msg in reversed(ctx.live.messages):
@@ -182,7 +188,7 @@ def create_app(ctx: AppContext) -> FastAPI:
 
     @app.get("/api/messages/history", dependencies=[Depends(require_auth)])
     async def message_history(country: str | None = None, before: float | None = None,
-                              limit: int = 200):
+                              limit: int = Query(200, ge=1, le=1000)):
         wanted = _parse_countries(country)
         if wanted is not None:
             # lo storico contiene solo nazioni salvate: "none" non c'e mai
@@ -234,18 +240,22 @@ def create_app(ctx: AppContext) -> FastAPI:
             return
         q = ctx.bus.subscribe()
         recv = asyncio.ensure_future(ws.receive())
+        get = asyncio.ensure_future(q.get())
         try:
             while True:
-                get = asyncio.ensure_future(q.get())
                 done, _ = await asyncio.wait({get, recv}, return_when=asyncio.FIRST_COMPLETED)
                 if recv in done:
-                    get.cancel()
-                    break
-                await ws.send_json(get.result())
+                    if recv.result()["type"] == "websocket.disconnect":
+                        break
+                    recv = asyncio.ensure_future(ws.receive())  # frame del client: ignorato
+                if get in done:
+                    await ws.send_json(get.result())
+                    get = asyncio.ensure_future(q.get())
         except (WebSocketDisconnect, RuntimeError):
             pass
         finally:
             recv.cancel()
+            get.cancel()
             ctx.bus.unsubscribe(q)
 
     # ---- statici (ultimi: catch-all) ----

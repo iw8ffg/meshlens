@@ -211,3 +211,54 @@ async def test_no_static_dir(tmp_path):
     ctx = make_ctx(static_dir=tmp_path / "missing")
     async with client(ctx) as c:
         assert (await c.get("/")).status_code == 404
+
+
+async def test_auth_requires_json_content_type(ctx):
+    async with client(ctx) as c:
+        r = await c.post("/api/auth/setup", content="pin=1234",
+                         headers={"content-type": "application/x-www-form-urlencoded"})
+        assert r.status_code == 415
+        r = await c.post("/api/auth/setup", content='{"pin":"1234"}',
+                         headers={"content-type": "text/plain"})
+        assert r.status_code == 415
+        assert not ctx.auth.pin_is_set()
+        ctx.auth.set_pin("1234")
+        r = await c.post("/api/auth/login", content="pin=1234",
+                         headers={"content-type": "application/x-www-form-urlencoded"})
+        assert r.status_code == 415
+
+
+def test_ws_survives_client_frame(ctx):
+    ctx.auth.set_pin("1234")
+    token = ctx.auth.login("1234", "127.0.0.1")
+    with TestClient(create_app(ctx)) as tc:
+        tc.cookies.set("meshlens_session", token)
+        with tc.websocket_connect("/ws") as ws:
+            ws.send_text("ping")
+            ctx.bus.publish({"type": "message", "message": {"text": "y"}})
+            assert ws.receive_json()["message"]["text"] == "y"
+            ws.send_text("again")
+            ctx.bus.publish({"type": "message", "message": {"text": "z"}})
+            assert ws.receive_json()["message"]["text"] == "z"
+
+
+async def test_limit_clamped(ctx):
+    async with logged(ctx) as c:
+        for path in ("/api/messages", "/api/messages/history"):
+            assert (await c.get(f"{path}?limit=0")).status_code == 422
+            assert (await c.get(f"{path}?limit=1001")).status_code == 422
+            assert (await c.get(f"{path}?limit=1000")).status_code == 200
+
+
+async def test_history_shape(ctx):
+    ctx.store.upsert_node({"num": 0xa1b2c3d4, "long_name": "Zed"})
+    msg = {"key": "1:9", "from": "!a1b2c3d4", "to": "!ffffffff", "channel": "LongFast",
+           "text": "ciao", "time": 1763660123.0, "country": "IT", "source": "mqtt"}
+    ctx.store.add_message(msg)
+    ctx.store.commit()
+    async with logged(ctx) as c:
+        rows = (await c.get("/api/messages/history?country=IT")).json()
+        assert rows == [{**msg, "from_name": "Zed"}]
+        assert set(rows[0]) == {"key", "from", "from_name", "to", "channel", "text",
+                                "time", "country", "source"}
+        assert (await c.get("/api/messages/history?country=IT&before=1")).json() == []
