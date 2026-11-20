@@ -5,7 +5,6 @@
   import { app } from '../lib/stores.svelte'
 
   type Country = { code: string; name: string; nodes: number }
-  const KEY = 'meshlens.filter'
   const AGES: [string, number | null][] = [
     ['Tutti', null],
     ['2 h', 2],
@@ -15,21 +14,6 @@
 
   let countries = $state<Country[]>([])
   let error = $state('')
-
-  // Ripristina il filtro salvato (default: solo Italia)
-  try {
-    const saved = JSON.parse(localStorage.getItem(KEY) ?? 'null')
-    app.filter.countries = Array.isArray(saved?.countries) ? saved.countries : ['IT']
-    app.filter.maxAgeH = typeof saved?.maxAgeH === 'number' ? saved.maxAgeH : null
-    app.filter.text = typeof saved?.text === 'string' ? saved.text : ''
-  } catch {
-    app.filter.countries = ['IT']
-  }
-
-  $effect(() => {
-    const { countries: c, maxAgeH, text } = app.filter
-    localStorage.setItem(KEY, JSON.stringify({ countries: [...c], maxAgeH, text }))
-  })
 
   onMount(async () => {
     try {

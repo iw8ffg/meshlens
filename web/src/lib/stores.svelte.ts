@@ -1,4 +1,5 @@
 import { SvelteMap } from 'svelte/reactivity'
+import { loadFilter, saveFilter } from './filters'
 import type { NodeFilter } from './filters'
 import type { Message, Node, Status } from './types'
 
@@ -8,7 +9,7 @@ export const app = $state({
   nodes: new SvelteMap<string, Node>(),
   messages: [] as Message[],
   status: null as Status | null,
-  filter: { countries: [], maxAgeH: null, sources: [], text: '' } as NodeFilter,
+  filter: loadFilter(localStorage) as NodeFilter,
   selectedId: null as string | null,
 })
 
@@ -24,4 +25,9 @@ export function addMessage(m: Message): void {
 
 export function setStatus(s: Status): void {
   app.status = s
+}
+
+export function persistFilter(): void {
+  const { countries, maxAgeH, sources, text } = app.filter
+  saveFilter(localStorage, { countries: [...countries], maxAgeH, sources: [...sources], text })
 }

@@ -11,7 +11,7 @@
   import { matchNode } from './lib/filters'
   import { getJSON, AUTH_REQUIRED } from './lib/api'
   import { connectWS } from './lib/ws'
-  import { app, upsertNodes, addMessage, setStatus } from './lib/stores.svelte'
+  import { app, upsertNodes, addMessage, setStatus, persistFilter } from './lib/stores.svelte'
   import type { AuthStatus, Node } from './lib/types'
 
   let auth = $state<AuthStatus | null>(null)
@@ -81,6 +81,8 @@
       clearInterval(tick)
     }
   })
+
+  $effect(persistFilter)
 
   $effect(() => {
     if (!auth?.authenticated) return

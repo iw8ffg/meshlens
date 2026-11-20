@@ -28,3 +28,33 @@ export function ageClass(lastHeard: number, now: number): 'fresh' | 'recent' | '
   if (age < 24 * 3600) return 'recent'
   return 'old'
 }
+
+export const FILTER_KEY = 'meshlens.filter'
+
+type FilterStorage = Pick<Storage, 'getItem' | 'setItem'>
+
+const defaultFilter = (): NodeFilter => ({ countries: ['IT'], maxAgeH: null, sources: [], text: '' })
+
+// Ripristina il filtro salvato (default: solo Italia)
+export function loadFilter(storage: FilterStorage): NodeFilter {
+  try {
+    const saved = JSON.parse(storage.getItem(FILTER_KEY) ?? 'null')
+    const d = defaultFilter()
+    return {
+      countries: Array.isArray(saved?.countries) ? saved.countries.filter((c: unknown) => typeof c === 'string') : d.countries,
+      maxAgeH: typeof saved?.maxAgeH === 'number' ? saved.maxAgeH : null,
+      sources: [],
+      text: typeof saved?.text === 'string' ? saved.text : '',
+    }
+  } catch {
+    return defaultFilter()
+  }
+}
+
+export function saveFilter(storage: FilterStorage, f: NodeFilter): void {
+  try {
+    storage.setItem(FILTER_KEY, JSON.stringify({ countries: [...f.countries], maxAgeH: f.maxAgeH, text: f.text }))
+  } catch {
+    // storage non disponibile: ignora
+  }
+}

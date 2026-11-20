@@ -134,7 +134,11 @@
         type: 'symbol',
         source: 'nodes',
         filter: ['has', 'point_count'],
-        layout: { 'text-field': ['get', 'point_count_abbreviated'], 'text-size': 12 },
+        layout: {
+          'text-field': ['get', 'point_count_abbreviated'],
+          'text-font': ['Noto Sans Regular'],
+          'text-size': 12,
+        },
         paint: { 'text-color': '#ffffff' },
       })
       const colorExpr: maplibregl.ExpressionSpecification = [
