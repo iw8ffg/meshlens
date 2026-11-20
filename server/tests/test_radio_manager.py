@@ -253,10 +253,43 @@ async def test_radio_messages_store_filters_and_orders():
     r = await e.mgr.add("usb", "COM5", "A")
     e.store.add_message({"key": "1:1", "from": "!00000001", "to": "!ffffffff", "time": 5,
                          "text": "mqtt", "source": "mqtt"})
-    e.ingestor.record_outgoing(r["id"], MY_ID, 1, "uno", 0, "!ffffffff")
-    e.ingestor.record_outgoing(r["id"], MY_ID, 2, "due", 0, "!ffffffff")
+    e.ingestor.record_outgoing(r["id"], MY_ID, 1, "uno", 0, "!ffffffff", time_=100)
+    e.ingestor.record_outgoing(r["id"], MY_ID, 2, "due", 0, "!ffffffff", time_=200)
     out = e.store.radio_messages(None, 10)
-    assert [m["text"] for m in out] == ["due", "uno"] or [m["text"] for m in out] == ["uno", "due"]
+    assert sorted(m["text"] for m in out) == ["due", "uno"]
+    assert [m["text"] for m in out] == ["due", "uno"]
     assert all(m["radio_id"] == r["id"] and m["direction"] == "out" for m in out)
     assert len(e.store.radio_messages(None, 1)) == 1
     assert e.store.radio_messages(0, 10) == []
+
+
+async def test_early_ack_during_send_is_applied_to_definitive_message():
+    e = Env()
+    r = await e.mgr.add("usb", "COM5", "A")
+    fc = FakeConnector.instances[0]
+    orig = fc.send_text
+
+    async def send_with_early_ack(text, ch, dest):
+        pid = await orig(text, ch, dest)
+        fc.on_ack(r["id"], pid, True, None)
+        return pid
+
+    fc.send_text = send_with_early_ack
+    msg = await e.mgr.send(r["id"], "ciao", 0, "!00000042")
+    e.drain()
+    await settle()
+    events = e.drain()
+    key = f"out:{r['id']}:501"
+    assert {"type": "message_status", "key": key, "status": "acked"} in events
+    assert e.live.messages[0]["status"] == "acked"
+    assert e.store.radio_messages(None, 5)[0]["status"] == "acked"
+    assert e.live.messages[0]["time"] == msg["time"]
+    assert e.mgr._early_acks == {}
+
+
+async def test_address_stored_as_typed_but_duplicates_case_insensitive():
+    e = Env()
+    r = await e.mgr.add("ble", "  aa:bb:cc  ", "x")
+    assert r["address"] == "aa:bb:cc"
+    with pytest.raises(ValueError, match="già aggiunta"):
+        await e.mgr.add("ble", "AA:BB:CC", "y")

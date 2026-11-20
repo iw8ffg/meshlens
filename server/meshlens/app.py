@@ -20,6 +20,7 @@ from .live import LiveState
 from .mqtt_client import MqttConnector
 from .mqtt_decode import EnvelopeDecoder
 from .pubsub_hub import PubSubHub
+from .radio import RadioConnector
 from .radio_manager import RadioManager
 from .settings import load_settings
 from .store import Store
@@ -128,7 +129,8 @@ class Runtime:
 
 
 def build(data_dir: Path, connector_factory=MqttConnector,
-          static_dir: Path | None = STATIC_DIR) -> tuple[FastAPI, Runtime]:
+          static_dir: Path | None = STATIC_DIR,
+          radio_connector_factory=RadioConnector) -> tuple[FastAPI, Runtime]:
     conn = connect(Path(data_dir) / "meshlens.db")
     store = Store(conn)
     live = LiveState()
@@ -143,7 +145,8 @@ def build(data_dir: Path, connector_factory=MqttConnector,
                             {"type": "message_status", "key": key, "status": status}))
     rt = Runtime(conn, store, live, auth, bus, dedup, ingestor, connector_factory,
                  settings=load_settings(conn))
-    rt.radios = RadioManager(store, ingestor, bus, None, PubSubHub(None))
+    rt.radios = RadioManager(store, ingestor, bus, None, PubSubHub(None),
+                              connector_factory=radio_connector_factory)
     ctx = AppContext(live=live, store=store, auth=auth, bus=bus, locator=locator, conn=conn,
                      mqtt_status=rt.mqtt_status, on_settings_changed=rt.on_settings_changed,
                      static_dir=static_dir, radios=rt.radios)

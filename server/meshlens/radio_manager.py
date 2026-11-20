@@ -15,6 +15,7 @@ MAX_TEXT_BYTES = 200
 BLE_SCAN_TIMEOUT = 12.0
 LIKELY_VIDS = {"239A", "303A", "10C4", "1A86", "2886"}
 BROADCAST_ID = "!ffffffff"
+MAX_EARLY_ACKS = 100
 
 
 def default_iface_factory(cfg: dict):
@@ -66,6 +67,7 @@ class RadioManager:
         self._connectors: dict[str, Any] = {}
         self._tasks: set[asyncio.Task] = set()
         self._pending_seq = 0
+        self._early_acks: dict[tuple[str, int], str] = {}
         for cfg in store.list_radios():
             self._register(cfg)
 
@@ -89,6 +91,9 @@ class RadioManager:
                 await conn.stop()
             except Exception:
                 log.exception("stop radio fallito")
+        stop_hub = getattr(self.hub, "stop", None)
+        if stop_hub is not None:
+            stop_hub()
 
     def _register(self, cfg: dict) -> None:
         cfg = dict(cfg)
@@ -104,7 +109,15 @@ class RadioManager:
         self._publish_radios()
 
     def _on_ack(self, radio_id: str, packet_id: int, ok: bool, reason: str | None) -> None:
-        self.ingestor.set_status(f"out:{radio_id}:{packet_id}", "acked" if ok else "failed")
+        status = "acked" if ok else "failed"
+        key = f"out:{radio_id}:{packet_id}"
+        if any(m["key"] == key for m in self.ingestor.live.messages):
+            self.ingestor.set_status(key, status)
+            return
+        # ack arrivato durante send_text: il messaggio definitivo non esiste ancora
+        self._early_acks[(radio_id, packet_id)] = status
+        while len(self._early_acks) > MAX_EARLY_ACKS:
+            del self._early_acks[next(iter(self._early_acks))]
 
     def _publish_radios(self) -> None:
         self.bus.publish({"type": "radios", "radios": self.radios()})
@@ -129,10 +142,11 @@ class RadioManager:
     async def add(self, kind: str, address: str, name: str | None) -> dict:
         if kind not in KINDS:
             raise ValueError("Tipo di radio non valido")
-        address = _norm_address(address or "")
+        address = (address or "").strip()
         if not address:
             raise ValueError("Indirizzo mancante")
-        if any(_norm_address(c["address"]) == address for c in self._cfgs.values()):
+        if any(_norm_address(c["address"]) == _norm_address(address)
+               for c in self._cfgs.values()):
             raise ValueError("Radio già aggiunta")
         rid = "r" + secrets.token_hex(4)
         while rid in self._cfgs:
@@ -249,4 +263,7 @@ class RadioManager:
             self.ingestor.live.messages.remove(message)
         self.ingestor.record_outgoing(message["radio_id"], my_id, packet_id, text,
                                       channel_index, to or BROADCAST_ID, status="sent",
-                                      replaces=message["key"])
+                                      replaces=message["key"], time_=message["time"])
+        early = self._early_acks.pop((message["radio_id"], packet_id), None)
+        if early is not None:
+            self.ingestor.set_status(f"out:{message['radio_id']}:{packet_id}", early)

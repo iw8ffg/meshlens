@@ -41,6 +41,17 @@ class PubSubHub:
         self._pubsub.subscribe(self._on_established, TOPIC_ESTABLISHED)
         self._started = True
 
+    def stop(self) -> None:
+        if not self._started:
+            return
+        for listener, topic in zip(self._listeners,
+                                   (TOPIC_RECEIVE, TOPIC_LOST, TOPIC_ESTABLISHED)):
+            try:
+                self._pubsub.unsubscribe(listener, topic)
+            except Exception:
+                log.debug("unsubscribe %s fallita", topic)
+        self._started = False
+
     def _dispatch(self, interface, method: str, *args) -> None:
         entry = self._connectors.get(id(interface))
         if entry is None or entry[0] is not interface:

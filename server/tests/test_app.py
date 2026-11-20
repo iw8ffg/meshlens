@@ -122,10 +122,9 @@ async def test_auto_radio_connected_at_start_and_stopped_at_shutdown(tmp_path):
     pre.commit()
     pre.close()
     FakeRadio.instances = []
-    app, rt = build(tmp_path, connector_factory=FakeConnector, static_dir=None)
-    rt.radios._connector_factory = FakeRadio
-    rt.radios._register(rt.radios._cfgs.pop("r0000abcd"))
-    (radio,) = FakeRadio.instances[-1:]
+    app, rt = build(tmp_path, connector_factory=FakeConnector, static_dir=None,
+                    radio_connector_factory=FakeRadio)
+    (radio,) = FakeRadio.instances
     async with app.router.lifespan_context(app):
         assert radio.starts == 1 and radio.state()["state"] == "connected"
     assert radio.stops == 1

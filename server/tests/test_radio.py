@@ -54,6 +54,9 @@ class FakePubSub:
     def subscribe(self, listener, topic):
         self.subs[topic] = listener
 
+    def unsubscribe(self, listener, topic):
+        assert self.subs.pop(topic) == listener
+
 
 class Harness:
     def __init__(self, factory):
@@ -254,6 +257,21 @@ def test_hub_start_subscribes_once():
         hub.start()
         assert set(ps.subs) == {"meshtastic.receive", "meshtastic.connection.lost",
                                 "meshtastic.connection.established"}
+    finally:
+        loop.close()
+
+
+def test_hub_stop_unsubscribes_and_allows_restart():
+    loop = asyncio.new_event_loop()
+    try:
+        ps = FakePubSub()
+        hub = PubSubHub(loop, ps)
+        hub.start()
+        hub.stop()
+        assert ps.subs == {}
+        hub.stop()
+        hub.start()
+        assert len(ps.subs) == 3
     finally:
         loop.close()
 

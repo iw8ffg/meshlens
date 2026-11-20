@@ -156,12 +156,13 @@ class Ingestor:
 
     def record_outgoing(self, radio_id: str, my_node_id: str, packet_id: int, text: str,
                         channel_index: int, to: str, status: str = "sent",
-                        replaces: str | None = None) -> dict:
+                        replaces: str | None = None,
+                        time_: int | None = None) -> dict:
         """Registra un messaggio inviato da una radio locale e lo pubblica."""
         mine = self.live.nodes.get(int(my_node_id[1:], 16))
         message = {"key": f"out:{radio_id}:{packet_id}", "from": my_node_id,
                    "from_name": mine["long_name"] if mine else None, "to": to,
-                   "channel": str(channel_index), "text": text, "time": int(time.time()),
+                   "channel": str(channel_index), "text": text, "time": int(time.time()) if time_ is None else time_,
                    "country": mine["country"] if mine else None, "source": "rf",
                    "direction": "out", "radio_id": radio_id, "channel_index": channel_index,
                    "packet_id": packet_id, "status": status}
