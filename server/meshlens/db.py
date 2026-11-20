@@ -8,16 +8,20 @@ CREATE TABLE IF NOT EXISTS nodes(
   firmware TEXT, lat REAL, lon REAL, precision_bits INTEGER, position_source TEXT,
   position_time INTEGER, country TEXT, last_heard REAL, sources TEXT, battery INTEGER,
   voltage REAL, channel_util REAL, air_util_tx REAL, mqtt_gateways INTEGER, last_snr REAL,
-  hops INTEGER, is_mine INTEGER DEFAULT 0);
+  hops INTEGER, is_mine INTEGER DEFAULT 0, heard_by TEXT);
 CREATE TABLE IF NOT EXISTS positions(
   id INTEGER PRIMARY KEY AUTOINCREMENT, node_num INTEGER, time REAL, lat REAL, lon REAL,
   precision_bits INTEGER, source TEXT);
 CREATE TABLE IF NOT EXISTS messages(
   key TEXT PRIMARY KEY, from_num INTEGER, to_num INTEGER, channel TEXT, text TEXT,
-  time REAL, country TEXT, source TEXT);
+  time REAL, country TEXT, source TEXT, direction TEXT DEFAULT 'in', radio_id TEXT,
+  channel_index INTEGER, packet_id INTEGER, status TEXT);
 CREATE TABLE IF NOT EXISTS telemetry(
   id INTEGER PRIMARY KEY AUTOINCREMENT, node_num INTEGER, time REAL, battery INTEGER,
   voltage REAL, channel_util REAL, air_util_tx REAL, uptime INTEGER);
+CREATE TABLE IF NOT EXISTS radios(
+  id TEXT PRIMARY KEY, name TEXT, kind TEXT, address TEXT, auto_connect INTEGER DEFAULT 1,
+  created REAL);
 CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT);
 CREATE TABLE IF NOT EXISTS auth(key TEXT PRIMARY KEY, value TEXT);
 CREATE TABLE IF NOT EXISTS sessions(
@@ -26,6 +30,23 @@ CREATE INDEX IF NOT EXISTS idx_positions_node_time ON positions(node_num, time);
 CREATE INDEX IF NOT EXISTS idx_messages_time ON messages(time);
 CREATE INDEX IF NOT EXISTS idx_telemetry_node_time ON telemetry(node_num, time);
 """
+
+# colonne aggiunte dopo la fase 1: (tabella, colonna, definizione)
+_MIGRATIONS = (
+    ("nodes", "heard_by", "TEXT"),
+    ("messages", "direction", "TEXT DEFAULT 'in'"),
+    ("messages", "radio_id", "TEXT"),
+    ("messages", "channel_index", "INTEGER"),
+    ("messages", "packet_id", "INTEGER"),
+    ("messages", "status", "TEXT"),
+)
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    for table, column, definition in _MIGRATIONS:
+        existing = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+        if column not in existing:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
 
 
 def connect(path: Path | str) -> sqlite3.Connection:
@@ -36,5 +57,6 @@ def connect(path: Path | str) -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.executescript(SCHEMA)
+    _migrate(conn)
     conn.commit()
     return conn

@@ -1,6 +1,7 @@
 """Accesso ai dati: nodi, posizioni, messaggi, telemetria."""
 import json
 import sqlite3
+import time
 
 from .events import TelemetryData
 
@@ -27,8 +28,9 @@ class Store:
         self.conn.commit()
 
     def upsert_node(self, node: dict, is_mine: bool | None = None) -> None:
-        cols = ["num", "sources", *_NODE_FIELDS]
-        values = [node["num"], json.dumps(node.get("sources") or [])]
+        cols = ["num", "sources", "heard_by", *_NODE_FIELDS]
+        values = [node["num"], json.dumps(node.get("sources") or []),
+                  json.dumps(node.get("heard_by") or {})]
         values += [node.get(f) for f in _NODE_FIELDS]
         if node.get("id") is None:
             values[cols.index("id")] = _num_to_id(node["num"])
@@ -50,10 +52,33 @@ class Store:
         to = msg.get("to")
         self.conn.execute(
             "INSERT OR IGNORE INTO messages"
-            "(key, from_num, to_num, channel, text, time, country, source) VALUES(?,?,?,?,?,?,?,?)",
+            "(key, from_num, to_num, channel, text, time, country, source, direction, radio_id, "
+            "channel_index, packet_id, status) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (msg["key"], _id_to_num(msg["from"]), _id_to_num(to) if to else None,
              msg.get("channel"), msg.get("text"), msg["time"], msg.get("country"),
-             msg.get("source")))
+             msg.get("source"), msg.get("direction") or "in", msg.get("radio_id"),
+             msg.get("channel_index"), msg.get("packet_id"), msg.get("status")))
+
+    def update_message_status(self, key: str, status: str) -> None:
+        self.conn.execute("UPDATE messages SET status=? WHERE key=?", (status, key))
+
+    def list_radios(self) -> list[dict]:
+        rows = self.conn.execute(
+            "SELECT id, name, kind, address, auto_connect, created FROM radios "
+            "ORDER BY created, id")
+        return [{**dict(r), "auto_connect": bool(r["auto_connect"])} for r in rows]
+
+    def save_radio(self, r: dict) -> None:
+        created = r.get("created")
+        self.conn.execute(
+            "INSERT INTO radios(id, name, kind, address, auto_connect, created) "
+            "VALUES(?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name, "
+            "kind=excluded.kind, address=excluded.address, auto_connect=excluded.auto_connect",
+            (r["id"], r.get("name"), r.get("kind"), r.get("address"),
+             1 if r.get("auto_connect", True) else 0, time.time() if created is None else created))
+
+    def delete_radio(self, radio_id: str) -> None:
+        self.conn.execute("DELETE FROM radios WHERE id=?", (radio_id,))
 
     def add_telemetry(self, num: int, time: float, t: TelemetryData) -> None:
         self.conn.execute(
@@ -67,6 +92,7 @@ class Store:
         for row in self.conn.execute("SELECT * FROM nodes"):
             d = dict(row)
             d["sources"] = json.loads(d["sources"]) if d["sources"] else []
+            d["heard_by"] = json.loads(d["heard_by"]) if d["heard_by"] else {}
             d["is_mine"] = bool(d["is_mine"])
             out.append(d)
         return out
@@ -91,7 +117,10 @@ class Store:
         params.append(limit)
         return [{"key": r["key"], "from": _num_to_id(r["from_num"]), "from_name": r["from_name"],
                  "to": _num_to_id(r["to_num"]), "channel": r["channel"], "text": r["text"],
-                 "time": r["time"], "country": r["country"], "source": r["source"]}
+                 "time": r["time"], "country": r["country"], "source": r["source"],
+                 "direction": r["direction"] or "in", "radio_id": r["radio_id"],
+                 "channel_index": r["channel_index"], "packet_id": r["packet_id"],
+                 "status": r["status"]}
                 for r in self.conn.execute(sql, params)]
 
     def telemetry(self, num: int, since: float) -> list[dict]:

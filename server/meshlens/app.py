@@ -131,7 +131,9 @@ def build(data_dir: Path, connector_factory=MqttConnector,
     locator = CountryLocator()
     auth = Auth(conn)
     ingestor = Ingestor(live, store, dedup, locator, lambda: rt.settings,
-                        lambda msg: bus.publish({"type": "message", "message": msg}))
+                        lambda msg: bus.publish({"type": "message", "message": msg}),
+                        lambda key, status: bus.publish(
+                            {"type": "message_status", "key": key, "status": status}))
     rt = Runtime(conn, store, live, auth, bus, dedup, ingestor, connector_factory,
                  settings=load_settings(conn))
     ctx = AppContext(live=live, store=store, auth=auth, bus=bus, locator=locator, conn=conn,

@@ -1,4 +1,5 @@
 """Pipeline di ingestione: da MeshEvent a stato live e archivio."""
+import time
 from typing import Callable
 
 from .dedup import Deduplicator
@@ -15,25 +16,35 @@ def _bits(precision_bits: int | None) -> int:
     return _RF_BITS if precision_bits is None else precision_bits
 
 
+def _channel_index(channel: str) -> int | None:
+    """Indice canale di un evento RF (stringa numerica); None per i canali MQTT per nome."""
+    try:
+        return int(channel)
+    except (TypeError, ValueError):
+        return None
+
+
 def _new_node(num: int) -> dict:
     return {"id": node_id(num), "num": num, "long_name": None, "short_name": None,
             "hw_model": None, "role": None, "firmware": None, "lat": None, "lon": None,
             "precision_bits": None, "position_source": None, "position_time": None,
             "country": None, "last_heard": None, "sources": [], "battery": None,
             "voltage": None, "channel_util": None, "air_util_tx": None, "mqtt_gateways": 0,
-            "last_snr": None, "hops": None}
+            "last_snr": None, "hops": None, "heard_by": {}, "is_local_radio": False}
 
 
 class Ingestor:
     def __init__(self, live: LiveState, store: Store, dedup: Deduplicator,
                  locator: CountryLocator, get_settings: Callable[[], dict],
-                 on_message: Callable[[dict], None]):
+                 on_message: Callable[[dict], None],
+                 on_status: Callable[[str, str], None] | None = None):
         self.live = live
         self.store = store
         self.dedup = dedup
         self.locator = locator
         self.get_settings = get_settings
         self.on_message = on_message
+        self.on_status = on_status
 
     def handle(self, ev: MeshEvent) -> None:
         num = ev.from_node
@@ -46,8 +57,12 @@ class Ingestor:
         if ev.source not in node["sources"]:
             node["sources"].append(ev.source)
         is_dup = False
-        if ev.source == "mqtt":
+        if ev.source == "mqtt" or (ev.source == "rf" and ev.packet_id):
+            # i pacchetti RF senza id (dal database nodi della radio) non si deduplicano
             is_dup = not self.dedup.is_new(num, ev.packet_id, ev.rx_time)
+        if ev.source == "rf" and ev.radio_id:
+            node.setdefault("heard_by", {})[ev.radio_id] = {
+                "snr": ev.snr, "rssi": ev.rssi, "hops": ev.hops, "time": int(ev.rx_time)}
         # copie dello stesso pacchetto: si tiene l'SNR migliore e il minor numero di hop
         if ev.snr is not None:
             prev = node["last_snr"]
@@ -61,6 +76,9 @@ class Ingestor:
                 node["mqtt_gateways"] = (node["mqtt_gateways"] or 0) + 1
                 return
             node["mqtt_gateways"] = 1
+        elif is_dup:
+            self.store.upsert_node(node)  # copia RF: aggiorna solo "sentito da"
+            return
 
         ev_pos = None  # (lat, lon, precision_bits, source) della posizione nell'evento
         kind, p = ev.kind, ev.payload
@@ -98,6 +116,39 @@ class Ingestor:
         if message is not None:
             self.on_message(message)
 
+    def mark_local_radio(self, node_num: int) -> None:
+        """Il nodo e' una radio collegata a questo server: e' anche "mio"."""
+        node = self.live.nodes.get(node_num)
+        if node is None:
+            node = self.live.nodes[node_num] = _new_node(node_num)
+        node["is_local_radio"] = True
+        node["is_mine"] = True
+        self.live.mark_changed(node_num)
+        self.store.upsert_node(node, is_mine=True)
+
+    def record_outgoing(self, radio_id: str, my_node_id: str, packet_id: int, text: str,
+                        channel_index: int, to: str, status: str = "sent") -> dict:
+        """Registra un messaggio inviato da una radio locale e lo pubblica."""
+        mine = self.live.nodes.get(int(my_node_id[1:], 16))
+        message = {"key": f"out:{radio_id}:{packet_id}", "from": my_node_id,
+                   "from_name": mine["long_name"] if mine else None, "to": to,
+                   "channel": str(channel_index), "text": text, "time": int(time.time()),
+                   "country": mine["country"] if mine else None, "source": "rf",
+                   "direction": "out", "radio_id": radio_id, "channel_index": channel_index,
+                   "packet_id": packet_id, "status": status}
+        self.live.messages.append(message)
+        self.store.add_message(message)
+        self.on_message(message)
+        return message
+
+    def set_status(self, key: str, status: str) -> None:
+        self.store.update_message_status(key, status)
+        for message in self.live.messages:
+            if message["key"] == key:
+                message["status"] = status
+        if self.on_status is not None:
+            self.on_status(key, status)
+
     def _update_position(self, node: dict, ev: MeshEvent, lat: float, lon: float,
                          precision_bits: int | None, source: str) -> None:
         """Regola della posizione migliore (a parita' di precisione vince la piu' recente)."""
@@ -130,4 +181,6 @@ class Ingestor:
         return {"key": f"{ev.from_node}:{ev.packet_id}", "from": node_id(ev.from_node),
                 "from_name": node["long_name"], "to": node_id(ev.to_node),
                 "channel": ev.channel, "text": ev.payload.text, "time": int(ev.rx_time),
-                "country": node["country"], "source": ev.source}
+                "country": node["country"], "source": ev.source, "direction": "in",
+                "radio_id": ev.radio_id, "channel_index": _channel_index(ev.channel),
+                "packet_id": ev.packet_id, "status": None}

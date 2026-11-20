@@ -262,9 +262,11 @@ async def test_history_shape(ctx):
     ctx.store.commit()
     async with logged(ctx) as c:
         rows = (await c.get("/api/messages/history?country=IT")).json()
-        assert rows == [{**msg, "from_name": "Zed"}]
+        assert rows == [{**msg, "from_name": "Zed", "direction": "in", "radio_id": None,
+                         "channel_index": None, "packet_id": None, "status": None}]
         assert set(rows[0]) == {"key", "from", "from_name", "to", "channel", "text",
-                                "time", "country", "source"}
+                                "time", "country", "source", "direction", "radio_id",
+                                "channel_index", "packet_id", "status"}
         assert (await c.get("/api/messages/history?country=IT&before=1")).json() == []
 
 

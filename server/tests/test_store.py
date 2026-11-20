@@ -58,7 +58,8 @@ def test_messages_filter_and_shape(store):
     assert [m["key"] for m in it] == ["1:3", "1:1"]
     assert it[0] == {"key": "1:3", "from": "!a1b2c3d4", "from_name": "Nodo", "to": "!ffffffff",
                      "channel": "LongFast", "text": "ciao", "time": NOW + 2, "country": "IT",
-                     "source": "mqtt"}
+                     "source": "mqtt", "direction": "in", "radio_id": None,
+                     "channel_index": None, "packet_id": None, "status": None}
     assert store.messages(["SE"], None, 50)[0]["from_name"] is None
     assert [m["key"] for m in store.messages(None, NOW + 2, 50)] == ["1:2", "1:1"]
     assert len(store.messages(None, None, 1)) == 1
@@ -102,3 +103,32 @@ def test_purge_deletes_stale_nodes_but_not_mine(store):
     res = store.purge(NOW, DEFAULTS)
     assert res["nodes"] == 1
     assert sorted(n["num"] for n in store.load_nodes()) == [2, 3]
+
+
+def test_radios_crud(store):
+    store.save_radio({"id": "r1", "name": "Heltec", "kind": "usb", "address": "COM5",
+                      "auto_connect": True, "created": 1.0})
+    store.save_radio({"id": "r2", "name": "Ble", "kind": "ble", "address": "AA:BB",
+                      "auto_connect": False, "created": 2.0})
+    store.save_radio({"id": "r1", "name": "Nuovo", "kind": "usb", "address": "COM6",
+                      "auto_connect": False})
+    radios = store.list_radios()
+    assert [r["id"] for r in radios] == ["r1", "r2"]
+    assert radios[0]["name"] == "Nuovo" and radios[0]["auto_connect"] is False
+    assert radios[0]["created"] == 1.0
+    store.delete_radio("r1")
+    assert [r["id"] for r in store.list_radios()] == ["r2"]
+
+
+def test_message_new_fields_and_status(store):
+    store.add_message({**msg("out:r1:9", NOW), "direction": "out", "radio_id": "r1",
+                       "channel_index": 1, "packet_id": 9, "status": "sending"})
+    store.update_message_status("out:r1:9", "acked")
+    m = store.messages(None, None, 10)[0]
+    assert (m["direction"], m["radio_id"], m["channel_index"], m["packet_id"], m["status"]) == \
+        ("out", "r1", 1, 9, "acked")
+
+
+def test_heard_by_roundtrip(store):
+    store.upsert_node(node(heard_by={"r1": {"snr": -7.5, "rssi": -110, "hops": 0, "time": 5}}))
+    assert store.load_nodes()[0]["heard_by"]["r1"]["rssi"] == -110

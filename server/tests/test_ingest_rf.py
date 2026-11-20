@@ -1,0 +1,87 @@
+import sqlite3
+
+from meshlens.db import connect
+from meshlens.events import TextData
+from meshlens.store import Store
+from test_ingest import BERLIN, NOW, count, env, ev, locator, pos  # noqa: F401
+
+
+def rf(kind, payload, radio, **kw):
+    return ev(kind, payload, source="rf", radio_id=radio, gateway_id=None, channel="0", **kw)
+
+
+def test_same_text_from_two_radios_and_mqtt_is_one_message(env):
+    ing, live, store, conn, got = env
+    ing.handle(rf("text", TextData("ciao"), "rA", pid=7, snr=-5.0, rssi=-100, hops=0))
+    ing.handle(rf("text", TextData("ciao"), "rB", pid=7, snr=-9.0, rssi=-120, hops=1, t=NOW + 1))
+    ing.handle(ev("text", TextData("ciao"), pid=7))
+    assert len(got) == 1 and count(conn, "messages") == 1
+    m = got[0]
+    assert m["direction"] == "in" and m["radio_id"] == "rA" and m["channel_index"] == 0
+    assert m["packet_id"] == 7 and m["status"] is None
+    hb = live.nodes[1]["heard_by"]
+    assert hb["rA"] == {"snr": -5.0, "rssi": -100, "hops": 0, "time": int(NOW)}
+    assert hb["rB"] == {"snr": -9.0, "rssi": -120, "hops": 1, "time": int(NOW + 1)}
+    assert "rf" in live.nodes[1]["sources"]
+    assert store.load_nodes()[0]["heard_by"]["rB"]["snr"] == -9.0
+
+
+def test_rf_node_in_unsaved_country_is_persisted(env):
+    ing, live, store, conn, _ = env
+    ing.handle(rf("position", pos(BERLIN), "rA"))
+    assert live.nodes[1]["country"] == "DE"
+    assert [n["num"] for n in store.load_nodes()] == [1]
+
+
+def test_record_outgoing_and_status(env):
+    ing, live, store, conn, got = env
+    statuses = []
+    ing.on_status = lambda k, s: statuses.append((k, s))
+    m = ing.record_outgoing("rA", "!00000001", 55, "ciao", 2, "!ffffffff")
+    assert m["key"] == "out:rA:55" and m["direction"] == "out" and m["status"] == "sent"
+    assert got == [m]
+    ing.set_status("out:rA:55", "acked")
+    assert statuses == [("out:rA:55", "acked")]
+    saved = store.messages(None, None, 10)[0]
+    assert saved["status"] == "acked" and saved["direction"] == "out"
+    assert saved["radio_id"] == "rA" and saved["channel_index"] == 2 and saved["packet_id"] == 55
+    assert m["status"] == "acked"
+
+
+def test_set_status_without_callback(env):
+    ing, *_ = env
+    ing.record_outgoing("rA", "!00000001", 1, "x", 0, "!ffffffff")
+    ing.set_status("out:rA:1", "failed")
+
+
+def test_mark_local_radio(env):
+    ing, live, store, conn, _ = env
+    ing.mark_local_radio(0xA1)
+    n = live.nodes[0xA1]
+    assert n["is_local_radio"] and n["is_mine"]
+    assert store.load_nodes()[0]["is_mine"] is True
+
+
+def test_migration_from_phase1_db(tmp_path):
+    path = tmp_path / "old.db"
+    old = sqlite3.connect(path)
+    old.executescript("""
+    CREATE TABLE nodes(num INTEGER PRIMARY KEY, id TEXT, long_name TEXT, short_name TEXT,
+      hw_model TEXT, role TEXT, firmware TEXT, lat REAL, lon REAL, precision_bits INTEGER,
+      position_source TEXT, position_time INTEGER, country TEXT, last_heard REAL, sources TEXT,
+      battery INTEGER, voltage REAL, channel_util REAL, air_util_tx REAL, mqtt_gateways INTEGER,
+      last_snr REAL, hops INTEGER, is_mine INTEGER DEFAULT 0);
+    CREATE TABLE messages(key TEXT PRIMARY KEY, from_num INTEGER, to_num INTEGER, channel TEXT,
+      text TEXT, time REAL, country TEXT, source TEXT);
+    INSERT INTO nodes(num, id, sources, last_heard) VALUES(1, '!00000001', '["mqtt"]', 5);
+    INSERT INTO messages VALUES('1:1', 1, 4294967295, 'LongFast', 'ciao', 5, 'IT', 'mqtt');
+    """)
+    old.commit()
+    old.close()
+    conn = connect(path)
+    store = Store(conn)
+    assert count(conn, "nodes") == 1
+    assert store.load_nodes()[0]["heard_by"] == {}
+    m = store.messages(None, None, 10)[0]
+    assert m["direction"] == "in" and m["radio_id"] is None and m["status"] is None
+    connect(path).close()  # seconda apertura: migrazione idempotente
