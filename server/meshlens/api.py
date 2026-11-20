@@ -1,0 +1,255 @@
+"""API REST e WebSocket. Tutti gli handler sono async: la connessione sqlite e
+condivisa e va usata solo dal thread dell'event loop."""
+import asyncio
+import sqlite3
+import time
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Awaitable, Callable
+
+from fastapi import Depends, FastAPI, HTTPException, Request, Response, WebSocket
+from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
+from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.websockets import WebSocketDisconnect
+
+from .auth import Auth, LockedError
+from .bus import Bus
+from .geo import CountryLocator
+from .live import LiveState
+from .settings import load_settings, save_settings
+from .store import Store
+
+COOKIE = "meshlens_session"
+COOKIE_MAX_AGE = 365 * 24 * 3600
+MASK = "••••"
+LOCAL_HOSTS = ("127.0.0.1", "::1", "localhost")
+INTERNAL_KEYS = ("is_mine",)
+
+
+@dataclass
+class AppContext:
+    live: LiveState
+    store: Store
+    auth: Auth
+    bus: Bus
+    locator: CountryLocator
+    conn: sqlite3.Connection
+    mqtt_status: Callable[[], dict]
+    on_settings_changed: Callable[[dict], Awaitable[None]]
+    static_dir: Path | None = None
+
+
+class PinBody(BaseModel):
+    pin: str
+
+
+def _public(node: dict) -> dict:
+    return {k: v for k, v in node.items() if k not in INTERNAL_KEYS}
+
+
+def _parse_countries(country: str | None) -> list[str] | None:
+    if country is None or not country.strip():
+        return None
+    return [c.strip() for c in country.split(",") if c.strip()]
+
+
+def _matches(country_value: str | None, wanted: list[str] | None) -> bool:
+    if wanted is None:
+        return True
+    return ("none" if country_value is None else country_value) in wanted
+
+
+def _num_from_id(node_id: str) -> int:
+    try:
+        if not node_id.startswith("!"):
+            raise ValueError
+        return int(node_id[1:], 16)
+    except ValueError:
+        raise HTTPException(404, "Nodo non trovato")
+
+
+def _mask_settings(s: dict) -> dict:
+    out = {**s, "mqtt": dict(s["mqtt"])}
+    if out["mqtt"].get("password"):
+        out["mqtt"]["password"] = MASK
+    return out
+
+
+class _SpaStaticFiles(StaticFiles):
+    async def get_response(self, path, scope):
+        try:
+            return await super().get_response(path, scope)
+        except StarletteHTTPException as e:
+            if e.status_code == 404 and not path.startswith("api"):
+                return await super().get_response("index.html", scope)
+            raise
+
+
+def create_app(ctx: AppContext) -> FastAPI:
+    app = FastAPI(title="MeshLens")
+
+    def set_cookie(response: Response, token: str) -> None:
+        response.set_cookie(COOKIE, token, max_age=COOKIE_MAX_AGE, httponly=True,
+                            samesite="strict", secure=False, path="/")
+
+    def is_local(request: Request) -> bool:
+        return request.client is not None and request.client.host in LOCAL_HOSTS
+
+    async def require_auth(request: Request) -> None:
+        if not ctx.auth.check(request.cookies.get(COOKIE)):
+            raise HTTPException(401, "Accesso richiesto")
+
+    # ---- auth ----
+    @app.get("/api/auth/status")
+    async def auth_status(request: Request):
+        return {"pin_set": ctx.auth.pin_is_set(),
+                "authenticated": ctx.auth.check(request.cookies.get(COOKIE)),
+                "is_local": is_local(request)}
+
+    @app.post("/api/auth/setup")
+    async def auth_setup(body: PinBody, request: Request, response: Response):
+        if ctx.auth.pin_is_set() or not is_local(request):
+            raise HTTPException(403, "Impostazione del PIN non consentita")
+        try:
+            ctx.auth.set_pin(body.pin)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+        token = ctx.auth.login(body.pin, request.client.host, request.headers.get("user-agent"))
+        set_cookie(response, token)
+        return {"ok": True}
+
+    @app.post("/api/auth/login")
+    async def auth_login(body: PinBody, request: Request, response: Response):
+        ip = request.client.host if request.client else "unknown"
+        try:
+            token = ctx.auth.login(body.pin, ip, request.headers.get("user-agent"))
+        except LockedError as e:
+            return JSONResponse({"detail": "Troppi tentativi, riprova più tardi"},
+                                status_code=429, headers={"Retry-After": str(e.retry_after)})
+        except PermissionError:
+            raise HTTPException(401, "PIN errato")
+        set_cookie(response, token)
+        return {"ok": True}
+
+    @app.post("/api/auth/logout")
+    async def auth_logout(request: Request, response: Response):
+        token = request.cookies.get(COOKIE)
+        if token:
+            ctx.auth.logout(token)
+        response.delete_cookie(COOKIE, path="/")
+        return {"ok": True}
+
+    # ---- nodi ----
+    @app.get("/api/nodes", dependencies=[Depends(require_auth)])
+    async def list_nodes(country: str | None = None, max_age_h: float | None = None):
+        wanted = _parse_countries(country)
+        cutoff = time.time() - max_age_h * 3600 if max_age_h is not None else None
+        out = []
+        for node in list(ctx.live.nodes.values()):
+            if not _matches(node.get("country"), wanted):
+                continue
+            if cutoff is not None and (node.get("last_heard") or 0) < cutoff:
+                continue
+            out.append(_public(node))
+        return out
+
+    @app.get("/api/nodes/{node_id}", dependencies=[Depends(require_auth)])
+    async def get_node(node_id: str):
+        num = _num_from_id(node_id)
+        node = ctx.live.nodes.get(num)
+        if node is None:
+            raise HTTPException(404, "Nodo non trovato")
+        return {**_public(node), "telemetry": ctx.store.telemetry(num, time.time() - 24 * 3600)}
+
+    @app.get("/api/nodes/{node_id}/positions", dependencies=[Depends(require_auth)])
+    async def node_positions(node_id: str, hours: float = 24):
+        num = _num_from_id(node_id)
+        return ctx.store.positions(num, time.time() - hours * 3600)
+
+    # ---- messaggi ----
+    @app.get("/api/messages", dependencies=[Depends(require_auth)])
+    async def live_messages(country: str | None = None, limit: int = 200):
+        wanted = _parse_countries(country)
+        out = []
+        for msg in reversed(ctx.live.messages):
+            if len(out) >= limit:
+                break
+            if _matches(msg.get("country"), wanted):
+                out.append(msg)
+        return out
+
+    @app.get("/api/messages/history", dependencies=[Depends(require_auth)])
+    async def message_history(country: str | None = None, before: float | None = None,
+                              limit: int = 200):
+        wanted = _parse_countries(country)
+        if wanted is not None:
+            # lo storico contiene solo nazioni salvate: "none" non c'e mai
+            wanted = [c for c in wanted if c != "none"]
+            if not wanted:
+                return []
+        return ctx.store.messages(wanted, before, limit)
+
+    @app.get("/api/countries", dependencies=[Depends(require_auth)])
+    async def countries():
+        counts: dict[str, int] = {}
+        for node in ctx.live.nodes.values():
+            key = node.get("country") or "none"
+            counts[key] = counts.get(key, 0) + 1
+        out = [{"code": c, "name": ctx.locator.names.get(c, c), "nodes": n}
+               for c, n in counts.items() if c != "none"]
+        out.sort(key=lambda x: (-x["nodes"], x["code"]))
+        out.append({"code": "none", "name": "Sconosciuta", "nodes": counts.get("none", 0)})
+        return out
+
+    # ---- impostazioni e stato ----
+    @app.get("/api/settings", dependencies=[Depends(require_auth)])
+    async def get_settings():
+        return _mask_settings(load_settings(ctx.conn))
+
+    @app.put("/api/settings", dependencies=[Depends(require_auth)])
+    async def put_settings(changes: dict):
+        changes = dict(changes)
+        mqtt = changes.get("mqtt")
+        if isinstance(mqtt, dict) and mqtt.get("password") == MASK:
+            changes["mqtt"] = {k: v for k, v in mqtt.items() if k != "password"}
+        try:
+            saved = save_settings(ctx.conn, changes)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+        await ctx.on_settings_changed(saved)
+        return _mask_settings(saved)
+
+    @app.get("/api/status", dependencies=[Depends(require_auth)])
+    async def status():
+        return ctx.mqtt_status()
+
+    # ---- websocket ----
+    @app.websocket("/ws")
+    async def ws_endpoint(ws: WebSocket):
+        await ws.accept()
+        if not ctx.auth.check(ws.cookies.get(COOKIE)):
+            await ws.close(code=4401)
+            return
+        q = ctx.bus.subscribe()
+        recv = asyncio.ensure_future(ws.receive())
+        try:
+            while True:
+                get = asyncio.ensure_future(q.get())
+                done, _ = await asyncio.wait({get, recv}, return_when=asyncio.FIRST_COMPLETED)
+                if recv in done:
+                    get.cancel()
+                    break
+                await ws.send_json(get.result())
+        except (WebSocketDisconnect, RuntimeError):
+            pass
+        finally:
+            recv.cancel()
+            ctx.bus.unsubscribe(q)
+
+    # ---- statici (ultimi: catch-all) ----
+    if ctx.static_dir is not None and Path(ctx.static_dir).exists():
+        app.mount("/", _SpaStaticFiles(directory=ctx.static_dir, html=True), name="static")
+
+    return app
