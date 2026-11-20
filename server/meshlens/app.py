@@ -1,6 +1,7 @@
 """Assemblaggio dell'applicazione: componenti, connettore MQTT e task periodici."""
 import asyncio
 import contextlib
+import logging
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -23,6 +24,7 @@ from .store import Store
 
 STATIC_DIR = Path(__file__).parents[2] / "web" / "dist"
 PURGE_INTERVAL_S = 24 * 3600
+log = logging.getLogger(__name__)
 
 
 def _make_decoder(mqtt_cfg: dict) -> EnvelopeDecoder:
@@ -59,7 +61,12 @@ class Runtime:
             return
         if self.connector is not None:
             self.connector.stop()
-        self.start_connector()
+            self.connector = None
+        try:
+            self.start_connector()
+        except Exception:
+            log.exception("Avvio del connettore MQTT fallito")
+            self.connector = None
 
     async def _every(self, seconds: float, fn, first_now: bool = False) -> None:
         if not first_now:
@@ -68,7 +75,7 @@ class Runtime:
             try:
                 fn()
             except Exception:
-                pass  # un task periodico non deve mai morire
+                log.exception("Task periodico fallito")  # il task resta vivo
             await asyncio.sleep(seconds)
 
     def _publish_changed(self) -> None:

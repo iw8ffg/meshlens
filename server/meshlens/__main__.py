@@ -33,7 +33,9 @@ def main(argv: list[str] | None = None) -> int:
     app, rt = build(Path(args.data_dir))
     host = "0.0.0.0" if load_settings(rt.conn)["lan_access"] else "127.0.0.1"
     if not args.no_browser:
-        threading.Timer(1.5, webbrowser.open, args=(f"http://127.0.0.1:{args.port}",)).start()
+        timer = threading.Timer(1.5, webbrowser.open, args=(f"http://127.0.0.1:{args.port}",))
+        timer.daemon = True
+        timer.start()
     uvicorn.run(app, host=host, port=args.port)
     return 0
 

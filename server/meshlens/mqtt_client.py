@@ -69,6 +69,11 @@ class MqttConnector:
 
     # ---- callback (thread paho); firme tolleranti a paho v1 e v2 ----
     def _on_connect(self, client, userdata, *args):
+        rc = args[1] if len(args) > 1 else 0
+        failed = rc.is_failure if hasattr(rc, "is_failure") else bool(rc)
+        if failed:
+            self._connected = False
+            return
         self._connected = True
         for topic in self.cfg["topics"]:
             client.subscribe(topic, 0)

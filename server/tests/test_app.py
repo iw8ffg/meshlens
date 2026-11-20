@@ -36,3 +36,39 @@ async def test_build_serves_auth_status_and_reset_pin(tmp_path, capsys):
     assert main(["reset-pin", "--data-dir", str(tmp_path)]) == 0
     assert "PIN azzerato" in capsys.readouterr().out
     assert Auth(connect(tmp_path / "meshlens.db")).pin_is_set() is False
+
+
+async def test_periodic_task_logs_exception_and_keeps_running(tmp_path, caplog):
+    import asyncio
+    _, rt = build(tmp_path, connector_factory=FakeConnector, static_dir=None)
+    calls = []
+
+    def boom():
+        calls.append(1)
+        raise RuntimeError("guasto")
+
+    with caplog.at_level("ERROR"):
+        t = asyncio.create_task(rt._every(0.01, boom, first_now=True))
+        await asyncio.sleep(0.1)
+        t.cancel()
+    assert len(calls) > 1
+    assert "Task periodico fallito" in caplog.text
+
+
+async def test_failed_connector_restart_reports_disconnected(tmp_path):
+    state = {"fail": False}
+
+    class Flaky(FakeConnector):
+        def __init__(self, *a):
+            if state["fail"]:
+                raise RuntimeError("no")
+            super().__init__(*a)
+
+    import asyncio
+    _, rt = build(tmp_path, connector_factory=Flaky, static_dir=None)
+    rt.loop = asyncio.get_running_loop()
+    rt.start_connector()
+    assert rt.mqtt_status()["connected"] is True
+    state["fail"] = True
+    await rt.on_settings_changed({"mqtt": {"host": "x"}})
+    assert rt.mqtt_status()["connected"] is False

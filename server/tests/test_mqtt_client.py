@@ -71,3 +71,15 @@ async def test_start_without_network_does_not_raise():
                       lambda ev: None, client_factory=lambda cid: FakeClient(cid, fail=True))
     c.start()
     assert c.status()["connected"] is False
+
+
+async def test_refused_connack_does_not_connect_or_subscribe():
+    from paho.mqtt.reasoncodes import ReasonCode
+    from paho.mqtt.packettypes import PacketTypes
+    client = FakeClient()
+    c = MqttConnector(CFG, EnvelopeDecoder([DEFAULT_KEY]), asyncio.get_running_loop(),
+                      lambda ev: None, client_factory=lambda cid: client)
+    c.start()
+    c._on_connect(client, None, None, ReasonCode(PacketTypes.CONNACK, "Bad user name or password"), None)
+    assert c.status()["connected"] is False
+    assert client.subscribed == []
