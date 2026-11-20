@@ -1,0 +1,127 @@
+"""Pipeline di ingestione: da MeshEvent a stato live e archivio."""
+from typing import Callable
+
+from .dedup import Deduplicator
+from .events import MeshEvent, TelemetryData, node_id
+from .geo import CountryLocator
+from .live import LiveState
+from .store import Store
+
+_DAY = 86400
+_RF_BITS = 32
+
+
+def _bits(precision_bits: int | None) -> int:
+    return _RF_BITS if precision_bits is None else precision_bits
+
+
+def _new_node(num: int) -> dict:
+    return {"id": node_id(num), "num": num, "long_name": None, "short_name": None,
+            "hw_model": None, "role": None, "firmware": None, "lat": None, "lon": None,
+            "precision_bits": None, "position_source": None, "position_time": None,
+            "country": None, "last_heard": None, "sources": [], "battery": None,
+            "voltage": None, "channel_util": None, "air_util_tx": None, "mqtt_gateways": 0,
+            "last_snr": None, "hops": None}
+
+
+class Ingestor:
+    def __init__(self, live: LiveState, store: Store, dedup: Deduplicator,
+                 locator: CountryLocator, get_settings: Callable[[], dict],
+                 on_message: Callable[[dict], None]):
+        self.live = live
+        self.store = store
+        self.dedup = dedup
+        self.locator = locator
+        self.get_settings = get_settings
+        self.on_message = on_message
+
+    def handle(self, ev: MeshEvent) -> None:
+        num = ev.from_node
+        node = self.live.nodes.get(num)
+        if node is None:
+            node = self.live.nodes[num] = _new_node(num)
+        self.live.mark_changed(num)
+
+        node["last_heard"] = ev.rx_time
+        if ev.source not in node["sources"]:
+            node["sources"].append(ev.source)
+        if ev.snr is not None:
+            node["last_snr"] = ev.snr
+        if ev.hops is not None:
+            node["hops"] = ev.hops
+
+        if ev.source == "mqtt":
+            if not self.dedup.is_new(num, ev.packet_id, ev.rx_time):
+                node["mqtt_gateways"] = (node["mqtt_gateways"] or 0) + 1
+                return
+            node["mqtt_gateways"] = 1
+
+        ev_pos = None  # (lat, lon, precision_bits, source) della posizione nell'evento
+        kind, p = ev.kind, ev.payload
+        if kind == "position":
+            ev_pos = (p.lat, p.lon, p.precision_bits, ev.source)
+            self._update_position(node, ev, *ev_pos)
+        elif kind == "nodeinfo":
+            self._update_identity(node, p)
+        elif kind == "mapreport":
+            self._update_identity(node, p)
+            if p.firmware_version:
+                node["firmware"] = p.firmware_version
+            if p.lat is not None and p.lon is not None:
+                ev_pos = (p.lat, p.lon, p.precision_bits, "mqtt_map")
+                self._update_position(node, ev, *ev_pos)
+        elif kind == "telemetry":
+            self._update_telemetry(node, p)
+
+        persist = (node["country"] in self.get_settings()["saved_countries"]
+                   or ev.source == "rf" or bool(node.get("is_mine")))
+
+        message = self._build_message(node, ev) if kind == "text" else None
+        if message is not None:
+            self.live.messages.append(message)
+
+        if persist:
+            self.store.upsert_node(node)
+            if ev_pos is not None:
+                self.store.add_position(num, ev.rx_time, *ev_pos[:3], ev_pos[3])
+            if kind == "telemetry":
+                self.store.add_telemetry(num, ev.rx_time, p)
+            if message is not None:
+                self.store.add_message(message)
+
+        if message is not None:
+            self.on_message(message)
+
+    def _update_position(self, node: dict, ev: MeshEvent, lat: float, lon: float,
+                         precision_bits: int | None, source: str) -> None:
+        """Regola della posizione migliore (a parita' di precisione vince la piu' recente)."""
+        current_time = node["position_time"]
+        replace = (node["lat"] is None
+                   or _bits(precision_bits) >= _bits(node["precision_bits"])
+                   or current_time is None
+                   or ev.rx_time - current_time > _DAY)
+        if replace:
+            node.update(lat=lat, lon=lon, precision_bits=precision_bits,
+                        position_source=source, position_time=int(ev.rx_time),
+                        country=self.locator.locate(lat, lon))
+
+    @staticmethod
+    def _update_identity(node: dict, p) -> None:
+        for field in ("long_name", "short_name", "hw_model", "role"):
+            value = getattr(p, field)
+            if value:
+                node[field] = value
+
+    @staticmethod
+    def _update_telemetry(node: dict, t: TelemetryData) -> None:
+        for field, value in (("battery", t.battery_level), ("voltage", t.voltage),
+                             ("channel_util", t.channel_utilization),
+                             ("air_util_tx", t.air_util_tx)):
+            if value is not None:
+                node[field] = value
+
+    def _build_message(self, node: dict, ev: MeshEvent) -> dict:
+        return {"key": f"{ev.from_node}:{ev.packet_id}", "from": node_id(ev.from_node),
+                "from_name": node["long_name"], "to": node_id(ev.to_node),
+                "channel": ev.channel, "text": ev.payload.text, "time": int(ev.rx_time),
+                "country": node["country"], "source": ev.source}
