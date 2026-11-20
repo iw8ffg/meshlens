@@ -1,5 +1,6 @@
 """Pipeline di ingestione: da MeshEvent a stato live e archivio."""
 import time
+from collections import OrderedDict
 from typing import Callable
 
 from .dedup import Deduplicator
@@ -45,6 +46,9 @@ class Ingestor:
         self.get_settings = get_settings
         self.on_message = on_message
         self.on_status = on_status
+        self._telemetry_time: dict[int, float] = {}
+        # (nodo, packet id) gia' visti da MQTT: serve a contare i gateway anche se l'RF e' arrivato prima
+        self._mqtt_seen: OrderedDict[tuple[int, int], None] = OrderedDict()
 
     def handle(self, ev: MeshEvent) -> None:
         num = ev.from_node
@@ -53,7 +57,11 @@ class Ingestor:
             node = self.live.nodes[num] = _new_node(num)
         self.live.mark_changed(num)
 
-        node["last_heard"] = ev.rx_time
+        # i replay del database nodi della radio hanno rx_time vecchio: non fanno regredire lo stato
+        previous_heard = node["last_heard"]
+        stale = previous_heard is not None and ev.rx_time < previous_heard
+        if not stale:
+            node["last_heard"] = ev.rx_time
         if ev.source not in node["sources"]:
             node["sources"].append(ev.source)
         is_dup = False
@@ -61,19 +69,29 @@ class Ingestor:
             # i pacchetti RF senza id (dal database nodi della radio) non si deduplicano
             is_dup = not self.dedup.is_new(num, ev.packet_id, ev.rx_time)
         if ev.source == "rf" and ev.radio_id:
-            node.setdefault("heard_by", {})[ev.radio_id] = {
-                "snr": ev.snr, "rssi": ev.rssi, "hops": ev.hops, "time": int(ev.rx_time)}
+            heard_by = node.setdefault("heard_by", {})
+            old = heard_by.get(ev.radio_id)
+            if old is None or int(ev.rx_time) >= old["time"]:
+                heard_by[ev.radio_id] = {"snr": ev.snr, "rssi": ev.rssi, "hops": ev.hops,
+                                         "time": int(ev.rx_time)}
         # copie dello stesso pacchetto: si tiene l'SNR migliore e il minor numero di hop
-        if ev.snr is not None:
+        if ev.snr is not None and not stale:
             prev = node["last_snr"]
             node["last_snr"] = ev.snr if not is_dup or prev is None else max(prev, ev.snr)
-        if ev.hops is not None:
+        if ev.hops is not None and not stale:
             prev = node["hops"]
             node["hops"] = ev.hops if not is_dup or prev is None else min(prev, ev.hops)
 
         if ev.source == "mqtt":
+            key = (num, ev.packet_id)
+            seen = key in self._mqtt_seen
+            if not seen:
+                if len(self._mqtt_seen) >= 200_000:
+                    self._mqtt_seen.popitem(last=False)
+                self._mqtt_seen[key] = None
             if is_dup:
-                node["mqtt_gateways"] = (node["mqtt_gateways"] or 0) + 1
+                # copia MQTT di un pacchetto gia' visto: se prima c'era solo l'RF e' il primo gateway
+                node["mqtt_gateways"] = 1 if not seen else (node["mqtt_gateways"] or 0) + 1
                 return
             node["mqtt_gateways"] = 1
         elif is_dup:
@@ -82,7 +100,11 @@ class Ingestor:
 
         ev_pos = None  # (lat, lon, precision_bits, source) della posizione nell'evento
         kind, p = ev.kind, ev.payload
-        if kind == "position":
+        if kind == "position" and self._older(ev, node["position_time"]):
+            pass
+        elif kind == "telemetry" and self._older(ev, self._telemetry_time.get(num)):
+            kind = "stale"
+        elif kind == "position":
             ev_pos = (p.lat, p.lon, p.precision_bits, ev.source)
             self._update_position(node, ev, *ev_pos)
         elif kind == "nodeinfo":
@@ -91,10 +113,12 @@ class Ingestor:
             self._update_identity(node, p)
             if p.firmware_version:
                 node["firmware"] = p.firmware_version
-            if p.lat is not None and p.lon is not None:
+            if (p.lat is not None and p.lon is not None
+                    and not self._older(ev, node["position_time"])):
                 ev_pos = (p.lat, p.lon, p.precision_bits, "mqtt_map")
                 self._update_position(node, ev, *ev_pos)
         elif kind == "telemetry":
+            self._telemetry_time[num] = ev.rx_time
             self._update_telemetry(node, p)
 
         persist = (node["country"] in self.get_settings()["saved_countries"]
@@ -115,6 +139,10 @@ class Ingestor:
 
         if message is not None:
             self.on_message(message)
+
+    @staticmethod
+    def _older(ev: MeshEvent, current: float | None) -> bool:
+        return current is not None and ev.rx_time < current
 
     def mark_local_radio(self, node_num: int) -> None:
         """Il nodo e' una radio collegata a questo server: e' anche "mio"."""

@@ -3,7 +3,7 @@ import sqlite3
 from meshlens.db import connect
 from meshlens.events import TextData
 from meshlens.store import Store
-from test_ingest import BERLIN, NOW, count, env, ev, locator, pos  # noqa: F401
+from test_ingest import BERLIN, HOUR, NOW, count, env, ev, locator, pos  # noqa: F401
 
 
 def rf(kind, payload, radio, **kw):
@@ -85,3 +85,36 @@ def test_migration_from_phase1_db(tmp_path):
     m = store.messages(None, None, 10)[0]
     assert m["direction"] == "in" and m["radio_id"] is None and m["status"] is None
     connect(path).close()  # seconda apertura: migrazione idempotente
+
+
+def test_nodedb_replay_does_not_regress_fresh_state(env):
+    ing, live, store, conn, _ = env
+    from meshlens.events import NodeInfoData, TelemetryData
+    ing.handle(ev("position", pos((45.46, 9.19)), t=NOW))
+    ing.handle(ev("telemetry", TelemetryData(battery_level=90, voltage=4.1), t=NOW, pid=2))
+    ing.handle(rf("position", pos((45.0, 9.0), bits=None), "rA", pid=9, t=NOW, snr=-3.0, hops=1))
+    n = live.nodes[1]
+    before = {k: v for k, v in n.items() if k not in ("heard_by", "sources")}
+    old = NOW - 5 * HOUR
+    for kind, payload in (("position", pos((50.0, 10.0), bits=None)),
+                          ("telemetry", TelemetryData(battery_level=10, voltage=3.0)),
+                          ("nodeinfo", NodeInfoData("Nome", "NM", "HELTEC", "CLIENT"))):
+        ing.handle(rf(kind, payload, "rA", pid=0, t=old, snr=-20.0, rssi=-130, hops=7))
+    after = {k: v for k, v in n.items() if k not in ("heard_by", "sources")}
+    assert after.pop("long_name") == "Nome" and before.pop("long_name") is None
+    after.pop("short_name"), before.pop("short_name")
+    after.pop("hw_model"), before.pop("hw_model")
+    after.pop("role"), before.pop("role")
+    assert after == before
+    assert n["heard_by"]["rA"]["time"] == int(NOW) and n["last_heard"] == NOW
+    assert count(conn, "positions") == 2 and count(conn, "telemetry") == 1
+
+
+def test_rf_first_then_mqtt_counts_one_gateway(env):
+    ing, live, *_ = env
+    ing.handle(rf("text", TextData("x"), "rA", pid=3))
+    assert live.nodes[1]["mqtt_gateways"] == 0
+    ing.handle(ev("text", TextData("x"), pid=3))
+    assert live.nodes[1]["mqtt_gateways"] == 1
+    ing.handle(ev("text", TextData("x"), pid=3, gateway_id="!g2"))
+    assert live.nodes[1]["mqtt_gateways"] == 2
