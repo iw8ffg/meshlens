@@ -25,19 +25,8 @@
     }
     busy = true
     try {
-      if (setup) {
-        await send('POST', '/auth/setup', { pin })
-        // Il PIN ora esiste: aggiorna lo stato anche se il login seguente fallisce
-        try {
-          await send('POST', '/auth/login', { pin })
-        } catch (err) {
-          pin = confirm = ''
-          onsuccess()
-          throw err
-        }
-      } else {
-        await send('POST', '/auth/login', { pin })
-      }
+      // /auth/setup imposta il PIN e il cookie di sessione: niente login aggiuntivo
+      await send('POST', setup ? '/auth/setup' : '/auth/login', { pin })
       pin = confirm = ''
       onsuccess()
     } catch (err) {

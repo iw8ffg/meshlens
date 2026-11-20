@@ -22,6 +22,13 @@
   } = $props()
 
   const STYLE = 'https://tiles.openfreemap.org/styles/liberty'
+  // Stile minimo usato quando lo stile online non si carica (offline): niente glyphs
+  const OFFLINE_STYLE: maplibregl.StyleSpecification = {
+    version: 8,
+    sources: {},
+    layers: [{ id: 'bg', type: 'background', paint: { 'background-color': '#dde3ea' } }],
+  }
+  const STYLE_TIMEOUT_MS = 8000
   const COLORS = { fresh: '#2e9e44', recent: '#e0a800', old: '#8a8a8a' }
   const EMPTY: FeatureCollection = { type: 'FeatureCollection', features: [] }
 
@@ -94,7 +101,11 @@
     maplibregl.setWorkerUrl(workerUrl)
     map = new maplibregl.Map({ container: el, style: STYLE, center: [12.5, 42.5], zoom: 5, attributionControl: { compact: true } })
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right')
-    map.on('load', () => {
+    let loaded = false
+    let fellBack = false
+    let styleTimer: ReturnType<typeof setTimeout> | null = null
+
+    const setup = (hasGlyphs: boolean) => {
       const m = map!
       m.addSource('nodes', { type: 'geojson', data: EMPTY, cluster: true, clusterMaxZoom: 7, clusterRadius: 40 })
       m.addSource('selected', { type: 'geojson', data: EMPTY })
@@ -129,18 +140,20 @@
           'circle-radius': ['step', ['get', 'point_count'], 14, 20, 18, 100, 24],
         },
       })
-      m.addLayer({
-        id: 'cluster-count',
-        type: 'symbol',
-        source: 'nodes',
-        filter: ['has', 'point_count'],
-        layout: {
-          'text-field': ['get', 'point_count_abbreviated'],
-          'text-font': ['Noto Sans Regular'],
-          'text-size': 12,
-        },
-        paint: { 'text-color': '#ffffff' },
-      })
+      if (hasGlyphs) {
+        m.addLayer({
+          id: 'cluster-count',
+          type: 'symbol',
+          source: 'nodes',
+          filter: ['has', 'point_count'],
+          layout: {
+            'text-field': ['get', 'point_count_abbreviated'],
+            'text-font': ['Noto Sans Regular'],
+            'text-size': 12,
+          },
+          paint: { 'text-color': '#ffffff' },
+        })
+      }
       const colorExpr: maplibregl.ExpressionSpecification = [
         'match',
         ['get', 'age'],
@@ -180,8 +193,12 @@
       m.on('click', 'clusters', async (e: maplibregl.MapLayerMouseEvent) => {
         const f = e.features?.[0]
         if (!f) return
-        const zoom = await src('nodes')!.getClusterExpansionZoom(f.properties.cluster_id)
-        m.easeTo({ center: (f.geometry as Point).coordinates as [number, number], zoom })
+        try {
+          const zoom = await src('nodes')!.getClusterExpansionZoom(f.properties.cluster_id)
+          m.easeTo({ center: (f.geometry as Point).coordinates as [number, number], zoom })
+        } catch {
+          // cluster scomparso nel frattempo: niente da fare
+        }
       })
       for (const l of ['points', 'clusters']) {
         m.on('mouseenter', l, () => (m.getCanvas().style.cursor = 'pointer'))
@@ -191,8 +208,33 @@
       pushNodes()
       pushSelection()
       pushTrack()
+    }
+
+    const fallback = () => {
+      if (loaded || fellBack || !map) return
+      fellBack = true
+      if (styleTimer) clearTimeout(styleTimer)
+      map.once('style.load', () => {
+        loaded = true
+        setup(false)
+      })
+      map.setStyle(OFFLINE_STYLE)
+    }
+
+    map.on('load', () => {
+      if (fellBack) return
+      loaded = true
+      if (styleTimer) clearTimeout(styleTimer)
+      setup(true)
     })
+    // Offline lo stile non arriva e 'load' non scatta mai: si passa allo stile minimo
+    map.on('error', (e) => {
+      if ((e as { error?: { url?: string } }).error?.url === STYLE) fallback()
+    })
+    styleTimer = setTimeout(fallback, STYLE_TIMEOUT_MS)
+
     return () => {
+      if (styleTimer) clearTimeout(styleTimer)
       if (timer) clearTimeout(timer)
       map?.remove()
       map = null

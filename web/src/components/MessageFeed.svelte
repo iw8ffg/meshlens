@@ -12,9 +12,9 @@
   let loading = $state(false)
   let exhausted = $state(false)
 
-  // Con una sola nazione reale il server filtra; altrimenti si filtra qui
-  const single = $derived(
-    app.filter.countries.length === 1 && app.filter.countries[0] !== 'none' ? app.filter.countries[0] : null,
+  // Il server filtra per tutte le nazioni selezionate (elenco separato da virgole)
+  const countryParam = $derived(
+    app.filter.countries.length > 0 ? encodeURIComponent(app.filter.countries.join(',')) : null,
   )
 
   const shown = $derived.by(() => {
@@ -27,7 +27,7 @@
   })
 
   function qs(extra: string): string {
-    return `limit=${LIMIT}${single ? `&country=${single}` : ''}${extra}`
+    return `limit=${LIMIT}${countryParam ? `&country=${countryParam}` : ''}${extra}`
   }
 
   $effect(() => {
