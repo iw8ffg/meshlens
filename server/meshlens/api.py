@@ -42,10 +42,23 @@ class AppContext:
     mqtt_status: Callable[[], dict]
     on_settings_changed: Callable[[dict], Awaitable[None]]
     static_dir: Path | None = None
+    radios: object | None = None  # RadioManager
 
 
 class PinBody(BaseModel):
     pin: str
+
+
+class RadioBody(BaseModel):
+    kind: str
+    address: str
+    name: str | None = None
+
+
+class SendBody(BaseModel):
+    text: str
+    channel_index: int = 0
+    to: str | None = None
 
 
 def _public(node: dict) -> dict:
@@ -234,6 +247,11 @@ def create_app(ctx: AppContext) -> FastAPI:
                 return []
         return ctx.store.messages(wanted, before, limit)
 
+    @app.get("/api/messages/radio", dependencies=[Depends(require_auth)])
+    async def radio_messages(before: float | None = None,
+                             limit: int = Query(200, ge=1, le=1000)):
+        return ctx.store.radio_messages(before, limit)
+
     @app.get("/api/countries", dependencies=[Depends(require_auth)])
     async def countries():
         counts: dict[str, int] = {}
@@ -267,6 +285,52 @@ def create_app(ctx: AppContext) -> FastAPI:
     @app.get("/api/status", dependencies=[Depends(require_auth)])
     async def status():
         return ctx.mqtt_status()
+
+    # ---- radio ----
+    async def radio_call(coro):
+        try:
+            return await coro
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+        except KeyError:
+            raise HTTPException(404, "Radio non trovata")
+
+    @app.get("/api/radios", dependencies=[Depends(require_auth)])
+    async def list_radios():
+        return ctx.radios.radios()
+
+    @app.post("/api/radios", dependencies=[Depends(require_auth), Depends(require_json)])
+    async def add_radio(body: RadioBody):
+        return await radio_call(ctx.radios.add(body.kind, body.address, body.name))
+
+    @app.get("/api/radios/ports", dependencies=[Depends(require_auth)])
+    async def radio_ports():
+        return await radio_call(ctx.radios.ports())
+
+    @app.post("/api/radios/ble-scan", dependencies=[Depends(require_auth)])
+    async def radio_ble_scan():
+        return await radio_call(ctx.radios.ble_scan())
+
+    @app.delete("/api/radios/{radio_id}", dependencies=[Depends(require_auth)])
+    async def delete_radio(radio_id: str):
+        await radio_call(ctx.radios.remove(radio_id))
+        return {"ok": True}
+
+    @app.post("/api/radios/{radio_id}/connect", dependencies=[Depends(require_auth)])
+    async def connect_radio(radio_id: str):
+        await radio_call(ctx.radios.connect(radio_id))
+        return {"ok": True}
+
+    @app.post("/api/radios/{radio_id}/disconnect", dependencies=[Depends(require_auth)])
+    async def disconnect_radio(radio_id: str):
+        await radio_call(ctx.radios.disconnect(radio_id))
+        return {"ok": True}
+
+    @app.post("/api/radios/{radio_id}/send", status_code=202,
+              dependencies=[Depends(require_auth), Depends(require_json)])
+    async def send_radio(radio_id: str, body: SendBody):
+        return await radio_call(
+            ctx.radios.send(radio_id, body.text, body.channel_index, body.to))
 
     # ---- websocket ----
     @app.websocket("/ws")

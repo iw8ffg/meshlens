@@ -103,10 +103,17 @@ class Store:
             "WHERE node_num=? AND time>=? ORDER BY time", (num, since))
         return [dict(r) for r in rows]
 
-    def messages(self, countries: list[str] | None, before: float | None, limit: int) -> list[dict]:
+    def radio_messages(self, before: float | None, limit: int) -> list[dict]:
+        """Messaggi passati da una radio locale (entrata e uscita), i piu' recenti prima."""
+        return self.messages(None, before, limit, radio_only=True)
+
+    def messages(self, countries: list[str] | None, before: float | None, limit: int,
+                 radio_only: bool = False) -> list[dict]:
         sql = ("SELECT m.*, n.long_name AS from_name FROM messages m "
                "LEFT JOIN nodes n ON n.num = m.from_num WHERE 1=1")
         params: list = []
+        if radio_only:
+            sql += " AND m.radio_id IS NOT NULL"
         if countries is not None:
             sql += f" AND m.country IN ({','.join('?' * len(countries))})"
             params += countries

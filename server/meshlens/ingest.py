@@ -155,7 +155,8 @@ class Ingestor:
         self.store.upsert_node(node, is_mine=True)
 
     def record_outgoing(self, radio_id: str, my_node_id: str, packet_id: int, text: str,
-                        channel_index: int, to: str, status: str = "sent") -> dict:
+                        channel_index: int, to: str, status: str = "sent",
+                        replaces: str | None = None) -> dict:
         """Registra un messaggio inviato da una radio locale e lo pubblica."""
         mine = self.live.nodes.get(int(my_node_id[1:], 16))
         message = {"key": f"out:{radio_id}:{packet_id}", "from": my_node_id,
@@ -166,7 +167,8 @@ class Ingestor:
                    "packet_id": packet_id, "status": status}
         self.live.messages.append(message)
         self.store.add_message(message)
-        self.on_message(message)
+        # "replaces": il client sostituisce il messaggio provvisorio con questa chiave
+        self.on_message({**message, "replaces": replaces} if replaces else message)
         return message
 
     def set_status(self, key: str, status: str) -> None:

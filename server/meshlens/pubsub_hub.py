@@ -26,7 +26,9 @@ class PubSubHub:
     def unregister(self, iface) -> None:
         self._connectors.pop(id(iface), None)
 
-    def start(self) -> None:
+    def start(self, loop=None) -> None:
+        if loop is not None:
+            self._loop = loop  # hub creato prima che il loop esistesse
         if self._started:
             return
         if self._pubsub is None:

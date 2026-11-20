@@ -110,3 +110,22 @@ async def test_settings_cached_and_old_connector_stopped_in_thread(tmp_path, mon
         await rt.on_settings_changed(saved)
         assert seen and seen[0] != main_thread
         assert rt.settings is saved
+
+
+async def test_auto_radio_connected_at_start_and_stopped_at_shutdown(tmp_path):
+    from meshlens.store import Store
+    from test_radio_manager import FakeConnector as FakeRadio
+
+    pre = connect(tmp_path / "meshlens.db")
+    Store(pre).save_radio({"id": "r0000abcd", "name": "H", "kind": "usb", "address": "COM5",
+                           "auto_connect": True})
+    pre.commit()
+    pre.close()
+    FakeRadio.instances = []
+    app, rt = build(tmp_path, connector_factory=FakeConnector, static_dir=None)
+    rt.radios._connector_factory = FakeRadio
+    rt.radios._register(rt.radios._cfgs.pop("r0000abcd"))
+    (radio,) = FakeRadio.instances[-1:]
+    async with app.router.lifespan_context(app):
+        assert radio.starts == 1 and radio.state()["state"] == "connected"
+    assert radio.stops == 1

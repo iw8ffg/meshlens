@@ -19,6 +19,8 @@ from .ingest import Ingestor
 from .live import LiveState
 from .mqtt_client import MqttConnector
 from .mqtt_decode import EnvelopeDecoder
+from .pubsub_hub import PubSubHub
+from .radio_manager import RadioManager
 from .settings import load_settings
 from .store import Store
 
@@ -45,6 +47,7 @@ class Runtime:
     connector_factory: object
     loop: asyncio.AbstractEventLoop | None = None
     settings: dict = field(default_factory=dict)  # copia in cache: evita SQL a ogni pacchetto
+    radios: RadioManager | None = None
     connector: object = None
     tasks: list = field(default_factory=list)
 
@@ -96,9 +99,11 @@ class Runtime:
         ttl = min(LIVE_NODE_TTL_S, self.settings["retention_positions_days"] * 86400)
         self.live.evict_older_than(now - ttl)
 
-    def start(self) -> None:
+    async def start(self) -> None:
         self.loop = asyncio.get_running_loop()
         self.start_connector()
+        if self.radios is not None:
+            await self.radios.start()
         self.tasks = [
             asyncio.create_task(self._every(2, self._publish_changed)),
             asyncio.create_task(self._every(5, self._publish_status)),
@@ -108,6 +113,8 @@ class Runtime:
         ]
 
     async def stop(self) -> None:
+        if self.radios is not None:
+            await self.radios.stop()
         if self.connector is not None:
             self.connector.stop()
         for t in self.tasks:
@@ -136,14 +143,15 @@ def build(data_dir: Path, connector_factory=MqttConnector,
                             {"type": "message_status", "key": key, "status": status}))
     rt = Runtime(conn, store, live, auth, bus, dedup, ingestor, connector_factory,
                  settings=load_settings(conn))
+    rt.radios = RadioManager(store, ingestor, bus, None, PubSubHub(None))
     ctx = AppContext(live=live, store=store, auth=auth, bus=bus, locator=locator, conn=conn,
                      mqtt_status=rt.mqtt_status, on_settings_changed=rt.on_settings_changed,
-                     static_dir=static_dir)
+                     static_dir=static_dir, radios=rt.radios)
     app = create_app(ctx)
 
     @contextlib.asynccontextmanager
     async def lifespan(_app):
-        rt.start()
+        await rt.start()
         try:
             yield
         finally:
