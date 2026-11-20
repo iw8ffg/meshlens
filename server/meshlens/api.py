@@ -1,6 +1,7 @@
 """API REST e WebSocket. Tutti gli handler sono async: la connessione sqlite e
 condivisa e va usata solo dal thread dell'event loop."""
 import asyncio
+import mimetypes
 import sqlite3
 import time
 from dataclasses import dataclass
@@ -75,6 +76,10 @@ def _mask_settings(s: dict) -> dict:
     if out["mqtt"].get("password"):
         out["mqtt"]["password"] = MASK
     return out
+
+# Su Windows mimetypes legge il registro: forza i tipi JS per gli script ES module.
+mimetypes.add_type("text/javascript", ".js")
+mimetypes.add_type("text/javascript", ".mjs")
 
 
 class _SpaStaticFiles(StaticFiles):

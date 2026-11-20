@@ -72,3 +72,15 @@ async def test_failed_connector_restart_reports_disconnected(tmp_path):
     state["fail"] = True
     await rt.on_settings_changed({"mqtt": {"host": "x"}})
     assert rt.mqtt_status()["connected"] is False
+
+
+async def test_periodic_status_payload_uses_mqtt_key(tmp_path):
+    import asyncio
+    _, rt = build(tmp_path, connector_factory=FakeConnector, static_dir=None)
+    rt.loop = asyncio.get_running_loop()
+    rt.start_connector()
+    q = rt.bus.subscribe()
+    rt._publish_status()
+    assert q.get_nowait() == {
+        "type": "status",
+        "mqtt": {"connected": True, "msgs_per_s": 1.0, "undecodable": 0}}

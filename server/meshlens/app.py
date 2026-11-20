@@ -84,6 +84,9 @@ class Runtime:
             self.bus.publish({"type": "nodes", "nodes": [
                 {k: v for k, v in n.items() if k != "is_mine"} for n in changed]})
 
+    def _publish_status(self) -> None:
+        self.bus.publish({"type": "status", "mqtt": self.mqtt_status()})
+
     def _purge(self) -> None:
         self.store.purge(time.time(), load_settings(self.conn))
 
@@ -92,8 +95,7 @@ class Runtime:
         self.start_connector()
         self.tasks = [
             asyncio.create_task(self._every(2, self._publish_changed)),
-            asyncio.create_task(self._every(5, lambda: self.bus.publish(
-                {"type": "status", "status": self.mqtt_status()}))),
+            asyncio.create_task(self._every(5, self._publish_status)),
             asyncio.create_task(self._every(1, self.store.commit)),
             asyncio.create_task(self._every(PURGE_INTERVAL_S, self._purge, first_now=True)),
             asyncio.create_task(self._every(60, lambda: self.dedup.prune(time.time()))),

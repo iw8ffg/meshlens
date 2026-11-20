@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import * as maplibregl from 'maplibre-gl'
+  import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url'
   import type { Feature, FeatureCollection, Point } from 'geojson'
   import 'maplibre-gl/dist/maplibre-gl.css'
   import { app } from '../lib/stores.svelte'
@@ -90,6 +91,7 @@
   }
 
   onMount(() => {
+    maplibregl.setWorkerUrl(workerUrl)
     map = new maplibregl.Map({ container: el, style: STYLE, center: [12.5, 42.5], zoom: 5, attributionControl: { compact: true } })
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right')
     map.on('load', () => {
