@@ -88,16 +88,20 @@
 
   $effect(() => {
     if (!auth?.authenticated) return
-    getJSON<Node[]>('/nodes')
-      .then(upsertNodes)
-      .catch(() => {})
-    getJSON<Message[]>('/messages/radio?limit=200')
-      .then(addRadioHistory)
-      .catch(() => {})
-    getJSON<Radio[]>('/radios')
-      .then(setRadios)
-      .catch(() => {})
+    const load = () => {
+      getJSON<Node[]>('/nodes')
+        .then(upsertNodes)
+        .catch(() => {})
+      getJSON<Message[]>('/messages/radio?limit=200')
+        .then(addRadioHistory)
+        .catch(() => {})
+      getJSON<Radio[]>('/radios')
+        .then(setRadios)
+        .catch(() => {})
+    }
+    load()
     return connectWS({
+      reconnected: load,
       nodes: upsertNodes,
       message: addMessage,
       status: setStatus,

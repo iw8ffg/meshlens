@@ -9,6 +9,8 @@
     groupMessages,
     localNodeIds,
     pickSendRadio,
+    sendTargets,
+    splitKey,
     statusIcon,
     statusLabel,
   } from '../lib/chat'
@@ -71,13 +73,6 @@
     return `${radioName(rid)} · DM ${nodeName(rest)}`
   }
 
-  // "dm:r1:!abcd" -> ['dm', 'r1', '!abcd']
-  function splitKey(key: string): [string, string, string] {
-    const a = key.indexOf(':')
-    const b = key.indexOf(':', a + 1)
-    return [key.slice(0, a), key.slice(a + 1, b), key.slice(b + 1)]
-  }
-
   const options = $derived.by(() => {
     const keys: string[] = [MQTT_CONV]
     for (const r of app.radios) for (const c of r.channels) keys.push(`ch:${r.id}:${c.index}`)
@@ -89,7 +84,8 @@
   const isRadioConv = $derived(conv !== MQTT_CONV)
   const convRadio = $derived(isRadioConv ? splitKey(conv)[1] : '')
   const msgs = $derived(groups.get(conv) ?? [])
-  const connected = $derived(app.radios.filter((r) => r.state === 'connected'))
+  // canale: solo radio con un canale dello stesso nome; diretto: qualunque radio connessa
+  const targets = $derived(sendTargets(app.radios, conv))
 
   // Radio di invio: la scelta manuale persiste (vedi pickSendRadio)
   let lastConv = ''
@@ -99,7 +95,7 @@
     radioId = pickSendRadio(
       untrack(() => radioId),
       convRadio,
-      connected.map((r) => r.id),
+      targets.map((t) => t.radio.id),
       changed,
     )
   })
@@ -116,7 +112,7 @@
     try {
       const m = await send<Message>('POST', `/radios/${encodeURIComponent(radioId)}/send`, {
         text: text.trim(),
-        channel_index: kind === 'ch' ? Number(rest) : 0,
+        channel_index: kind === 'ch' ? (targets.find((t) => t.radio.id === radioId)?.index ?? Number(rest)) : 0,
         to: kind === 'dm' ? rest : null,
       })
       forceScroll = true
@@ -194,21 +190,23 @@
     </ul>
 
     <form class="composer" onsubmit={(e) => (e.preventDefault(), submit())}>
-      {#if connected.length === 0}
-        <p class="warn">Nessuna radio connessa: impossibile inviare.</p>
+      {#if targets.length === 0}
+        <p class="warn">
+          {conv.startsWith('ch:') ? 'Nessuna radio connessa con questo canale: impossibile inviare.' : 'Nessuna radio connessa: impossibile inviare.'}
+        </p>
       {/if}
       <textarea
         rows="2"
         placeholder={conv.startsWith('dm:') ? 'Messaggio diretto…' : 'Messaggio sul canale…'}
         bind:value={text}
         onkeydown={onkey}
-        disabled={connected.length === 0}
+        disabled={targets.length === 0}
       ></textarea>
       <div class="row">
         <span class="count" class:over>{bytes}/{MAX_BYTES} byte{over ? ' — troppo lungo' : ''}</span>
-        <select aria-label="Radio di invio" bind:value={radioId} disabled={connected.length === 0}>
-          {#each connected as r (r.id)}
-            <option value={r.id}>{r.name}</option>
+        <select aria-label="Radio di invio" bind:value={radioId} disabled={targets.length === 0}>
+          {#each targets as t (t.radio.id)}
+            <option value={t.radio.id}>{t.radio.name}</option>
           {/each}
         </select>
         <button type="submit" disabled={!canSend} title="Ctrl+Invio">{sending ? 'Invio…' : 'Invia'}</button>

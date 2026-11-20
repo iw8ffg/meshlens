@@ -13,6 +13,7 @@
   let address = $state('')
   let name = $state('')
   let busy = $state(false)
+  let acting = $state(false) // azione su una radio in corso (Connetti/Scollega/Rimuovi)
   let error = $state('')
   let confirmId = $state<string | null>(null)
 
@@ -31,22 +32,30 @@
   }
 
   async function action(r: Radio, what: 'connect' | 'disconnect') {
+    if (acting) return
+    acting = true
     error = ''
     try {
       await send('POST', `/radios/${r.id}/${what}`)
     } catch (e) {
       error = msg(e)
+    } finally {
+      acting = false
     }
     await reload()
   }
 
   async function remove(r: Radio) {
+    if (acting) return
+    acting = true
     error = ''
     confirmId = null
     try {
       await send('DELETE', `/radios/${r.id}`)
     } catch (e) {
       error = msg(e)
+    } finally {
+      acting = false
     }
     await reload()
   }
@@ -69,6 +78,8 @@
     kind = k
     address = ''
     name = ''
+    ble = []
+    scanned = false
     if (k === 'usb') loadPorts()
   }
 
@@ -121,16 +132,16 @@
       {#if r.error}<div class="err">{r.error}</div>{/if}
       <div class="btns">
         {#if live(r)}
-          <button onclick={() => action(r, 'disconnect')}>Scollega</button>
+          <button disabled={acting} onclick={() => action(r, 'disconnect')}>Scollega</button>
         {:else}
-          <button onclick={() => action(r, 'connect')}>Connetti</button>
+          <button disabled={acting} onclick={() => action(r, 'connect')}>Connetti</button>
         {/if}
         {#if confirmId === r.id}
           <span>Rimuovere "{r.name}"?</span>
-          <button class="danger" onclick={() => remove(r)}>Conferma</button>
+          <button class="danger" disabled={acting} onclick={() => remove(r)}>Conferma</button>
           <button onclick={() => (confirmId = null)}>Annulla</button>
         {:else}
-          <button class="danger" onclick={() => (confirmId = r.id)}>Rimuovi</button>
+          <button class="danger" disabled={acting} onclick={() => (confirmId = r.id)}>Rimuovi</button>
         {/if}
       </div>
     </div>

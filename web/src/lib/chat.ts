@@ -90,6 +90,36 @@ export function pickSendRadio(current: string, convRadio: string, connectedIds: 
   return connectedIds.includes(convRadio) ? convRadio : (connectedIds[0] ?? '')
 }
 
+// "dm:r1:!abcd" -> ['dm', 'r1', '!abcd']
+export function splitKey(key: string): [string, string, string] {
+  const a = key.indexOf(':')
+  const b = key.indexOf(':', a + 1)
+  return [key.slice(0, a), key.slice(a + 1, b), key.slice(b + 1)]
+}
+
+export interface SendTarget {
+  radio: Radio
+  index: number
+}
+
+/**
+ * Radio che possono inviare nella conversazione: per un canale `ch:A:i` solo le radio connesse con un
+ * canale dello stesso nome (e il loro indice); per i diretti qualunque radio connessa.
+ */
+export function sendTargets(radios: Radio[], conv: string): SendTarget[] {
+  const connected = radios.filter((r) => r.state === 'connected')
+  const [kind, rid, rest] = splitKey(conv)
+  if (kind !== 'ch') return connected.map((radio) => ({ radio, index: 0 }))
+  const name = radios.find((r) => r.id === rid)?.channels.find((c) => String(c.index) === rest)?.name
+  if (name === undefined) return []
+  const out: SendTarget[] = []
+  for (const radio of connected) {
+    const ch = radio.channels.find((c) => c.name === name)
+    if (ch) out.push({ radio, index: ch.index })
+  }
+  return out
+}
+
 export const MAX_RADIO_MESSAGES = 2000
 export const MAX_REPLACED = 500
 

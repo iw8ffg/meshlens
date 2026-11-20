@@ -7,6 +7,8 @@ export interface WSHandlers {
   status(s: Status): void
   radios(r: Radio[]): void
   messageStatus(key: string, status: MessageStatus): void
+  /** Chiamato a ogni riapertura dopo la prima: lo stato puo' essere vecchio (telefono in standby). */
+  reconnected?(): void
 }
 
 const RECONNECT_MS = 3000
@@ -16,10 +18,15 @@ export function connectWS(handlers: WSHandlers): () => void {
   let ws: WebSocket | null = null
   let timer: ReturnType<typeof setTimeout> | null = null
   let stopped = false
+  let opened = false
 
   const open = () => {
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
     ws = new WebSocket(`${proto}//${location.host}/ws`)
+    ws.onopen = () => {
+      if (opened) handlers.reconnected?.()
+      opened = true
+    }
     ws.onmessage = (ev) => {
       try {
         const msg = JSON.parse(ev.data as string)

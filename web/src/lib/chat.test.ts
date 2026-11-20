@@ -89,3 +89,19 @@ test('pruneSet: conserva gli ultimi inseriti', () => {
   pruneSet(s, 2)
   expect([...s]).toEqual(['c', 'd'])
 })
+
+test('sendTargets: canale solo radio con canale omonimo, diretto qualunque radio connessa', async () => {
+  const { sendTargets } = await import('./chat')
+  const radio = (id: string, state: string, channels: [number, string][]) =>
+    ({ id, name: id, state, channels: channels.map(([index, name]) => ({ index, name, role: 'SECONDARY' })) }) as never
+  const radios = [
+    radio('A', 'connected', [[0, 'LongFast'], [1, 'Amici']]),
+    radio('B', 'connected', [[0, 'Amici'], [2, 'Altro']]),
+    radio('C', 'connected', [[0, 'LongFast']]),
+    radio('D', 'disconnected', [[0, 'Amici']]),
+  ]
+  expect(sendTargets(radios, 'ch:A:1').map((t) => [t.radio.id, t.index])).toEqual([['A', 1], ['B', 0]])
+  expect(sendTargets(radios, 'ch:A:0').map((t) => t.radio.id)).toEqual(['A', 'C'])
+  expect(sendTargets(radios, 'ch:Z:0')).toEqual([])
+  expect(sendTargets(radios, 'dm:A:!00000001').map((t) => t.radio.id)).toEqual(['A', 'B', 'C'])
+})

@@ -22,7 +22,7 @@
 
   const heard = $derived(
     Object.entries(node.heard_by ?? {})
-      .map(([rid, h]) => ({ ...h, rid, name: app.radios.find((r) => r.id === rid)?.name ?? rid }))
+      .map(([rid, h]) => ({ ...h, rid, name: app.radios.find((r) => r.id === rid)?.name ?? 'Radio rimossa' }))
       .sort((a, b) => b.time - a.time),
   )
   const showMqtt = $derived(node.mqtt_gateways > 0 || node.sources.includes('mqtt'))
