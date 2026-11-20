@@ -1,7 +1,7 @@
 import { SvelteMap } from 'svelte/reactivity'
 import { loadFilter, saveFilter } from './filters'
 import type { NodeFilter } from './filters'
-import { insertMessage } from './chat'
+import { MAX_REPLACED, insertMessage, mergeRadioMessages, pruneSet } from './chat'
 import type { Message, MessageStatus, Node, Radio, Status } from './types'
 
 const MAX_MESSAGES = 500
@@ -9,6 +9,7 @@ const MAX_MESSAGES = 500
 export const app = $state({
   nodes: new SvelteMap<string, Node>(),
   messages: [] as Message[],
+  radioMessages: [] as Message[],
   status: null as Status | null,
   radios: [] as Radio[],
   filter: loadFilter(localStorage) as NodeFilter,
@@ -23,12 +24,22 @@ export function upsertNodes(list: Node[]): void {
 const replaced = new Set<string>()
 
 export function addMessage(m: Message): void {
+  if (m.radio_id) {
+    mergeRadioMessages(app.radioMessages, [m], replaced)
+    return
+  }
   insertMessage(app.messages, m, replaced)
+  pruneSet(replaced, MAX_REPLACED)
   if (app.messages.length > MAX_MESSAGES) app.messages.splice(0, app.messages.length - MAX_MESSAGES)
 }
 
+/** Storico radio (piu' recenti per primi o in qualunque ordine): unito alla lista senza duplicati. */
+export function addRadioHistory(list: Message[]): void {
+  mergeRadioMessages(app.radioMessages, list, replaced)
+}
+
 export function setMessageStatus(key: string, status: MessageStatus): void {
-  const m = app.messages.find((x) => x.key === key)
+  const m = app.radioMessages.find((x) => x.key === key) ?? app.messages.find((x) => x.key === key)
   if (m) m.status = status
 }
 

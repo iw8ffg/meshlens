@@ -8,20 +8,21 @@
   type Pos = { time: number; lat: number; lon: number; precision_bits: number | null; source: string }
   let {
     node,
+    now,
     ontrack,
     onclose,
     onchat,
   }: {
     node: Node
+    now: number
     ontrack: (pts: [number, number][] | null) => void
     onclose: () => void
     onchat: () => void
   } = $props()
 
-  const now = $derived(Math.floor(Date.now() / 1000))
   const heard = $derived(
     Object.entries(node.heard_by ?? {})
-      .map(([rid, h]) => ({ ...h, name: app.radios.find((r) => r.id === rid)?.name ?? rid }))
+      .map(([rid, h]) => ({ ...h, rid, name: app.radios.find((r) => r.id === rid)?.name ?? rid }))
       .sort((a, b) => b.time - a.time),
   )
   const showMqtt = $derived(node.mqtt_gateways > 0 || node.sources.includes('mqtt'))
@@ -111,7 +112,7 @@
     <p class="none">Nessuna radio</p>
   {:else}
     <ul class="heard">
-      {#each heard as h (h.name)}
+      {#each heard as h (h.rid)}
         <li>
           <b>{h.name}</b>
           SNR {h.snr === null ? '–' : `${h.snr.toFixed(1).replace('.', ',')} dB`} · RSSI {h.rssi === null ? '–' : `${h.rssi} dBm`} ·

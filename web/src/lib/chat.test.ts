@@ -1,5 +1,5 @@
 import { test, expect } from 'vitest'
-import { byteLength, conversationKey, groupMessages, insertMessage, pickSendRadio, statusIcon } from './chat'
+import { byteLength, conversationKey, groupMessages, insertMessage, mergeRadioMessages, pickSendRadio, pruneSet, statusIcon } from './chat'
 import type { Message } from './types'
 
 const msg = (o: Partial<Message>): Message => ({
@@ -70,4 +70,22 @@ test('pickSendRadio: scelta manuale persistente, reset su cambio conversazione o
   expect(pickSendRadio('r2', 'r9', ['r1'], false)).toBe('r1')
   expect(pickSendRadio('r2', 'r1', [], false)).toBe('')
   expect(pickSendRadio('', 'r2', ids, false)).toBe('r2')
+})
+
+test('mergeRadioMessages: dedup, ordine, tetto sui piu recenti, replaces', () => {
+  const list: Message[] = []
+  const rep = new Set<string>()
+  mergeRadioMessages(list, [msg({ key: 'c', time: 30 }), msg({ key: 'a', time: 10 })], rep, 3)
+  mergeRadioMessages(list, [msg({ key: 'b', time: 20 }), msg({ key: 'a', time: 10 })], rep, 3)
+  expect(list.map((m) => m.key)).toEqual(['a', 'b', 'c'])
+  mergeRadioMessages(list, [msg({ key: 'd', time: 40 })], rep, 3)
+  expect(list.map((m) => m.key)).toEqual(['b', 'c', 'd'])
+  mergeRadioMessages(list, [msg({ key: 'e', time: 50, replaces: 'd' })], rep, 3)
+  expect(list.map((m) => m.key)).toEqual(['b', 'c', 'e'])
+})
+
+test('pruneSet: conserva gli ultimi inseriti', () => {
+  const s = new Set(['a', 'b', 'c', 'd'])
+  pruneSet(s, 2)
+  expect([...s]).toEqual(['c', 'd'])
 })

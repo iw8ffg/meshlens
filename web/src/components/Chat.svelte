@@ -1,6 +1,6 @@
 <script lang="ts">
   import { tick, untrack } from 'svelte'
-  import { send } from '../lib/api'
+  import { getJSON, send } from '../lib/api'
   import { timeAgo } from '../lib/format'
   import {
     MAX_BYTES,
@@ -12,7 +12,7 @@
     statusIcon,
     statusLabel,
   } from '../lib/chat'
-  import { app, addMessage } from '../lib/stores.svelte'
+  import { app, addMessage, addRadioHistory } from '../lib/stores.svelte'
   import MessageFeed from './MessageFeed.svelte'
   import type { Message } from '../lib/types'
 
@@ -24,6 +24,28 @@
   let sending = $state(false)
   let error = $state('')
   let listEl = $state<HTMLElement | null>(null)
+  let nearBottom = true
+  let forceScroll = false
+  let loadingOlder = $state(false)
+  let exhausted = $state(false)
+  let olderError = $state('')
+
+  const PAGE = 200
+
+  async function loadOlder() {
+    const oldest = app.radioMessages.length ? app.radioMessages[0].time : Math.floor(Date.now() / 1000)
+    loadingOlder = true
+    olderError = ''
+    try {
+      const list = await getJSON<Message[]>(`/messages/radio?limit=${PAGE}&before=${oldest}`)
+      if (list.length < PAGE) exhausted = true
+      addRadioHistory(list)
+    } catch {
+      olderError = 'Impossibile caricare i messaggi precedenti'
+    } finally {
+      loadingOlder = false
+    }
+  }
 
   // Apertura da fuori (es. "Messaggio diretto" nel dettaglio nodo)
   $effect(() => {
@@ -34,7 +56,7 @@
   })
 
   const localIds = $derived(localNodeIds(app.radios))
-  const groups = $derived(groupMessages(app.messages, localIds))
+  const groups = $derived(groupMessages(app.radioMessages, localIds))
 
   const nodeName = (id: string) => app.nodes.get(id)?.long_name || app.nodes.get(id)?.short_name || id
   const radioName = (id: string) => app.radios.find((r) => r.id === id)?.name ?? id
@@ -97,6 +119,7 @@
         channel_index: kind === 'ch' ? Number(rest) : 0,
         to: kind === 'dm' ? rest : null,
       })
+      forceScroll = true
       addMessage(m)
       text = ''
     } catch (e) {
@@ -116,7 +139,10 @@
   // Scorre in fondo quando arrivano messaggi nuovi
   $effect(() => {
     void msgs.length
-    tick().then(() => listEl?.scrollTo({ top: listEl.scrollHeight }))
+    tick().then(() => {
+      if (listEl && (nearBottom || forceScroll)) listEl.scrollTo({ top: listEl.scrollHeight })
+      forceScroll = false
+    })
   })
 </script>
 
@@ -132,7 +158,19 @@
   {#if !isRadioConv}
     <div class="feed"><MessageFeed {now} {onpick} /></div>
   {:else}
-    <ul class="list" bind:this={listEl}>
+    <ul
+      class="list"
+      bind:this={listEl}
+      onscroll={() => (nearBottom = !!listEl && listEl.scrollHeight - listEl.scrollTop - listEl.clientHeight < 60)}
+    >
+      {#if !exhausted}
+        <li class="older">
+          <button type="button" onclick={loadOlder} disabled={loadingOlder}>
+            {loadingOlder ? 'Caricamento…' : 'Carica precedenti'}
+          </button>
+        </li>
+      {/if}
+      {#if olderError}<li class="err" role="alert">{olderError}</li>{/if}
       {#if msgs.length === 0}<li class="empty">Nessun messaggio</li>{/if}
       {#each msgs as m (m.key)}
         {@const out = m.direction === 'out'}
@@ -260,6 +298,17 @@
   }
   .st.bad {
     color: #fca5a5;
+  }
+  .older {
+    text-align: center;
+  }
+  .older button {
+    background: #1f2937;
+    color: inherit;
+    border: 1px solid #374151;
+    border-radius: 6px;
+    padding: 4px 10px;
+    cursor: pointer;
   }
   .empty {
     color: #9ca3af;

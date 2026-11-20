@@ -89,3 +89,25 @@ export function pickSendRadio(current: string, convRadio: string, connectedIds: 
   if (!convChanged && current && connectedIds.includes(current)) return current
   return connectedIds.includes(convRadio) ? convRadio : (connectedIds[0] ?? '')
 }
+
+export const MAX_RADIO_MESSAGES = 2000
+export const MAX_REPLACED = 500
+
+/** Tiene solo gli ultimi `max` elementi inseriti in un Set (ordine di inserimento). */
+export function pruneSet<T>(set: Set<T>, max: number): void {
+  for (const v of set) {
+    if (set.size <= max) break
+    set.delete(v)
+  }
+}
+
+/**
+ * Unisce messaggi radio (live o storici) nella lista: dedup, `replaces`, ordine per tempo crescente,
+ * conserva solo i `max` piu' recenti.
+ */
+export function mergeRadioMessages(list: Message[], incoming: Message[], replaced: Set<string>, max = MAX_RADIO_MESSAGES): void {
+  for (const m of incoming) insertMessage(list, m, replaced)
+  pruneSet(replaced, MAX_REPLACED)
+  list.sort((a, b) => a.time - b.time)
+  if (list.length > max) list.splice(0, list.length - max)
+}

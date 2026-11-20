@@ -12,8 +12,8 @@
   import { matchNode } from './lib/filters'
   import { getJSON, AUTH_REQUIRED } from './lib/api'
   import { connectWS } from './lib/ws'
-  import { app, upsertNodes, addMessage, setMessageStatus, setStatus, setRadios, persistFilter } from './lib/stores.svelte'
-  import type { AuthStatus, Node, Radio } from './lib/types'
+  import { app, upsertNodes, addMessage, addRadioHistory, setMessageStatus, setStatus, setRadios, persistFilter } from './lib/stores.svelte'
+  import type { AuthStatus, Message, Node, Radio } from './lib/types'
 
   let auth = $state<AuthStatus | null>(null)
   let error = $state('')
@@ -91,6 +91,9 @@
     getJSON<Node[]>('/nodes')
       .then(upsertNodes)
       .catch(() => {})
+    getJSON<Message[]>('/messages/radio?limit=200')
+      .then(addRadioHistory)
+      .catch(() => {})
     getJSON<Radio[]>('/radios')
       .then(setRadios)
       .catch(() => {})
@@ -125,7 +128,7 @@
         </nav>
         <div class="content">
           {#if selected}
-            <NodeDetail node={selected} ontrack={(t) => (track = t)} onclose={close} onchat={() => (tab = 'chat')} />
+            <NodeDetail node={selected} {now} ontrack={(t) => (track = t)} onclose={close} onchat={() => (tab = 'chat')} />
           {/if}
           {#if activeTab === 'nodes'}
             <Filters />
