@@ -1,10 +1,11 @@
+import { SvelteMap } from 'svelte/reactivity'
 import type { NodeFilter } from './filters'
 import type { Message, Node, Status } from './types'
 
 const MAX_MESSAGES = 500
 
 export const app = $state({
-  nodes: new Map<string, Node>(),
+  nodes: new SvelteMap<string, Node>(),
   messages: [] as Message[],
   status: null as Status | null,
   filter: { countries: [], maxAgeH: null, sources: [], text: '' } as NodeFilter,
