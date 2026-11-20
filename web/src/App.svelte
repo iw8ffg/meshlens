@@ -6,13 +6,13 @@
   import NodeDetail from './components/NodeDetail.svelte'
   import Filters from './components/Filters.svelte'
   import StatusBar from './components/StatusBar.svelte'
-  import MessageFeed from './components/MessageFeed.svelte'
+  import Chat from './components/Chat.svelte'
   import Radios from './components/Radios.svelte'
   import Settings from './components/Settings.svelte'
   import { matchNode } from './lib/filters'
   import { getJSON, AUTH_REQUIRED } from './lib/api'
   import { connectWS } from './lib/ws'
-  import { app, upsertNodes, addMessage, setStatus, setRadios, persistFilter } from './lib/stores.svelte'
+  import { app, upsertNodes, addMessage, setMessageStatus, setStatus, setRadios, persistFilter } from './lib/stores.svelte'
   import type { AuthStatus, Node, Radio } from './lib/types'
 
   let auth = $state<AuthStatus | null>(null)
@@ -99,6 +99,7 @@
       message: addMessage,
       status: setStatus,
       radios: setRadios,
+      messageStatus: setMessageStatus,
     })
   })
 </script>
@@ -124,13 +125,13 @@
         </nav>
         <div class="content">
           {#if selected}
-            <NodeDetail node={selected} ontrack={(t) => (track = t)} onclose={close} />
+            <NodeDetail node={selected} ontrack={(t) => (track = t)} onclose={close} onchat={() => (tab = 'chat')} />
           {/if}
           {#if activeTab === 'nodes'}
             <Filters />
             <NodeList nodes={visible} {now} onpick={pick} />
           {:else if activeTab === 'chat'}
-            <MessageFeed {now} onpick={pickId} />
+            <Chat {now} onpick={pickId} />
           {:else if activeTab === 'radio'}
             <Radios />
           {:else if activeTab === 'settings'}

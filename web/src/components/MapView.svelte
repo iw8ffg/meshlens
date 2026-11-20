@@ -29,6 +29,7 @@
     layers: [{ id: 'bg', type: 'background', paint: { 'background-color': '#dde3ea' } }],
   }
   const COLORS = { fresh: '#2e9e44', recent: '#e0a800', old: '#8a8a8a' }
+  const RF_BORDER = '#1e3a8a'
   const EMPTY: FeatureCollection = { type: 'FeatureCollection', features: [] }
 
   let el: HTMLDivElement
@@ -39,13 +40,20 @@
 
   const src = (id: string) => map?.getSource(id) as maplibregl.GeoJSONSource | undefined
 
+  // Fonte per il bordo: solo RF, RF+MQTT (bordo doppio) oppure solo MQTT
+  function origin(n: Node): 'rf' | 'both' | 'mqtt' {
+    const rf = n.sources.includes('rf')
+    const mq = n.sources.some((s) => s !== 'rf')
+    return rf && mq ? 'both' : rf ? 'rf' : 'mqtt'
+  }
+
   function pointFeatures(): Feature[] {
     return nodes
       .filter((n) => n.lat !== null && n.lon !== null)
       .map((n) => ({
         type: 'Feature',
         geometry: { type: 'Point', coordinates: [n.lon!, n.lat!] },
-        properties: { id: n.id, age: ageClass(n.last_heard, now) },
+        properties: { id: n.id, age: ageClass(n.last_heard, now), origin: origin(n) },
       }))
   }
 
@@ -163,6 +171,18 @@
         COLORS.old,
       ]
       m.addLayer({
+        id: 'points-ring',
+        type: 'circle',
+        source: 'nodes',
+        filter: ['all', ['!', ['has', 'point_count']], ['==', ['get', 'origin'], 'both']],
+        paint: {
+          'circle-color': 'rgba(0,0,0,0)',
+          'circle-radius': 9.5,
+          'circle-stroke-width': 1.5,
+          'circle-stroke-color': RF_BORDER,
+        },
+      })
+      m.addLayer({
         id: 'points',
         type: 'circle',
         source: 'nodes',
@@ -170,8 +190,8 @@
         paint: {
           'circle-color': colorExpr,
           'circle-radius': 6,
-          'circle-stroke-width': 1,
-          'circle-stroke-color': '#ffffff',
+          'circle-stroke-width': ['match', ['get', 'origin'], 'mqtt', 1, 2],
+          'circle-stroke-color': ['match', ['get', 'origin'], 'mqtt', '#ffffff', RF_BORDER],
         },
       })
       m.addLayer({

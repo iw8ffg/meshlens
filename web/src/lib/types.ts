@@ -21,7 +21,11 @@ export interface Node {
   mqtt_gateways: number
   last_snr: number | null
   hops: number | null
+  heard_by?: Record<string, { snr: number | null; rssi: number | null; hops: number | null; time: number }>
+  is_local_radio?: boolean
 }
+
+export type MessageStatus = 'sending' | 'sent' | 'acked' | 'failed'
 
 export interface Message {
   key: string
@@ -33,6 +37,12 @@ export interface Message {
   time: number
   country: string | null
   source: string
+  direction?: 'in' | 'out'
+  radio_id?: string | null
+  channel_index?: number | null
+  packet_id?: number | null
+  status?: MessageStatus | null
+  replaces?: string | null
 }
 
 export interface Status {
