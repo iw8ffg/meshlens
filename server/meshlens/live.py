@@ -19,3 +19,12 @@ class LiveState:
         changed = [self.nodes[n] for n in self._changed if n in self.nodes]
         self._changed.clear()
         return changed
+
+    def evict_older_than(self, cutoff: float) -> int:
+        """Rimuove i nodi non sentiti dopo `cutoff` (esclusi i propri). Ritorna quanti."""
+        stale = [n for n, node in self.nodes.items()
+                 if (node.get("last_heard") or 0) < cutoff and not node.get("is_mine")]
+        for n in stale:
+            del self.nodes[n]
+            self._changed.discard(n)
+        return len(stale)

@@ -101,3 +101,59 @@ def test_ok_is_counted():
     d = EnvelopeDecoder([DEFAULT_KEY])
     d.decode(T, make_envelope(1, b"x"), now=1.0)
     assert d.stats["ok"] == 1
+
+
+def test_channel_hash_longfast_default_key_is_8():
+    from helpers import channel_hash
+    assert channel_hash("LongFast", DEFAULT_KEY) == 8
+    env = mqtt_pb2.ServiceEnvelope.FromString(make_envelope(1, b"x"))
+    assert env.packet.channel == 8
+
+
+def test_wrong_key_wrong_hash_not_decoded_with_default_key():
+    # con un testo qualsiasi: il hash del canale non coincide, la chiave non va nemmeno provata
+    other = bytes(range(16))
+    d = EnvelopeDecoder([DEFAULT_KEY])
+    raw = make_envelope(1, b"x", key=other, channel_id="Privato")
+    assert d.decode(T, raw, now=1.0) is None
+    assert d.stats["undecodable"] == 1
+
+
+def test_hash_mismatch_skips_key_even_if_plaintext_would_parse():
+    d = EnvelopeDecoder([DEFAULT_KEY])
+    raw = make_envelope(1, b"ciao", channel_hash_value=99)  # cifrato con la chiave giusta
+    assert d.decode(T, raw, now=1.0) is None
+
+
+def test_channel_zero_means_unknown_and_still_tries():
+    d = EnvelopeDecoder([DEFAULT_KEY])
+    ev = d.decode(T, make_envelope(1, b"ciao", channel_hash_value=0), now=1.0)
+    assert ev is not None and ev.kind == "text"
+
+
+@pytest.mark.parametrize("lat,lon", [(917000000, 0), (-917000000, 10), (10, 1801000000),
+                                     (10, -1801000000)])
+def test_out_of_range_position_is_empty(lat, lon):
+    d = EnvelopeDecoder([DEFAULT_KEY])
+    pos = mesh_pb2.Position(latitude_i=lat, longitude_i=lon)
+    assert d.decode(T, make_envelope(3, pos), now=1.0) is None
+    assert d.stats["empty"] == 1
+
+
+def test_out_of_range_mapreport_position_is_empty():
+    d = EnvelopeDecoder([DEFAULT_KEY])
+    mr = mqtt_pb2.MapReport(latitude_i=917000000, longitude_i=1)
+    ev = d.decode("msh/EU_868/2/map/", make_envelope(73, mr, encrypted=False), now=1.0)
+    assert ev is None and d.stats["empty"] == 1
+
+
+def test_invalid_utf8_text_is_undecodable():
+    d = EnvelopeDecoder([DEFAULT_KEY])
+    assert d.decode(T, make_envelope(1, b"\xff\xfe\xfa"), now=1.0) is None
+    assert d.stats["undecodable"] == 1
+
+
+def test_hops_never_negative():
+    ev = EnvelopeDecoder([DEFAULT_KEY]).decode(
+        T, make_envelope(1, b"x", hop_start=1, hop_limit=3), now=1.0)
+    assert ev.hops == 0

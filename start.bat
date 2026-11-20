@@ -23,6 +23,12 @@ if not exist "web\dist" (
     if not errorlevel 1 (
         pushd web
         call npm ci && call npm run build
+        if errorlevel 1 (
+            popd
+            echo Errore nella compilazione dell'interfaccia web. Controlla l'output qui sopra e riprova.
+            pause
+            exit /b 1
+        )
         popd
     ) else (
         echo npm non trovato: l'interfaccia web non verra compilata.

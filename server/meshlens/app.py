@@ -24,6 +24,7 @@ from .store import Store
 
 STATIC_DIR = Path(__file__).parents[2] / "web" / "dist"
 PURGE_INTERVAL_S = 24 * 3600
+LIVE_NODE_TTL_S = 7 * 24 * 3600
 log = logging.getLogger(__name__)
 
 
@@ -43,11 +44,12 @@ class Runtime:
     ingestor: Ingestor
     connector_factory: object
     loop: asyncio.AbstractEventLoop | None = None
+    settings: dict = field(default_factory=dict)  # copia in cache: evita SQL a ogni pacchetto
     connector: object = None
     tasks: list = field(default_factory=list)
 
     def start_connector(self) -> None:
-        cfg = load_settings(self.conn)["mqtt"]
+        cfg = self.settings["mqtt"]
         self.connector = self.connector_factory(
             cfg, _make_decoder(cfg), self.loop, self.ingestor.handle)
         self.connector.start()
@@ -57,11 +59,12 @@ class Runtime:
             "connected": False, "msgs_per_s": 0.0, "undecodable": 0}
 
     async def on_settings_changed(self, saved: dict) -> None:
+        self.settings = saved
         if self.connector is not None and getattr(self.connector, "cfg", None) == saved["mqtt"]:
             return
         if self.connector is not None:
-            self.connector.stop()
-            self.connector = None
+            old, self.connector = self.connector, None
+            await asyncio.to_thread(old.stop)
         try:
             self.start_connector()
         except Exception:
@@ -88,7 +91,10 @@ class Runtime:
         self.bus.publish({"type": "status", "mqtt": self.mqtt_status()})
 
     def _purge(self) -> None:
-        self.store.purge(time.time(), load_settings(self.conn))
+        now = time.time()
+        self.store.purge(now, self.settings)
+        ttl = min(LIVE_NODE_TTL_S, self.settings["retention_positions_days"] * 86400)
+        self.live.evict_older_than(now - ttl)
 
     def start(self) -> None:
         self.loop = asyncio.get_running_loop()
@@ -124,9 +130,10 @@ def build(data_dir: Path, connector_factory=MqttConnector,
     dedup = Deduplicator()
     locator = CountryLocator()
     auth = Auth(conn)
-    ingestor = Ingestor(live, store, dedup, locator, lambda: load_settings(conn),
+    ingestor = Ingestor(live, store, dedup, locator, lambda: rt.settings,
                         lambda msg: bus.publish({"type": "message", "message": msg}))
-    rt = Runtime(conn, store, live, auth, bus, dedup, ingestor, connector_factory)
+    rt = Runtime(conn, store, live, auth, bus, dedup, ingestor, connector_factory,
+                 settings=load_settings(conn))
     ctx = AppContext(live=live, store=store, auth=auth, bus=bus, locator=locator, conn=conn,
                      mqtt_status=rt.mqtt_status, on_settings_changed=rt.on_settings_changed,
                      static_dir=static_dir)

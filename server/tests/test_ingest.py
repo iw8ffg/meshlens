@@ -131,3 +131,13 @@ def test_take_changed(env):
     ing.handle(ev("position", pos(BERLIN), num=2))
     assert {n["num"] for n in live.take_changed()} == {1, 2}
     assert live.take_changed() == []
+
+
+def test_duplicate_copies_keep_best_snr_and_min_hops(env):
+    ing, live, _, _, _ = env
+    ing.handle(ev("position", pos(MILAN), pid=5, snr=-10.0, hops=3))
+    ing.handle(ev("position", pos(MILAN), pid=5, snr=-3.0, hops=1))
+    ing.handle(ev("position", pos(MILAN), pid=5, snr=-12.0, hops=5))
+    assert live.nodes[1]["last_snr"] == -3.0 and live.nodes[1]["hops"] == 1
+    ing.handle(ev("position", pos(MILAN), pid=6, snr=-9.0, hops=4))  # nuovo pacchetto
+    assert live.nodes[1]["last_snr"] == -9.0 and live.nodes[1]["hops"] == 4

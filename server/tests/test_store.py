@@ -79,7 +79,7 @@ def test_purge_retention(store):
     store.add_message(msg("1:1", NOW - 91 * DAY))
     store.add_telemetry(1, NOW - 100 * DAY, TelemetryData())
     res = store.purge(NOW, DEFAULTS)
-    assert res == {"messages": 1, "positions": 1, "telemetry": 0}
+    assert res == {"messages": 1, "positions": 1, "telemetry": 0, "nodes": 0}
     assert len(store.positions(1, 0)) == 1
 
 
@@ -92,3 +92,13 @@ def test_purge_storage_cap(store):
     res = store.purge(NOW, {**DEFAULTS, "storage_cap_mb": 0.1})
     assert store._used_bytes() <= 0.1 * 1024 * 1024
     assert res["positions"] > 0 and res["messages"] > 0
+
+
+def test_purge_deletes_stale_nodes_but_not_mine(store):
+    old = NOW - 91 * DAY
+    store.upsert_node(node(1, last_heard=old))
+    store.upsert_node(node(2, last_heard=old), is_mine=True)
+    store.upsert_node(node(3, last_heard=NOW - 89 * DAY))
+    res = store.purge(NOW, DEFAULTS)
+    assert res["nodes"] == 1
+    assert sorted(n["num"] for n in store.load_nodes()) == [2, 3]

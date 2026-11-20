@@ -50,7 +50,7 @@ def ctx():
 
 def client(ctx, host="127.0.0.1"):
     return httpx.AsyncClient(transport=ASGITransport(app=create_app(ctx), client=(host, 1234)),
-                             base_url="http://test")
+                             base_url="http://127.0.0.1")
 
 
 @contextlib.asynccontextmanager
@@ -71,9 +71,9 @@ async def test_requires_auth(ctx):
 
 
 def test_ws_rejects_without_cookie(ctx):
-    with TestClient(create_app(ctx)) as tc:
+    with TestClient(create_app(ctx), base_url="http://127.0.0.1") as tc:
         with pytest.raises(WebSocketDisconnect) as e:
-            with tc.websocket_connect("/ws") as ws:
+            with tc.websocket_connect("/ws", headers={"host": "127.0.0.1"}) as ws:
                 ws.receive_text()
         assert e.value.code == 4401
 
@@ -177,9 +177,9 @@ async def test_settings(ctx):
 def test_ws_receives_bus(ctx):
     ctx.auth.set_pin("1234")
     token = ctx.auth.login("1234", "127.0.0.1")
-    with TestClient(create_app(ctx)) as tc:
+    with TestClient(create_app(ctx), base_url="http://127.0.0.1") as tc:
         tc.cookies.set("meshlens_session", token)
-        with tc.websocket_connect("/ws") as ws:
+        with tc.websocket_connect("/ws", headers={"host": "127.0.0.1"}) as ws:
             ctx.bus.publish({"type": "message", "message": {"text": "x"}})
             assert ws.receive_json() == {"type": "message", "message": {"text": "x"}}
 
@@ -210,7 +210,11 @@ async def test_static_spa(tmp_path):
 async def test_no_static_dir(tmp_path):
     ctx = make_ctx(static_dir=tmp_path / "missing")
     async with client(ctx) as c:
-        assert (await c.get("/")).status_code == 404
+        r = await c.get("/")
+        assert r.status_code == 200 and "Interfaccia non compilata" in r.text
+        assert "npm run build" in r.text
+        assert (await c.get("/api/auth/status")).status_code == 200  # API invariata
+        assert (await c.get("/api/unknown")).status_code == 404
 
 
 async def test_auth_requires_json_content_type(ctx):
@@ -231,9 +235,9 @@ async def test_auth_requires_json_content_type(ctx):
 def test_ws_survives_client_frame(ctx):
     ctx.auth.set_pin("1234")
     token = ctx.auth.login("1234", "127.0.0.1")
-    with TestClient(create_app(ctx)) as tc:
+    with TestClient(create_app(ctx), base_url="http://127.0.0.1") as tc:
         tc.cookies.set("meshlens_session", token)
-        with tc.websocket_connect("/ws") as ws:
+        with tc.websocket_connect("/ws", headers={"host": "127.0.0.1"}) as ws:
             ws.send_text("ping")
             ctx.bus.publish({"type": "message", "message": {"text": "y"}})
             assert ws.receive_json()["message"]["text"] == "y"
@@ -262,3 +266,31 @@ async def test_history_shape(ctx):
         assert set(rows[0]) == {"key", "from", "from_name", "to", "channel", "text",
                                 "time", "country", "source"}
         assert (await c.get("/api/messages/history?country=IT&before=1")).json() == []
+
+
+@pytest.mark.parametrize("host", ["evil.example", "evil.example:8686", "localhost.evil.example"])
+async def test_host_header_rejected(ctx, host):
+    async with client(ctx) as c:
+        r = await c.get("/api/auth/status", headers={"host": host})
+        assert r.status_code == 400 and r.json() == {"detail": "Host non consentito"}
+
+
+@pytest.mark.parametrize("host", ["127.0.0.1:8686", "localhost", "localhost:8686", "[::1]:8686",
+                                  "192.168.1.5:8686"])
+async def test_host_header_allowed(ctx, host):
+    async with client(ctx) as c:
+        assert (await c.get("/api/auth/status", headers={"host": host})).status_code == 200
+
+
+def test_ws_rejects_foreign_origin(ctx):
+    ctx.auth.set_pin("1234")
+    token = ctx.auth.login("1234", "127.0.0.1")
+    with TestClient(create_app(ctx), base_url="http://127.0.0.1:8686") as tc:
+        tc.cookies.set("meshlens_session", token)
+        with pytest.raises(WebSocketDisconnect) as e:
+            with tc.websocket_connect("/ws", headers={"host": "127.0.0.1:8686", "origin": "http://evil.example"}) as ws:
+                ws.receive_text()
+        assert e.value.code == 4403
+        with tc.websocket_connect("/ws", headers={"host": "127.0.0.1:8686", "origin": "http://127.0.0.1:8686"}) as ws:
+            ctx.bus.publish({"type": "x"})
+            assert ws.receive_json() == {"type": "x"}

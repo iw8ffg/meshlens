@@ -1,15 +1,17 @@
 """API REST e WebSocket. Tutti gli handler sono async: la connessione sqlite e
 condivisa e va usata solo dal thread dell'event loop."""
 import asyncio
+import ipaddress
 import mimetypes
 import sqlite3
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Awaitable, Callable
+from urllib.parse import urlsplit
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, WebSocket
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -62,6 +64,30 @@ def _matches(country_value: str | None, wanted: list[str] | None) -> bool:
     return ("none" if country_value is None else country_value) in wanted
 
 
+def _host_allowed(host_header: str | None) -> bool:
+    """Solo 'localhost' o un IP letterale (anti DNS rebinding)."""
+    if not host_header:
+        return False
+    try:
+        hostname = urlsplit("//" + host_header).hostname
+    except ValueError:
+        return False
+    if not hostname:
+        return False
+    if hostname == "localhost":
+        return True
+    try:
+        ipaddress.ip_address(hostname)
+        return True
+    except ValueError:
+        return False
+
+
+NOT_BUILT_HTML = ("<!doctype html><html lang=\"it\"><meta charset=\"utf-8\"><title>MeshLens</title>"
+                  "<body><p>Interfaccia non compilata: esegui start.bat oppure npm run build "
+                  "nella cartella web</p></body></html>")
+
+
 def _num_from_id(node_id: str) -> int:
     try:
         if not node_id.startswith("!"):
@@ -94,6 +120,12 @@ class _SpaStaticFiles(StaticFiles):
 
 def create_app(ctx: AppContext) -> FastAPI:
     app = FastAPI(title="MeshLens")
+
+    @app.middleware("http")
+    async def check_host(request: Request, call_next):
+        if not _host_allowed(request.headers.get("host")):
+            return JSONResponse({"detail": "Host non consentito"}, status_code=400)
+        return await call_next(request)
 
     def set_cookie(response: Response, token: str) -> None:
         response.set_cookie(COOKIE, token, max_age=COOKIE_MAX_AGE, httponly=True,
@@ -240,6 +272,12 @@ def create_app(ctx: AppContext) -> FastAPI:
     @app.websocket("/ws")
     async def ws_endpoint(ws: WebSocket):
         await ws.accept()
+        host = ws.headers.get("host")
+        origin = ws.headers.get("origin")
+        if not _host_allowed(host) or (
+                origin is not None and urlsplit(origin).netloc.lower() != (host or "").lower()):
+            await ws.close(code=4403)
+            return
         if not ctx.auth.check(ws.cookies.get(COOKIE)):
             await ws.close(code=4401)
             return
@@ -266,5 +304,9 @@ def create_app(ctx: AppContext) -> FastAPI:
     # ---- statici (ultimi: catch-all) ----
     if ctx.static_dir is not None and Path(ctx.static_dir).exists():
         app.mount("/", _SpaStaticFiles(directory=ctx.static_dir, html=True), name="static")
+    else:
+        @app.get("/", include_in_schema=False)
+        async def not_built():
+            return HTMLResponse(NOT_BUILT_HTML)
 
     return app

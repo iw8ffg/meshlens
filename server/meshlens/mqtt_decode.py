@@ -34,10 +34,27 @@ def _opt(msg, field: str):
     return getattr(msg, field)
 
 
+def _valid_coords(lat_i: int, lon_i: int) -> bool:
+    return -900_000_000 <= lat_i <= 900_000_000 and -1_800_000_000 <= lon_i <= 1_800_000_000
+
+
+def _xor_bytes(data: bytes) -> int:
+    h = 0
+    for b in data:
+        h ^= b
+    return h
+
+
+def channel_hash(name: str, key: bytes) -> int:
+    """Hash di canale di Meshtastic: XOR dei byte del nome e di quelli della chiave."""
+    return _xor_bytes(name.encode("utf-8")) ^ _xor_bytes(key)
+
+
 def _parse_position(payload: bytes) -> PositionData:
     pos = mesh_pb2.Position()
     pos.ParseFromString(payload)
-    if pos.latitude_i == 0 and pos.longitude_i == 0:
+    if (pos.latitude_i == 0 and pos.longitude_i == 0) or not _valid_coords(
+            pos.latitude_i, pos.longitude_i):
         raise _Empty
     return PositionData(
         lat=pos.latitude_i * 1e-7,
@@ -79,6 +96,8 @@ def _parse_mapreport(payload: bytes) -> MapReportData:
     mr = mqtt_pb2.MapReport()
     mr.ParseFromString(payload)
     has_pos = not (mr.latitude_i == 0 and mr.longitude_i == 0)
+    if has_pos and not _valid_coords(mr.latitude_i, mr.longitude_i):
+        raise _Empty
     return MapReportData(
         long_name=mr.long_name,
         short_name=mr.short_name,
@@ -97,7 +116,7 @@ def _parse_mapreport(payload: bytes) -> MapReportData:
 def _parse_payload(data: mesh_pb2.Data):
     port = data.portnum
     if port == portnums_pb2.TEXT_MESSAGE_APP:
-        return "text", TextData(text=data.payload.decode("utf-8", errors="replace"))
+        return "text", TextData(text=data.payload.decode("utf-8"))  # strict: UnicodeDecodeError = undecodable
     if port == portnums_pb2.POSITION_APP:
         return "position", _parse_position(data.payload)
     if port == portnums_pb2.NODEINFO_APP:
@@ -141,7 +160,7 @@ class EnvelopeDecoder:
             return None
         packet = env.packet
         from_node = getattr(packet, "from")
-        data = self._extract_data(packet, from_node)
+        data = self._extract_data(packet, from_node, env.channel_id or None)
         if data is None:
             self.stats["undecodable"] += 1
             return None
@@ -156,20 +175,24 @@ class EnvelopeDecoder:
             rx_time=now,
             snr=packet.rx_snr or None,
             rssi=packet.rx_rssi or None,
-            hops=packet.hop_start - packet.hop_limit if packet.hop_start > 0 else None,
+            hops=max(0, packet.hop_start - packet.hop_limit) if packet.hop_start > 0 else None,
             gateway_id=env.gateway_id or None,
             radio_id=None,
             kind=kind,
             payload=body,
         )
 
-    def _extract_data(self, packet: mesh_pb2.MeshPacket, from_node: int) -> mesh_pb2.Data | None:
+    def _extract_data(self, packet: mesh_pb2.MeshPacket, from_node: int,
+                      channel_name: str | None) -> mesh_pb2.Data | None:
         if packet.WhichOneof("payload_variant") == "decoded":
             return packet.decoded if packet.decoded.portnum != 0 else None
         if not packet.encrypted:
             return None
         for key in self.keys:
             if not key:  # b"" = nessuna cifratura: niente da provare
+                continue
+            # packet.channel == 0: hash sconosciuto, si prova comunque
+            if packet.channel and channel_name is not None and                     packet.channel != channel_hash(channel_name, key):
                 continue
             try:
                 plain = decrypt(key, packet.id, from_node, packet.encrypted)

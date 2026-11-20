@@ -115,6 +115,9 @@ class Store:
             cutoff = now - settings[key] * _DAY
             deleted[table] = self.conn.execute(
                 f"DELETE FROM {table} WHERE time < ?", (cutoff,)).rowcount
+        deleted["nodes"] = self.conn.execute(
+            "DELETE FROM nodes WHERE last_heard < ? AND is_mine = 0",
+            (now - settings["retention_positions_days"] * _DAY,)).rowcount
         cap = settings["storage_cap_mb"] * 1024 * 1024
         while self._used_bytes() > cap:
             removed_round = 0

@@ -45,13 +45,19 @@ class Ingestor:
         node["last_heard"] = ev.rx_time
         if ev.source not in node["sources"]:
             node["sources"].append(ev.source)
+        is_dup = False
+        if ev.source == "mqtt":
+            is_dup = not self.dedup.is_new(num, ev.packet_id, ev.rx_time)
+        # copie dello stesso pacchetto: si tiene l'SNR migliore e il minor numero di hop
         if ev.snr is not None:
-            node["last_snr"] = ev.snr
+            prev = node["last_snr"]
+            node["last_snr"] = ev.snr if not is_dup or prev is None else max(prev, ev.snr)
         if ev.hops is not None:
-            node["hops"] = ev.hops
+            prev = node["hops"]
+            node["hops"] = ev.hops if not is_dup or prev is None else min(prev, ev.hops)
 
         if ev.source == "mqtt":
-            if not self.dedup.is_new(num, ev.packet_id, ev.rx_time):
+            if is_dup:
                 node["mqtt_gateways"] = (node["mqtt_gateways"] or 0) + 1
                 return
             node["mqtt_gateways"] = 1

@@ -1,3 +1,5 @@
+import time
+
 import httpx
 
 from meshlens.__main__ import main
@@ -23,7 +25,7 @@ async def test_build_serves_auth_status_and_reset_pin(tmp_path, capsys):
     async with app.router.lifespan_context(app):
         assert FakeConnector.instances[-1].started
         transport = httpx.ASGITransport(app=app, client=("127.0.0.1", 1))
-        async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+        async with httpx.AsyncClient(transport=transport, base_url="http://127.0.0.1") as c:
             r = await c.get("/api/auth/status")
             assert r.status_code == 200 and r.json()["pin_set"] is False
             assert (await c.post("/api/auth/setup", json={"pin": "123456"})).status_code == 200
@@ -84,3 +86,27 @@ async def test_periodic_status_payload_uses_mqtt_key(tmp_path):
     assert q.get_nowait() == {
         "type": "status",
         "mqtt": {"connected": True, "msgs_per_s": 1.0, "undecodable": 0}}
+
+
+async def test_purge_evicts_live_nodes_not_heard_for_7_days(tmp_path):
+    app, rt = build(tmp_path, connector_factory=FakeConnector, static_dir=None)
+    now = time.time()
+    rt.live.nodes[1] = {"num": 1, "last_heard": now - 8 * 86400}
+    rt.live.nodes[2] = {"num": 2, "last_heard": now - 3600}
+    rt._purge()
+    assert list(rt.live.nodes) == [2]
+
+
+async def test_settings_cached_and_old_connector_stopped_in_thread(tmp_path, monkeypatch):
+    import threading
+    app, rt = build(tmp_path, connector_factory=FakeConnector, static_dir=None)
+    async with app.router.lifespan_context(app):
+        assert rt.settings["mqtt"]["host"]
+        main_thread = threading.get_ident()
+        seen = []
+        old = rt.connector
+        old.stop = lambda: seen.append(threading.get_ident())
+        saved = {**rt.settings, "mqtt": {**rt.settings["mqtt"], "host": "x.example"}}
+        await rt.on_settings_changed(saved)
+        assert seen and seen[0] != main_thread
+        assert rt.settings is saved
