@@ -1,10 +1,10 @@
 <script lang="ts">
   import { app } from '../lib/stores.svelte'
-  import { flag, timeAgo } from '../lib/format'
+  import { compareLastHeard, flag, timeAgo } from '../lib/format'
   import type { Node } from '../lib/types'
 
   let { nodes, now, onpick }: { nodes: Node[]; now: number; onpick: (n: Node) => void } = $props()
-  const sorted = $derived([...nodes].sort((a, b) => b.last_heard - a.last_heard))
+  const sorted = $derived([...nodes].sort((a, b) => compareLastHeard(a.last_heard, b.last_heard)))
 </script>
 
 <ul>

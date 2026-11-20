@@ -105,6 +105,14 @@ def test_purge_deletes_stale_nodes_but_not_mine(store):
     assert sorted(n["num"] for n in store.load_nodes()) == [2, 3]
 
 
+def test_purge_deletes_null_last_heard_non_mine(store):
+    store.upsert_node(node(1, last_heard=None))
+    store.upsert_node(node(2, last_heard=None), is_mine=True)
+    res = store.purge(NOW, DEFAULTS)
+    assert res["nodes"] == 1
+    assert [n["num"] for n in store.load_nodes()] == [2]
+
+
 def test_radios_crud(store):
     store.save_radio({"id": "r1", "name": "Heltec", "kind": "usb", "address": "COM5",
                       "auto_connect": True, "created": 1.0})

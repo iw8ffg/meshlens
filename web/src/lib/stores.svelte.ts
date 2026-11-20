@@ -1,7 +1,7 @@
 import { SvelteMap } from 'svelte/reactivity'
 import { loadFilter, saveFilter } from './filters'
 import type { NodeFilter } from './filters'
-import { MAX_REPLACED, insertMessage, mergeRadioMessages, pruneSet } from './chat'
+import { MAX_REPLACED, insertMessage, removeByKey, mergeRadioMessages, pruneSet } from './chat'
 import type { Message, MessageStatus, Node, Radio, Status } from './types'
 
 const MAX_MESSAGES = 500
@@ -25,6 +25,7 @@ const replaced = new Set<string>()
 
 export function addMessage(m: Message): void {
   if (m.radio_id) {
+    removeByKey(app.messages, m.key)
     mergeRadioMessages(app.radioMessages, [m], replaced)
     return
   }

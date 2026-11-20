@@ -1,6 +1,6 @@
 <script lang="ts">
   import { getJSON } from '../lib/api'
-  import { flag, timeAgo } from '../lib/format'
+  import { flag, formatDate, timeAgo } from '../lib/format'
   import { app } from '../lib/stores.svelte'
   import { formatPrecision } from '../lib/geo'
   import type { Node } from '../lib/types'
@@ -72,7 +72,6 @@
   }
 
   const fmt = (v: number | null, unit = '', d = 1) => (v === null ? '–' : `${v.toFixed(d).replace('.', ',')}${unit}`)
-  const date = (t: number) => new Date(t * 1000).toLocaleString('it-IT')
   const precision = $derived(formatPrecision(node.precision_bits))
   const rows = $derived<[string, string][]>([
     ['Id', node.id],
@@ -84,7 +83,7 @@
     ['Posizione', node.lat !== null && node.lon !== null ? `${node.lat.toFixed(5)}, ${node.lon.toFixed(5)}` : '–'],
     ['Precisione posizione', precision ?? (node.precision_bits === null ? '–' : 'esatta')],
     ['Fonte posizione', node.position_source ?? '–'],
-    ['Ultimo contatto', date(node.last_heard)],
+    ['Ultimo contatto', formatDate(node.last_heard)],
     ['Batteria', node.battery === null ? '–' : `${node.battery}%`],
     ['Tensione', fmt(node.voltage, ' V', 2)],
     ['Uso canale', fmt(node.channel_util, '%')],

@@ -105,3 +105,12 @@ test('sendTargets: canale solo radio con canale omonimo, diretto qualunque radio
   expect(sendTargets(radios, 'ch:Z:0')).toEqual([])
   expect(sendTargets(radios, 'dm:A:!00000001').map((t) => t.radio.id)).toEqual(['A', 'B', 'C'])
 })
+
+test('removeByKey rimuove la copia stantia dal feed', async () => {
+  const { removeByKey } = await import('./chat')
+  const list = [{ key: 'a' }, { key: 'b' }] as Message[]
+  expect(removeByKey(list, 'a')).toBe(true)
+  expect(list.map((x) => x.key)).toEqual(['b'])
+  expect(removeByKey(list, 'zzz')).toBe(false)
+  expect(list).toHaveLength(1)
+})

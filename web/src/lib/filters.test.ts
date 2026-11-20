@@ -62,3 +62,10 @@ test('storage throwing falls back to default and does not throw on save', () => 
   expect(loadFilter(bad).countries).toEqual(['IT'])
   expect(() => saveFilter(bad, loadFilter(bad))).not.toThrow()
 })
+
+test('null last_heard', () => {
+  expect(ageClass(null, now)).toBe('old')
+  const nn = { ...n, last_heard: null } as Node
+  expect(matchNode(nn, { countries: [], maxAgeH: 24, sources: [], text: '' }, now)).toBe(false)
+  expect(matchNode(nn, { countries: [], maxAgeH: null, sources: [], text: '' }, now)).toBe(true)
+})

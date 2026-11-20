@@ -12,7 +12,7 @@ export interface Node {
   position_source: string | null
   position_time: number | null
   country: string | null
-  last_heard: number
+  last_heard: number | null
   sources: string[]
   battery: number | null
   voltage: number | null

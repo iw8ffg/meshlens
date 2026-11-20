@@ -131,6 +131,14 @@ export function pruneSet<T>(set: Set<T>, max: number): void {
   }
 }
 
+/** Rimuove da `list` la copia con la stessa chiave (arrivata prima senza radio_id, es. dal feed MQTT). */
+export function removeByKey(list: Message[], key: string): boolean {
+  const i = list.findIndex((x) => x.key === key)
+  if (i < 0) return false
+  list.splice(i, 1)
+  return true
+}
+
 /**
  * Unisce messaggi radio (live o storici) nella lista: dedup, `replaces`, ordine per tempo crescente,
  * conserva solo i `max` piu' recenti.
