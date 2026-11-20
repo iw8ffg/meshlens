@@ -1,10 +1,11 @@
 import { emitAuthRequired } from './api'
-import type { Message, Node, Status } from './types'
+import type { Message, Node, Radio, Status } from './types'
 
 export interface WSHandlers {
   nodes(n: Node[]): void
   message(m: Message): void
   status(s: Status): void
+  radios(r: Radio[]): void
 }
 
 const RECONNECT_MS = 3000
@@ -23,6 +24,7 @@ export function connectWS(handlers: WSHandlers): () => void {
         const msg = JSON.parse(ev.data as string)
         if (msg.type === 'nodes') handlers.nodes(msg.nodes)
         else if (msg.type === 'message') handlers.message(msg.message)
+        else if (msg.type === 'radios') handlers.radios(msg.radios)
         else if (msg.type === 'status') handlers.status({ mqtt: msg.mqtt })
       } catch {
         /* messaggio malformato: ignorato */

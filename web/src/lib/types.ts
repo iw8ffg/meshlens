@@ -47,3 +47,32 @@ export interface AuthStatus {
 
 // Impostazioni: la forma esatta e' definita dal backend (task successivi).
 export type Settings = Record<string, unknown>
+
+export type RadioState = 'disconnected' | 'connecting' | 'connected' | 'reconnecting' | 'error'
+
+export interface Radio {
+  id: string
+  name: string
+  kind: 'usb' | 'ble'
+  address: string
+  auto_connect: boolean
+  state: RadioState
+  error: string | null
+  my_node_id: string | null
+  my_node_name: string | null
+  channels: { index: number; name: string; role: string }[]
+}
+
+export interface Port {
+  device: string
+  description: string
+  vid: string | null
+  pid: string | null
+  likely_meshtastic: boolean
+  in_use_by: string | null
+}
+
+export interface BleDevice {
+  address: string
+  name: string
+}

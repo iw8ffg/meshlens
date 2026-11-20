@@ -7,20 +7,22 @@
   import Filters from './components/Filters.svelte'
   import StatusBar from './components/StatusBar.svelte'
   import MessageFeed from './components/MessageFeed.svelte'
+  import Radios from './components/Radios.svelte'
   import Settings from './components/Settings.svelte'
   import { matchNode } from './lib/filters'
   import { getJSON, AUTH_REQUIRED } from './lib/api'
   import { connectWS } from './lib/ws'
-  import { app, upsertNodes, addMessage, setStatus, persistFilter } from './lib/stores.svelte'
-  import type { AuthStatus, Node } from './lib/types'
+  import { app, upsertNodes, addMessage, setStatus, setRadios, persistFilter } from './lib/stores.svelte'
+  import type { AuthStatus, Node, Radio } from './lib/types'
 
   let auth = $state<AuthStatus | null>(null)
   let error = $state('')
-  type Tab = 'map' | 'nodes' | 'chat' | 'settings'
+  type Tab = 'map' | 'nodes' | 'chat' | 'radio' | 'settings'
   const TABS: [Tab, string][] = [
     ['map', 'Mappa'],
     ['nodes', 'Nodi'],
     ['chat', 'Chat'],
+    ['radio', 'Radio'],
     ['settings', 'Impostazioni'],
   ]
   let tab = $state<Tab>('nodes')
@@ -89,7 +91,15 @@
     getJSON<Node[]>('/nodes')
       .then(upsertNodes)
       .catch(() => {})
-    return connectWS({ nodes: upsertNodes, message: addMessage, status: setStatus })
+    getJSON<Radio[]>('/radios')
+      .then(setRadios)
+      .catch(() => {})
+    return connectWS({
+      nodes: upsertNodes,
+      message: addMessage,
+      status: setStatus,
+      radios: setRadios,
+    })
   })
 </script>
 
@@ -121,6 +131,8 @@
             <NodeList nodes={visible} {now} onpick={pick} />
           {:else if activeTab === 'chat'}
             <MessageFeed {now} onpick={pickId} />
+          {:else if activeTab === 'radio'}
+            <Radios />
           {:else if activeTab === 'settings'}
             <Settings onlogout={refresh} />
           {/if}
