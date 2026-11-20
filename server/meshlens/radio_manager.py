@@ -22,8 +22,8 @@ def default_iface_factory(cfg: dict):
     if cfg["kind"] == "usb":
         from meshtastic.serial_interface import SerialInterface
         return SerialInterface(devPath=cfg["address"])
-    from meshtastic.ble_interface import BLEInterface
-    return BLEInterface(cfg["address"])
+    from .ble_safe import SafeBLEInterface
+    return SafeBLEInterface(cfg["address"])
 
 
 def default_ble_scan() -> list[dict]:
@@ -86,11 +86,12 @@ class RadioManager:
         for t in tasks:
             with contextlib.suppress(asyncio.CancelledError):
                 await t
-        for conn in list(self._connectors.values()):
+        async def stop_one(conn):
             try:
                 await conn.stop()
             except Exception:
                 log.exception("stop radio fallito")
+        await asyncio.gather(*(stop_one(c) for c in list(self._connectors.values())))
         stop_hub = getattr(self.hub, "stop", None)
         if stop_hub is not None:
             stop_hub()

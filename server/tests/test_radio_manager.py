@@ -293,3 +293,23 @@ async def test_address_stored_as_typed_but_duplicates_case_insensitive():
     assert r["address"] == "aa:bb:cc"
     with pytest.raises(ValueError, match="già aggiunta"):
         await e.mgr.add("ble", "AA:BB:CC", "y")
+
+
+async def test_stop_stops_connectors_concurrently():
+    e = Env()
+    await e.mgr.add("usb", "COM5", "A")
+    await e.mgr.add("usb", "COM6", "B")
+    running = [0]
+    peak = [0]
+
+    def slow(conn):
+        async def stop():
+            running[0] += 1
+            peak[0] = max(peak[0], running[0])
+            await asyncio.sleep(0.05)
+            running[0] -= 1
+        conn.stop = stop
+    for c in FakeConnector.instances[-2:]:
+        slow(c)
+    await e.mgr.stop()
+    assert peak[0] == 2

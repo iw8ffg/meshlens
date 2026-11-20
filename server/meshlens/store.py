@@ -62,6 +62,10 @@ class Store:
     def update_message_status(self, key: str, status: str) -> None:
         self.conn.execute("UPDATE messages SET status=? WHERE key=?", (status, key))
 
+    def update_message_radio(self, key: str, radio_id: str, channel_index: int | None) -> None:
+        self.conn.execute("UPDATE messages SET radio_id=?, channel_index=?, source='rf' "
+                          "WHERE key=?", (radio_id, channel_index, key))
+
     def list_radios(self) -> list[dict]:
         rows = self.conn.execute(
             "SELECT id, name, kind, address, auto_connect, created FROM radios "

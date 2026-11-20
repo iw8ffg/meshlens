@@ -319,13 +319,116 @@ async def test_blocking_close_times_out(monkeypatch):
 async def test_ble_error_codes():
     from meshlens.radio import describe_error
 
-    class BLEError(Exception):
+    class BLEError(Exception):  # come la libreria: solo il messaggio in args, codice in .kind
+        def __init__(self, message, kind="unknown"):
+            super().__init__(message)
+            self.kind = kind
+
+    class BleakError(Exception):
         pass
-    assert describe_error(BLEError("x", "device_not_found")) == \
-        "Radio Bluetooth non trovata: è accesa e vicina?"
-    assert describe_error(BLEError("x", "multiple_devices")) == \
-        "Più radio Bluetooth corrispondono: usa l'indirizzo esatto"
-    assert describe_error(BLEError("x", "write_error")) == "Errore di connessione: BLEError"
+    assert describe_error(BLEError("x", "device_not_found")) ==         "Radio Bluetooth non trovata: è accesa e vicina?"
+    assert describe_error(BLEError("x", "multiple_devices")) ==         "Più radio Bluetooth corrispondono: usa l'indirizzo esatto"
+    assert describe_error(BLEError("x", "write_error")) ==         "Radio Bluetooth non abbinata: abbinala da Impostazioni Windows → Bluetooth "         "(PIN sullo schermo della radio)"
+    connect_msg = "Connessione Bluetooth non riuscita: avvicina la radio e riprova"
+    assert describe_error(BleakError("x")) == connect_msg
+    assert describe_error(TimeoutError()) == connect_msg
+
+
+async def test_close_runs_in_daemon_thread():
+    iface = FakeIface()
+    seen = []
+    iface.close = lambda: seen.append(threading.current_thread())
+    h = Harness(lambda cfg, n: iface)
+    await connected(h)
+    await h.conn.stop()
+    assert seen and seen[0].daemon and seen[0] is not threading.main_thread()
+
+
+async def test_send_text_is_serialised(monkeypatch):
+    iface = FakeIface()
+    active, peak = [0], [0]
+    orig = iface.sendText
+
+    def slow(*a, **kw):
+        active[0] += 1
+        peak[0] = max(peak[0], active[0])
+        import time as _t
+        _t.sleep(0.05)
+        active[0] -= 1
+        return orig(*a, **kw)
+    iface.sendText = slow
+    h = Harness(lambda cfg, n: iface)
+    await connected(h)
+    await asyncio.gather(*(h.conn.send_text(f"m{i}", 0, None) for i in range(3)))
+    assert peak[0] == 1 and len(iface.sent) == 3
+    await h.conn.stop()
+
+
+async def test_send_text_timeout(monkeypatch):
+    import meshlens.radio as radio
+    monkeypatch.setattr(radio, "SEND_TIMEOUT", 0.1)
+    iface = FakeIface()
+    release = threading.Event()
+    iface.sendText = lambda *a, **kw: release.wait(2)
+    h = Harness(lambda cfg, n: iface)
+    await connected(h)
+    with pytest.raises(RuntimeError, match="scaduto"):
+        await h.conn.send_text("x", 0, PEER)
+    release.set()
+    await h.conn.stop()
+
+
+async def test_start_wakes_backoff():
+    def factory(cfg, n):
+        if n == 1:
+            raise PermissionError(13, "Access is denied")
+        return FakeIface()
+    h = Harness(factory)
+    h.gate.clear()  # il backoff non scade da solo
+    await h.conn.start()
+    await h.until(lambda: h.conn.state()["state"] == "reconnecting")
+    await h.conn.start()  # "Connetti"
+    await h.until(lambda: h.conn.state()["state"] == "connected")
+    assert h.factory_calls == 2
+    await h.conn.stop()
+
+
+async def test_not_connected_after_register_triggers_reconnect():
+    first = FakeIface()
+    first.isConnected = threading.Event()  # mai impostato: gia' persa
+    second = FakeIface()
+    h = Harness(lambda cfg, n: first if n == 1 else second)
+    await connected(h)
+    await h.until(lambda: h.factory_calls == 2)
+    await h.until(lambda: first.closed == 1)
+    await h.conn.stop()
+
+
+async def test_nodedb_snapshot_retries_on_runtime_error():
+    iface = FakeIface()
+    real = iface.nodes
+    calls = [0]
+
+    from collections.abc import Mapping
+
+    class Flaky(Mapping):
+        def __getitem__(self, k):
+            return real[k]
+
+        def __len__(self):
+            return len(real)
+
+        def __iter__(self):
+            calls[0] += 1
+            if calls[0] < 3:
+                raise RuntimeError("dictionary changed size during iteration")
+            return iter(real)
+    iface.nodes = Flaky()
+    h = Harness(lambda cfg, n: iface)
+    await connected(h)
+    assert calls[0] >= 3
+    assert {e.kind for e in h.events} == {"nodeinfo", "position"}
+    await h.conn.stop()
 
 
 async def test_real_pubsub_roundtrip():

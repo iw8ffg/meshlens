@@ -102,6 +102,7 @@ def packet_to_event(packet: dict, radio_id: str, now: float) -> MeshEvent | None
     )
 
 
+# rx_time 0 = nodo mai sentito: l'ingestione non lo tratta come "appena sentito"
 def nodedb_to_events(nodes: dict, radio_id: str, now: float) -> list[MeshEvent]:
     events: list[MeshEvent] = []
     for node in nodes.values():
@@ -109,7 +110,7 @@ def nodedb_to_events(nodes: dict, radio_id: str, now: float) -> list[MeshEvent]:
         if num is None:
             continue
         common = dict(from_node=num, to_node=0, packet_id=0, channel="0",
-                      rx_time=node.get("lastHeard") or now, snr=None, rssi=None,
+                      rx_time=node.get("lastHeard") or 0, snr=None, rssi=None,
                       hops=None, radio_id=radio_id)
         for kind, payload in (
             ("nodeinfo", _nodeinfo(node.get("user"))),

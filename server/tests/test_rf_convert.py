@@ -95,7 +95,7 @@ def test_nodedb():
     first = [e for e in evs if e.from_node == 1]
     assert {e.kind for e in first} == {"nodeinfo", "position", "telemetry"}
     assert all(e.rx_time == 500 for e in first)
-    assert all(e.rx_time == NOW for e in evs if e.from_node == 2)
+    assert all(e.rx_time == 0 for e in evs if e.from_node == 2)  # mai sentito
     pos = next(e for e in first if e.kind == "position")
     assert pos.payload.time == 400
     assert next(e for e in first if e.kind == "nodeinfo").payload.role == "ROUTER"

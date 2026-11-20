@@ -60,7 +60,8 @@ class Ingestor:
         # i replay del database nodi della radio hanno rx_time vecchio: non fanno regredire lo stato
         previous_heard = node["last_heard"]
         stale = previous_heard is not None and ev.rx_time < previous_heard
-        if not stale:
+        no_time = ev.rx_time <= 0  # nodo del database della radio senza lastHeard
+        if not stale and not no_time:
             node["last_heard"] = ev.rx_time
         if ev.source not in node["sources"]:
             node["sources"].append(ev.source)
@@ -68,17 +69,17 @@ class Ingestor:
         if ev.source == "mqtt" or (ev.source == "rf" and ev.packet_id):
             # i pacchetti RF senza id (dal database nodi della radio) non si deduplicano
             is_dup = not self.dedup.is_new(num, ev.packet_id, ev.rx_time)
-        if ev.source == "rf" and ev.radio_id:
+        if ev.source == "rf" and ev.radio_id and not no_time:
             heard_by = node.setdefault("heard_by", {})
             old = heard_by.get(ev.radio_id)
             if old is None or int(ev.rx_time) >= old["time"]:
                 heard_by[ev.radio_id] = {"snr": ev.snr, "rssi": ev.rssi, "hops": ev.hops,
                                          "time": int(ev.rx_time)}
         # copie dello stesso pacchetto: si tiene l'SNR migliore e il minor numero di hop
-        if ev.snr is not None and not stale:
+        if ev.snr is not None and not stale and not no_time:
             prev = node["last_snr"]
             node["last_snr"] = ev.snr if not is_dup or prev is None else max(prev, ev.snr)
-        if ev.hops is not None and not stale:
+        if ev.hops is not None and not stale and not no_time:
             prev = node["hops"]
             node["hops"] = ev.hops if not is_dup or prev is None else min(prev, ev.hops)
 
@@ -96,12 +97,19 @@ class Ingestor:
             node["mqtt_gateways"] = 1
         elif is_dup:
             self.store.upsert_node(node)  # copia RF: aggiorna solo "sentito da"
+            if ev.kind == "text" and ev.radio_id:
+                self._adopt_rf_copy(ev)
             return
 
         ev_pos = None  # (lat, lon, precision_bits, source) della posizione nell'evento
         kind, p = ev.kind, ev.payload
-        if kind == "position" and self._older(ev, node["position_time"]):
-            pass
+        if kind == "position" and (self._older(ev, node["position_time"])
+                                   or (no_time and node["lat"] is not None)):
+            pass  # senza orario la posizione della radio riempie solo i vuoti
+        elif kind == "telemetry" and no_time:
+            if all(node[f] is None for f in ("battery", "voltage", "channel_util", "air_util_tx")):
+                self._update_telemetry(node, p)
+            kind = "stale"
         elif kind == "telemetry" and self._older(ev, self._telemetry_time.get(num)):
             kind = "stale"
         elif kind == "position":
@@ -130,7 +138,7 @@ class Ingestor:
 
         if persist:
             self.store.upsert_node(node)
-            if ev_pos is not None:
+            if ev_pos is not None and not no_time:
                 self.store.add_position(num, ev.rx_time, *ev_pos[:3], ev_pos[3])
             if kind == "telemetry":
                 self.store.add_telemetry(num, ev.rx_time, p)
@@ -139,6 +147,18 @@ class Ingestor:
 
         if message is not None:
             self.on_message(message)
+
+    def _adopt_rf_copy(self, ev: MeshEvent) -> None:
+        """Copia RF di un testo gia' creato da MQTT: il messaggio passa alla radio che l'ha sentito."""
+        key = f"{ev.from_node}:{ev.packet_id}"
+        for message in self.live.messages:
+            if message["key"] == key and message.get("radio_id") is None:
+                message.update(radio_id=ev.radio_id, channel_index=_channel_index(ev.channel),
+                               source="rf")
+                self.store.add_message(message)  # no-op se gia' presente
+                self.store.update_message_radio(key, ev.radio_id, message["channel_index"])
+                self.on_message(dict(message))
+                return
 
     @staticmethod
     def _older(ev: MeshEvent, current: float | None) -> bool:
@@ -190,7 +210,7 @@ class Ingestor:
                    or ev.rx_time - current_time > _DAY)
         if replace:
             node.update(lat=lat, lon=lon, precision_bits=precision_bits,
-                        position_source=source, position_time=int(ev.rx_time),
+                        position_source=source, position_time=int(ev.rx_time) or None,
                         country=self.locator.locate(lat, lon))
 
     @staticmethod

@@ -19,7 +19,11 @@ MSG_PORT_BUSY = "Porta in uso da un altro programma (chiudi l'app o la CLI Mesht
 MSG_PORT_MISSING = "Porta non trovata: radio scollegata?"
 MSG_BLE_MISSING = "Radio Bluetooth non trovata: è accesa e vicina?"
 MSG_BLE_MULTIPLE = "Più radio Bluetooth corrispondono: usa l'indirizzo esatto"
+MSG_BLE_PAIR = ("Radio Bluetooth non abbinata: abbinala da Impostazioni Windows → Bluetooth "
+                "(PIN sullo schermo della radio)")
+MSG_BLE_CONNECT = "Connessione Bluetooth non riuscita: avvicina la radio e riprova"
 CLOSE_TIMEOUT = 12.0
+SEND_TIMEOUT = 30.0
 
 
 def describe_error(exc: BaseException) -> str:
@@ -30,11 +34,15 @@ def describe_error(exc: BaseException) -> str:
     if isinstance(exc, FileNotFoundError) or "could not open port" in text:
         return MSG_PORT_MISSING
     if type(exc).__name__ == "BLEError":
-        code = exc.args[1] if len(exc.args) > 1 else None
+        code = getattr(exc, "kind", None)  # la libreria tiene il codice in .kind
         if code == "multiple_devices":
             return MSG_BLE_MULTIPLE
         if code == "device_not_found" or "No Meshtastic BLE peripheral" in text:
             return MSG_BLE_MISSING
+        if code == "write_error":
+            return MSG_BLE_PAIR
+    if type(exc).__name__ in ("BleakError", "TimeoutError") or isinstance(exc, TimeoutError):
+        return MSG_BLE_CONNECT
     return f"Errore di connessione: {type(exc).__name__}"
 
 
@@ -109,6 +117,8 @@ class RadioConnector:
         self._iface = None
         self._task: asyncio.Task | None = None
         self._lost = asyncio.Event()
+        self._wake = asyncio.Event()
+        self._send_lock = asyncio.Lock()
         self._pending: dict[int, float] = {}
         self._early: dict[int, tuple[float, int | None, bool, str | None]] = {}
         self._state = "disconnected"
@@ -144,6 +154,8 @@ class RadioConnector:
     # ---- ciclo di vita ----------------------------------------------
     async def start(self) -> None:
         if self._task is not None and not self._task.done():
+            if self._state in ("error", "reconnecting"):
+                self._wake.set()  # "Connetti": riprova subito, senza attendere il backoff
             return
         self._set_state("connecting")
         self._task = asyncio.create_task(self._run())
@@ -181,8 +193,18 @@ class RadioConnector:
                 self._set_state("reconnecting")
             else:
                 self._set_state("reconnecting", self._error)
-            await self._sleep(BACKOFF[min(attempt, len(BACKOFF) - 1)])
+            await self._backoff(BACKOFF[min(attempt, len(BACKOFF) - 1)])
             attempt += 1
+
+    async def _backoff(self, delay: float) -> None:
+        self._wake.clear()
+        sleeper = asyncio.ensure_future(self._sleep(delay))
+        waker = asyncio.ensure_future(self._wake.wait())
+        try:
+            await asyncio.wait({sleeper, waker}, return_when=asyncio.FIRST_COMPLETED)
+        finally:
+            for t in (sleeper, waker):
+                t.cancel()
 
     async def _connect(self) -> bool:
         self._lost.clear()
@@ -198,6 +220,9 @@ class RadioConnector:
             return False
         self._iface = iface
         self._hub.register(iface, self)
+        connected_flag = getattr(iface, "isConnected", None)
+        if connected_flag is not None and hasattr(connected_flag, "is_set")                 and not connected_flag.is_set():
+            self._lost.set()  # persa tra la creazione e la registrazione
         try:
             self._read_info(iface)
         except Exception as exc:
@@ -218,7 +243,16 @@ class RadioConnector:
 
     def _emit_nodedb(self) -> None:
         try:
-            events = nodedb_to_events(self._iface.nodes or {}, self.radio_id, self._clock())
+            nodes = None
+            for _ in range(3):  # il thread della libreria puo' modificare il dict
+                try:
+                    nodes = dict(self._iface.nodes or {})
+                    break
+                except RuntimeError:
+                    continue
+            if nodes is None:
+                return
+            events = nodedb_to_events(nodes, self.radio_id, self._clock())
         except Exception:
             log.exception("nodedb radio %s non convertibile", self.radio_id)
             return
@@ -238,12 +272,32 @@ class RadioConnector:
         if iface is None:
             return
         self._hub.unregister(iface)
+        # thread daemon: un close() bloccato non deve impedire l'uscita del processo
+        loop = asyncio.get_running_loop()
+        fut: asyncio.Future = loop.create_future()
+
+        def finish(exc):
+            if not fut.done():
+                fut.set_result(exc)
+
+        def run():
+            err = None
+            try:
+                iface.close()
+            except BaseException as exc:
+                err = exc
+            try:
+                loop.call_soon_threadsafe(finish, err)
+            except RuntimeError:
+                pass  # loop gia' chiuso
+        threading.Thread(target=run, name="RadioClose", daemon=True).start()
         try:
-            await asyncio.wait_for(asyncio.shield(self._call(iface.close)), CLOSE_TIMEOUT)
+            err = await asyncio.wait_for(fut, CLOSE_TIMEOUT)
         except asyncio.TimeoutError:
             log.warning("close() radio %s: timeout, procedo comunque", self.radio_id)
-        except _LibraryError as err:
-            log.warning("close() radio %s: %r", self.radio_id, err.original)
+            return
+        if err is not None:
+            log.warning("close() radio %s: %r", self.radio_id, err)
 
     # ---- eventi dal hub (nel thread del loop) -------------------------
     def on_lost(self) -> None:
@@ -272,13 +326,16 @@ class RadioConnector:
         iface = self._iface
         if iface is None or self._state != "connected":
             raise RuntimeError("Radio non connessa")
-        try:
-            packet = await self._call(
-                lambda: iface.sendText(
-                    text, destinationId=dest or BROADCAST, wantAck=True,
-                    channelIndex=channel_index))
-        except _LibraryError as err:
-            raise RuntimeError(f"Invio fallito: {type(err.original).__name__}") from err
+        async with self._send_lock:  # un invio alla volta per radio
+            try:
+                packet = await asyncio.wait_for(self._call(
+                    lambda: iface.sendText(
+                        text, destinationId=dest or BROADCAST, wantAck=True,
+                        channelIndex=channel_index)), SEND_TIMEOUT)
+            except asyncio.TimeoutError:
+                raise RuntimeError("Invio scaduto") from None
+            except _LibraryError as err:
+                raise RuntimeError(f"Invio fallito: {type(err.original).__name__}") from err
         packet_id = packet.id
         if dest is not None:  # per i broadcast nessun ack atteso
             self._pending[packet_id] = self._clock()
