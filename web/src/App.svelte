@@ -67,6 +67,7 @@
     refresh()
     const mq = window.matchMedia('(max-width: 767px)')
     mobile = mq.matches
+    if (mobile) tab = 'map'
     const onMq = () => (mobile = mq.matches)
     mq.addEventListener('change', onMq)
     const tick = setInterval(() => (now = Math.floor(Date.now() / 1000)), 30_000)

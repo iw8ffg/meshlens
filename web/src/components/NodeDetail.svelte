@@ -16,8 +16,9 @@
   let shown = $state(false)
 
   // Cambiando nodo il percorso precedente non e' piu' pertinente
+  const nodeId = $derived(node.id)
   $effect(() => {
-    void node.id
+    void nodeId
     shown = false
     msg = ''
     ontrack(null)
