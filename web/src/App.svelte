@@ -6,21 +6,23 @@
   import NodeDetail from './components/NodeDetail.svelte'
   import Filters from './components/Filters.svelte'
   import StatusBar from './components/StatusBar.svelte'
-  import MessageFeed from './components/MessageFeed.svelte'
+  import Chat from './components/Chat.svelte'
+  import Radios from './components/Radios.svelte'
   import Settings from './components/Settings.svelte'
   import { matchNode } from './lib/filters'
   import { getJSON, AUTH_REQUIRED } from './lib/api'
   import { connectWS } from './lib/ws'
-  import { app, upsertNodes, addMessage, setStatus, persistFilter } from './lib/stores.svelte'
-  import type { AuthStatus, Node } from './lib/types'
+  import { app, upsertNodes, addMessage, addRadioHistory, setMessageStatus, setStatus, setRadios, persistFilter } from './lib/stores.svelte'
+  import type { AuthStatus, Message, Node, Radio } from './lib/types'
 
   let auth = $state<AuthStatus | null>(null)
   let error = $state('')
-  type Tab = 'map' | 'nodes' | 'chat' | 'settings'
+  type Tab = 'map' | 'nodes' | 'chat' | 'radio' | 'settings'
   const TABS: [Tab, string][] = [
     ['map', 'Mappa'],
     ['nodes', 'Nodi'],
     ['chat', 'Chat'],
+    ['radio', 'Radio'],
     ['settings', 'Impostazioni'],
   ]
   let tab = $state<Tab>('nodes')
@@ -89,7 +91,19 @@
     getJSON<Node[]>('/nodes')
       .then(upsertNodes)
       .catch(() => {})
-    return connectWS({ nodes: upsertNodes, message: addMessage, status: setStatus })
+    getJSON<Message[]>('/messages/radio?limit=200')
+      .then(addRadioHistory)
+      .catch(() => {})
+    getJSON<Radio[]>('/radios')
+      .then(setRadios)
+      .catch(() => {})
+    return connectWS({
+      nodes: upsertNodes,
+      message: addMessage,
+      status: setStatus,
+      radios: setRadios,
+      messageStatus: setMessageStatus,
+    })
   })
 </script>
 
@@ -114,13 +128,15 @@
         </nav>
         <div class="content">
           {#if selected}
-            <NodeDetail node={selected} ontrack={(t) => (track = t)} onclose={close} />
+            <NodeDetail node={selected} {now} ontrack={(t) => (track = t)} onclose={close} onchat={() => (tab = 'chat')} />
           {/if}
           {#if activeTab === 'nodes'}
             <Filters />
             <NodeList nodes={visible} {now} onpick={pick} />
           {:else if activeTab === 'chat'}
-            <MessageFeed {now} onpick={pickId} />
+            <Chat {now} onpick={pickId} />
+          {:else if activeTab === 'radio'}
+            <Radios />
           {:else if activeTab === 'settings'}
             <Settings onlogout={refresh} />
           {/if}

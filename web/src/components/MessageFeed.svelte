@@ -22,6 +22,7 @@
     for (const m of [...older, ...app.messages]) byKey.set(m.key, m)
     const cs = app.filter.countries
     return [...byKey.values()]
+      .filter((m) => !m.radio_id)
       .filter((m) => cs.length === 0 || cs.includes(m.country ?? 'none'))
       .sort((a, b) => b.time - a.time)
   })

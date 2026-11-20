@@ -21,7 +21,11 @@ export interface Node {
   mqtt_gateways: number
   last_snr: number | null
   hops: number | null
+  heard_by?: Record<string, { snr: number | null; rssi: number | null; hops: number | null; time: number }>
+  is_local_radio?: boolean
 }
+
+export type MessageStatus = 'sending' | 'sent' | 'acked' | 'failed'
 
 export interface Message {
   key: string
@@ -33,6 +37,12 @@ export interface Message {
   time: number
   country: string | null
   source: string
+  direction?: 'in' | 'out'
+  radio_id?: string | null
+  channel_index?: number | null
+  packet_id?: number | null
+  status?: MessageStatus | null
+  replaces?: string | null
 }
 
 export interface Status {
@@ -47,3 +57,32 @@ export interface AuthStatus {
 
 // Impostazioni: la forma esatta e' definita dal backend (task successivi).
 export type Settings = Record<string, unknown>
+
+export type RadioState = 'disconnected' | 'connecting' | 'connected' | 'reconnecting' | 'error'
+
+export interface Radio {
+  id: string
+  name: string
+  kind: 'usb' | 'ble'
+  address: string
+  auto_connect: boolean
+  state: RadioState
+  error: string | null
+  my_node_id: string | null
+  my_node_name: string | null
+  channels: { index: number; name: string; role: string }[]
+}
+
+export interface Port {
+  device: string
+  description: string
+  vid: string | null
+  pid: string | null
+  likely_meshtastic: boolean
+  in_use_by: string | null
+}
+
+export interface BleDevice {
+  address: string
+  name: string
+}

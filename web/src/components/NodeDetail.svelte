@@ -1,15 +1,38 @@
 <script lang="ts">
   import { getJSON } from '../lib/api'
-  import { flag } from '../lib/format'
+  import { flag, timeAgo } from '../lib/format'
+  import { app } from '../lib/stores.svelte'
   import { formatPrecision } from '../lib/geo'
   import type { Node } from '../lib/types'
 
   type Pos = { time: number; lat: number; lon: number; precision_bits: number | null; source: string }
   let {
     node,
+    now,
     ontrack,
     onclose,
-  }: { node: Node; ontrack: (pts: [number, number][] | null) => void; onclose: () => void } = $props()
+    onchat,
+  }: {
+    node: Node
+    now: number
+    ontrack: (pts: [number, number][] | null) => void
+    onclose: () => void
+    onchat: () => void
+  } = $props()
+
+  const heard = $derived(
+    Object.entries(node.heard_by ?? {})
+      .map(([rid, h]) => ({ ...h, rid, name: app.radios.find((r) => r.id === rid)?.name ?? rid }))
+      .sort((a, b) => b.time - a.time),
+  )
+  const showMqtt = $derived(node.mqtt_gateways > 0 || node.sources.includes('mqtt'))
+  const firstRadio = $derived(app.radios.find((r) => r.state === 'connected') ?? null)
+
+  function directMessage() {
+    if (!firstRadio) return
+    app.chatConv = `dm:${firstRadio.id}:${node.id}`
+    onchat()
+  }
 
   let loading = $state(false)
   let msg = $state('')
@@ -84,6 +107,26 @@
       <dd>{v}</dd>
     {/each}
   </dl>
+  <h3>Sentito da</h3>
+  {#if heard.length === 0 && !showMqtt}
+    <p class="none">Nessuna radio</p>
+  {:else}
+    <ul class="heard">
+      {#each heard as h (h.rid)}
+        <li>
+          <b>{h.name}</b>
+          SNR {h.snr === null ? '–' : `${h.snr.toFixed(1).replace('.', ',')} dB`} · RSSI {h.rssi === null ? '–' : `${h.rssi} dBm`} ·
+          salti {h.hops ?? '–'} · {timeAgo(h.time, now)}
+        </li>
+      {/each}
+      {#if showMqtt}<li><b>MQTT</b> {node.mqtt_gateways} gateway</li>{/if}
+    </ul>
+  {/if}
+  {#if !node.is_local_radio}
+    <button class="dm" disabled={!firstRadio} title={firstRadio ? '' : 'Nessuna radio connessa'} onclick={directMessage}>
+      Messaggio diretto
+    </button>
+  {/if}
   {#if node.lat !== null}
     <button class="track" disabled={loading} onclick={toggleTrack}>
       {shown ? 'Nascondi percorso' : loading ? 'Caricamento…' : 'Mostra percorso'}
@@ -133,6 +176,34 @@
     border-radius: 6px;
     padding: 6px 12px;
     cursor: pointer;
+  }
+  h3 {
+    font-size: 14px;
+    margin: 10px 0 4px;
+  }
+  .heard {
+    list-style: none;
+    margin: 0 0 8px;
+    padding: 0;
+    font-size: 13px;
+  }
+  .none {
+    margin: 0 0 8px;
+    font-size: 13px;
+    color: #9ca3af;
+  }
+  .dm {
+    background: #1f2937;
+    color: inherit;
+    border: 1px solid #374151;
+    border-radius: 6px;
+    padding: 6px 12px;
+    cursor: pointer;
+    margin-right: 6px;
+  }
+  .dm:disabled {
+    opacity: 0.5;
+    cursor: default;
   }
   .msg {
     color: #fbbf24;
