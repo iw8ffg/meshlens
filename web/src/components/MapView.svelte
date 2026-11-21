@@ -115,10 +115,23 @@
   }
 
   let notice = $state('')
+  // Connessione anticipata al server delle tessere online: solo se la modalita' puo' usare la rete
+  function addPreconnect() {
+    if (document.head.querySelector('link[data-meshlens-preconnect]')) return
+    const l = document.createElement('link')
+    l.rel = 'preconnect'
+    l.href = new URL(STYLE).origin
+    l.crossOrigin = 'anonymous'
+    l.dataset.meshlensPreconnect = '1'
+    document.head.append(l)
+  }
   // Impostato da onMount: rilegge modalita' e stile-info e aggiorna la mappa viva
   let reloadCfg: (() => void) | null = null
   let seenVersion = maps.version
   const NOTICE = 'Mappa non disponibile offline: scaricala da Impostazioni → Mappe offline'
+  const NOTICE_ONLINE = 'Mappa online non raggiungibile'
+  const BACKOFF_START_MS = 30_000
+  const BACKOFF_MAX_MS = 600_000
   const ONLINE_TIMEOUT_MS = 8000
 
   onMount(() => {
@@ -134,6 +147,8 @@
     let styleJson: maplibregl.StyleSpecification | null = null
     let verifying: AbortController | null = null
     let retryTimer: ReturnType<typeof setTimeout> | null = null
+    let verifyTimer: ReturnType<typeof setTimeout> | null = null
+    let backoff = BACKOFF_START_MS
 
     const setup = (hasGlyphs: boolean) => {
       const m = map!
@@ -339,7 +354,16 @@
     const styleFor = (m: EffectiveMode): string | maplibregl.StyleSpecification =>
       m === 'online' ? (styleJson ?? STYLE) : m === 'offline' ? offlineStyle(info) : OFFLINE_STYLE
 
+    const noticeFor = (t: EffectiveMode): string => {
+      if (t !== 'fallback') return ''
+      if (mode === 'online') return NOTICE_ONLINE
+      return mode === 'offline' || !navigator.onLine ? NOTICE : ''
+    }
+
     const target = (): EffectiveMode => {
+      // modalita' forzate: senza risorse si ricade sullo stile di base (livelli MeshLens visibili)
+      if (mode === 'offline' && !info.has_offline) return 'fallback'
+      if (mode === 'online' && onlineFailed) return 'fallback'
       // con mappe offline l'online si usa solo dopo averlo verificato; senza, si prova subito
       const failed = mode === 'auto' && info.has_offline ? !onlineOk : onlineFailed
       return chooseMode(mode, navigator.onLine, info.has_offline, failed)
@@ -350,7 +374,7 @@
     const evaluate = (force = false) => {
       if (disposed || !map) return
       const t = target()
-      notice = t === 'fallback' && !navigator.onLine ? NOTICE : ''
+      notice = noticeFor(t)
       if (t === current && !(force && t === 'offline')) return
       if (!force && current !== null && !canSwitch(lastSwitch, Date.now())) {
         if (!retryTimer) {
@@ -365,7 +389,7 @@
       current = t
       ready = false
       map.setStyle(styleFor(t), { diff: false }) // style.load ricrea i livelli MeshLens
-      notice = t === 'fallback' && !navigator.onLine ? NOTICE : ''
+      notice = noticeFor(t)
     }
 
     // Precarica lo stile online: si passa a online solo se si carica davvero entro 8 s
@@ -379,8 +403,17 @@
         if (!res.ok) throw new Error(String(res.status))
         styleJson = (await res.json()) as maplibregl.StyleSpecification
         onlineOk = true
+        backoff = BACKOFF_START_MS
       } catch {
         onlineOk = false
+        // ritenta con attesa crescente finche' il browser e' online e si mostra l'offline
+        if (!disposed && !verifyTimer) {
+          verifyTimer = setTimeout(() => {
+            verifyTimer = null
+            void verifyOnline()
+          }, backoff)
+          backoff = Math.min(backoff * 2, BACKOFF_MAX_MS)
+        }
       } finally {
         clearTimeout(to)
         if (verifying === ctl) verifying = null
@@ -390,6 +423,9 @@
 
     const onOnline = () => {
       onlineFailed = false
+      backoff = BACKOFF_START_MS
+      if (verifyTimer) clearTimeout(verifyTimer)
+      verifyTimer = null
       void verifyOnline()
       evaluate()
     }
@@ -406,6 +442,7 @@
       if (disposed) return false
       if (st?.map_mode === 'online' || st?.map_mode === 'offline' || st?.map_mode === 'auto') mode = st.map_mode
       if (inf && typeof inf.has_offline === 'boolean') info = { has_offline: inf.has_offline, maxzoom: inf.maxzoom ?? 14, bounds: inf.bounds ?? null }
+      if (mode !== 'offline') addPreconnect()
       return true
     }
 
@@ -436,7 +473,7 @@
     const start = async () => {
       if (!(await readCfg())) return
       current = target()
-      notice = current === 'fallback' && !navigator.onLine ? NOTICE : ''
+      notice = noticeFor(current)
       map = new maplibregl.Map({ container: el, style: styleFor(current), center: [12.5, 42.5], zoom: 5, attributionControl: { compact: true }, fadeDuration: 0 })
       map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right')
       map.on('style.load', () => setup(current !== 'fallback'))
@@ -463,6 +500,7 @@
       reloadCfg = null
       if (boundsTimer) clearTimeout(boundsTimer)
       if (retryTimer) clearTimeout(retryTimer)
+      if (verifyTimer) clearTimeout(verifyTimer)
       if (timer) clearTimeout(timer)
       cancelPick()
       map?.remove()

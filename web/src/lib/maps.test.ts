@@ -50,4 +50,7 @@ describe('bboxFromBounds', () => {
   it('accetta anche un array', () => {
     expect(bboxFromBounds([1.23456, 2.34567, 3.45678, 4.56789])).toEqual([1.2346, 2.3457, 3.4568, 4.5679])
   })
+  it('limita longitudine a ±180 e latitudine a ±85', () => {
+    expect(bboxFromBounds([-200, -89.9, 250, 90])).toEqual([-180, -85, 180, 85])
+  })
 })

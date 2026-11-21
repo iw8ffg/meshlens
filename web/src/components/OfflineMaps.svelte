@@ -2,7 +2,7 @@
   import { onMount, untrack } from 'svelte'
   import { ApiError, cancelMapJob, deleteMap, downloadMap, estimateMap, getJSON, mapsState, send } from '../lib/api'
   import { bboxFromBounds, formatBytes, jobPercent } from '../lib/maps'
-  import { bumpMaps, maps } from '../lib/stores.svelte'
+  import { app, bumpMaps, maps, setMapJob } from '../lib/stores.svelte'
   import type { AppSettings } from '../lib/settings'
   import type { Bbox, MapEstimate, MapKind, MapsState, OfflineMap } from '../lib/types'
 
@@ -34,7 +34,9 @@
     try {
       snap = await mapsState()
       mode = snap.mode
-      if (maps.job === null && snap.job) maps.job = snap.job
+      const j = snap.job
+      // il lavoro dell'istantanea e' piu' recente se id o stato differiscono (WS perso)
+      if (j && (maps.job?.id !== j.id || maps.job?.status !== j.status)) setMapJob(j)
       loadError = ''
     } catch {
       loadError = 'Mappe offline non disponibili'
@@ -51,6 +53,24 @@
     }
   })
 
+  // Riconnessione del WebSocket: lo stato puo' essere vecchio
+  let seenReconnects = app.reconnects
+  $effect(() => {
+    const r = app.reconnects
+    untrack(() => {
+      if (r === seenReconnects) return
+      seenReconnects = r
+      void load()
+    })
+  })
+
+  // Con un lavoro in corso rilegge lo stato ogni 5 s (rete di sicurezza se il WS non arriva)
+  $effect(() => {
+    if (!running) return
+    const t = setInterval(() => void load(), 5000)
+    return () => clearInterval(t)
+  })
+
   // Fine download o eliminazione da altrove: rilegge l'elenco (nessuna scrittura su stati letti qui)
   let seen = maps.version
   $effect(() => {
@@ -64,10 +84,11 @@
 
   const errMsg = (e: unknown, fallback: string) => (e instanceof ApiError ? e.message : fallback)
 
-  async function saveMode() {
+  async function saveMode(e: Event) {
     error = info = ''
+    const value = (e.currentTarget as HTMLSelectElement).value
     try {
-      await send('PUT', '/settings', { map_mode: mode })
+      await send('PUT', '/settings', { map_mode: value })
       bumpMaps()
       info = 'Modalità salvata'
     } catch (e) {

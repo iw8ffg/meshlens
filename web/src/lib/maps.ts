@@ -29,9 +29,10 @@ interface BoundsLike {
 }
 
 const r4 = (v: number) => Math.round(v * 10000) / 10000
+const clamp = (v: number, lim: number) => Math.min(lim, Math.max(-lim, v))
 
-/** [minLon, minLat, maxLon, maxLat] arrotondata a 4 decimali. */
+/** [minLon, minLat, maxLon, maxLat] arrotondata a 4 decimali, limitata a lon ±180 e lat ±85. */
 export function bboxFromBounds(b: BoundsLike | number[]): Bbox {
   const [w, s, e, n] = Array.isArray(b) ? b : [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()]
-  return [r4(w), r4(s), r4(e), r4(n)]
+  return [r4(clamp(w, 180)), r4(clamp(s, 85)), r4(clamp(e, 180)), r4(clamp(n, 85))]
 }
