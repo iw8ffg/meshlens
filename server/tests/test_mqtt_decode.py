@@ -250,3 +250,34 @@ def test_set_keys_removing_custom_channel_stops_using_its_key():
     assert "Squadra" not in dec.channel_keys
     raw = make_envelope(portnums_pb2.TEXT_MESSAGE_APP, b"x", channel_id="Squadra", key=k)
     assert dec.decode("msh/EU_868/2/e/Squadra/!00000001", raw, 1.0) is None
+
+
+def test_text_reply_and_emoji():
+    ev = EnvelopeDecoder([DEFAULT_KEY]).decode(
+        T, make_envelope(1, "👍".encode(), reply_id=42, emoji=1), now=1.0)
+    assert ev.kind == "text" and ev.payload.reply_id == 42 and ev.payload.emoji is True
+    plain = EnvelopeDecoder([DEFAULT_KEY]).decode(T, make_envelope(1, b"ciao"), now=1.0)
+    assert plain.payload.reply_id is None and plain.payload.emoji is False
+
+
+def test_waypoint_decoded():
+    wp = mesh_pb2.Waypoint(id=7, latitude_i=451000000, longitude_i=92000000,
+                           name="Ritrovo", icon=0x1F4CD, expire=0)
+    ev = EnvelopeDecoder([DEFAULT_KEY]).decode(T, make_envelope(8, wp), now=1.0)
+    assert ev.kind == "waypoint"
+    assert ev.payload.id == 7 and ev.payload.name == "Ritrovo"
+    assert ev.payload.lat == pytest.approx(45.1) and ev.payload.lon == pytest.approx(9.2)
+    assert ev.payload.icon == 0x1F4CD and ev.payload.expire == 0
+
+
+def test_pki_flag_and_stat():
+    dec = EnvelopeDecoder([DEFAULT_KEY])
+    ev = dec.decode(T, make_envelope(1, b"dm", encrypted=False, pki=True), now=1.0)
+    assert ev.pki is True
+    plain = dec.decode(T, make_envelope(1, b"dm", encrypted=False), now=1.0)
+    assert plain.pki is False
+    # cifrato con una chiave che non abbiamo: non decifrabile
+    other = bytes(range(16))
+    raw = make_envelope(1, b"dm", key=other, pki=True)
+    assert dec.decode(T, raw, now=1.0) is None
+    assert dec.stats["pki_encrypted"] == 1 and dec.stats["undecodable"] == 0

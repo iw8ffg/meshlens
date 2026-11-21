@@ -7,7 +7,7 @@ from meshtastic.protobuf import config_pb2, mesh_pb2, mqtt_pb2, portnums_pb2, te
 from .crypto import decrypt
 from .events import (
     MapReportData, MeshEvent, NeighborData, NodeInfoData, PositionData, RouteData,
-    TelemetryData, TextData, scale_snr,
+    TelemetryData, TextData, WaypointData, scale_snr,
 )
 
 
@@ -131,10 +131,28 @@ def _parse_route(data: mesh_pb2.Data) -> RouteData:
     )
 
 
+def _parse_waypoint(payload: bytes) -> WaypointData:
+    wp = mesh_pb2.Waypoint()
+    wp.ParseFromString(payload)
+    ok = not (wp.latitude_i == 0 and wp.longitude_i == 0) and _valid_coords(
+        wp.latitude_i, wp.longitude_i)
+    return WaypointData(
+        id=wp.id,
+        lat=wp.latitude_i * 1e-7 if ok else None,
+        lon=wp.longitude_i * 1e-7 if ok else None,
+        name=wp.name, description=wp.description, icon=wp.icon,
+        expire=wp.expire, locked_to=wp.locked_to,
+    )
+
+
 def _parse_payload(data: mesh_pb2.Data):
     port = data.portnum
     if port == portnums_pb2.TEXT_MESSAGE_APP:
-        return "text", TextData(text=data.payload.decode("utf-8"))  # strict: UnicodeDecodeError = undecodable
+        # strict: UnicodeDecodeError = undecodable
+        return "text", TextData(text=data.payload.decode("utf-8"),
+                                reply_id=data.reply_id or None, emoji=bool(data.emoji))
+    if port == portnums_pb2.WAYPOINT_APP:
+        return "waypoint", _parse_waypoint(data.payload)
     if port == portnums_pb2.POSITION_APP:
         return "position", _parse_position(data.payload)
     if port == portnums_pb2.NODEINFO_APP:
@@ -225,7 +243,7 @@ class EnvelopeDecoder:
         from_node = getattr(packet, "from")
         data = self._extract_data(packet, from_node, env.channel_id or None)
         if data is None:
-            self.stats["undecodable"] += 1
+            self.stats["pki_encrypted" if packet.pki_encrypted else "undecodable"] += 1
             return None
         kind, body = _parse_payload(data)
         self.stats["ok"] += 1
@@ -252,6 +270,7 @@ class EnvelopeDecoder:
             relay_node=relay,
             hops_min=hops_min,
             broker=self.broker,
+            pki=packet.pki_encrypted,
         )
 
     def _extract_data(self, packet: mesh_pb2.MeshPacket, from_node: int,

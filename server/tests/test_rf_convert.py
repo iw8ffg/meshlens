@@ -137,3 +137,30 @@ def test_rangetest_packet_converted():
     assert ev.payload.seq == 8
     ev = packet_to_event(_pkt({"portnum": "RANGE_TEST_APP", "payload": b"\xff\xfe"}), "r", NOW)
     assert ev.kind == "rangetest" and ev.payload.seq is None and ev.payload.text == ""
+
+
+def test_text_reply_emoji_pki():
+    ev = packet_to_event(
+        _pkt({"portnum": "TEXT_MESSAGE_APP", "text": "ok", "replyId": 9, "emoji": 1},
+             pkiEncrypted=True), "radio1", NOW)
+    assert ev.payload.reply_id == 9 and ev.payload.emoji is True and ev.pki is True
+    plain = packet_to_event(_pkt({"portnum": "TEXT_MESSAGE_APP", "text": "ok"}), "radio1", NOW)
+    assert plain.payload.reply_id is None and plain.payload.emoji is False and plain.pki is False
+
+
+def test_waypoint_converted():
+    ev = packet_to_event(_pkt({"portnum": "WAYPOINT_APP", "waypoint": {
+        "id": 5, "latitudeI": 451000000, "longitudeI": 92000000, "name": "Ritrovo",
+        "description": "d", "icon": 128205, "expire": 99, "lockedTo": 4660}}), "radio1", NOW)
+    assert ev.kind == "waypoint"
+    p = ev.payload
+    assert (p.id, p.name, p.description, p.icon, p.expire, p.locked_to) == (
+        5, "Ritrovo", "d", 128205, 99, 4660)
+    assert abs(p.lat - 45.1) < 1e-9 and abs(p.lon - 9.2) < 1e-9
+
+
+def test_waypoint_zero_coords():
+    ev = packet_to_event(_pkt({"portnum": "WAYPOINT_APP", "waypoint": {
+        "id": 5, "latitudeI": 0, "longitudeI": 0, "expire": 1}}), "radio1", NOW)
+    assert ev.kind == "waypoint" and ev.payload.lat is None and ev.payload.lon is None
+    assert ev.payload.expire == 1

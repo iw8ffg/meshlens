@@ -27,6 +27,20 @@ class NodeInfoData:
 @dataclass
 class TextData:
     text: str
+    reply_id: int | None = None  # packet_id del messaggio a cui risponde o reagisce
+    emoji: bool = False  # reazione: il testo e' l'emoji
+
+
+@dataclass
+class WaypointData:
+    id: int
+    lat: float | None  # None se (0,0) o fuori intervallo (serve per le eliminazioni)
+    lon: float | None
+    name: str
+    description: str
+    icon: int  # codepoint Unicode, 0 = nessuno
+    expire: int  # secondi epoch, 0 = mai
+    locked_to: int  # numero nodo, 0 = nessuno
 
 
 @dataclass
@@ -94,12 +108,13 @@ class MeshEvent:
     radio_id: str | None
     kind: str
     payload: (PositionData | NodeInfoData | TextData | TelemetryData | MapReportData
-               | NeighborData | RouteData | RangeTestData)
+               | NeighborData | RouteData | RangeTestData | WaypointData)
     via_mqtt: bool = False  # pacchetto RF arrivato alla radio tramite un gateway MQTT
     # MQTT: ultimo byte dell'ultimo ritrasmettitore (0 = sconosciuto) e minimo dei salti noto
     relay_node: int | None = None
     hops_min: int | None = None
     broker: str | None = None  # MQTT: id del broker che ha consegnato il pacchetto
+    pki: bool = False  # DM cifrato con la chiave pubblica del destinatario
 
     @property
     def gateway_num(self) -> int | None:

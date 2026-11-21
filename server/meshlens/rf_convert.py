@@ -5,7 +5,7 @@ from meshtastic.protobuf import mesh_pb2
 
 from .events import (
     MeshEvent, NeighborData, NodeInfoData, PositionData, RangeTestData, RouteData,
-    TelemetryData, TextData, scale_snr,
+    TelemetryData, TextData, WaypointData, scale_snr,
 )
 
 
@@ -112,12 +112,27 @@ def _rangetest(decoded: dict) -> RangeTestData:
     return RangeTestData(seq=parse_seq(text), text=text)
 
 
+def _waypoint(wp: dict | None) -> WaypointData | None:
+    if not wp:
+        return None
+    lat_i, lon_i = wp.get("latitudeI"), wp.get("longitudeI")
+    ok = (lat_i is not None and lon_i is not None and not (lat_i == 0 and lon_i == 0)
+          and -900_000_000 <= lat_i <= 900_000_000 and -1_800_000_000 <= lon_i <= 1_800_000_000)
+    return WaypointData(
+        id=wp.get("id", 0),
+        lat=lat_i * 1e-7 if ok else None, lon=lon_i * 1e-7 if ok else None,
+        name=wp.get("name", ""), description=wp.get("description", ""),
+        icon=wp.get("icon", 0), expire=wp.get("expire", 0), locked_to=wp.get("lockedTo", 0),
+    )
+
+
 def _event(kind, payload, *, from_node, to_node, packet_id, channel, rx_time,
-           snr, rssi, hops, radio_id, via_mqtt=False) -> MeshEvent:
+           snr, rssi, hops, radio_id, via_mqtt=False, pki=False) -> MeshEvent:
     return MeshEvent(
         source="rf", from_node=from_node, to_node=to_node, packet_id=packet_id,
         channel=channel, rx_time=rx_time, snr=snr, rssi=rssi, hops=hops,
         gateway_id=None, radio_id=radio_id, kind=kind, payload=payload, via_mqtt=via_mqtt,
+        pki=pki,
     )
 
 
@@ -128,7 +143,11 @@ def packet_to_event(packet: dict, radio_id: str, now: float) -> MeshEvent | None
     port = decoded.get("portnum")
     if port == "TEXT_MESSAGE_APP":
         text = decoded.get("text")
-        kind, payload = "text", TextData(text=text) if text is not None else None
+        kind = "text"
+        payload = (TextData(text=text, reply_id=decoded.get("replyId") or None,
+                            emoji=bool(decoded.get("emoji"))) if text is not None else None)
+    elif port == "WAYPOINT_APP":
+        kind, payload = "waypoint", _waypoint(decoded.get("waypoint"))
     elif port == "POSITION_APP":
         kind, payload = "position", _position(decoded.get("position"))
     elif port == "NODEINFO_APP":
@@ -154,6 +173,7 @@ def packet_to_event(packet: dict, radio_id: str, now: float) -> MeshEvent | None
         packet_id=packet.get("id", 0), channel=str(packet.get("channel", 0)),
         rx_time=now, snr=packet.get("rxSnr"), rssi=packet.get("rxRssi"),
         hops=hops, radio_id=radio_id, via_mqtt=bool(packet.get("viaMqtt")),
+        pki=bool(packet.get("pkiEncrypted")),
     )
 
 
