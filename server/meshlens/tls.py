@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from cryptography import x509
+from cryptography.exceptions import UnsupportedAlgorithm
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
@@ -71,7 +72,7 @@ def _load_valid(cert_dir: Path, wanted: set, now: float) -> x509.Certificate | N
         cert = x509.load_pem_x509_certificate((cert_dir / CERT_FILE).read_bytes())
         key = serialization.load_pem_private_key((cert_dir / KEY_FILE).read_bytes(), None)
         san = cert.extensions.get_extension_for_class(x509.SubjectAlternativeName).value
-    except (OSError, ValueError, TypeError, x509.ExtensionNotFound):
+    except (OSError, ValueError, TypeError, UnsupportedAlgorithm, x509.ExtensionNotFound):
         return None
     same_key = key.public_key().public_bytes(
         serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo

@@ -10,24 +10,34 @@ HANDLER_NAME = "meshlens-file"
 FORMAT = "%(asctime)s %(levelname)s %(name)s: %(message)s"
 
 
-def setup_logging(log_dir: Path, level: int = logging.INFO) -> Path:
-    """Installa il file di log; richiamarla di nuovo non duplica le righe."""
+def setup_logging(log_dir: Path, level: int = logging.INFO) -> Path | None:
+    """Installa il file di log; richiamarla di nuovo non duplica le righe.
+
+    Se la cartella dei log non e' scrivibile si prosegue senza file (None), senza errori."""
     log_dir = Path(log_dir)
-    log_dir.mkdir(parents=True, exist_ok=True)
-    path = log_dir / LOG_FILE
+    path: Path | None = log_dir / LOG_FILE
+    error: OSError | None = None
     root = logging.getLogger()
     for h in list(root.handlers):
         if h.get_name() == HANDLER_NAME:
             root.removeHandler(h)
             h.close()
-    handler = RotatingFileHandler(path, maxBytes=LOG_MAX_BYTES, backupCount=LOG_BACKUPS,
-                                  encoding="utf-8", errors="replace")
-    handler.set_name(HANDLER_NAME)
-    handler.setFormatter(logging.Formatter(FORMAT))
-    root.addHandler(handler)
+    try:
+        log_dir.mkdir(parents=True, exist_ok=True)
+        handler = RotatingFileHandler(path, maxBytes=LOG_MAX_BYTES, backupCount=LOG_BACKUPS,
+                                      encoding="utf-8", errors="replace")
+    except OSError as e:  # es. profilo in sola lettura: MeshLens parte lo stesso
+        handler, path, error = None, None, e
+    if handler is not None:
+        handler.set_name(HANDLER_NAME)
+        handler.setFormatter(logging.Formatter(FORMAT))
+        root.addHandler(handler)
     root.setLevel(logging.WARNING)
     logging.getLogger("meshlens").setLevel(level)
     logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
+    if path is None:
+        logging.getLogger(__name__).warning(
+            "Cartella dei log %s non scrivibile (%s): si prosegue senza file di log", log_dir, error)
     return path
 
 

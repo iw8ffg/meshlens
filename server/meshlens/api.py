@@ -43,6 +43,9 @@ from .serving import tls_status
 from .store import Store
 
 COOKIE = "meshlens_session"
+# su HTTPS un nome diverso: un cookie Secure dello stesso nome messo da https://IP:8687
+# impedirebbe al browser di salvare quello di http://IP:8686 (stesso host, porta ignorata)
+COOKIE_HTTPS = "meshlens_session_s"
 COOKIE_MAX_AGE = 365 * 24 * 3600
 LOCAL_HOSTS = (*LOOPBACK, "localhost")
 INTERNAL_KEYS = ()
@@ -331,6 +334,19 @@ class _SpaStaticFiles(StaticFiles):
             raise
 
 
+def _is_https(scheme: str) -> bool:
+    return scheme in ("https", "wss")
+
+
+def cookie_name(scheme: str) -> str:
+    """Nome del cookie di sessione per lo schema della richiesta (anche ws/wss)."""
+    return COOKIE_HTTPS if _is_https(scheme) else COOKIE
+
+
+def session_token(conn: Request | WebSocket) -> str | None:
+    return conn.cookies.get(cookie_name(conn.url.scheme))
+
+
 def create_app(ctx: AppContext) -> FastAPI:
     app = FastAPI(title="MeshLens")
 
@@ -341,9 +357,14 @@ def create_app(ctx: AppContext) -> FastAPI:
         return await call_next(request)
 
     def set_cookie(request: Request, response: Response, token: str) -> None:
-        # Secure solo su HTTPS: il loopback resta in HTTP e il cookie deve tornare indietro
-        response.set_cookie(COOKIE, token, max_age=COOKIE_MAX_AGE, httponly=True,
-                            samesite="strict", secure=request.url.scheme == "https", path="/")
+        # Secure solo su HTTPS e mai per il loopback (che resta in HTTP su 127.0.0.1)
+        https = _is_https(request.url.scheme)
+        response.set_cookie(cookie_name(request.url.scheme), token, max_age=COOKIE_MAX_AGE,
+                            httponly=True, samesite="strict",
+                            secure=https and not is_loopback(request), path="/")
+
+    def is_loopback(request: Request) -> bool:
+        return request.client is not None and request.client.host in LOOPBACK
 
     def is_local(request: Request) -> bool:
         return request.client is not None and request.client.host in LOCAL_HOSTS
@@ -354,7 +375,7 @@ def create_app(ctx: AppContext) -> FastAPI:
             raise HTTPException(415, "Content-Type non supportato")
 
     async def require_auth(request: Request) -> None:
-        if not ctx.auth.check(request.cookies.get(COOKIE)):
+        if not ctx.auth.check(session_token(request)):
             raise HTTPException(401, "Accesso richiesto")
 
     # ---- istanza singola e chiusura ----
@@ -389,7 +410,7 @@ def create_app(ctx: AppContext) -> FastAPI:
         length = ctx.auth.pin_length()
         lan = load_settings(ctx.conn)["lan_access"]
         return {"pin_set": ctx.auth.pin_is_set(),
-                "authenticated": ctx.auth.check(request.cookies.get(COOKIE)),
+                "authenticated": ctx.auth.check(session_token(request)),
                 "is_local": is_local(request),
                 "pin_short": None if length is None else bool(lan and length < MIN_PIN_LAN),
                 # cifre minime per un PIN nuovo (primo PIN o cambio)
@@ -426,7 +447,7 @@ def create_app(ctx: AppContext) -> FastAPI:
     @app.post("/api/auth/pin", dependencies=[Depends(require_auth), Depends(require_json)])
     async def auth_change_pin(body: ChangePinBody, request: Request):
         try:
-            await ctx.auth.change_pin(request.cookies.get(COOKIE), body.current_pin,
+            await ctx.auth.change_pin(session_token(request), body.current_pin,
                                       body.new_pin, min_pin_len(), client_ip(request))
         except ValueError as e:
             raise HTTPException(400, str(e))
@@ -439,7 +460,7 @@ def create_app(ctx: AppContext) -> FastAPI:
 
     @app.get("/api/auth/sessions", dependencies=[Depends(require_auth)])
     async def auth_sessions(request: Request):
-        return ctx.auth.sessions(request.cookies.get(COOKIE))
+        return ctx.auth.sessions(session_token(request))
 
     @app.delete("/api/auth/sessions/{session_id}", dependencies=[Depends(require_auth)])
     async def auth_revoke(session_id: str):
@@ -449,14 +470,14 @@ def create_app(ctx: AppContext) -> FastAPI:
 
     @app.post("/api/auth/sessions/revoke-others", dependencies=[Depends(require_auth)])
     async def auth_revoke_others(request: Request):
-        return {"ok": True, "revoked": ctx.auth.revoke_others(request.cookies.get(COOKIE))}
+        return {"ok": True, "revoked": ctx.auth.revoke_others(session_token(request))}
 
     @app.post("/api/auth/logout")
     async def auth_logout(request: Request, response: Response):
-        token = request.cookies.get(COOKIE)
+        token = session_token(request)
         if token:
             ctx.auth.logout(token)
-        response.delete_cookie(COOKIE, path="/")
+        response.delete_cookie(cookie_name(request.url.scheme), path="/")
         return {"ok": True}
 
     # ---- nodi ----
@@ -680,7 +701,14 @@ def create_app(ctx: AppContext) -> FastAPI:
         if body.confirm is not True:
             raise HTTPException(400, "Conferma richiesta")
         # VACUUM e' bloccante: gira sul loop (la connessione e' solo sua), su richiesta esplicita
-        before, after = compact(ctx.conn)
+        try:
+            before, after = compact(ctx.conn)
+        except sqlite3.OperationalError:
+            # es. un backup o una lettura in corso tengono il database: si riprova dopo
+            logging.getLogger(__name__).warning("Compattazione del database non riuscita",
+                                                exc_info=True)
+            raise HTTPException(409, "Database occupato (backup o lettura in corso): "
+                                     "riprova tra qualche minuto")
         return {"before_bytes": before, "after_bytes": after}
 
     # ---- diagnostica ----
@@ -1120,7 +1148,7 @@ def create_app(ctx: AppContext) -> FastAPI:
                 origin is not None and urlsplit(origin).netloc.lower() != (host or "").lower()):
             await ws.close(code=4403)
             return
-        token = ws.cookies.get(COOKIE)
+        token = session_token(ws)
         if not ctx.auth.check(token):
             await ws.close(code=4401)
             return

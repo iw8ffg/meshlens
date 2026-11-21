@@ -767,20 +767,80 @@ async def test_mine_and_favorite_revive_cap_evicted_node(ctx):
         assert ctx.store.get_node(0xaa)["is_mine"]
 
 
-async def test_cookie_secure_on_https(ctx):
+async def test_cookie_secure_on_https_from_lan(ctx):
+    ctx.auth.set_pin("1234")
+    save_settings(ctx.conn, {"lan_access": True})
+    async with httpx.AsyncClient(transport=ASGITransport(app=create_app(ctx),
+                                                         client=("192.168.1.20", 1234)),
+                                 base_url="https://192.168.1.10") as c:
+        r = await c.post("/api/auth/login", json={"pin": "1234"})
+        assert r.status_code == 200
+        sc = r.headers["set-cookie"]
+        assert sc.startswith("meshlens_session_s=")
+        assert "Secure" in sc and "HttpOnly" in sc and "samesite=strict" in sc.lower()
+        # da HTTPS il cookie torna indietro e la sessione vale
+        assert (await c.get("/api/auth/status")).json()["authenticated"] is True
+        # il cookie HTTP con lo stesso valore non basta su HTTPS (e viceversa)
+        token = c.cookies.get("meshlens_session_s")
+    async with httpx.AsyncClient(transport=ASGITransport(app=create_app(ctx),
+                                                         client=("192.168.1.20", 1234)),
+                                 base_url="https://192.168.1.10") as c:
+        c.cookies.set("meshlens_session", token)
+        assert (await c.get("/api/auth/status")).json()["authenticated"] is False
+    async with client(ctx) as c:  # su http (loopback) niente Secure: il login funziona
+        r = await c.post("/api/auth/login", json={"pin": "1234"})
+        sc = r.headers["set-cookie"]
+        assert r.status_code == 200 and "Secure" not in sc
+        assert sc.startswith("meshlens_session=")
+        assert (await c.get("/api/auth/status")).json()["authenticated"] is True
+
+
+async def test_cookie_never_secure_for_loopback_even_on_https(ctx):
     async with httpx.AsyncClient(transport=ASGITransport(app=create_app(ctx),
                                                          client=("127.0.0.1", 1234)),
                                  base_url="https://127.0.0.1") as c:
         r = await c.post("/api/auth/setup", json={"pin": "1234"})
         assert r.status_code == 200
         sc = r.headers["set-cookie"]
-        assert "Secure" in sc and "HttpOnly" in sc and "samesite=strict" in sc.lower()
-        # da HTTPS il cookie torna indietro e la sessione vale
+        assert sc.startswith("meshlens_session_s=") and "Secure" not in sc
         assert (await c.get("/api/auth/status")).json()["authenticated"] is True
-    async with client(ctx) as c:  # su http (loopback) niente Secure: il login funziona
-        r = await c.post("/api/auth/login", json={"pin": "1234"})
-        assert r.status_code == 200 and "Secure" not in r.headers["set-cookie"]
-        assert (await c.get("/api/auth/status")).json()["authenticated"] is True
+        r = await c.post("/api/auth/logout")
+        assert 'meshlens_session_s=""' in r.headers["set-cookie"]
+
+
+def test_ws_over_https_reads_https_cookie(ctx):
+    ctx.auth.set_pin("1234")
+    token = ctx.auth.login("1234", "127.0.0.1")
+    with TestClient(create_app(ctx), base_url="https://127.0.0.1") as tc:
+        tc.cookies.set("meshlens_session", token)  # cookie HTTP: non vale su wss
+        with pytest.raises(WebSocketDisconnect) as exc:
+            with tc.websocket_connect("wss://127.0.0.1/ws", headers={"host": "127.0.0.1"}) as ws:
+                ws.receive_json()
+        assert exc.value.code == 4401
+        tc.cookies.clear()
+        tc.cookies.set("meshlens_session_s", token)
+        with tc.websocket_connect("wss://127.0.0.1/ws", headers={"host": "127.0.0.1"}) as ws:
+            ctx.bus.publish({"type": "message", "message": {"text": "y"}})
+            assert ws.receive_json() == {"type": "message", "message": {"text": "y"}}
+
+
+async def test_compact_busy_database_returns_409(tmp_path, monkeypatch):
+    import sqlite3
+    import meshlens.api as api_mod
+    from meshlens.app import build
+
+    def busy(conn):
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(api_mod, "compact", busy)
+    app, rt = build(tmp_path, static_dir=None)
+    try:
+        async with client_for_app(app) as c:
+            assert (await c.post("/api/auth/setup", json={"pin": "1234"})).status_code == 200
+            r = await c.post("/api/db/compact", json={"confirm": True})
+            assert r.status_code == 409 and "riprova" in r.json()["detail"]
+    finally:
+        rt.conn.close()
 
 
 async def test_tls_route(ctx):

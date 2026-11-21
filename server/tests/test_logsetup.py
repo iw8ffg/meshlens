@@ -64,3 +64,24 @@ def test_tail_file_tolerates_invalid_utf8(tmp_path):
     p = tmp_path / "b.log"
     p.write_bytes(b"ok\n\xff\xfe riga\nfine\n")
     assert "fine" in tail_file(p, 1000)
+
+
+def test_setup_logging_without_writable_dir_continues(tmp_path, caplog):
+    blocker = tmp_path / "file"
+    blocker.write_text("x")  # una cartella dei log sotto un file: mkdir solleva OSError
+    with caplog.at_level(logging.WARNING, logger="meshlens"):
+        assert setup_logging(blocker / "logs") is None
+        assert logging.getLogger("meshlens").level == logging.INFO  # livelli impostati comunque
+    root = logging.getLogger()
+    assert not any(h.get_name() == "meshlens-file" for h in root.handlers)
+    assert "senza file di log" in caplog.text
+
+
+def test_setup_logging_handler_oserror_continues(tmp_path, monkeypatch):
+    import meshlens.logsetup as ls
+
+    def denied(*a, **k):
+        raise PermissionError("accesso negato")
+
+    monkeypatch.setattr(ls, "RotatingFileHandler", denied)
+    assert setup_logging(tmp_path) is None

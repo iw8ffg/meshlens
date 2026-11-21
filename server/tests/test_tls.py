@@ -70,3 +70,16 @@ def test_local_ipv4s_are_ipv4_not_loopback():
     for ip in tls.local_ipv4s():
         a = ipaddress.ip_address(ip)
         assert a.version == 4 and not a.is_loopback
+
+
+def test_ensure_cert_regenerates_on_unsupported_key(tmp_path, monkeypatch):
+    from cryptography.exceptions import UnsupportedAlgorithm
+    d = tmp_path / "tls"
+    info = tls.ensure_cert(d, [])
+
+    def unsupported(*a, **k):
+        raise UnsupportedAlgorithm("algoritmo non supportato")
+
+    monkeypatch.setattr(tls.serialization, "load_pem_private_key", unsupported)
+    again = tls.ensure_cert(d, [])
+    assert again.fingerprint_sha256 != info.fingerprint_sha256
