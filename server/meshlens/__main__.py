@@ -49,7 +49,7 @@ def main(argv: list[str] | None = None) -> int:
         timer = threading.Timer(1.5, webbrowser.open, args=(f"http://127.0.0.1:{args.port}",))
         timer.daemon = True
         timer.start()
-    uvicorn.run(app, host=host, port=args.port)
+    uvicorn.run(app, host=host, port=args.port, use_colors=False)
     return 0
 
 

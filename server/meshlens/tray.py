@@ -116,7 +116,7 @@ class ServerThread:
         # senza console (eseguibile installato) stdout è None: niente configurazione di log
         cfg = uvicorn.Config(app, host=host, port=port,
                              log_config=None if is_frozen() else LOGGING_CONFIG,
-                             proxy_headers=False, forwarded_allow_ips=None)
+                             proxy_headers=False, forwarded_allow_ips=None, use_colors=False)
         self.server = uvicorn.Server(cfg)
         self.thread = threading.Thread(target=self._run, name="meshlens-server", daemon=True)
         self.error: BaseException | None = None
