@@ -134,11 +134,14 @@
   // Canali MQTT del broker scelto (anche i personalizzati senza traffico)
   $effect(() => {
     let alive = true
+    mqttChans = [DEFAULT_MQTT_CHANNEL]
     mqttChannels(mqttBroker)
       .then((rows) => {
         if (alive) mqttChans = mqttChannelNames(rows)
       })
-      .catch(() => {})
+      .catch(() => {
+        if (alive) mqttChans = [DEFAULT_MQTT_CHANNEL]
+      })
     return () => {
       alive = false
     }

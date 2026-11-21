@@ -93,7 +93,7 @@
   }
 
   function setPsk(b: Broker, bi: number, ci: number, v: string) {
-    b.channels[ci].psk = v
+    b.channels[ci].psk = v.trim()
     delete revealed[chanKey(bi, ci)]
   }
 
@@ -203,7 +203,7 @@
             <li>
               <div class="row">
                 <Field label="Nome canale" for="br-cn-{bi}-{ci}" error={nameProblem(b, ci) ?? undefined}>
-                  {#snippet children({ describedby, invalid })}<input id="br-cn-{bi}-{ci}" class="ui-input" class:err={invalid} type="text" aria-describedby={describedby} aria-invalid={invalid} bind:value={c.name} />{/snippet}
+                  {#snippet children({ describedby, invalid })}<input id="br-cn-{bi}-{ci}" class="ui-input" class:err={invalid} type="text" aria-describedby={describedby} aria-invalid={invalid} bind:value={c.name} onblur={() => (c.name = c.name.trim())} />{/snippet}
                 </Field>
                 <Field label="Chiave (PSK)" for="br-ck-{bi}-{ci}" error={pskProblem(c.psk) ?? notes[k]}>
                   {#snippet children({ describedby, invalid })}
