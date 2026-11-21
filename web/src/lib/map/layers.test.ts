@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { Map as MLMap } from 'maplibre-gl'
 import { addNodeLayers, isFavorite, ageMinutes, contactColorExpr, isMine, nodeFeatures, precisionData, ringKind, selectionData } from './NodeLayer'
 import { addRulerLayers } from './RulerLayer'
+import { addMeLayers, meData } from './MeLayer'
 import { snrColorExpr } from './LinkLayer'
 import { trackData } from './TrackLayer'
 import { FALLBACK_TOKENS as T } from './tokens'
@@ -88,5 +89,19 @@ describe('raggruppamento e righello', () => {
     addRulerLayers(map, T)
     expect(m.addSource.mock.calls[0][0]).toBe('ruler')
     expect(m.addLayer.mock.calls.map((c) => c[0].id)).toEqual(['ruler-line', 'ruler-pts'])
+  })
+})
+
+describe('Dove sono', () => {
+  it('meData: nessuna posizione, con accuratezza, accuratezza troppo grande', () => {
+    expect(meData(null).features.length).toBe(0)
+    expect(meData({ lat: 45, lon: 9, accuracy: 50 }).features.length).toBe(2)
+    expect(meData({ lat: 45, lon: 9, accuracy: 9000 }).features.length).toBe(1)
+  })
+  it('addMeLayers: sorgente e layer', () => {
+    const m = { addSource: vi.fn(), addLayer: vi.fn() }
+    addMeLayers(m as unknown as MLMap, T)
+    expect(m.addSource.mock.calls[0][0]).toBe('me')
+    expect(m.addLayer.mock.calls.map((c) => c[0].id)).toEqual(['me-acc', 'me-dot'])
   })
 })

@@ -30,6 +30,8 @@
   import { registerSprites } from '../lib/map/sprites'
   import { addNodeLayers, CLUSTER_OPTS, EMPTY, isFavorite, isMine, nodeFeatures, precisionData, ringKind, selectionData } from '../lib/map/NodeLayer'
   import { addLinkLayers } from '../lib/map/LinkLayer'
+  import { addMeLayers, meData } from '../lib/map/MeLayer'
+  import { locate } from '../lib/map/geolocate'
   import { addTrackLayer, trackData } from '../lib/map/TrackLayer'
   import { addCoverageLayers } from '../lib/map/CoverageLayer'
 import { addRulerLayers } from '../lib/map/RulerLayer'
@@ -37,6 +39,7 @@ import { addRulerPoint, rulerGeoJSON, rulerText } from '../lib/map/ruler'
 import type { RulerPoint } from '../lib/map/ruler'
   import Legend from '../lib/map/Legend.svelte'
   import MapControls from '../lib/map/MapControls.svelte'
+  import MapSearch from '../lib/map/MapSearch.svelte'
   import RulerBar from '../lib/map/RulerBar.svelte'
   import NodePopup from '../lib/map/NodePopup.svelte'
   import Icon from '../lib/ui/Icon.svelte'
@@ -151,7 +154,8 @@ import type { RulerPoint } from '../lib/map/ruler'
       addTrackLayer(m, tk)
       addNodeLayers(m, tk, hasGlyphs, untrack(() => cluster))
       addCoverageLayers(m, tk)
-      addRulerLayers(m, tk) // sopra i nodi
+      addMeLayers(m, tk) // sotto il righello, sopra i nodi
+      addRulerLayers(m, tk)
       if (!bound) {
         bound = true
         for (const l of ['cov-points', 'cov-missing']) {
@@ -209,6 +213,7 @@ import type { RulerPoint } from '../lib/map/ruler'
       pushLinks()
       pushCoverage()
       pushRuler()
+      pushMe()
     }
 
     const styleFor = (m: EffectiveMode): maplibregl.StyleSpecification => {
@@ -418,6 +423,7 @@ import type { RulerPoint } from '../lib/map/ruler'
       if (timer) clearTimeout(timer)
       cancelPick()
       closeRuler()
+      if (noticeTimer) clearTimeout(noticeTimer)
       popup?.remove()
       map?.remove()
       map = null
@@ -593,6 +599,47 @@ import type { RulerPoint } from '../lib/map/ruler'
     else startRuler()
   }
 
+  // Ricerca di un nodo e «Dove sono»
+  let searchOpen = $state(false)
+  let locating = $state(false)
+  let noticeTimer: ReturnType<typeof setTimeout> | null = null
+
+  function pushMe() {
+    if (!ready) return
+    src('me')?.setData(meData(geopos.pos))
+  }
+
+  function pickFromSearch(id: string) {
+    onpick(id)
+    searchOpen = false
+    const n = app.nodes.get(id)
+    if (n && n.lat !== null && n.lon !== null) showNodePopup(new maplibregl.LngLat(n.lon, n.lat), id)
+  }
+
+  function showNotice(text: string) {
+    notice = text
+    if (noticeTimer) clearTimeout(noticeTimer)
+    noticeTimer = setTimeout(() => {
+      noticeTimer = null
+      if (notice === text) notice = ''
+    }, 6000)
+  }
+
+  async function whereAmI() {
+    if (locating) return
+    locating = true
+    try {
+      const p = await locate(navigator.geolocation, window.isSecureContext)
+      geopos.pos = p
+      pushMe()
+      map?.easeTo({ center: [p.lon, p.lat], zoom: Math.max(map.getZoom(), 13) })
+    } catch (err) {
+      showNotice(err instanceof Error ? err.message : 'Posizione non disponibile')
+    } finally {
+      locating = false
+    }
+  }
+
   function toggleCluster() {
     cluster = !cluster
     void src('nodes')?.setClusterOptions({ cluster, ...CLUSTER_OPTS })
@@ -756,6 +803,9 @@ import type { RulerPoint } from '../lib/map/ruler'
   {cluster}
   onruler={toggleRuler}
   oncluster={toggleCluster}
+  onsearch={() => (searchOpen = !searchOpen)}
+  onlocate={whereAmI}
+  {locating}
 />
 <Legend />
 {#if offlineBadge}
@@ -769,6 +819,9 @@ import type { RulerPoint } from '../lib/map/ruler'
 {/if}
 {#if notice}<div class="notice" role="status">{notice}</div>{/if}
 <div class="topleft">
+{#if searchOpen}
+  <MapSearch onpick={pickFromSearch} onclose={() => (searchOpen = false)} />
+{/if}
 {#if coverage.detail}
   <div class="covbar">
     <div class="row">

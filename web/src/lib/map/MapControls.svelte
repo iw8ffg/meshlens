@@ -10,8 +10,11 @@
     cluster: boolean
     onruler: () => void
     oncluster: () => void
+    onsearch: () => void
+    onlocate: () => void
+    locating: boolean
   }
-  let { onzoomin, onzoomout, onfit, ruler, cluster, onruler, oncluster }: Props = $props()
+  let { onzoomin, onzoomout, onfit, ruler, cluster, onruler, oncluster, onsearch, onlocate, locating }: Props = $props()
 </script>
 
 <div class="stack">
@@ -21,6 +24,8 @@
   <button type="button" aria-label="Mostra tutti i nodi" title="Mostra tutti i nodi" onclick={onfit}><Icon name="globe" size={18} /></button>
 </div>
 <div class="controls" role="group" aria-label="Strumenti mappa">
+  <button type="button" aria-label="Cerca nodo" title="Cerca nodo" onclick={onsearch}><Icon name="search" size={18} /></button>
+  <button type="button" aria-label="Dove sono" title="Dove sono" aria-busy={locating} disabled={locating} onclick={onlocate}><Icon name={locating ? 'spinner' : 'locate'} size={18} /></button>
   <button type="button" class:on={ruler} aria-pressed={ruler} aria-label="Righello" title="Righello" onclick={onruler}><Icon name="ruler" size={18} /></button>
   <button type="button" class:on={cluster} aria-pressed={cluster} aria-label="Raggruppa nodi" title="Raggruppa nodi" onclick={oncluster}><Icon name="cluster" size={18} /></button>
 </div>

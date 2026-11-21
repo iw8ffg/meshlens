@@ -52,6 +52,7 @@ import IHouse from '@lucide/svelte/icons/house'
 import IArrowLeft from '@lucide/svelte/icons/arrow-left'
 import IRuler from '@lucide/svelte/icons/ruler'
 import IBoxes from '@lucide/svelte/icons/boxes'
+import ILocateFixed from '@lucide/svelte/icons/locate-fixed'
 
 export const ICONS = {
   map: IMap,
@@ -106,6 +107,7 @@ export const ICONS = {
   house: IHouse,
   ruler: IRuler,
   cluster: IBoxes,
+  locate: ILocateFixed,
 } as const satisfies Record<string, Component<any>>
 
 export type IconName = keyof typeof ICONS
