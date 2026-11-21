@@ -1,5 +1,5 @@
 import { test, expect } from 'vitest'
-import { byteLength, conversationKey, groupMessages, insertMessage, mergeRadioMessages, pickSendRadio, pruneSet, statusIcon } from './chat'
+import { byteLength, conversationKey, groupMessages, insertMessage, mergeRadioMessages, pickSendRadio, pruneSet, reactionDest, statusIcon } from './chat'
 import type { Message } from './types'
 
 const msg = (o: Partial<Message>): Message => ({
@@ -113,4 +113,11 @@ test('removeByKey rimuove la copia stantia dal feed', async () => {
   expect(list.map((x) => x.key)).toEqual(['b'])
   expect(removeByKey(list, 'zzz')).toBe(false)
   expect(list).toHaveLength(1)
+})
+
+test('reactionDest: un diretto riceve la reazione, mai il broadcast', () => {
+  expect(reactionDest({ from: '!b', to: '!a', direction: 'in' }, null)).toBe('!b')
+  expect(reactionDest({ from: '!a', to: '!b', direction: 'out' }, null)).toBe('!b')
+  expect(reactionDest({ from: '!b', to: '!ffffffff', direction: 'in' }, null)).toBe(null)
+  expect(reactionDest({ from: '!b', to: '!ffffffff', direction: 'in' }, '!c')).toBe('!c')
 })

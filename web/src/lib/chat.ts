@@ -149,3 +149,10 @@ export function mergeRadioMessages(list: Message[], incoming: Message[], replace
   list.sort((a, b) => a.time - b.time)
   if (list.length > max) list.splice(0, list.length - max)
 }
+
+/** Destinatario di una reazione via MQTT: a un diretto si risponde a chi lo ha scritto
+ *  (o al suo destinatario, se e' mio), mai in broadcast; altrimenti vale la conversazione aperta. */
+export function reactionDest(target: Pick<Message, 'from' | 'to' | 'direction'>, dmTo: string | null): string | null {
+  if (!target.to || target.to === BROADCAST) return dmTo
+  return target.direction === 'out' ? target.to : target.from
+}

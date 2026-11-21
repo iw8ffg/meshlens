@@ -29,8 +29,19 @@ export function notifySupported(win: { isSecureContext?: boolean; [k: string]: u
   return 'Notification' in win && win.isSecureContext === true
 }
 
-/** Solo i diretti, non le reazioni, con permesso concesso e scheda non visibile. */
-export function shouldNotify(m: Message, key: string, prefs: NotifyPrefs, permission: NotificationPermission, hidden: boolean): boolean {
+/** Oltre questa eta' un messaggio e' un replay (Store & Forward): niente notifica. */
+export const MAX_NOTIFY_AGE_S = 600
+
+/** Solo i diretti recenti, non le reazioni, con permesso concesso e scheda non visibile. */
+export function shouldNotify(
+  m: Message,
+  key: string,
+  prefs: NotifyPrefs,
+  permission: NotificationPermission,
+  hidden: boolean,
+  nowS: number = Date.now() / 1000,
+): boolean {
+  if (typeof m.time === 'number' && nowS - m.time > MAX_NOTIFY_AGE_S) return false
   return prefs.dm && key.startsWith('dm:') && !m.emoji && permission === 'granted' && hidden
 }
 

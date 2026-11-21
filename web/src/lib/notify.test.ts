@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { loadNotifyPrefs, notifySupported, saveNotifyPrefs, shouldNotify, titleFor } from './notify'
 import type { Message } from './types'
 
-const m = { key: 'k', from: '!b', from_name: null, to: '!a', channel: '0', text: 'x', time: 1, country: null, source: 'rf' } as Message
+const NOW = 1_000_000
+const m = { key: 'k', from: '!b', from_name: null, to: '!a', channel: '0', text: 'x', time: NOW - 5, country: null, source: 'rf' } as Message
 const on = { dm: true }
 
 describe('titleFor', () => {
@@ -15,12 +16,14 @@ describe('titleFor', () => {
 
 describe('shouldNotify', () => {
   it('vero solo per DM, concesso, nascosto, non reazione', () => {
-    expect(shouldNotify(m, 'dm:r1:!b', on, 'granted', true)).toBe(true)
-    expect(shouldNotify(m, 'ch:r1:0', on, 'granted', true)).toBe(false)
-    expect(shouldNotify({ ...m, emoji: true }, 'dm:r1:!b', on, 'granted', true)).toBe(false)
-    expect(shouldNotify(m, 'dm:r1:!b', on, 'denied', true)).toBe(false)
-    expect(shouldNotify(m, 'dm:r1:!b', on, 'granted', false)).toBe(false)
-    expect(shouldNotify(m, 'dm:r1:!b', { dm: false }, 'granted', true)).toBe(false)
+    expect(shouldNotify(m, 'dm:r1:!b', on, 'granted', true, NOW)).toBe(true)
+    expect(shouldNotify(m, 'ch:r1:0', on, 'granted', true, NOW)).toBe(false)
+    expect(shouldNotify({ ...m, emoji: true }, 'dm:r1:!b', on, 'granted', true, NOW)).toBe(false)
+    expect(shouldNotify(m, 'dm:r1:!b', on, 'denied', true, NOW)).toBe(false)
+    expect(shouldNotify(m, 'dm:r1:!b', on, 'granted', false, NOW)).toBe(false)
+    expect(shouldNotify(m, 'dm:r1:!b', { dm: false }, 'granted', true, NOW)).toBe(false)
+    expect(shouldNotify({ ...m, time: NOW - 601 }, 'dm:r1:!b', on, 'granted', true, NOW)).toBe(false)
+    expect(shouldNotify({ ...m, time: NOW - 599 }, 'dm:r1:!b', on, 'granted', true, NOW)).toBe(true)
   })
 })
 

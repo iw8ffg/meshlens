@@ -2,7 +2,7 @@
   import { onMount, untrack } from 'svelte'
   import { ApiError, getJSON, mqttChannels, mqttSend, send } from '../../lib/api'
   import { brokerLabel, pickBroker } from '../../lib/brokers'
-  import { MAX_BYTES, splitKey } from '../../lib/chat'
+  import { MAX_BYTES, reactionDest, splitKey } from '../../lib/chat'
   import { loadDraft, saveDraft } from '../../lib/drafts'
   import {
     MQTT_VIA,
@@ -254,7 +254,7 @@
     try {
       if (via === MQTT_VIA) {
         const ch = target.channel && mqttChans.includes(target.channel) ? target.channel : mqttChan
-        await sendMqtt(mqttBody(emoji, ch, dmTo || null, false, mqttBroker, rid, true), from, false)
+        await sendMqtt(mqttBody(emoji, ch, reactionDest(target, dmTo || null), false, mqttBroker, rid, true), from, false)
       } else await sendRadio(from, emoji, { id: rid, emoji: true })
     } catch (e) {
       error = e instanceof Error && e.message ? e.message : 'Invio non riuscito'

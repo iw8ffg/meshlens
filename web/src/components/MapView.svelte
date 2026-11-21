@@ -87,6 +87,7 @@
   let mapReady = $state(false) // la mappa non e' reattiva: l'effetto del focus dipende da questo flag
   let ready = false
   let lastPush = 0
+  let wpSig = '' // firma dell'ultimo insieme di waypoint scritto sulla mappa
   let timer: ReturnType<typeof setTimeout> | null = null
   let linkList: Link[] = []
   let popup: maplibregl.Popup | null = null
@@ -112,7 +113,13 @@
     const list = wpVisible ? [...app.waypoints.values()] : []
     const t = now
     if (!ready) return
-    src('waypoints')?.setData(waypointData(list, t))
+    // `now` ticca di continuo: si riscrive la sorgente solo se cambiano i waypoint o il minuto
+    const sig = `${Math.floor(t / 60)}|${list.map((w) => `${w.id},${w.lat},${w.lon},${w.name},${w.icon},${w.mine},${w.expire}`).join(';')}`
+    if (sig === wpSig) return
+    const source = src('waypoints')
+    if (!source) return
+    wpSig = sig
+    source.setData(waypointData(list, t))
   }
 
   function pushSelection() {
@@ -254,6 +261,7 @@
         }
       }
       ready = true
+      wpSig = '' // sorgenti ricreate dal nuovo stile: vanno riempite di nuovo
       pushNodes()
       pushWaypoints()
       pushSelection()
