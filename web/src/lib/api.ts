@@ -21,6 +21,8 @@ import type {
   Message,
   Node,
   TelemetryPoint,
+  MetricsResponse,
+  SnrPoint,
   Traceroute,
   UpdateJob,
   UpdateStatus,
@@ -108,6 +110,9 @@ const nodePath = (id: string) => `/nodes/${encodeURIComponent(id)}`
 
 export const telemetry = (id: string, hours = 168) =>
   getJSON<TelemetryPoint[]>(`${nodePath(id)}/telemetry?hours=${hours}`)
+export const metrics = (id: string, hours = 168) =>
+  getJSON<MetricsResponse>(`${nodePath(id)}/metrics?hours=${hours}`)
+export const snr = (id: string, hours = 168) => getJSON<SnrPoint[]>(`${nodePath(id)}/snr?hours=${hours}`)
 export const setFavorite = (id: string, favorite: boolean) => send<Node>('PUT', `${nodePath(id)}/favorite`, { favorite })
 export const setMine = (id: string, mine: boolean) => send<Node>('PUT', `${nodePath(id)}/mine`, { mine })
 export const links = (hours = 24) => getJSON<Link[]>(`/links?hours=${hours}`)

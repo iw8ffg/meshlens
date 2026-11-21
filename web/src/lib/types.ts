@@ -208,6 +208,19 @@ export interface TelemetryPoint {
   air_util_tx: number | null
 }
 
+export interface MetricsResponse {
+  latest: Record<string, { value: number; time: number }>
+  series: Record<string, [number, number][]>
+}
+
+export interface SnrPoint {
+  time: number
+  source: 'rf' | 'mqtt'
+  snr_avg: number | null
+  snr_max: number | null
+  packets: number
+}
+
 export interface TracerouteHop {
   id: string
   snr: number | null

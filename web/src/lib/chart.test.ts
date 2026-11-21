@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { batterySeries, isolatedPoints, linePath, niceRange } from './chart'
+import { batterySeries, chartTime, isolatedPoints, linePath, nearestIndex, niceRange, pctRange } from './chart'
 
 describe('linePath', () => {
   it('genera M…L…L… per 3 punti', () => {
@@ -74,4 +74,32 @@ it('isolatedPoints: solo i punti senza vicini validi', () => {
     { x: 100, y: 0 },
   ])
   expect(isolatedPoints([{ t: 7, v: 40 }], 7, 7, 0, 100, 100, 100)).toEqual([{ x: 0, y: 60 }])
+})
+
+describe('nearestIndex', () => {
+  it('trova il piu vicino', () => {
+    expect(nearestIndex([10, 20, 30], 24)).toBe(1)
+    expect(nearestIndex([10, 20, 30], 26)).toBe(2)
+    expect(nearestIndex([10, 20, 30], -5)).toBe(0)
+    expect(nearestIndex([10, 20, 30], 99)).toBe(2)
+    expect(nearestIndex([], 5)).toBe(-1)
+  })
+})
+
+describe('chartTime', () => {
+  const t = Date.UTC(2026, 10, 21, 14, 5) / 1000
+  it('fino a 48 h solo ora', () => {
+    expect(chartTime(t, 24)).toMatch(/^\d\d:\d\d$/)
+  })
+  it('oltre: giorno, mese e ora', () => {
+    expect(chartTime(t, 200)).toMatch(/nov.*\d\d:\d\d$/)
+  })
+})
+
+describe('pctRange', () => {
+  it('arrotonda a 10', () => {
+    expect(pctRange([3, 7])).toEqual([0, 10])
+    expect(pctRange([42])).toEqual([0, 50])
+    expect(pctRange([])).toEqual([0, 10])
+  })
 })

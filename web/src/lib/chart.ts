@@ -57,3 +57,32 @@ export function isolatedPoints(points: Pt[], x0: number, x1: number, y0: number,
   })
   return out
 }
+
+/** Indice del tempo di `ts` (ordinato) piu' vicino a `t`; -1 se vuoto. */
+export function nearestIndex(ts: number[], t: number): number {
+  if (ts.length === 0) return -1
+  let lo = 0
+  let hi = ts.length - 1
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1
+    if (ts[mid] < t) lo = mid + 1
+    else hi = mid
+  }
+  if (lo > 0 && Math.abs(ts[lo - 1] - t) <= Math.abs(ts[lo] - t)) return lo - 1
+  return lo
+}
+
+const TIME_ONLY = new Intl.DateTimeFormat('it-IT', { hour: '2-digit', minute: '2-digit' })
+const DAY = new Intl.DateTimeFormat('it-IT', { day: 'numeric', month: 'short' })
+
+/** Tempo (secondi epoch) per la lettura: fino a 48 h "14:05", oltre "21 nov, 14:05". */
+export function chartTime(t: number, spanHours: number): string {
+  const d = new Date(t * 1000)
+  return spanHours <= 48 ? TIME_ONLY.format(d) : `${DAY.format(d)}, ${TIME_ONLY.format(d)}`
+}
+
+/** Asse per percentuali: [0, max(10, arrotondato per eccesso a 10)]. */
+export function pctRange(values: number[]): [number, number] {
+  const mx = values.length ? Math.max(...values) : 0
+  return [0, Math.max(10, Math.ceil(mx / 10) * 10)]
+}

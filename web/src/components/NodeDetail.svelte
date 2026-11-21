@@ -11,7 +11,7 @@
   import SnrBadge from '../lib/ui/SnrBadge.svelte'
   import SourceMark from '../lib/ui/SourceMark.svelte'
   import { app, upsertNodes, openChat, openConfig } from '../lib/stores.svelte'
-  import TelemetryChart from './TelemetryChart.svelte'
+  import NodeCharts from './NodeCharts.svelte'
   import Traceroute from './Traceroute.svelte'
   import { formatPrecision } from '../lib/geo'
   import { copyText } from '../lib/clipboard'
@@ -224,7 +224,7 @@
     </ul>
   {/if}
 
-  <TelemetryChart nodeId={node.id} />
+  <NodeCharts nodeId={node.id} />
   <Traceroute {node} />
 </section>
 
