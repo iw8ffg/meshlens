@@ -5,6 +5,12 @@
   import { setUpdateJob, setUpdateStatus, updates } from '../lib/stores.svelte'
   import { canInstall, updateLabel } from '../lib/update'
   import type { AppSettings } from '../lib/settings'
+  import Banner from '../lib/ui/Banner.svelte'
+  import Button from '../lib/ui/Button.svelte'
+  import Card from '../lib/ui/Card.svelte'
+  import Modal from '../lib/ui/Modal.svelte'
+  import Progress from '../lib/ui/Progress.svelte'
+  import Switch from '../lib/ui/Switch.svelte'
 
   let version = $state('')
   let tokenSet = $state(false)
@@ -93,8 +99,7 @@
     }
   }
 
-  async function toggleAuto(e: Event) {
-    const value = (e.currentTarget as HTMLInputElement).checked
+  async function toggleAuto(value: boolean) {
     if (!(await saveSettings({ update_auto_check: value }, 'Impostazione salvata'))) autoCheck = !value
   }
 
@@ -143,234 +148,124 @@
   }
 </script>
 
-<fieldset>
-  <legend>Aggiornamenti</legend>
-  {#if loadError}
-    <p class="err">{loadError}</p>
-  {/if}
-  <p class="line">Versione attuale: <b>{status?.current ?? (version || '—')}</b></p>
-  <p class="line" class:err={!!status?.error} role="status">{updateLabel(status)}</p>
-  {#if status?.checked_at}<p class="muted">Ultimo controllo: {when(status.checked_at)}</p>{/if}
-
-  <div class="tok">
-    <span class="lbl" id="upd-token-label">Token GitHub (repository privato)</span>
-    {#if tokenSet && !replacing}
-      <div class="row wrap">
-        <span class="mask" aria-labelledby="upd-token-label">••••</span>
-        <button type="button" onclick={() => (replacing = true)}>Sostituisci</button>
-        <button type="button" class="danger" onclick={removeToken}>Rimuovi token</button>
-      </div>
-    {:else}
-      <div class="row wrap">
-        <input
-          type="password"
-          autocomplete="off"
-          aria-labelledby="upd-token-label"
-          placeholder={tokenSet ? 'Nuovo token (vuoto = invariato)' : 'github_pat_…'}
-          bind:value={tokenInput}
-        />
-        <button type="button" onclick={saveToken}>Salva token</button>
-        {#if replacing}<button type="button" onclick={() => ((replacing = false), (tokenInput = ''))}>Annulla</button>{/if}
-      </div>
+<Card>
+  <section class="sec">
+    <h3>Aggiornamenti</h3>
+    {#if loadError}
+      <Banner kind="danger" title={loadError} />
     {/if}
-    <details>
-      <summary>Come creare il token</summary>
-      <ol class="guide">
-        <li>GitHub → Settings → Developer settings → Personal access tokens → Fine-grained tokens → Generate new token.</li>
-        <li>Repository access: Only select repositories → iw8ffg/meshlens.</li>
-        <li>Permissions: Contents → Read-only.</li>
-        <li>Copia il token e incollalo qui.</li>
-      </ol>
-      <p class="muted">Il token deve essere creato dal proprietario del repository. Se sei un collaboratore, usa un token classico con permesso «repo».</p>
-    </details>
-  </div>
+    <p class="line">Versione attuale: <b class="ui-mono">{status?.current ?? (version || '—')}</b></p>
+    <p class="line" class:err={!!status?.error} role="status">{updateLabel(status)}</p>
+    {#if status?.checked_at}<p class="muted">Ultimo controllo: {when(status.checked_at)}</p>{/if}
 
-  <label class="check">
-    <input type="checkbox" bind:checked={autoCheck} onchange={toggleAuto} />
-    Controlla automaticamente ogni giorno
-  </label>
+    <div class="tok">
+      <span class="ui-lbl" id="upd-token-label">Token GitHub (repository privato)</span>
+      {#if tokenSet && !replacing}
+        <div class="row">
+          <span class="mask ui-mono" aria-labelledby="upd-token-label">••••</span>
+          <Button onclick={() => (replacing = true)}>Sostituisci</Button>
+          <Button kind="danger" onclick={removeToken}>Rimuovi token</Button>
+        </div>
+      {:else}
+        <div class="row">
+          <input
+            class="ui-input ui-mono grow"
+            type="password"
+            autocomplete="off"
+            aria-labelledby="upd-token-label"
+            placeholder={tokenSet ? 'Nuovo token (vuoto = invariato)' : 'github_pat_…'}
+            bind:value={tokenInput}
+          />
+          <Button kind="primary" onclick={saveToken}>Salva token</Button>
+          {#if replacing}<Button onclick={() => ((replacing = false), (tokenInput = ''))}>Annulla</Button>{/if}
+        </div>
+      {/if}
+      <details>
+        <summary>Come creare il token</summary>
+        <ol class="guide">
+          <li>GitHub → Settings → Developer settings → Personal access tokens → Fine-grained tokens → Generate new token.</li>
+          <li>Repository access: Only select repositories → iw8ffg/meshlens.</li>
+          <li>Permissions: Contents → Read-only.</li>
+          <li>Copia il token e incollalo qui.</li>
+        </ol>
+        <p class="muted">Il token deve essere creato dal proprietario del repository. Se sei un collaboratore, usa un token classico con permesso «repo».</p>
+      </details>
+    </div>
 
-  <div class="row wrap">
-    <button type="button" disabled={busy || running || installing} onclick={check}>Controlla ora</button>
-  </div>
+    <Switch bind:checked={autoCheck} label="Controlla automaticamente ogni giorno" onchange={toggleAuto} />
 
-  {#if status?.available}
-    {#if status.notes}
-      <div class="notes">
-        <b>Novità di {status.latest}</b>
-        <pre>{status.notes}</pre>
-      </div>
-    {/if}
+    <div class="row">
+      <Button icon="refresh" disabled={busy || running || installing} onclick={check}>Controlla ora</Button>
+    </div>
 
-    {#if running && job}
-      <div class="job" role="status">
-        <div>Download in corso…</div>
-        {#if percent !== null}
-          <progress max="100" value={percent}></progress>
-          <span>{percent}% ({formatBytes(job.bytes_done)} di {formatBytes(job.bytes_total ?? 0)})</span>
-        {:else}
-          <progress></progress>
-          <span>{formatBytes(job.bytes_done)}</span>
+    {#if status?.available}
+      {#if status.notes}
+        <div class="notes">
+          <b>Novità di {status.latest}</b>
+          <pre>{status.notes}</pre>
+        </div>
+      {/if}
+
+      {#if running && job}
+        <div class="job" role="status">
+          <div>Download in corso…</div>
+          {#if percent !== null}
+            <Progress value={percent} label="Avanzamento del download" text="{percent}% ({formatBytes(job.bytes_done)} di {formatBytes(job.bytes_total ?? 0)})" />
+          {:else}
+            <Progress value={100} label="Download in corso" text={formatBytes(job.bytes_done)} />
+          {/if}
+        </div>
+      {:else if job?.status === 'failed'}
+        <Banner kind="danger" title="Download non riuscito">{job.error ?? 'errore sconosciuto'}</Banner>
+      {:else if job?.status === 'done'}
+        <Banner kind="ok" title="Download completato e verificato" />
+      {/if}
+
+      {#if installing}
+        <Banner kind="info" title="Installazione in corso">MeshLens si riapre a breve.</Banner>
+      {:else}
+        <div class="row">
+          {#if !running && job?.status !== 'done'}
+            <Button kind="primary" icon="download" disabled={busy} onclick={download}>
+              {job?.status === 'failed' ? 'Riprova download' : 'Scarica'}
+            </Button>
+          {/if}
+          <Button kind="primary" icon="power" disabled={!installable || busy} onclick={() => (confirming = true)}>
+            Installa e riavvia
+          </Button>
+        </div>
+        {#if status.frozen === false}
+          <p class="muted">L'installazione è disponibile solo nella versione installata di MeshLens (non in sviluppo).</p>
         {/if}
-      </div>
-    {:else if job?.status === 'failed'}
-      <p class="err" role="alert">Download non riuscito: {job.error ?? 'errore sconosciuto'}</p>
-    {:else if job?.status === 'done'}
-      <p class="ok">Download completato e verificato.</p>
-    {/if}
-
-    {#if installing}
-      <p class="ok" role="status">Installazione in corso: MeshLens si riapre a breve.</p>
-    {:else if confirming}
-      <div class="confirm" role="dialog" aria-label="Conferma installazione">
-        <p>MeshLens si chiuderà per qualche secondo e si riaprirà aggiornato</p>
-        <span class="row">
-          <button type="button" class="primary" disabled={busy} onclick={install}>Installa</button>
-          <button type="button" onclick={() => (confirming = false)}>Annulla</button>
-        </span>
-      </div>
-    {:else}
-      <div class="row wrap">
-        {#if !running && job?.status !== 'done'}
-          <button type="button" class="primary" disabled={busy} onclick={download}>
-            {job?.status === 'failed' ? 'Riprova download' : 'Scarica'}
-          </button>
-        {/if}
-        <button type="button" class="primary" disabled={!installable || busy} onclick={() => (confirming = true)}>
-          Installa e riavvia
-        </button>
-      </div>
-      {#if status.frozen === false}
-        <p class="muted">L'installazione è disponibile solo nella versione installata di MeshLens (non in sviluppo).</p>
       {/if}
     {/if}
-  {/if}
 
-  {#if error}<p class="err" role="alert">{error}</p>{/if}
-  {#if info}<p class="ok" role="status">{info}</p>{/if}
-</fieldset>
+    {#if error}<Banner kind="danger" title={error} />{/if}
+    {#if info}<Banner kind="ok" title={info} />{/if}
+  </section>
+</Card>
+
+<Modal open={confirming} title="Installare l'aggiornamento?" confirmLabel="Installa" onconfirm={install} oncancel={() => (confirming = false)}>
+  <p>MeshLens si chiuderà per qualche secondo e si riaprirà aggiornato</p>
+</Modal>
 
 <style>
-  fieldset {
-    border: 1px solid #374151;
-    border-radius: 6px;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-  .line {
-    margin: 0;
-    font-size: 13px;
-  }
-  .lbl {
-    font-size: 13px;
-  }
-  .tok {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
-  .mask {
-    font-size: 13px;
-    letter-spacing: 2px;
-  }
-  .check {
-    display: flex;
-    gap: 6px;
-    align-items: center;
-    font-size: 13px;
-  }
-  .row {
-    display: flex;
-    gap: 6px;
-    align-items: center;
-  }
-  .wrap {
-    flex-wrap: wrap;
-  }
-  .guide {
-    margin: 4px 0 0;
-    padding-left: 18px;
-    font-size: 13px;
-  }
-  .notes {
-    font-size: 13px;
-  }
-  .notes pre {
-    margin: 4px 0 0;
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
-    font: inherit;
-    max-height: 200px;
-    overflow: auto;
-  }
-  .job,
-  .confirm {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    padding: 8px;
-    border: 1px solid #374151;
-    border-radius: 6px;
-    font-size: 13px;
-  }
-  .confirm p {
-    margin: 0;
-  }
-  progress {
-    width: 100%;
-  }
-  input[type='password'] {
-    padding: 5px 8px;
-    background: #1f2937;
-    color: inherit;
-    border: 1px solid #374151;
-    border-radius: 6px;
-    font: inherit;
-    flex: 1;
-    min-width: 0;
-  }
-  button {
-    padding: 6px 12px;
-    background: #1f2937;
-    color: inherit;
-    border: 1px solid #374151;
-    border-radius: 6px;
-    cursor: pointer;
-    font: inherit;
-  }
-  button:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-  button.primary {
-    background: #2563eb;
-    border-color: #2563eb;
-  }
-  button.danger {
-    background: #b91c1c;
-    border-color: #b91c1c;
-  }
-  .muted {
-    color: #9ca3af;
-    margin: 0;
-    font-size: 12px;
-  }
-  @media (max-width: 767px) {
-    .muted {
-      font-size: 13px;
-    }
-    button,
-    input:not([type='checkbox']) {
-      min-height: 40px;
-    }
-  }
-  .err {
-    color: #f87171;
-    margin: 0;
-  }
-  .ok {
-    color: #34d399;
-    margin: 0;
-  }
+  .sec { display: flex; flex-direction: column; gap: var(--space-3); color: var(--ink); }
+  h3 { margin: 0; font: 600 15px/20px var(--font-sans); }
+  p { margin: 0; }
+  .line { font: 400 14px/20px var(--font-sans); }
+  .tok { display: flex; flex-direction: column; gap: var(--space-2); }
+  .mask { letter-spacing: 2px; }
+  .row { display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; }
+  .grow { flex: 1; min-width: 160px; width: auto; }
+  .guide { margin: var(--space-1) 0 0; padding-left: 18px; font: 400 14px/20px var(--font-sans); }
+  .notes { font: 400 14px/20px var(--font-sans); }
+  .notes pre { margin: var(--space-1) 0 0; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; max-height: 200px; overflow: auto; }
+  .job { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-3); border: 1px solid var(--line); border-radius: var(--radius-md); font: 400 14px/20px var(--font-sans); }
+  details { font: 400 14px/20px var(--font-sans); }
+  summary { cursor: pointer; min-height: var(--touch-min); display: flex; align-items: center; }
+  summary:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+  .muted { color: var(--ink-muted); font: 400 13px/18px var(--font-sans); }
+  .err { color: var(--danger); }
+  :global(.vp-phone) .muted { font-size: 14px; line-height: 20px; }
 </style>

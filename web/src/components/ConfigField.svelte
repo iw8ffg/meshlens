@@ -1,6 +1,7 @@
 <script lang="ts">
   import { MASK, enumLabel, fieldInput } from '../lib/config'
   import type { ConfigValue, SchemaField } from '../lib/types'
+  import Switch from '../lib/ui/Switch.svelte'
 
   let {
     path,
@@ -21,78 +22,57 @@
   } = $props()
 
   const kind = $derived(fieldInput(field))
+  const uid = $props.id()
 </script>
 
-<label class="f" class:row={kind === 'checkbox'}>
-  <span class="lbl">{label}</span>
-  {#if kind === 'select'}
-    <select {disabled} value={String(value ?? '')} onchange={(e) => onchange(e.currentTarget.value)}>
-      {#each field.enum ?? [] as e (e)}
-        <option value={e}>{enumLabel(path, e)}</option>
-      {/each}
-    </select>
-  {:else if kind === 'checkbox'}
-    <input type="checkbox" {disabled} checked={value === true} onchange={(e) => onchange(e.currentTarget.checked)} />
-  {:else if kind === 'number'}
-    <input
-      type="number"
-      step={field.type === 'float' ? 'any' : '1'}
-      {disabled}
-      value={value === null || value === undefined ? '' : Number(value)}
-      onchange={(e) => {
-        const t = e.currentTarget.value
-        if (t !== '' && Number.isFinite(Number(t))) onchange(Number(t))
-      }}
-    />
-  {:else if kind === 'secret'}
-    <input
-      type="password"
-      autocomplete="off"
-      {disabled}
-      placeholder="Invariato (segreto: si può solo sostituire)"
-      value={value === MASK || value === undefined ? '' : String(value)}
-      oninput={(e) => onchange(e.currentTarget.value === '' ? MASK : e.currentTarget.value)}
-    />
-  {:else if kind === 'readonly'}
-    <code>{JSON.stringify(value ?? [])}</code>
-  {:else}
-    <input type="text" {disabled} value={String(value ?? '')} onchange={(e) => onchange(e.currentTarget.value)} />
-  {/if}
-  {#if help}<span class="help">{help}</span>{/if}
-</label>
+{#if kind === 'checkbox'}
+  <div class="f">
+    <Switch checked={value === true} {label} {disabled} onchange={(v) => onchange(v)} />
+    {#if help}<span class="ui-hint">{help}</span>{/if}
+  </div>
+{:else}
+  <div class="f">
+    <label class="ui-lbl" for={uid}>{label}</label>
+    {#if kind === 'select'}
+      <select id={uid} class="ui-select" {disabled} value={String(value ?? '')} onchange={(e) => onchange(e.currentTarget.value)}>
+        {#each field.enum ?? [] as e (e)}
+          <option value={e}>{enumLabel(path, e)}</option>
+        {/each}
+      </select>
+    {:else if kind === 'number'}
+      <input
+        id={uid}
+        class="ui-input ui-mono"
+        type="number"
+        step={field.type === 'float' ? 'any' : '1'}
+        {disabled}
+        value={value === null || value === undefined ? '' : Number(value)}
+        onchange={(e) => {
+          const t = e.currentTarget.value
+          if (t !== '' && Number.isFinite(Number(t))) onchange(Number(t))
+        }}
+      />
+    {:else if kind === 'secret'}
+      <input
+        id={uid}
+        class="ui-input ui-mono"
+        type="password"
+        autocomplete="off"
+        {disabled}
+        placeholder="Invariato (segreto: si può solo sostituire)"
+        value={value === MASK || value === undefined ? '' : String(value)}
+        oninput={(e) => onchange(e.currentTarget.value === '' ? MASK : e.currentTarget.value)}
+      />
+    {:else if kind === 'readonly'}
+      <code id={uid}>{JSON.stringify(value ?? [])}</code>
+    {:else}
+      <input id={uid} class="ui-input" type="text" {disabled} value={String(value ?? '')} onchange={(e) => onchange(e.currentTarget.value)} />
+    {/if}
+    {#if help}<span class="ui-hint">{help}</span>{/if}
+  </div>
+{/if}
 
 <style>
-  .f {
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-    margin: 8px 0;
-  }
-  .f.row {
-    flex-direction: row;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 8px;
-  }
-  .lbl {
-    font-size: 14px;
-  }
-  .help {
-    color: #9ca3af;
-    font-size: 12px;
-    flex-basis: 100%;
-  }
-  input:not([type='checkbox']),
-  select {
-    font: inherit;
-    padding: 5px 8px;
-    background: #1f2937;
-    color: inherit;
-    border: 1px solid #374151;
-    border-radius: 4px;
-  }
-  code {
-    font-size: 12px;
-    word-break: break-all;
-  }
+  .f { display: flex; flex-direction: column; gap: 4px; margin: var(--space-3) 0; }
+  code { font: 400 13px/18px var(--font-mono); word-break: break-all; color: var(--ink); }
 </style>

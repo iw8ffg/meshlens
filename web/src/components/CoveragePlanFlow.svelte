@@ -5,6 +5,10 @@
   import { prepareStatus } from '../lib/coverage'
   import { app, configJobs, setConfigJob } from '../lib/stores.svelte'
   import type { CoveragePlan } from '../lib/types'
+  import Button from '../lib/ui/Button.svelte'
+  import Badge from '../lib/ui/Badge.svelte'
+  import Banner from '../lib/ui/Banner.svelte'
+  import Check from '../lib/ui/Check.svelte'
 
   // Il genitore lo monta con {#key plan.plan_id}: la conferma di rischio non passa mai a un altro piano.
   let {
@@ -83,28 +87,30 @@
 </script>
 
 <div class="flow">
-  <h4>{kind === 'prepare' ? 'Anteprima: prepara le radio' : 'Anteprima: ripristina la configurazione'}</h4>
+  <h3>{kind === 'prepare' ? 'Anteprima: prepara le radio' : 'Anteprima: ripristina la configurazione'}</h3>
   {#each plan.steps as s (s.node_id)}
     <div class="step">
-      <b>{roleOf(s.role)}</b> <small>{s.node_id}</small>
+      <div><b>{roleOf(s.role)}</b> <span class="ui-mono muted">{s.node_id}</span></div>
       {#if s.preview.changes.length === 0}
         <p class="muted">Nessuna modifica.</p>
       {:else}
-        <table>
-          <thead><tr><th>Campo</th><th>Attuale</th><th>Nuovo</th></tr></thead>
-          <tbody>
-            {#each s.preview.changes as c (c.path)}
-              <tr class:risky={c.risky}>
-                <td>
-                  {pathLabel(c.path)}
-                  {#if c.risky}<br /><small class="why">A rischio{c.reason ? `: ${c.reason}` : ''}</small>{/if}
-                </td>
-                <td>{show(c.old)}</td>
-                <td>{show(c.new)}</td>
-              </tr>
-            {/each}
-          </tbody>
-        </table>
+        <div class="ui-tblwrap">
+          <table class="ui-tbl">
+            <thead><tr><th>Campo</th><th>Attuale</th><th>Nuovo</th></tr></thead>
+            <tbody>
+              {#each s.preview.changes as c (c.path)}
+                <tr class:risky={c.risky}>
+                  <td class="wrap">
+                    {pathLabel(c.path)}
+                    {#if c.risky}<br /><Badge kind="danger" icon="alert">A rischio{c.reason ? `: ${c.reason}` : ''}</Badge>{/if}
+                  </td>
+                  <td class="wrap ui-mono">{show(c.old)}</td>
+                  <td class="wrap ui-mono">{show(c.new)}</td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        </div>
       {/if}
       <p class="muted">Prima di scrivere viene salvata una copia di: {s.preview.backup_sections.join(', ') || '–'}.</p>
     </div>
@@ -112,14 +118,11 @@
 
   {#if !started}
     {#if risky}
-      <label class="ack">
-        <input type="checkbox" bind:checked={understood} />
-        Ho capito che queste modifiche possono isolare le radio dalla rete
-      </label>
+      <Check risk bind:checked={understood} label="Ho capito che queste modifiche possono isolare le radio dalla rete" />
     {/if}
     <div class="btns">
-      <button class="go" disabled={busy || empty || (risky && !understood)} onclick={apply}>Applica</button>
-      <button onclick={oncancel}>Annulla</button>
+      <Button kind="primary" disabled={busy || empty || (risky && !understood)} onclick={apply}>Applica</Button>
+      <Button onclick={oncancel}>Annulla</Button>
     </div>
   {:else}
     <ul class="prog" aria-label="Avanzamento">
@@ -128,86 +131,23 @@
       {/each}
     </ul>
     <p class:err={status.failed} class="sum">{status.summary}</p>
-    {#if status.finished}<button onclick={oncancel}>Chiudi</button>{/if}
+    {#if status.finished}<div><Button onclick={oncancel}>Chiudi</Button></div>{/if}
   {/if}
-  {#if error}<p class="err">{error}</p>{/if}
+  {#if error}<Banner kind="danger" title={error} />{/if}
 </div>
 
 <style>
-  .flow {
-    border: 1px solid #374151;
-    border-radius: 6px;
-    padding: 8px;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-  h4,
-  p {
-    margin: 0;
-  }
-  table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 13px;
-  }
-  th,
-  td {
-    text-align: left;
-    padding: 4px;
-    border-bottom: 1px solid #1f2937;
-    vertical-align: top;
-    word-break: break-all;
-  }
-  tr.risky td {
-    background: rgba(239, 68, 68, 0.15);
-  }
-  .why,
-  .err,
-  li.failed {
-    color: #f87171;
-  }
-  .muted {
-    color: #9ca3af;
-    font-size: 12px;
-  }
-  .ack {
-    display: flex;
-    gap: 8px;
-    align-items: center;
-    color: #f87171;
-  }
-  .btns {
-    display: flex;
-    gap: 6px;
-  }
-  .prog {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-  }
-  li.ok {
-    color: #2e9d4b;
-  }
-  li.mismatch {
-    color: #d9a400;
-  }
-  button {
-    font: inherit;
-    padding: 6px 12px;
-    background: #1f2937;
-    color: inherit;
-    border: 1px solid #374151;
-    border-radius: 4px;
-    cursor: pointer;
-  }
-  button.go {
-    background: #2563eb;
-    border-color: #2563eb;
-    color: #fff;
-  }
-  button:disabled {
-    opacity: 0.5;
-    cursor: default;
-  }
+  .flow { display: flex; flex-direction: column; gap: var(--space-3); color: var(--ink); }
+  .step { display: flex; flex-direction: column; gap: var(--space-2); }
+  h3, p { margin: 0; }
+  h3 { font: 600 15px/20px var(--font-sans); }
+  .wrap { white-space: normal; word-break: break-all; padding-top: 6px; padding-bottom: 6px; height: auto; }
+  tr.risky td { background: var(--danger-soft); }
+  .err, li.failed { color: var(--danger); }
+  .muted { color: var(--ink-muted); font: 400 13px/18px var(--font-sans); }
+  .btns { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+  .prog { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-1); }
+  li.ok { color: var(--ok); }
+  li.mismatch { color: var(--warn); }
+  :global(.vp-phone) .muted { font-size: 14px; line-height: 20px; }
 </style>
