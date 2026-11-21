@@ -202,3 +202,31 @@ def test_cleanup_tmp(tmp_path):
 def test_fetch_https_only():
     with pytest.raises(ElevationError, match="solo download https"):
         el.default_fetch("http://example.com/a.png")
+
+
+def test_mosaic_corrupt_tile_removed(tmp_path):
+    c = ElevationCache(tmp_path, fetch=lambda u: _tile_png(1))
+    bbox = bbox_around(40.85, 14.27, 3000)
+    tiles = tiles_for_bbox(bbox)
+    c.download(tiles, lambda d, t: None, threading.Event())
+    bad = c._path(tiles[0])
+    bad.write_bytes(b"non e' un png")
+    with pytest.raises(ElevationError, match="danneggiato e rimosso: ricalcola"):
+        c.mosaic(bbox)
+    assert not bad.exists() and c.missing(tiles) == [tiles[0]]
+
+
+def test_fetch_rejects_oversize(monkeypatch):
+    class Resp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self, n=-1):
+            return b"x" * n
+
+    monkeypatch.setattr(el.urllib.request, "urlopen", lambda *a, **k: Resp())
+    with pytest.raises(ElevationError, match="troppo grande"):
+        el.default_fetch("https://example.com/a.png")

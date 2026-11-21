@@ -247,3 +247,19 @@ def test_compare_manager_roundtrip(tmp_path):
     (tmp_path / "predictions" / "p1-abcdef.json").write_text(json.dumps(doc))
     r = m.compare("p1-abcdef", [{"lat": 40.5, "lon": 10.2, "rssi": -120}], [])
     assert r["received_covered"] == 1 and r["rssi_bias_db"] == -6.5
+
+
+def test_list_uses_sidecar_and_rebuilds(tmp_path):
+    m, _ = make(tmp_path)
+    d = tmp_path / "predictions"
+    doc = {**_meta(), "id": "p1-abcdef", "created": 1.0, "name": "A", "nodata": -128,
+           "values": base64.b64encode(_grid().tobytes()).decode()}
+    (d / "p1-abcdef.json").write_text(json.dumps(doc))
+    first = m.list()  # senza sidecar: ricostruito
+    assert first[0]["id"] == "p1-abcdef" and "values" not in first[0]
+    assert (d / "p1-abcdef.meta.json").is_file()
+    (d / "p1-abcdef.json").write_text("{ rotto")  # ora l'elenco legge solo il sidecar
+    assert m.list()[0]["name"] == "A"
+    (d / "p1-abcdef.json").write_text(json.dumps(doc))
+    m.delete("p1-abcdef")
+    assert list(d.iterdir()) == [] and m.list() == []

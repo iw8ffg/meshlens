@@ -183,16 +183,34 @@ def test_compute_radial_fallback_free_space(monkeypatch):
         raise pr.ItmError(1000)
 
     monkeypatch.setattr(pr, "itm_p2p_loss", boom)
-    out = pr.compute_radial(([100.0] * 5, 100.0, (24.0, 2.0, 10.0, 1.5, 869.525)))
-    assert math.isnan(out[0])
+    out, fallbacks = pr.compute_radial(([100.0] * 5, 100.0, (24.0, 2.0, 10.0, 1.5, 869.525)))
+    assert fallbacks == 4 and math.isnan(out[0])
     fs = 32.45 + 20 * math.log10(0.2) + 20 * math.log10(869.525)
     assert out[2] == pytest.approx(24.0 - fs + 2.0)
 
 
+def test_preset_non_string_rejected():
+    for bad in ([], {}, 5):
+        with pytest.raises(PredictionError) as ei:
+            _params(preset=bad)
+        assert ei.value.status == 400
+
+
+def test_predict_logs_fallbacks(monkeypatch, caplog):
+    def boom(*a, **k):
+        raise pr.ItmError(1000)
+
+    monkeypatch.setattr(pr, "itm_p2p_loss", boom)
+    with caplog.at_level("WARNING", logger="meshlens.prediction"):
+        _run(_params(radius_km=1), FakeDem(lambda la, lo: np.full_like(la, 50.0)),
+             lambda d, t: None, threading.Event())
+    assert sum("ripiego sullo spazio libero" in r.message for r in caplog.records) == 1
+
+
 def test_launcher_freeze_support():
     src = Path(__file__).resolve().parents[2] / "packaging" / "launcher.py"
-    with warnings.catch_warnings():  # docstring preesistente con "\M"
-        warnings.simplefilter("ignore", SyntaxWarning)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", SyntaxWarning)  # niente escape non valide nel docstring
         tree = ast.parse(src.read_text(encoding="utf-8"))
     blocks = [n for n in tree.body if isinstance(n, ast.If)
               and isinstance(n.test, ast.Compare)

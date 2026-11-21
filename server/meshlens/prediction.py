@@ -5,6 +5,7 @@ separati (`compute_radial` e' una funzione di modulo, serializzabile).
 """
 from __future__ import annotations
 
+import logging
 import math
 import os
 import threading
@@ -16,6 +17,8 @@ import numpy as np
 
 from .elevation import Dem, bbox_around
 from .itm import ItmError, itm_p2p_loss  # noqa: F401  (ItmError: parte dell'interfaccia)
+
+log = logging.getLogger(__name__)
 
 PRESETS: dict[str, tuple[int, float]] = {
     "SHORT_TURBO": (7, 500),
@@ -97,7 +100,7 @@ class SiteParams:
                 continue
             v = d[name]
             if name == "preset":
-                if v not in PRESETS:
+                if not isinstance(v, str) or v not in PRESETS:
                     raise PredictionError(400, "preset: valore non valido")
                 out[name] = v
                 continue
@@ -119,13 +122,16 @@ def _free_space_db(d_km: float, f_mhz: float) -> float:
     return 32.45 + 20 * math.log10(d_km) + 20 * math.log10(f_mhz)
 
 
-def compute_radial(args: tuple[list[float], float, tuple]) -> list[float]:
-    """RSSI previsto (dBm) per ogni passo del radiale; l'indice 0 (il sito) e' nan.
+def compute_radial(args: tuple[list[float], float, tuple]) -> tuple[list[float], int]:
+    """(RSSI previsto in dBm per ogni passo del radiale, passi in ripiego sullo spazio libero).
+
+    L'indice 0 (il sito) e' nan.
 
     `args` = (quote dal sito al bordo, passo in m, (eirp, rx_gain, h_tx, h_rx, f_mhz)).
     """
     elev, step, (eirp, rx_gain, h_tx, h_rx, f_mhz) = args
     out = [math.nan]
+    fallbacks = 0
     for i in range(1, len(elev)):
         pfl = [i, step, *elev[:i + 1]]
         try:
@@ -133,13 +139,15 @@ def compute_radial(args: tuple[list[float], float, tuple]) -> list[float]:
         except Exception:  # noqa: BLE001  ItmError o profilo malformato: spazio libero
             loss = math.nan
         if not math.isfinite(loss):
+            fallbacks += 1
             loss = _free_space_db(i * step / 1000.0, f_mhz)
         out.append(eirp - loss + rx_gain)
-    return out
+    return out, fallbacks
 
 
-def _compute_block(block: list[tuple]) -> list[list[float]]:
-    return [compute_radial(a) for a in block]
+def _compute_block(block: list[tuple]) -> tuple[list[list[float]], int]:
+    res = [compute_radial(a) for a in block]
+    return [r for r, _ in res], sum(f for _, f in res)
 
 
 @dataclass
@@ -235,9 +243,11 @@ def predict(params: SiteParams, dem, executor_factory: Callable[[], Executor],
         futs = {ex.submit(_compute_block, args[b:b + _BLOCK]): b
                 for b in range(0, N_RADIALS, _BLOCK)}
         done = 0
+        fallbacks = 0
         for fut in as_completed(futs):
             b = futs[fut]
-            rows = fut.result()
+            rows, fb = fut.result()
+            fallbacks += fb
             radials[b:b + len(rows)] = rows
             done += len(rows)
             progress(done, N_RADIALS)
@@ -246,6 +256,9 @@ def predict(params: SiteParams, dem, executor_factory: Callable[[], Executor],
                 raise PredictionError(409, "Calcolo annullato")
     finally:
         ex.shutdown(wait=True, cancel_futures=True)
+    if fallbacks:
+        log.warning("Previsione: %d campioni in ripiego sullo spazio libero (ITM non valido)",
+                    fallbacks)
     return rasterize(params.lat, params.lon, radials, step, radius_m,
                      sensitivity_dbm(params.preset))
 

@@ -11,6 +11,7 @@ import struct
 import threading
 import urllib.error
 import urllib.request
+import uuid
 import zlib
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
@@ -25,6 +26,7 @@ TERRARIUM_URL = "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}
 DEM_ZOOM = 12
 TILE_SIZE = 256
 TILE_BYTES_ESTIMATE = 90_000
+MAX_TILE_BYTES = 4_000_000
 
 _PNG_SIG = b"\x89PNG\r\n\x1a\n"
 _MAX_LAT = 85.05112878
@@ -192,7 +194,10 @@ def default_fetch(url: str) -> bytes:
     req = urllib.request.Request(url, headers={"User-Agent": user_agent()})
     try:
         with urllib.request.urlopen(req, timeout=30) as r:
-            return r.read()
+            data = r.read(MAX_TILE_BYTES + 1)
+        if len(data) > MAX_TILE_BYTES:
+            raise ElevationError("Riquadro di altitudine troppo grande: scartato")
+        return data
     except urllib.error.HTTPError as e:
         if e.code == 404:
             zxy = "/".join(url.rsplit("/", 3)[-3:]).removesuffix(".png")
@@ -230,7 +235,7 @@ class ElevationCache:
                 decode_terrarium_png(data)  # verifica prima di salvare
                 path = self._path(t)
                 path.parent.mkdir(parents=True, exist_ok=True)
-                tmp = path.with_name(path.name + ".tmp")
+                tmp = path.with_name(f"{path.name}.{uuid.uuid4().hex[:6]}.tmp")
                 tmp.write_bytes(data)
                 os.replace(tmp, path)
             except Exception as e:  # noqa: BLE001
@@ -259,10 +264,18 @@ class ElevationCache:
         z = tiles[0][0]
         arr = np.zeros((len(ys) * TILE_SIZE, len(xs) * TILE_SIZE), dtype=np.float32)
         for (_, x, y) in tiles:
+            path = self._path((z, x, y))
             try:
-                tile = decode_terrarium_png(self._path((z, x, y)).read_bytes())
+                tile = decode_terrarium_png(path.read_bytes())
             except OSError as e:
                 raise ElevationError("Dati di altitudine mancanti per l'area") from e
+            except ElevationError as e:
+                try:
+                    path.unlink()  # missing() lo riscarichera'
+                except OSError:
+                    pass
+                raise ElevationError(
+                    "Riquadro di altitudine danneggiato e rimosso: ricalcola") from e
             r, c = (y - ys[0]) * TILE_SIZE, (x - xs[0]) * TILE_SIZE
             arr[r:r + TILE_SIZE, c:c + TILE_SIZE] = tile
         return Dem(arr, z, xs[0], ys[0])

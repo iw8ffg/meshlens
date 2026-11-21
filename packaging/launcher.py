@@ -5,7 +5,7 @@ import sys
 
 
 def _fix_std_streams() -> None:
-    """Senza console (console=False) stdout/stderr sono None e uvicorn/logging si rompono:
+    r"""Senza console (console=False) stdout/stderr sono None e uvicorn/logging si rompono:
     li reindirizza su %LOCALAPPDATA%\MeshLens\logs\console.log (o su devnull).
     Il file meshlens.log e' del gestore di log con rotazione (meshlens.logsetup): su Windows un
     file aperto da un altro stream non si puo' rinominare, quindi i due non lo condividono."""

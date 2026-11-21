@@ -140,13 +140,18 @@ class PredictionManager:
             self._publish()
 
     async def start(self, params: dict, name: str | None, download: bool) -> dict:
-        # nessun await prima di `self.job = ...`: il posto e' preso nello stesso passo del controllo
+        # nessun await tra l'ultimo controllo e `self.job = ...`: il posto e' preso nello stesso passo
         if self._closing:
             raise PredictionError(409, MSG_SHUTTING_DOWN)
         if self._running():
             raise PredictionError(409, MSG_BUSY)
         sp = SiteParams.from_dict(params)
-        missing = self.cache.missing(self._tiles(sp))
+        missing = await asyncio.to_thread(self.cache.missing, self._tiles(sp))
+        # durante l'await un'altra richiesta puo' aver preso il posto: ricontrolla
+        if self._closing:
+            raise PredictionError(409, MSG_SHUTTING_DOWN)
+        if self._running():
+            raise PredictionError(409, MSG_BUSY)
         if missing and not download:
             raise PredictionError(
                 409, f"Mancano {len(missing)} riquadri di altitudine: scaricali per continuare",
@@ -205,7 +210,15 @@ class PredictionManager:
                 "covered_km2": round(covered * cell_m * cell_m / 1e6, 1)}
         doc = {**meta, "values": base64.b64encode(grid.values.astype(np.int8).tobytes()).decode("ascii"),
                "nodata": NODATA}
-        path = self.dir / f"{pid}.json"
+        self._write_atomic(self.dir / f"{pid}.json", doc)
+        self._write_atomic(self._meta_path(pid), meta)  # elenco veloce senza leggere i valori
+        return pid
+
+    def _meta_path(self, pid: str) -> Path:
+        return self.dir / f"{pid}.meta.json"
+
+    @staticmethod
+    def _write_atomic(path: Path, doc: dict) -> None:
         tmp = path.with_name(path.name + ".tmp")
         try:
             tmp.write_text(json.dumps(doc), encoding="utf-8")
@@ -213,7 +226,6 @@ class PredictionManager:
         finally:
             with contextlib.suppress(OSError):
                 tmp.unlink()
-        return pid
 
     async def _stop_running(self) -> None:
         if self._running() and self._task is not None:
@@ -244,12 +256,21 @@ class PredictionManager:
     def list(self) -> list[dict]:
         out = []
         for p in self.dir.glob("p*.json"):
-            try:
-                doc = json.loads(p.read_text(encoding="utf-8"))
-            except (OSError, ValueError):
+            if p.name.endswith(".meta.json"):
                 continue
-            doc.pop("values", None)
-            doc.pop("nodata", None)
+            pid = p.name.removesuffix(".json")
+            try:
+                doc = json.loads(self._meta_path(pid).read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                # risultato senza sidecar (precedente o interrotto): lo ricostruisce una volta
+                try:
+                    doc = json.loads(p.read_text(encoding="utf-8"))
+                except (OSError, ValueError):
+                    continue
+                doc.pop("values", None)
+                doc.pop("nodata", None)
+                with contextlib.suppress(OSError):
+                    self._write_atomic(self._meta_path(pid), doc)
             out.append(doc)
         out.sort(key=lambda m: (m.get("created", 0), m.get("id", "")), reverse=True)
         return out
@@ -260,6 +281,8 @@ class PredictionManager:
     def delete(self, pid: str) -> None:
         if not _ID_RE.fullmatch(pid):
             raise PredictionError(404, MSG_NOT_FOUND)
+        with contextlib.suppress(OSError):
+            self._meta_path(pid).unlink()
         try:
             (self.dir / f"{pid}.json").unlink()
         except FileNotFoundError as e:

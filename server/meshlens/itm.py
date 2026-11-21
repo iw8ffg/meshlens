@@ -93,6 +93,20 @@ def _fdim(x: float, y: float) -> float:
     return x - y if x > y else 0.0
 
 
+ERROR__INVALID_PROFILE = 1100  # profilo malformato (non e' un codice NTIA)
+
+
+def _check_profile(pfl: Sequence[float]) -> None:
+    """Profilo [n, passo, quote...]: n >= 1, len == n + 3, passo > 0, tutto finito."""
+    if len(pfl) < 3:
+        raise ItmError(ERROR__INVALID_PROFILE)
+    if not all(math.isfinite(v) for v in pfl):
+        raise ItmError(ERROR__INVALID_PROFILE)
+    n = int(pfl[0])
+    if n < 1 or len(pfl) < n + 3 or pfl[1] <= 0:
+        raise ItmError(ERROR__INVALID_PROFILE)
+
+
 # --- itm_p2p.cpp ---
 
 def itm_p2p_loss(h_tx_m: float, h_rx_m: float, pfl: Sequence[float], climate: int = 5,
@@ -104,6 +118,10 @@ def itm_p2p_loss(h_tx_m: float, h_rx_m: float, pfl: Sequence[float], climate: in
     warnings = validate_inputs(h_tx_m, h_rx_m, climate, time, location, situation,
                                n0, f_mhz, pol, epsilon, sigma, mdvar)
 
+    if not all(math.isfinite(v) for v in (h_tx_m, h_rx_m, n0, f_mhz, epsilon, sigma,
+                                           time, location, situation)):
+        raise ItmError(ERROR__INVALID_PROFILE)
+    _check_profile(pfl)
     np_ = int(pfl[0])
     p10 = int(0.1 * np_)
     h_sys__meter = 0.0

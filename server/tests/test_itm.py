@@ -80,3 +80,17 @@ def test_speed():
         itm_p2p_loss(10.0, 1.5, pfl)
     avg_ms = (_time.perf_counter() - t0) * 1000 / n
     assert avg_ms < 3.0, f"{avg_ms:.2f} ms per chiamata"
+
+
+def test_malformed_profile_raises_1100():
+    good = _flat()
+    bads = [[], [3.0, 20.0], [0.0, 20.0, 1.0], good[:-1], [100.0, 0.0, *good[2:]],
+            [100.0, -5.0, *good[2:]], [100.0, math.nan, *good[2:]],
+            [*good[:5], math.inf, *good[6:]], [math.nan, 20.0, 1.0, 2.0]]
+    for pfl in bads:
+        with pytest.raises(ItmError) as exc:
+            itm_p2p_loss(30.0, 30.0, pfl)
+        assert exc.value.code == 1100
+    with pytest.raises(ItmError) as exc:
+        itm_p2p_loss(math.nan, 30.0, good)
+    assert exc.value.code == 1100
