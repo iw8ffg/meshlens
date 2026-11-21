@@ -302,6 +302,100 @@ def test_ws_receives_bus(ctx):
             assert ws.receive_json() == {"type": "message", "message": {"text": "x"}}
 
 
+def _ws_closed_code(ws) -> int:
+    with pytest.raises(WebSocketDisconnect) as e:
+        ws.receive_json()
+    return e.value.code
+
+
+def test_ws_closed_when_session_revoked(ctx):
+    ctx.auth.set_pin("1234")
+    token_a = ctx.auth.login("1234", "127.0.0.1")
+    token_b = ctx.auth.login("1234", "192.168.1.20", "Telefono")
+    with TestClient(create_app(ctx), base_url="http://127.0.0.1") as tc:
+        tc.cookies.set("meshlens_session", token_b)
+        with tc.websocket_connect("/ws", headers={"host": "127.0.0.1"}) as ws:
+            tc.cookies.set("meshlens_session", token_a)
+            rows = tc.get("/api/auth/sessions").json()
+            b = next(r for r in rows if r["user_agent"] == "Telefono")
+            assert tc.delete(f"/api/auth/sessions/{b['id']}").status_code == 200
+            assert _ws_closed_code(ws) == 4401
+
+
+def test_ws_closed_on_revoke_others_and_logout(ctx):
+    ctx.auth.set_pin("1234")
+    token_a = ctx.auth.login("1234", "127.0.0.1")
+    token_b = ctx.auth.login("1234", "192.168.1.20")
+    with TestClient(create_app(ctx), base_url="http://127.0.0.1") as tc:
+        tc.cookies.set("meshlens_session", token_b)
+        with tc.websocket_connect("/ws", headers={"host": "127.0.0.1"}) as ws_b:
+            tc.cookies.set("meshlens_session", token_a)
+            with tc.websocket_connect("/ws", headers={"host": "127.0.0.1"}) as ws_a:
+                assert tc.post("/api/auth/sessions/revoke-others").json()["revoked"] == 1
+                assert _ws_closed_code(ws_b) == 4401
+                # il proprio socket resta aperto
+                ctx.bus.publish({"type": "x"})
+                assert ws_a.receive_json() == {"type": "x"}
+                assert tc.post("/api/auth/logout").status_code == 200
+                assert _ws_closed_code(ws_a) == 4401
+    assert ctx.auth._watchers == {}
+
+
+def test_ws_closed_on_pin_change(ctx):
+    ctx.auth.set_pin("1234")
+    token_a = ctx.auth.login("1234", "127.0.0.1")
+    token_b = ctx.auth.login("1234", "192.168.1.20")
+    with TestClient(create_app(ctx), base_url="http://127.0.0.1") as tc:
+        tc.cookies.set("meshlens_session", token_b)
+        with tc.websocket_connect("/ws", headers={"host": "127.0.0.1"}) as ws:
+            tc.cookies.set("meshlens_session", token_a)
+            r = tc.post("/api/auth/pin", json={"current_pin": "1234", "new_pin": "5678"})
+            assert r.status_code == 200
+            assert _ws_closed_code(ws) == 4401
+
+
+def test_ws_recheck_closes_expired_session(ctx, monkeypatch):
+    import meshlens.api as api_mod
+    monkeypatch.setattr(api_mod, "WS_RECHECK_S", 0.05)
+    ctx.auth.set_pin("1234")
+    token = ctx.auth.login("1234", "127.0.0.1")
+    with TestClient(create_app(ctx), base_url="http://127.0.0.1") as tc:
+        tc.cookies.set("meshlens_session", token)
+        with tc.websocket_connect("/ws", headers={"host": "127.0.0.1"}) as ws:
+            ctx.auth.clock = lambda: time.time() + 31 * 86400  # 31 giorni dopo
+            assert _ws_closed_code(ws) == 4401
+
+
+async def test_change_pin_failures_count_on_request_ip(ctx):
+    ctx.auth.set_pin("1234")
+    token = ctx.auth.login("1234", "127.0.0.1")  # sessione aperta dal PC
+    async with client(ctx, host="192.168.1.30") as c:
+        c.cookies.set("meshlens_session", token)
+        for _ in range(5):
+            r = await c.post("/api/auth/pin", json={"current_pin": "0000", "new_pin": "5678"})
+            assert r.status_code == 403
+        r = await c.post("/api/auth/pin", json={"current_pin": "1234", "new_pin": "5678"})
+        assert r.status_code == 429
+    # il PC non è bloccato
+    async with client(ctx) as c:
+        assert (await c.post("/api/auth/login", json={"pin": "1234"})).status_code == 200
+
+
+async def test_setup_hashes_off_loop(ctx, monkeypatch):
+    import meshlens.auth as auth_mod
+    calls = []
+    real = auth_mod.asyncio.to_thread
+
+    async def spy(fn, *args, **kwargs):
+        calls.append(getattr(fn, "__name__", repr(fn)))
+        return await real(fn, *args, **kwargs)
+
+    monkeypatch.setattr(auth_mod.asyncio, "to_thread", spy)
+    async with client(ctx) as c:
+        assert (await c.post("/api/auth/setup", json={"pin": "1234"})).status_code == 200
+    assert calls == ["hash", "_verify"]
+
+
 async def test_bus_overflow_sends_resync():
     bus = Bus(maxsize=3)
     q = bus.subscribe()

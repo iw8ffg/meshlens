@@ -35,7 +35,7 @@
 - `GET /api/backups` → `[{name, time, reason, size_bytes}]`; `POST /api/backups` → backup "manuale"; `POST /api/backups/{name}/restore` `{confirm:true}` → `{ok:true, restart_required:true}`.
 - `GET /api/settings/export?secrets=0|1` → file `meshlens-impostazioni-AAAAMMGG.json` `{app:"meshlens", format:1, version, exported_at, settings}`; `secrets=1` solo da loopback (403 altrimenti). `POST /api/settings/import` `{format:1, settings}` → `{settings:<mascherate>, skipped:[chiavi]}`.
 - `GET /api/diagnostics/bundle` → zip `meshlens-diagnostica-AAAAMMGG-HHMM.zip`.
-- `GET /api/auth/status` aggiunge `pin_short: bool|null` (PIN < 6 cifre con accesso LAN attivo; `null` se la lunghezza non è ancora nota).
+- `GET /api/auth/status` aggiunge `pin_short: bool|null` (PIN < 6 cifre con accesso LAN attivo; `null` se la lunghezza non è ancora nota) e `pin_min: number` (cifre minime per un PIN nuovo: 6 con accesso LAN attivo, altrimenti 4).
 - `POST /api/auth/pin` `{current_pin, new_pin}` → `{ok:true}`; `GET /api/auth/sessions` → `[{id, created, last_seen, user_agent, ip, current}]`; `DELETE /api/auth/sessions/{id}`; `POST /api/auth/sessions/revoke-others`.
 - `GET /api/tls` → `{enabled, port, fingerprint_sha256, not_after, error}`.
 - WS: nuovo messaggio `{"type":"resync"}`.

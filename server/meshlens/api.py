@@ -21,7 +21,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.websockets import WebSocketDisconnect
 
 from .alerts import compute_alerts
-from .auth import MIN_PIN, MIN_PIN_LAN, Auth, LockedError
+from .auth import LOOPBACK, MIN_PIN, MIN_PIN_LAN, Auth, LockedError
 from .bus import Bus
 from .ingest import revive_node
 from .config_model import schema as config_schema
@@ -43,11 +43,12 @@ from .store import Store
 
 COOKIE = "meshlens_session"
 COOKIE_MAX_AGE = 365 * 24 * 3600
-LOCAL_HOSTS = ("127.0.0.1", "::1", "localhost")
+LOCAL_HOSTS = (*LOOPBACK, "localhost")
 INTERNAL_KEYS = ()
 
 
 WS_SEND_TIMEOUT_S = 10
+WS_RECHECK_S = 30  # ricontrollo della sessione dei WebSocket aperti (scadenza)
 
 
 async def send_with_timeout(ws, msg: dict, timeout: float = WS_SEND_TIMEOUT_S) -> bool:
@@ -394,7 +395,7 @@ def create_app(ctx: AppContext) -> FastAPI:
         if ctx.auth.pin_is_set() or not is_local(request):
             raise HTTPException(403, "Impostazione del PIN non consentita")
         try:
-            ctx.auth.set_pin(body.pin, min_pin_len())
+            await ctx.auth.aset_pin(body.pin, min_pin_len())
         except ValueError as e:
             raise HTTPException(400, str(e))
         try:
@@ -421,7 +422,7 @@ def create_app(ctx: AppContext) -> FastAPI:
     async def auth_change_pin(body: ChangePinBody, request: Request):
         try:
             await ctx.auth.change_pin(request.cookies.get(COOKIE), body.current_pin,
-                                      body.new_pin, min_pin_len())
+                                      body.new_pin, min_pin_len(), client_ip(request))
         except ValueError as e:
             raise HTTPException(400, str(e))
         except LockedError as e:
@@ -1106,15 +1107,24 @@ def create_app(ctx: AppContext) -> FastAPI:
                 origin is not None and urlsplit(origin).netloc.lower() != (host or "").lower()):
             await ws.close(code=4403)
             return
-        if not ctx.auth.check(ws.cookies.get(COOKIE)):
+        token = ws.cookies.get(COOKIE)
+        if not ctx.auth.check(token):
             await ws.close(code=4401)
             return
+        # sessione revocata (logout, "Esci", cambio PIN) o scaduta: chiusura con 4401
+        token_hash, revoked_event = ctx.auth.watch(token)
         q = ctx.bus.subscribe()
         recv = asyncio.ensure_future(ws.receive())
         get = asyncio.ensure_future(q.get())
+        revoked = asyncio.ensure_future(revoked_event.wait())
         try:
             while True:
-                done, _ = await asyncio.wait({get, recv}, return_when=asyncio.FIRST_COMPLETED)
+                done, _ = await asyncio.wait({get, recv, revoked}, timeout=WS_RECHECK_S,
+                                             return_when=asyncio.FIRST_COMPLETED)
+                if revoked in done or (not done and not ctx.auth.check(token)):
+                    with contextlib.suppress(Exception):
+                        await asyncio.wait_for(ws.close(code=4401), 2)
+                    break
                 if recv in done:
                     if recv.result()["type"] == "websocket.disconnect":
                         break
@@ -1131,7 +1141,9 @@ def create_app(ctx: AppContext) -> FastAPI:
         finally:
             recv.cancel()
             get.cancel()
+            revoked.cancel()
             ctx.bus.unsubscribe(q)
+            ctx.auth.unwatch(token_hash, revoked_event)
 
     # ---- statici (ultimi: catch-all) ----
     if ctx.static_dir is not None and Path(ctx.static_dir).exists():

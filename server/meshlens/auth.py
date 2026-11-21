@@ -58,6 +58,8 @@ class Auth:
         self._ph = PasswordHasher()
         self._ip_locks: dict[str, list] = {}  # ip -> [asyncio.Lock, utenti in attesa]
         self._sem: tuple[asyncio.AbstractEventLoop, asyncio.Semaphore] | None = None
+        # token_hash -> eventi dei WebSocket aperti con quella sessione (chiusi alla revoca)
+        self._watchers: dict[str, set[tuple[asyncio.AbstractEventLoop, asyncio.Event]]] = {}
 
     # ---- PIN ----
     def pin_is_set(self) -> bool:
@@ -75,6 +77,11 @@ class Auth:
     def set_pin(self, pin: str, min_len: int = MIN_PIN) -> None:
         self._validate_pin(pin, min_len)
         self._store_pin(self._ph.hash(pin), len(pin))
+
+    async def aset_pin(self, pin: str, min_len: int = MIN_PIN) -> None:
+        """Come `set_pin`, con l'hash argon2 fuori dal loop (per l'API)."""
+        self._validate_pin(pin, min_len)
+        self._store_pin(await asyncio.to_thread(self._ph.hash, pin), len(pin))
 
     def _store_pin(self, pin_hash: str, length: int) -> None:
         self.conn.executemany("INSERT OR REPLACE INTO auth(key, value) VALUES(?, ?)",
@@ -196,13 +203,15 @@ class Auth:
             if entry[1] == 0:
                 self._ip_locks.pop(ip, None)
 
-    async def change_pin(self, token: str, current: str, new: str, min_len: int) -> None:
-        """Verifica il PIN attuale (gli errori contano come al login), poi revoca le altre sessioni."""
+    async def change_pin(self, token: str, current: str, new: str, min_len: int,
+                         client_ip: str | None = None) -> None:
+        """Verifica il PIN attuale (gli errori contano come al login, sull'IP della richiesta),
+        poi revoca le altre sessioni."""
         row = self.conn.execute("SELECT ip FROM sessions WHERE token_hash=?",
                                 (_hash(token or ""),)).fetchone()
         if row is None or not self.check(token):
             raise PermissionError("sessione non valida")
-        ip = row[0] or "unknown"
+        ip = client_ip or row[0] or "unknown"
         self._validate_pin(new, min_len)
         async with self._ip_lock(ip):
             self._precheck(ip, self.clock())
@@ -227,8 +236,7 @@ class Auth:
         now = self.clock()
         last_seen = row[0] or 0
         if now - last_seen > SESSION_IDLE_S:
-            self.conn.execute("DELETE FROM sessions WHERE token_hash=?", (h,))
-            self.conn.commit()
+            self._drop("token_hash=?", (h,))
             return False
         if now - last_seen >= TOUCH_INTERVAL_S:
             self.conn.execute("UPDATE sessions SET last_seen=? WHERE token_hash=?", (now, h))
@@ -236,9 +244,7 @@ class Auth:
         return True
 
     def sessions(self, current_token: str | None) -> list[dict]:
-        self.conn.execute("DELETE FROM sessions WHERE last_seen < ?",
-                          (self.clock() - SESSION_IDLE_S,))
-        self.conn.commit()
+        self._drop("last_seen < ?", (self.clock() - SESSION_IDLE_S,))
         current = _hash(current_token) if current_token else None
         rows = self.conn.execute(
             "SELECT token_hash, created, last_seen, user_agent, ip FROM sessions "
@@ -250,25 +256,46 @@ class Auth:
     def revoke(self, session_id: str) -> bool:
         if not isinstance(session_id, str) or not _SESSION_ID.match(session_id):
             return False
-        cur = self.conn.execute("DELETE FROM sessions WHERE substr(token_hash, 1, 16)=?",
-                                (session_id,))
-        self.conn.commit()
-        return cur.rowcount > 0
+        return self._drop("substr(token_hash, 1, 16)=?", (session_id,)) > 0
 
     def revoke_others(self, current_token: str) -> int:
-        cur = self.conn.execute("DELETE FROM sessions WHERE token_hash != ?",
-                                (_hash(current_token),))
-        self.conn.commit()
-        return cur.rowcount
+        return self._drop("token_hash != ?", (_hash(current_token),))
+
+    def _drop(self, where: str, params: tuple) -> int:
+        """Cancella le sessioni che soddisfano `where` e chiude i loro WebSocket."""
+        gone = [r[0] for r in self.conn.execute(
+            f"SELECT token_hash FROM sessions WHERE {where}", params)]
+        if gone:
+            self.conn.executemany("DELETE FROM sessions WHERE token_hash=?", [(h,) for h in gone])
+            self.conn.commit()
+        for h in gone:
+            for loop, event in self._watchers.get(h, ()):
+                with contextlib.suppress(RuntimeError):  # loop già chiuso
+                    loop.call_soon_threadsafe(event.set)
+        return len(gone)
+
+    def watch(self, token: str) -> tuple[str, asyncio.Event]:
+        """Per un WebSocket: evento che scatta quando la sessione viene revocata o scade."""
+        h = _hash(token)
+        event = asyncio.Event()
+        self._watchers.setdefault(h, set()).add((asyncio.get_running_loop(), event))
+        return h, event
+
+    def unwatch(self, token_hash: str, event: asyncio.Event) -> None:
+        entries = self._watchers.get(token_hash)
+        if entries is None:
+            return
+        entries.difference_update({e for e in entries if e[1] is event})
+        if not entries:
+            del self._watchers[token_hash]
 
     def logout(self, token: str) -> None:
-        self.conn.execute("DELETE FROM sessions WHERE token_hash=?", (_hash(token),))
-        self.conn.commit()
+        self._drop("token_hash=?", (_hash(token),))
 
     def reset(self) -> None:
         """`meshlens reset-pin`: toglie PIN, sessioni e ogni blocco."""
         self.conn.execute("DELETE FROM auth WHERE key IN ('pin_hash', 'pin_len', 'global_lock_until')")
-        self.conn.execute("DELETE FROM sessions")
+        self._drop("1", ())
         self.conn.execute("DELETE FROM auth_failures")
         self.conn.execute("DELETE FROM auth_attempts")
         self.conn.commit()
