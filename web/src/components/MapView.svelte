@@ -35,6 +35,8 @@
   import { locate } from '../lib/map/geolocate'
   import { addTrackLayer, trackData } from '../lib/map/TrackLayer'
   import { addCoverageLayers } from '../lib/map/CoverageLayer'
+  import { addPredictionLayer, setPredictionImage } from '../lib/map/PredictionLayer'
+  import { prediction } from '../lib/prediction.svelte'
   import { addRulerLayers } from '../lib/map/RulerLayer'
   import { addRulerPoint, rulerGeoJSON, rulerText } from '../lib/map/ruler'
   import type { RulerPoint } from '../lib/map/ruler'
@@ -157,6 +159,7 @@
       addTrackLayer(m, tk)
       addNodeLayers(m, tk, hasGlyphs, untrack(() => cluster))
       addCoverageLayers(m, tk)
+      addPredictionLayer(m) // sotto la traccia della prova (cov-track)
       addMeLayers(m, tk) // sotto il righello, sopra i nodi
       addRulerLayers(m, tk)
       if (!bound) {
@@ -210,6 +213,7 @@
         }
       }
       ready = true
+      pushPrediction()
       pushNodes()
       pushSelection()
       pushTrack()
@@ -539,6 +543,10 @@
 
   // Prova aperta: risultati sulla mappa; all'apertura la vista si adatta ai punti
   let fittedId: number | null = null
+  function pushPrediction() {
+    if (map) setPredictionImage(map, untrack(() => prediction.shown))
+  }
+
   function pushCoverage() {
     if (!ready) return
     const d = coverage.detail
@@ -775,6 +783,10 @@
   $effect(() => {
     void track
     pushTrack()
+  })
+  $effect(() => {
+    void prediction.shown // legge lo stato prima del controllo su `ready`
+    if (ready) untrack(pushPrediction)
   })
   $effect(() => {
     void coverage.detail // i punti in diretta arrivano come nuovo oggetto dettaglio

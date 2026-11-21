@@ -29,6 +29,12 @@ describe('dispatch', () => {
     expect(sf_job).toHaveBeenCalledWith({ id: 'j' })
     expect(sf_routers).toHaveBeenCalledWith([{ id: '!a' }])
   })
+  it('prediction_job chiama il gestore; senza gestore non solleva', () => {
+    const prediction_job = vi.fn()
+    dispatch({ type: 'prediction_job', job: { id: 'p' } }, { ...handlers(), prediction_job })
+    expect(prediction_job).toHaveBeenCalledWith({ id: 'p' })
+    expect(() => dispatch({ type: 'prediction_job', job: {} }, handlers())).not.toThrow()
+  })
   it('sf_job senza gestore: nessuna eccezione', () => {
     expect(() => dispatch({ type: 'sf_job', job: {} }, handlers())).not.toThrow()
   })
