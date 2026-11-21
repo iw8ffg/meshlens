@@ -124,21 +124,8 @@ class Ingestor:
         if ev.snr is not None and not stale and not no_time:
             prev = node["last_snr"]
             node["last_snr"] = ev.snr if not is_dup or prev is None else max(prev, ev.snr)
-        if ev.hops is not None and not stale and not no_time:
-            prev = node["hops"]
-            if ev.source == "rf":
-                self._rf_hops_time[num] = ev.rx_time
-            rf_time = self._rf_hops_time.get(num)
-            if (ev.source == "mqtt" and prev is not None and rf_time is not None
-                    and ev.rx_time - rf_time < _RF_HOPS_TTL):
-                pass  # un hops recente da RF e' piu' affidabile di quello dedotto da MQTT
-            else:
-                node["hops"] = ev.hops if not is_dup or prev is None else min(prev, ev.hops)
-                node["hops_min"] = None  # salti esatti: il minimo non serve piu'
-        elif ev.hops_min is not None and not stale and not no_time:
-            prev = node.get("hops_min")
-            node["hops_min"] = (ev.hops_min if not is_dup or prev is None
-                                else min(prev, ev.hops_min))
+        if not stale and not no_time:
+            self._update_hops(node, ev, is_dup)
 
         self._record_links(ev)  # anche per i duplicati: l'upsert tiene l'ultima copia ricevuta
 
@@ -207,6 +194,32 @@ class Ingestor:
 
         if message is not None:
             self.on_message(message)
+
+    def _update_hops(self, node: dict, ev: MeshEvent, is_dup: bool) -> None:
+        num = ev.from_node
+        if ev.source == "rf":
+            if ev.hops is not None:
+                self._rf_hops_time[num] = ev.rx_time
+                prev = node["hops"]
+                node["hops"] = ev.hops if not is_dup or prev is None else min(prev, ev.hops)
+                node["hops_min"] = None  # salti esatti: il minimo non serve piu'
+            return
+        rf_time = self._rf_hops_time.get(num)
+        if rf_time is not None and ev.rx_time - rf_time < _RF_HOPS_TTL:
+            return  # un hops recente da RF e' piu' affidabile di quello dedotto da MQTT
+        if is_dup:
+            # altra copia dello stesso pacchetto: si tiene il minimo, senza cancellare
+            if ev.hops is not None:
+                prev = node["hops"]
+                node["hops"] = ev.hops if prev is None else min(prev, ev.hops)
+                node["hops_min"] = None
+            elif ev.hops_min is not None and node["hops"] is None:
+                prev = node.get("hops_min")
+                node["hops_min"] = ev.hops_min if prev is None else min(prev, ev.hops_min)
+        else:
+            # pacchetto MQTT nuovo: sostituisce l'informazione (azzera anche i valori vecchi)
+            node["hops"] = ev.hops
+            node["hops_min"] = ev.hops_min
 
     def _persisted(self, num: int) -> bool:
         """Nodo che si archivia: in una nazione salvata, "mio" o preferito. Sconosciuto: no."""

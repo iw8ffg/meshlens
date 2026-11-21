@@ -295,3 +295,24 @@ def test_purge_keeps_favorites(store):
     store.upsert_node(node(3, last_heard=None), is_favorite=True)
     assert store.purge(NOW, DEFAULTS)["nodes"] == 1
     assert sorted(n["num"] for n in store.load_nodes()) == [2, 3]
+
+
+def test_migration_clears_stale_mqtt_only_hops(tmp_path):
+    from meshlens.db import connect
+    path = tmp_path / "m.db"
+    conn = connect(path)
+    st = Store(conn)
+    st.upsert_node(node(1, sources=["mqtt"], hops=7))
+    st.upsert_node(node(2, sources=["rf"], hops=2))
+    st.upsert_node(node(3, sources=["mqtt", "rf"], hops=1))
+    conn.execute("DELETE FROM settings WHERE key='migr_hops_mqtt_v120'")  # come un DB 1.1.0
+    conn.commit()
+    conn.close()
+    conn = connect(path)
+    got = {n["num"]: n["hops"] for n in Store(conn).load_nodes()}
+    assert got == {1: None, 2: 2, 3: 1}
+    conn.execute("UPDATE nodes SET hops=5 WHERE num=1")
+    conn.commit()
+    conn.close()
+    got = {n["num"]: n["hops"] for n in Store(connect(path)).load_nodes()}
+    assert got[1] == 5  # eseguita una volta sola

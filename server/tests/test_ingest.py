@@ -328,3 +328,19 @@ def test_mqtt_hops_do_not_overwrite_recent_rf_hops(env):
     assert live.nodes[1]["hops"] == 3
     ing.handle(ev("position", pos(MILAN), source="rf", radio_id="rA", pid=3, hops=2, t=NOW + 20))
     assert live.nodes[1]["hops"] == 2
+
+
+def test_mqtt_relayed_event_clears_stale_hops(env):
+    ing, live, _, _, _ = env
+    ing.handle(ev("position", pos(MILAN), pid=1))
+    live.nodes[1]["hops"] = 7  # valore vecchio calcolato da hop_start
+    ing.handle(ev("position", pos(MILAN), pid=2, hops=None, hops_min=1, relay_node=0x11))
+    assert live.nodes[1]["hops"] is None and live.nodes[1]["hops_min"] == 1
+
+
+def test_mqtt_duplicate_copies_do_not_clear_direct_hops(env):
+    ing, live, _, _, _ = env
+    ing.handle(ev("position", pos(MILAN), pid=5, hops=0, relay_node=1, gateway_id="!00000077"))
+    ing.handle(ev("position", pos(MILAN), pid=5, hops=None, hops_min=1, relay_node=0x11,
+                  gateway_id="!00000088"))
+    assert live.nodes[1]["hops"] == 0

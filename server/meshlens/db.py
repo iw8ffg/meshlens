@@ -87,6 +87,11 @@ def _migrate(conn: sqlite3.Connection) -> None:
         existing = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
         if column not in existing:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+    # 1.2.0: i salti dei nodi solo-MQTT erano calcolati da hop_start (privi di senso): si azzerano
+    done = conn.execute("SELECT 1 FROM settings WHERE key='migr_hops_mqtt_v120'").fetchone()
+    if not done:
+        conn.execute("UPDATE nodes SET hops = NULL WHERE sources = '[\"mqtt\"]'")
+        conn.execute("INSERT INTO settings(key, value) VALUES('migr_hops_mqtt_v120', '1')")
 
 
 def connect(path: Path | str) -> sqlite3.Connection:
