@@ -59,8 +59,10 @@ def _describe(f, secret: bool = False) -> dict | None:
     out: dict = {"type": "repeated" if f.is_repeated else t}
     if f.is_repeated:
         out["item"] = t
-    if t == "enum" or (f.is_repeated and t == "enum"):
+    if t == "enum":
         out["enum"] = [v.name for v in f.enum_type.values]
+    if t == "int":
+        out["min"], out["max"] = _BITS[f.cpp_type]
     if secret:
         out["secret"] = True
     return out
@@ -89,7 +91,7 @@ def schema() -> dict:
                                           .enum_type.values]},
         "name": {"type": "string"},
         "psk": {"type": "bytes", "secret": True},
-        "position_precision": {"type": "int"},
+        "position_precision": {"type": "int", "min": 0, "max": 2**32 - 1},
         "uplink_enabled": {"type": "bool"},
         "downlink_enabled": {"type": "bool"},
     }
@@ -100,8 +102,6 @@ def schema() -> dict:
 # --- costruzione del dict di configurazione ---
 
 def channel_to_dict(ch, mask: bool = True) -> dict:
-    d = _to_dict(ch)
-    st = d.get("settings", {})
     psk = ch.settings.psk
     return {
         "index": ch.index,
@@ -109,8 +109,8 @@ def channel_to_dict(ch, mask: bool = True) -> dict:
         "name": ch.settings.name,
         "psk": MASK if mask else base64.b64encode(psk).decode(),
         "position_precision": ch.settings.module_settings.position_precision,
-        "uplink_enabled": bool(st.get("uplink_enabled", False)),
-        "downlink_enabled": bool(st.get("downlink_enabled", False)),
+        "uplink_enabled": ch.settings.uplink_enabled,
+        "downlink_enabled": ch.settings.downlink_enabled,
     }
 
 
@@ -166,19 +166,11 @@ def _spec(sch: dict, kind: str, section, field: str, path: str) -> dict:
         spec = sch["owner"].get(field)
     elif kind == "channels":
         spec = sch["channel"].get(field)
-        if spec is not None and field == "index":
-            spec = None
     else:
         spec = sch[kind].get(section, {}).get(field)
     if spec is None:
         raise ValueError(f"Percorso sconosciuto: {path}")
     return spec
-
-
-def _int_bounds(path: str, v: int, spec: dict) -> None:
-    # i limiti precisi dipendono dal tipo C++; qui basta evitare overflow a 64 bit
-    if not -2**63 <= v < 2**64:
-        raise ValueError(f"Valore fuori intervallo per {path}")
 
 
 def _coerce_one(path: str, v, t: str, spec: dict):
@@ -189,7 +181,8 @@ def _coerce_one(path: str, v, t: str, spec: dict):
     if t == "int":
         if isinstance(v, bool) or not isinstance(v, int):
             raise ValueError(f"{path}: atteso un numero intero")
-        _int_bounds(path, v, spec)
+        if not spec["min"] <= v <= spec["max"]:
+            raise ValueError(f"{path}: valore fuori intervallo ({spec['min']}..{spec['max']})")
         return v
     if t == "float":
         if isinstance(v, bool) or not isinstance(v, (int, float)):
@@ -284,9 +277,9 @@ def diff(current: dict, changes: list[tuple[str, object]], context: dict) -> lis
     """Differenze rispetto al Config attuale. Ignora valori uguali e mascherati."""
     out = []
     for path, new in changes:
-        if new == MASK:
-            continue
         kind, section, field = _split(path)
+        if new == MASK and _is_secret(kind, section, field):
+            continue
         old = _current(current, kind, section, field)
         new_json = _to_json(new)
         secret = _is_secret(kind, section, field)
@@ -340,9 +333,9 @@ def apply_to_protos(protos: dict, changes: list[tuple[str, object]]) -> dict:
            "channels": [copy.deepcopy(c) for c in protos.get("channels", [])],
            "owner": dict(protos.get("owner", {}))}
     for path, value in changes:
-        if value == MASK:
-            continue
         kind, section, field = _split(path)
+        if value == MASK and _is_secret(kind, section, field):
+            continue
         if kind == "owner":
             out["owner"][field] = value
         elif kind == "channels":

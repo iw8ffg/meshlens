@@ -141,3 +141,28 @@ def test_touched_sections():
     ch = cm.parse_changes({"config.lora.hop_limit": 4, "channels.1.name": "x",
                            "config.lora.tx_power": 5, "owner.long_name": "y"})
     assert cm.touched_sections(ch) == ["config.lora", "channels.1", "owner"]
+
+
+def test_parse_changes_int_ranges():
+    # uint32: hop_limit; int32: tx_power; uint32 canale: position_precision
+    for bad in (-1, 2**32):
+        with pytest.raises(ValueError):
+            cm.parse_changes({"config.lora.hop_limit": bad})
+    with pytest.raises(ValueError):
+        cm.parse_changes({"config.lora.tx_power": 2**31})
+    with pytest.raises(ValueError):
+        cm.parse_changes({"config.lora.tx_power": -2**31 - 1})
+    with pytest.raises(ValueError):
+        cm.parse_changes({"channels.1.position_precision": -1})
+    for ok in (0, 2**32 - 1):
+        assert cm.parse_changes({"config.lora.hop_limit": ok}) == [("config.lora.hop_limit", ok)]
+    assert cm.parse_changes({"config.lora.tx_power": 2**31 - 1})[0][1] == 2**31 - 1
+    assert cm.parse_changes({"config.lora.tx_power": -2**31})[0][1] == -2**31
+
+
+def test_mask_unchanged_only_for_secrets():
+    # "••••" su un campo non segreto e' un testo normale, non "invariato"
+    r = d({"owner.long_name": cm.MASK})
+    assert r and r[0]["new"] == cm.MASK
+    out = cm.apply_to_protos(protos(), cm.parse_changes({"owner.long_name": cm.MASK}))
+    assert out["owner"]["long_name"] == cm.MASK
