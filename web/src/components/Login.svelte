@@ -59,7 +59,7 @@
     } catch (err) {
       if (err instanceof ApiError && err.status === 429) {
         if (err.retryAfter) startLock(err.retryAfter)
-        message = 'Troppi tentativi'
+        message = err.retryAfter ? 'Troppi tentativi' : 'Troppi tentativi: riprova tra qualche minuto'
       } else if (err instanceof ApiError && err.status === 401) {
         message = 'PIN errato'
       } else {

@@ -12,5 +12,5 @@
 {#if cc}
   <img class="ui-flag" src={`${import.meta.env.BASE_URL}flags/${cc}.svg`} alt={name ?? cc.toUpperCase()} width="18" height="12" loading="lazy" decoding="async" />
 {:else}
-  <span class="ui-flag" style="background: var(--snr-none)" role="img" aria-label="Nazione sconosciuta"></span>
+  <span class="ui-flag ui-flag-unk" role="img" aria-label="Nazione sconosciuta">?</span>
 {/if}

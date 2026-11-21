@@ -27,9 +27,9 @@
       </div>
       <div class="grp">
         <div class="h">Collegamenti (SNR)</div>
-        <div class="it"><i class="bar" style="background:var(--snr-good)"></i>▲ da 0 dB</div>
-        <div class="it"><i class="bar" style="background:var(--snr-mid)"></i>● da −10 a 0 dB</div>
-        <div class="it"><i class="bar" style="background:var(--snr-bad)"></i>▼ sotto −10 dB</div>
+        <div class="it"><i class="bar" style="background:var(--snr-good)"></i>da 0 dB</div>
+        <div class="it"><i class="bar" style="background:var(--snr-mid)"></i>da −10 a 0 dB</div>
+        <div class="it"><i class="bar" style="background:var(--snr-bad)"></i>sotto −10 dB</div>
         <div class="it"><i class="bar dashed" style="color:var(--snr-none)"></i>tratteggio: traceroute</div>
       </div>
       <div class="grp">

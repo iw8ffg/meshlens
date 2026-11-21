@@ -56,13 +56,14 @@
 .ui-seg.fill button { flex: 1; }
 .ui-seg button[aria-checked='true'] { background: var(--accent); color: var(--on-accent); }
 .ui-seg button:hover:not([aria-checked='true']) { color: var(--ink); }
-.vp-phone .ui-seg button { height: 38px; }
+.vp-phone .ui-seg button { height: 38px; min-height: 44px; }
 
 .ui-chip { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 var(--space-3); border-radius: var(--radius-pill); border: 1px solid var(--line-strong); background: transparent; color: var(--ink); font: 500 14px/20px var(--font-sans); cursor: pointer; white-space: nowrap; }
 .ui-chip[aria-pressed='true'] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-ink); }
 .ui-chip:hover { border-color: var(--ink-muted); }
-.vp-phone .ui-chip { height: 40px; padding: 0 var(--space-4); }
+.vp-phone .ui-chip { height: 40px; min-height: 44px; padding: 0 var(--space-4); }
 
+.ui-flag-unk { display: inline-flex; align-items: center; justify-content: center; background: var(--surface-sunken); color: var(--ink-muted); font: 700 10px/12px var(--font-sans); box-shadow: 0 0 0 1px var(--line-strong); }
 .ui-flag { width: 18px; height: 12px; border-radius: 2px; flex: none; box-shadow: 0 0 0 1px #00000040; object-fit: cover; display: inline-block; vertical-align: middle; }
 
 /* ---------- badge ---------- */
@@ -118,7 +119,7 @@
 .vp-phone .ui-tbl td { height: 52px; }
 
 /* ---------- modale e sheet ---------- */
-.ui-modalbg { position: fixed; inset: 0; background: #000000a6; display: grid; place-items: center; z-index: var(--z-modal); padding: var(--space-4); }
+.ui-modalbg { position: fixed; inset: 0; background: var(--scrim); display: grid; place-items: center; z-index: var(--z-modal); padding: var(--space-4); }
 .ui-modal { width: 100%; max-width: 560px; max-height: 100%; overflow: auto; background: var(--surface-raised); color: var(--ink); border: 1px solid var(--line-strong); border-radius: var(--radius-xl); box-shadow: var(--shadow-3); padding: var(--space-5); display: flex; flex-direction: column; gap: var(--space-4); box-sizing: border-box; }
 .ui-modal.risk { border-color: var(--danger); }
 .ui-modal h2 { margin: 0; font: 600 18px/24px var(--font-sans); }

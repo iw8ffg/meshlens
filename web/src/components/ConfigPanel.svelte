@@ -501,7 +501,7 @@
 </Modal>
 
 <style>
-  .overlay { position: fixed; inset: 0; background: #000000a6; z-index: var(--z-modal); display: flex; align-items: center; justify-content: center; }
+  .overlay { position: fixed; inset: 0; background: var(--scrim); z-index: var(--z-modal); display: flex; align-items: center; justify-content: center; }
   .box { background: var(--surface-raised); color: var(--ink); border: 1px solid var(--line-strong); border-radius: var(--radius-xl); box-shadow: var(--shadow-3); width: min(720px, 96vw); max-height: 92dvh; overflow: auto; padding: var(--space-3) var(--space-4) var(--space-4); box-sizing: border-box; }
   header { display: flex; align-items: center; gap: var(--space-2); }
   h2 { flex: 1; font: 600 18px/24px var(--font-sans); margin: 0; }

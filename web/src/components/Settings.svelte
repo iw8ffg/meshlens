@@ -11,7 +11,7 @@
   import MeshtasticBadge from '../lib/shell/MeshtasticBadge.svelte'
   import { getTheme, THEME_LABELS, type ThemePref } from '../lib/theme'
   import { getJSON, send, ApiError } from '../lib/api'
-  import { flag } from '../lib/format'
+  import Flag from '../lib/ui/Flag.svelte'
   import OfflineMaps from './OfflineMaps.svelte'
   import Updates from './Updates.svelte'
   import { channelOptions, checkMqttNodeId, joinLines, parseLines, type AppSettings, type MqttChannel } from '../lib/settings'
@@ -191,7 +191,7 @@
                 <label class="ui-check">
                   <input type="checkbox" checked={saved.includes(c.code)} onchange={() => toggle(c.code)} />
                   <span class="bx">{#if saved.includes(c.code)}<Icon name="check" size={14} />{/if}</span>
-                  <span>{flag(c.code)} {c.name}</span>
+                  <span class="cn"><Flag code={c.code} name={c.name} /> {c.name}</span>
                 </label>
               </li>
             {/each}
@@ -313,6 +313,7 @@
   .sec { display: flex; flex-direction: column; gap: var(--space-3); }
   .fld { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
   .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--space-3); }
+  .cn { display: inline-flex; align-items: center; gap: var(--space-2); }
   .countries { list-style: none; margin: 0; padding: 0; max-height: 240px; overflow: auto; }
   .chan { width: 100%; }
   .n { margin-left: auto; color: var(--ink-muted); font-size: 13px; }

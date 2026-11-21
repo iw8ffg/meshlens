@@ -19,11 +19,6 @@ export function compareLastHeard(a: number | null, b: number | null): number {
   return b - a
 }
 
-export function flag(code: string | null): string {
-  if (!code || !/^[A-Za-z]{2}$/.test(code)) return '🏳️'
-  return String.fromCodePoint(...[...code.toUpperCase()].map((c) => 0x1f1e6 + c.charCodeAt(0) - 65))
-}
-
 // --- Formato del design (it-IT) ---
 
 const nfCache = new Map<number, Intl.NumberFormat>()

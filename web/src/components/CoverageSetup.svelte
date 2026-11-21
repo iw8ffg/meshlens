@@ -121,7 +121,7 @@
     <h3>Nuova prova</h3>
     <Field label="Radio di base" for="cov-radio">
       {#snippet children()}
-        <Select id="cov-radio" bind:value={radioPick} disabled={!connected.length}>
+        <Select id="cov-radio" bind:value={() => radioId, (v) => (radioPick = v)} disabled={!connected.length}>
           {#each connected as r (r.id)}<option value={r.id}>{r.name}</option>{/each}
           {#if !connected.length}<option value="">Nessuna radio collegata</option>{/if}
         </Select>
@@ -130,7 +130,7 @@
     <Field label="Nodo mobile" for="cov-mobile">
       {#snippet children()}
         <input class="ui-input" type="search" aria-label="Cerca il nodo mobile" placeholder="Cerca per nome o id" bind:value={query} />
-        <Select id="cov-mobile" bind:value={mobilePick} disabled={!candidates.length}>
+        <Select id="cov-mobile" bind:value={() => mobileId, (v) => (mobilePick = v)} disabled={!candidates.length}>
           {#each candidates as n (n.id)}<option value={n.id}>{label(n)}</option>{/each}
           {#if !candidates.length}<option value="">Nessun nodo trovato</option>{/if}
         </Select>
