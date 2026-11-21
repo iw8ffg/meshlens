@@ -4,6 +4,8 @@ import type { NodeFilter } from './filters'
 import { MAX_REPLACED, insertMessage, removeByKey, mergeRadioMessages, pruneSet } from './chat'
 import { shouldStore } from './traceroute'
 import { appendTrackPoint, upsertPoint } from './coverage'
+import { updateStatus } from './api'
+import { shouldReloadStatus } from './update'
 import type { Bbox, ConfigJob, MapJob, UpdateJob, UpdateStatus, Alert, CoverageDetail, CoveragePoint, CoverageSession, CoverageTrackPoint, Message, MessageStatus, Node, Radio, Status, Traceroute } from './types'
 
 const MAX_MESSAGES = 500
@@ -151,5 +153,12 @@ export function setUpdateStatus(s: UpdateStatus): void {
 }
 
 export function setUpdateJob(j: UpdateJob): void {
+  const reload = shouldReloadStatus(updates.job, j)
   updates.job = j
+  // a download completato il server calcola can_install: rileggi lo stato (WebSocket o polling)
+  if (reload) {
+    updateStatus()
+      .then(setUpdateStatus)
+      .catch(() => {})
+  }
 }

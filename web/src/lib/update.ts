@@ -13,3 +13,8 @@ export function updateLabel(s: UpdateStatus | null): string {
 export function canInstall(s: UpdateStatus | null, job: UpdateJob | null): boolean {
   return !!s && s.available && s.can_install && job?.status === 'done'
 }
+
+/** Quando il download passa a "completato" lo stato del server cambia (can_install): va riletto. */
+export function shouldReloadStatus(prev: UpdateJob | null, next: UpdateJob): boolean {
+  return next.status === 'done' && prev?.status !== 'done'
+}

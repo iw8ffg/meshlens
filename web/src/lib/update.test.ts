@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { canInstall, updateLabel } from './update'
+import { canInstall, shouldReloadStatus, updateLabel } from './update'
 import type { UpdateJob, UpdateStatus } from './types'
 
 const status = (over: Partial<UpdateStatus> = {}): UpdateStatus => ({
@@ -12,6 +12,7 @@ const status = (over: Partial<UpdateStatus> = {}): UpdateStatus => ({
   error: null,
   job: null,
   can_install: true,
+  frozen: true,
   ...over,
 })
 const job = (over: Partial<UpdateJob> = {}): UpdateJob => ({ id: 1, status: 'done', bytes_done: 10, bytes_total: 10, error: null, ...over })
@@ -46,5 +47,23 @@ describe('canInstall', () => {
   it('serve aggiornamento disponibile', () => {
     expect(canInstall(status(), job())).toBe(false)
     expect(canInstall(null, job())).toBe(false)
+  })
+})
+
+describe('shouldReloadStatus', () => {
+  it('rilegge lo stato quando il download passa a completato', () => {
+    expect(shouldReloadStatus(job({ status: 'running' }), job())).toBe(true)
+    expect(shouldReloadStatus(null, job())).toBe(true)
+  })
+  it('non rilegge negli altri casi', () => {
+    expect(shouldReloadStatus(job(), job())).toBe(false)
+    expect(shouldReloadStatus(null, job({ status: 'running' }))).toBe(false)
+    expect(shouldReloadStatus(job({ status: 'running' }), job({ status: 'failed' }))).toBe(false)
+  })
+  it('dopo la rilettura l installazione si abilita', () => {
+    const stale = status({ available: true, can_install: false })
+    const fresh = status({ available: true, can_install: true })
+    expect(canInstall(stale, job())).toBe(false)
+    expect(canInstall(fresh, job())).toBe(true)
   })
 })

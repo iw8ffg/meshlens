@@ -378,4 +378,5 @@ export interface UpdateStatus {
   error: string | null
   job: UpdateJob | null
   can_install: boolean
+  frozen: boolean
 }

@@ -181,6 +181,7 @@
         <li>Permissions: Contents → Read-only.</li>
         <li>Copia il token e incollalo qui.</li>
       </ol>
+      <p class="muted">Il token deve essere creato dal proprietario del repository. Se sei un collaboratore, usa un token classico con permesso «repo».</p>
     </details>
   </div>
 
@@ -239,7 +240,7 @@
           Installa e riavvia
         </button>
       </div>
-      {#if status.can_install === false}
+      {#if status.frozen === false}
         <p class="muted">L'installazione è disponibile solo nella versione installata di MeshLens (non in sviluppo).</p>
       {/if}
     {/if}
