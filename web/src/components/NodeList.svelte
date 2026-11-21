@@ -1,10 +1,11 @@
 <script lang="ts">
   import { app } from '../lib/stores.svelte'
   import { ago, compareLastHeard } from '../lib/format'
-  import { batteryView, contactMinutes, nodeName, sourceKind } from '../lib/nodes'
+  import { hopsLabel, batteryView, contactMinutes, nodeName, sourceKind } from '../lib/nodes'
   import { contactClass } from '../lib/ui/logic'
   import BatteryBadge from '../lib/ui/BatteryBadge.svelte'
   import Empty from '../lib/ui/Empty.svelte'
+  import Icon from '../lib/ui/Icon.svelte'
   import Flag from '../lib/ui/Flag.svelte'
   import SnrBadge from '../lib/ui/SnrBadge.svelte'
   import SourceMark from '../lib/ui/SourceMark.svelte'
@@ -26,7 +27,7 @@
         <button type="button" class:sel={app.selectedId === n.id} onclick={() => onpick(n)}>
           <Flag code={n.country} />
           <span class="id">
-            <span class="name">{nodeName(n)}</span>
+            <span class="name">{nodeName(n)}{#if n.is_mine || n.is_local_radio}<span class="mk house" title="Mio nodo"><Icon name="house" size={14} /></span>{/if}{#if n.is_favorite}<span class="mk fav" title="Preferito"><Icon name="star" size={14} /></span>{/if}</span>
             <span class="sub ui-mono">{n.id}</span>
           </span>
           {#if src}<SourceMark source={src} />{/if}
@@ -35,6 +36,7 @@
             <span class="meas">
               {#if n.last_snr !== null}<SnrBadge value={n.last_snr} />{/if}
               {#if bat}<BatteryBadge pct={bat.pct} usb={bat.usb} />{/if}
+              <span class="hops" title="Salti">{hopsLabel(n.hops, n.hops_min)}</span>
             </span>
           </span>
         </button>
@@ -82,6 +84,20 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  .mk {
+    display: inline-flex;
+    vertical-align: -2px;
+    margin-left: var(--space-1);
+  }
+  .mk.house {
+    color: var(--accent);
+  }
+  .mk.fav {
+    color: var(--brand-amber);
+  }
+  .hops {
+    color: var(--ink-muted);
   }
   .sub {
     color: var(--ink-muted);

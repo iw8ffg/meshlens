@@ -34,7 +34,7 @@ function mem(init?: string) {
 }
 
 test('loadFilter defaults to IT when empty', () => {
-  expect(loadFilter(mem())).toEqual({ countries: ['IT'], maxAgeH: null, sources: [], text: '', links: false })
+  expect(loadFilter(mem())).toEqual({ countries: ['IT'], maxAgeH: null, sources: [], text: '', links: false, favorites: false })
 })
 
 test('loadFilter defaults on invalid JSON', () => {
@@ -43,7 +43,7 @@ test('loadFilter defaults on invalid JSON', () => {
 
 test('saveFilter/loadFilter round trip', () => {
   const s = mem()
-  const f = { countries: ['FR', 'none'], maxAgeH: 24, sources: [], text: 'abc', links: false }
+  const f = { countries: ['FR', 'none'], maxAgeH: 24, sources: [], text: 'abc', links: false, favorites: false }
   saveFilter(s, f)
   expect(loadFilter(s)).toEqual(f)
   saveFilter(s, { ...f, countries: [] })
@@ -119,4 +119,17 @@ test('feed: salvataggio e dati vecchi o corrotti', () => {
   const bad = { getItem: () => { throw new Error('x') }, setItem: () => { throw new Error('x') } }
   expect(loadFeedFilter(bad)).toEqual({ countries: [], includeUnknown: true })
   expect(() => saveFeedFilter(bad, { countries: [], includeUnknown: true })).not.toThrow()
+})
+
+test('favorites filter and tolerant load of old saved data', () => {
+  const f = { countries: [], maxAgeH: null, sources: [], text: '', links: false, favorites: true }
+  expect(matchNode({ ...n, is_favorite: true } as Node, f, now)).toBe(true)
+  expect(matchNode(n, f, now)).toBe(false)
+  expect(matchNode(n, { ...f, favorites: false }, now)).toBe(true)
+  // dati salvati da versioni precedenti: nessun campo `favorites`
+  expect(loadFilter(mem('{"countries":["IT"],"links":true}')).favorites).toBe(false)
+  expect(loadFilter(mem('{"favorites":"si"}')).favorites).toBe(false)
+  const s = mem()
+  saveFilter(s, { ...loadFilter(s), favorites: true })
+  expect(loadFilter(s).favorites).toBe(true)
 })

@@ -14,6 +14,8 @@ export function snrColorExpr(t: MapTokens): ExpressionSpecification {
 }
 
 export const TRACE_DASH: [number, number] = [2, 1.5]
+/** Puntinato per i collegamenti di ricezione diretta vista da un gateway MQTT. */
+export const GATEWAY_DASH: [number, number] = [0.5, 1.5]
 
 export function addLinkLayers(map: MLMap, t: MapTokens): void {
   map.addSource('links', { type: 'geojson', data: EMPTY })
@@ -22,7 +24,7 @@ export function addLinkLayers(map: MLMap, t: MapTokens): void {
     id: 'links',
     type: 'line',
     source: 'links',
-    filter: ['!=', ['get', 'source'], 'traceroute'],
+    filter: ['all', ['!=', ['get', 'source'], 'traceroute'], ['!=', ['get', 'source'], 'mqtt_gateway']],
     layout: { 'line-cap': 'round' },
     paint: { 'line-color': snrColorExpr(t), 'line-width': 3, 'line-opacity': opacity },
   })
@@ -32,5 +34,12 @@ export function addLinkLayers(map: MLMap, t: MapTokens): void {
     source: 'links',
     filter: ['==', ['get', 'source'], 'traceroute'],
     paint: { 'line-color': snrColorExpr(t), 'line-width': 3, 'line-opacity': opacity, 'line-dasharray': TRACE_DASH },
+  })
+  map.addLayer({
+    id: 'links-gateway',
+    type: 'line',
+    source: 'links',
+    filter: ['==', ['get', 'source'], 'mqtt_gateway'],
+    paint: { 'line-color': snrColorExpr(t), 'line-width': 3, 'line-opacity': opacity, 'line-dasharray': GATEWAY_DASH },
   })
 }

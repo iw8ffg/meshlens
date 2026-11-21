@@ -6,6 +6,8 @@ export type NodeFilter = {
   sources: string[]
   text: string
   links: boolean
+  /** Solo nodi preferiti. */
+  favorites?: boolean
 }
 
 export function matchNode(n: Node, f: NodeFilter, now: number): boolean {
@@ -14,6 +16,7 @@ export function matchNode(n: Node, f: NodeFilter, now: number): boolean {
     if (!f.countries.includes(key)) return false
   }
   if (f.maxAgeH !== null && (n.last_heard === null || now - n.last_heard > f.maxAgeH * 3600)) return false
+  if (f.favorites && !n.is_favorite) return false
   if (f.sources.length > 0 && !n.sources.some((s) => f.sources.includes(s))) return false
   const t = f.text.trim().toLowerCase()
   if (t) {
@@ -35,7 +38,7 @@ export const FILTER_KEY = 'meshlens.filter'
 
 type FilterStorage = Pick<Storage, 'getItem' | 'setItem'>
 
-const defaultFilter = (): NodeFilter => ({ countries: ['IT'], maxAgeH: null, sources: [], text: '', links: false })
+const defaultFilter = (): NodeFilter => ({ countries: ['IT'], maxAgeH: null, sources: [], text: '', links: false, favorites: false })
 
 // Ripristina il filtro salvato (default: solo Italia)
 export function loadFilter(storage: FilterStorage): NodeFilter {
@@ -48,6 +51,7 @@ export function loadFilter(storage: FilterStorage): NodeFilter {
       sources: [],
       text: typeof saved?.text === 'string' ? saved.text : '',
       links: saved?.links === true,
+      favorites: saved?.favorites === true,
     }
   } catch {
     return defaultFilter()
@@ -56,7 +60,7 @@ export function loadFilter(storage: FilterStorage): NodeFilter {
 
 export function saveFilter(storage: FilterStorage, f: NodeFilter): void {
   try {
-    storage.setItem(FILTER_KEY, JSON.stringify({ countries: [...f.countries], maxAgeH: f.maxAgeH, text: f.text, links: f.links }))
+    storage.setItem(FILTER_KEY, JSON.stringify({ countries: [...f.countries], maxAgeH: f.maxAgeH, text: f.text, links: f.links, favorites: !!f.favorites }))
   } catch {
     // storage non disponibile: ignora
   }

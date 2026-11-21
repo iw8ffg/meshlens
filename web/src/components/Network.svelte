@@ -2,10 +2,11 @@
   import { app } from '../lib/stores.svelte'
   import { ago } from '../lib/format'
   import { sortNodes, type SortKey } from '../lib/network'
-  import { alertText, alertsByNode, batteryView, contactMinutes, fmtOpt, nodeName } from '../lib/nodes'
+  import { alertText, alertsByNode, batteryView, contactMinutes, fmtOpt, hopsLabel, networkNodes, nodeName } from '../lib/nodes'
   import Banner from '../lib/ui/Banner.svelte'
   import BatteryBadge from '../lib/ui/BatteryBadge.svelte'
   import Badge from '../lib/ui/Badge.svelte'
+  import Icon from '../lib/ui/Icon.svelte'
   import Empty from '../lib/ui/Empty.svelte'
   import SnrBadge from '../lib/ui/SnrBadge.svelte'
   import Switch from '../lib/ui/Switch.svelte'
@@ -31,10 +32,11 @@
   // Scelta dell'utente; finche' non tocca l'interruttore vale "acceso se esiste un nodo mio"
   let mineChoice = $state<boolean | null>(null)
   const onlyMine = $derived(mineChoice ?? hasMine)
+  let onlyFav = $state(false)
   let key = $state<SortKey>('last_heard')
   let dir = $state<'asc' | 'desc'>('desc')
 
-  const rows = $derived(sortNodes(onlyMine ? nodes.filter((n) => n.is_mine) : nodes, key, dir))
+  const rows = $derived(sortNodes(networkNodes(nodes, onlyMine, onlyFav), key, dir))
   const alerts = $derived(alertsByNode(app.alerts))
   const alertRows = $derived(rows.filter((n) => alerts.has(n.id)))
 
@@ -51,6 +53,7 @@
 <div class="net">
   <div class="bar">
     <Switch checked={onlyMine} label="Solo i miei nodi" onchange={(v) => (mineChoice = v)} />
+    <Switch checked={onlyFav} label="Solo preferiti" onchange={(v) => (onlyFav = v)} />
     <span class="ui-muted">{rows.length} {rows.length === 1 ? 'nodo' : 'nodi'}</span>
   </div>
 
@@ -65,14 +68,16 @@
   {/if}
 
   {#if onlyMine && !hasMine}
-    <Empty icon="star" title="Nessun nodo seguito">Apri un nodo e premi la stella per seguirlo qui.</Empty>
+    <Empty icon="star" title="Nessun nodo seguito">Apri un nodo e premi «Mio nodo» per seguirlo qui.</Empty>
+  {:else if onlyFav && rows.length === 0 && !nodes.some((n) => n.is_favorite)}
+    <Empty icon="star" title="Nessun preferito">Apri un nodo e premi «Preferito» per trovarlo qui.</Empty>
   {:else if rows.length === 0}
     <Empty icon="network" title="Nessun nodo" />
   {:else}
     <Table columns={COLS} {rows} rowKey={(n) => n.id} sortKey={key} sortDir={dir} onsort={sortBy} selectedKey={app.selectedId} onrowclick={onpick} caption="Nodi della rete">
       {#snippet cell(n, c)}
         {#if c.key === 'name'}
-          <b>{nodeName(n)}</b>
+          <b>{nodeName(n)}</b>{#if n.is_mine}<span class="mk house" title="Mio nodo"><Icon name="house" size={14} /></span>{/if}{#if n.is_favorite}<span class="mk fav" title="Preferito"><Icon name="star" size={14} /></span>{/if}
         {:else if c.key === 'last_heard'}
           {ago(contactMinutes(n.last_heard, now))}
         {:else if c.key === 'role'}
@@ -87,7 +92,7 @@
         {:else if c.key === 'snr'}
           <SnrBadge value={n.last_snr} />
         {:else if c.key === 'hops'}
-          {n.hops ?? '–'}
+          {hopsLabel(n.hops, n.hops_min)}
         {:else if c.key === 'channel_util'}
           {fmtOpt(n.channel_util)}
         {:else if c.key === 'air_util_tx'}
@@ -111,6 +116,17 @@
     justify-content: space-between;
     gap: var(--space-3);
     flex-wrap: wrap;
+  }
+  .mk {
+    display: inline-flex;
+    vertical-align: -2px;
+    margin-left: var(--space-1);
+  }
+  .mk.house {
+    color: var(--accent);
+  }
+  .mk.fav {
+    color: var(--brand-amber);
   }
   .alerts {
     display: flex;

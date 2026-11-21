@@ -1,10 +1,10 @@
 // Layer dei nodi: riempimento = ultimo contatto, anello = fonte (immagini dello sprite),
-// stella ambra = «Mio nodo», cluster con conteggio, selezione e cerchio di precisione.
+// stella ambra = preferito, casetta = «Mio nodo», cluster con conteggio, selezione e cerchio di precisione.
 import type { ExpressionSpecification, Map as MLMap } from 'maplibre-gl'
 import type { Feature, FeatureCollection, Point, Polygon } from 'geojson'
 import { circlePolygon, precisionRadiusM } from '../geo'
 import type { Node } from '../types'
-import { RING_IMAGE, STAR_IMAGE } from './sprites'
+import { HOUSE_IMAGE, RING_IMAGE, STAR_IMAGE } from './sprites'
 import type { RingKind } from './sprites'
 import type { MapTokens } from './tokens'
 
@@ -31,6 +31,10 @@ export function isMine(n: Pick<Node, 'is_mine' | 'is_local_radio'>): boolean {
   return !!(n.is_mine || n.is_local_radio)
 }
 
+export function isFavorite(n: Pick<Node, 'is_favorite'>): boolean {
+  return !!n.is_favorite
+}
+
 export function nodeFeatures(nodes: Node[], now: number): Feature<Point>[] {
   const out: Feature<Point>[] = []
   for (const n of nodes) {
@@ -38,7 +42,7 @@ export function nodeFeatures(nodes: Node[], now: number): Feature<Point>[] {
     out.push({
       type: 'Feature',
       geometry: { type: 'Point', coordinates: [n.lon, n.lat] },
-      properties: { id: n.id, age_min: ageMinutes(n.last_heard, now), origin: ringKind(n), mine: isMine(n) },
+      properties: { id: n.id, age_min: ageMinutes(n.last_heard, now), origin: ringKind(n), mine: isMine(n), fav: isFavorite(n) },
     })
   }
   return out
@@ -133,6 +137,13 @@ export function addNodeLayers(map: MLMap, t: MapTokens, hasGlyphs: boolean): voi
     type: 'symbol',
     source: 'nodes',
     filter: ['all', single, ['==', ['get', 'mine'], true]],
+    layout: { 'icon-image': HOUSE_IMAGE, 'icon-offset': [-9, -9], 'icon-allow-overlap': true, 'icon-ignore-placement': true },
+  })
+  map.addLayer({
+    id: 'points-fav',
+    type: 'symbol',
+    source: 'nodes',
+    filter: ['all', single, ['==', ['get', 'fav'], true]],
     layout: { 'icon-image': STAR_IMAGE, 'icon-offset': [9, -9], 'icon-allow-overlap': true, 'icon-ignore-placement': true },
   })
   map.addLayer({

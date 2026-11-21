@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { alertText, alertsByNode, batteryView, contactMinutes, fmtOpt, nodeName, sourceKind, toggleIn } from './nodes'
+import { hopsLabel, networkNodes, alertText, alertsByNode, batteryView, contactMinutes, fmtOpt, nodeName, sourceKind, toggleIn } from './nodes'
 import type { Alert } from './types'
 
 describe('nodes', () => {
@@ -41,5 +41,26 @@ describe('nodes', () => {
   it('fmtOpt: formato it-IT', () => {
     expect(fmtOpt(null)).toBe('–')
     expect(fmtOpt(3.59, 2, ' V')).toBe('3,59 V')
+  })
+})
+
+describe('hopsLabel', () => {
+  it('diretto, numero, almeno 1, ignoto', () => {
+    expect(hopsLabel(0, null)).toBe('0 (diretto)')
+    expect(hopsLabel(3)).toBe('3')
+    expect(hopsLabel(null, 1)).toBe('≥ 1')
+    expect(hopsLabel(null, null)).toBe('—')
+    expect(hopsLabel(null)).toBe('—')
+    expect(hopsLabel(2, 1)).toBe('2')
+  })
+})
+
+describe('networkNodes', () => {
+  const list = [{ is_mine: true, is_favorite: true }, { is_mine: true }, { is_favorite: true }, {}]
+  it('filtri miei / preferiti in AND', () => {
+    expect(networkNodes(list, false, false)).toHaveLength(4)
+    expect(networkNodes(list, true, false)).toHaveLength(2)
+    expect(networkNodes(list, false, true)).toHaveLength(2)
+    expect(networkNodes(list, true, true)).toHaveLength(1)
   })
 })

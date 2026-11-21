@@ -1,7 +1,7 @@
 <script lang="ts">
-  import { getJSON, setMine } from '../lib/api'
+  import { getJSON, setFavorite, setMine } from '../lib/api'
   import { formatDate, ago, num } from '../lib/format'
-  import { batteryView, contactMinutes, fmtOpt, nodeName, sourceKind } from '../lib/nodes'
+  import { batteryView, contactMinutes, fmtOpt, hopsLabel, nodeName, sourceKind } from '../lib/nodes'
   import Badge from '../lib/ui/Badge.svelte'
   import BatteryBadge from '../lib/ui/BatteryBadge.svelte'
   import Banner from '../lib/ui/Banner.svelte'
@@ -42,6 +42,19 @@
     if (!firstRadio) return
     openChat(`dm:${firstRadio.id}:${node.id}`)
     onchat()
+  }
+
+  let favBusy = $state(false)
+  async function toggleFavorite() {
+    favBusy = true
+    msg = ''
+    try {
+      upsertNodes([await setFavorite(node.id, !node.is_favorite)])
+    } catch {
+      msg = 'Impossibile aggiornare "Preferito"'
+    } finally {
+      favBusy = false
+    }
   }
 
   let mineBusy = $state(false)
@@ -110,7 +123,7 @@
     ['Uso canale', fmtOpt(node.channel_util, 1, '%')],
     ['Uso aria TX', fmtOpt(node.air_util_tx, 1, '%')],
     ['Gateway MQTT', String(node.mqtt_gateways)],
-    ['Salti', node.hops === null ? '–' : String(node.hops)],
+    ['Salti', hopsLabel(node.hops, node.hops_min)],
   ])
 </script>
 
@@ -118,7 +131,6 @@
   <header>
     <Flag code={node.country} name={node.country ?? undefined} />
     <h2>{nodeName(node)}</h2>
-    <Button kind="ghost" iconOnly icon="star" label={node.is_mine ? 'Smetti di seguire questo nodo' : 'Segui questo nodo (Mio nodo)'} aria-pressed={!!node.is_mine} disabled={mineBusy} onclick={toggleMine} class={node.is_mine ? 'on' : ''} />
     <Button kind="ghost" iconOnly icon="x" label="Chiudi dettaglio" onclick={onclose} />
   </header>
 
@@ -128,6 +140,11 @@
     <SnrBadge value={node.last_snr} />
     {#if bat}<BatteryBadge pct={bat.pct} usb={bat.usb} />{/if}
     <span class="ui-muted">{ago(contactMinutes(node.last_heard, now))}</span>
+  </div>
+
+  <div class="flags">
+    <Button icon="star" aria-pressed={!!node.is_favorite} disabled={favBusy} onclick={toggleFavorite} class={node.is_favorite ? 'fav on' : 'fav'}>Preferito</Button>
+    <Button icon="house" aria-pressed={!!node.is_mine} disabled={mineBusy} onclick={toggleMine} class={node.is_mine ? 'mine on' : 'mine'}>Mio nodo</Button>
   </div>
 
   <div class="acts">
@@ -160,7 +177,7 @@
           <b>{h.name}</b>
           <SnrBadge value={h.snr} />
           <span class="ui-mono">RSSI {h.rssi === null ? '–' : `${h.rssi} dBm`}</span>
-          <span>salti {h.hops ?? '–'}</span>
+          <span>salti {hopsLabel(h.hops)}</span>
           <span class="ui-muted">{ago(contactMinutes(h.time, now))}</span>
         </li>
       {/each}
@@ -189,8 +206,20 @@
     min-width: 0;
     overflow-wrap: anywhere;
   }
-  header :global(.ui-btn.on) {
-    color: var(--warn);
+  .flags {
+    display: flex;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+    margin: var(--space-2) 0;
+  }
+  .flags :global(.ui-btn.fav.on) {
+    color: var(--brand-amber);
+    border-color: var(--brand-amber);
+  }
+  .flags :global(.ui-btn.mine.on) {
+    color: var(--accent-ink);
+    border-color: var(--accent);
+    background: var(--accent-soft);
   }
   .state {
     display: flex;
