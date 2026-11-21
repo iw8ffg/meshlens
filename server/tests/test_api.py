@@ -121,11 +121,16 @@ async def test_login_ok(ctx):
 async def test_nodes_and_filters(ctx):
     async with logged(ctx) as c:
         nodes = (await c.get("/api/nodes")).json()
-        assert len(nodes) == 4 and all("is_mine" not in n for n in nodes)
+        assert len(nodes) == 4 and nodes[0]["is_mine"] is True
         assert {n["num"] for n in (await c.get("/api/nodes?country=IT")).json()} == {1, 2}
         assert {n["num"] for n in (await c.get("/api/nodes?country=none")).json()} == {4}
         assert {n["num"] for n in (await c.get("/api/nodes?country=DE,none")).json()} == {3, 4}
         assert {n["num"] for n in (await c.get("/api/nodes?max_age_h=1")).json()} == {1, 3, 4}
+
+
+async def test_node_json_exposes_is_mine(ctx):
+    async with logged(ctx) as c:
+        assert (await c.get("/api/nodes/!00000001")).json()["is_mine"] is True
 
 
 async def test_node_detail(ctx):

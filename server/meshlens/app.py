@@ -89,7 +89,7 @@ class Runtime:
         changed = self.live.take_changed()
         if changed:
             self.bus.publish({"type": "nodes", "nodes": [
-                {k: v for k, v in n.items() if k != "is_mine"} for n in changed]})
+                dict(n) for n in changed]})
 
     def _publish_status(self) -> None:
         self.bus.publish({"type": "status", "mqtt": self.mqtt_status()})

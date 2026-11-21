@@ -4,7 +4,7 @@ from meshlens.db import connect
 from meshlens.dedup import Deduplicator
 from meshlens.events import MeshEvent, NodeInfoData, PositionData, TelemetryData, TextData
 from meshlens.geo import CountryLocator
-from meshlens.ingest import Ingestor
+from meshlens.ingest import Ingestor, _new_node
 from meshlens.live import LiveState
 from meshlens.store import Store
 
@@ -123,6 +123,14 @@ def test_telemetry_updates_and_persists(env):
     n = live.nodes[1]
     assert (n["battery"], n["voltage"], n["channel_util"], n["air_util_tx"]) == (87, 4.01, 12.5, 1.2)
     assert count(conn, "telemetry") == 1
+
+
+def test_mine_node_outside_saved_countries_is_persisted(env):
+    ing, live, store, conn, _ = env
+    live.nodes[1] = {**_new_node(1), "is_mine": True}
+    ing.handle(ev("telemetry", TelemetryData(50, 3.9, 5.0, 1.0), pid=2))
+    assert count(conn, "telemetry") == 1
+    assert [n["num"] for n in store.load_nodes()] == [1]
 
 
 def test_take_changed(env):

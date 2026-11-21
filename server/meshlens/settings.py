@@ -12,6 +12,8 @@ DEFAULTS: dict = {
     "retention_positions_days": 90,
     "retention_telemetry_days": 365,
     "storage_cap_mb": 2048,
+    "battery_alert_pct": 20,
+    "silent_alert_hours": 6,
     "lan_access": False,
     "mqtt": {
         "host": "mqtt.meshtastic.org",
@@ -25,6 +27,8 @@ DEFAULTS: dict = {
 
 _INT_KEYS = ("retention_messages_days", "retention_positions_days",
              "retention_telemetry_days", "storage_cap_mb")
+# interi con intervallo ammesso (min, max)
+_RANGE_KEYS = {"battery_alert_pct": (1, 99), "silent_alert_hours": (1, 168)}
 _MQTT_STR = ("host", "username", "password")
 
 
@@ -65,6 +69,10 @@ def _validate(key: str, value) -> None:
     elif key in _INT_KEYS:
         if not (_is_int(value) and value > 0):
             raise ValueError(f"{key} deve essere un numero intero positivo")
+    elif key in _RANGE_KEYS:
+        lo, hi = _RANGE_KEYS[key]
+        if not (_is_int(value) and lo <= value <= hi):
+            raise ValueError(f"{key} deve essere un numero intero tra {lo} e {hi}")
     elif key == "lan_access":
         if not isinstance(value, bool):
             raise ValueError("lan_access deve essere vero o falso")

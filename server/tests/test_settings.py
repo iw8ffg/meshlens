@@ -51,3 +51,14 @@ def test_invalid_save_changes_nothing(conn):
     with pytest.raises(ValueError):
         save_settings(conn, {"lan_access": True, "saved_countries": ["x"]})
     assert load_settings(conn)["lan_access"] is False
+
+
+def test_alert_settings_defaults_and_validation(conn):
+    s = load_settings(conn)
+    assert s["battery_alert_pct"] == 20 and s["silent_alert_hours"] == 6
+    assert save_settings(conn, {"battery_alert_pct": 30})["battery_alert_pct"] == 30
+    for bad in ({"battery_alert_pct": 0}, {"battery_alert_pct": 100},
+                {"silent_alert_hours": 200}, {"silent_alert_hours": 0},
+                {"battery_alert_pct": "20"}):
+        with pytest.raises(ValueError):
+            save_settings(conn, bad)

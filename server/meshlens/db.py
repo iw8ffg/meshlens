@@ -26,6 +26,13 @@ CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT);
 CREATE TABLE IF NOT EXISTS auth(key TEXT PRIMARY KEY, value TEXT);
 CREATE TABLE IF NOT EXISTS sessions(
   token_hash TEXT PRIMARY KEY, created REAL, last_seen REAL, user_agent TEXT);
+CREATE TABLE IF NOT EXISTS links(
+  from_num INTEGER, to_num INTEGER, source TEXT, snr REAL, time REAL,
+  PRIMARY KEY(from_num, to_num, source));
+CREATE TABLE IF NOT EXISTS traceroutes(
+  id INTEGER PRIMARY KEY AUTOINCREMENT, radio_id TEXT, target_num INTEGER, time REAL,
+  status TEXT, error TEXT, forward TEXT, back TEXT);
+CREATE INDEX IF NOT EXISTS idx_links_time ON links(time);
 CREATE INDEX IF NOT EXISTS idx_positions_node_time ON positions(node_num, time);
 CREATE INDEX IF NOT EXISTS idx_messages_time ON messages(time);
 CREATE INDEX IF NOT EXISTS idx_telemetry_node_time ON telemetry(node_num, time);

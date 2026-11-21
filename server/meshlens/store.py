@@ -101,6 +101,47 @@ class Store:
             out.append(d)
         return out
 
+    def set_mine(self, num: int, mine: bool) -> None:
+        self.conn.execute("UPDATE nodes SET is_mine=? WHERE num=?", (1 if mine else 0, num))
+
+    def upsert_link(self, from_num: int, to_num: int, source: str, snr: float | None,
+                    time: float) -> None:
+        """Tiene la riga piu' recente per (from, to, source)."""
+        self.conn.execute(
+            "INSERT INTO links(from_num, to_num, source, snr, time) VALUES(?,?,?,?,?) "
+            "ON CONFLICT(from_num, to_num, source) DO UPDATE SET snr=excluded.snr, "
+            "time=excluded.time WHERE excluded.time >= links.time",
+            (from_num, to_num, source, snr, time))
+
+    def links(self, since: float) -> list[dict]:
+        rows = self.conn.execute(
+            "SELECT from_num, to_num, source, snr, time FROM links WHERE time>=? ORDER BY time",
+            (since,))
+        return [{"from_id": _num_to_id(r["from_num"]), "to_id": _num_to_id(r["to_num"]),
+                 "source": r["source"], "snr": r["snr"], "time": r["time"]} for r in rows]
+
+    def add_traceroute(self, radio_id: str, target_num: int, time: float) -> int:
+        cur = self.conn.execute(
+            "INSERT INTO traceroutes(radio_id, target_num, time, status, forward, back) "
+            "VALUES(?,?,?,'pending','[]','[]')", (radio_id, target_num, time))
+        return cur.lastrowid
+
+    def update_traceroute(self, tid: int, status: str, error: str | None,
+                          forward: list, back: list) -> None:
+        self.conn.execute(
+            "UPDATE traceroutes SET status=?, error=?, forward=?, back=? WHERE id=?",
+            (status, error, json.dumps(forward), json.dumps(back), tid))
+
+    def traceroutes(self, target_num: int, limit: int = 10) -> list[dict]:
+        rows = self.conn.execute(
+            "SELECT * FROM traceroutes WHERE target_num=? ORDER BY time DESC, id DESC LIMIT ?",
+            (target_num, limit))
+        return [{"id": r["id"], "radio_id": r["radio_id"],
+                 "target_id": _num_to_id(r["target_num"]), "time": r["time"],
+                 "status": r["status"], "error": r["error"],
+                 "forward": json.loads(r["forward"] or "[]"),
+                 "back": json.loads(r["back"] or "[]")} for r in rows]
+
     def positions(self, num: int, since: float) -> list[dict]:
         rows = self.conn.execute(
             "SELECT time, lat, lon, precision_bits, source FROM positions "
@@ -155,6 +196,9 @@ class Store:
             cutoff = now - settings[key] * _DAY
             deleted[table] = self.conn.execute(
                 f"DELETE FROM {table} WHERE time < ?", (cutoff,)).rowcount
+        # i collegamenti scadono come le posizioni (non entrano nel conteggio restituito)
+        self.conn.execute("DELETE FROM links WHERE time < ?",
+                          (now - settings["retention_positions_days"] * _DAY,))
         deleted["nodes"] = self.conn.execute(
             "DELETE FROM nodes WHERE (last_heard < ? OR last_heard IS NULL) AND is_mine = 0",
             (now - settings["retention_positions_days"] * _DAY,)).rowcount

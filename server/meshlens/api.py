@@ -28,7 +28,7 @@ COOKIE = "meshlens_session"
 COOKIE_MAX_AGE = 365 * 24 * 3600
 MASK = "••••"
 LOCAL_HOSTS = ("127.0.0.1", "::1", "localhost")
-INTERNAL_KEYS = ("is_mine",)
+INTERNAL_KEYS = ()
 
 
 @dataclass

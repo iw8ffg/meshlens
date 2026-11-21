@@ -140,3 +140,43 @@ def test_message_new_fields_and_status(store):
 def test_heard_by_roundtrip(store):
     store.upsert_node(node(heard_by={"r1": {"snr": -7.5, "rssi": -110, "hops": 0, "time": 5}}))
     assert store.load_nodes()[0]["heard_by"]["r1"]["rssi"] == -110
+
+
+def test_upsert_link_keeps_latest(store):
+    store.upsert_link(10, 20, "rf_direct", -5.0, 100)
+    store.upsert_link(10, 20, "rf_direct", -9.0, 200)
+    rows = store.conn.execute("SELECT * FROM links").fetchall()
+    assert len(rows) == 1 and rows[0]["time"] == 200 and rows[0]["snr"] == -9.0
+
+
+def test_links_since_filters_and_formats(store):
+    store.upsert_link(10, 20, "neighborinfo", None, 50)
+    store.upsert_link(10, 20, "traceroute", 4.5, 150)
+    assert store.links(100) == [{"from_id": "!0000000a", "to_id": "!00000014",
+                                 "source": "traceroute", "snr": 4.5, "time": 150}]
+
+
+def test_purge_drops_old_links(store):
+    store.upsert_link(1, 2, "rf_direct", 1.0, NOW - 100 * DAY)
+    store.upsert_link(1, 3, "rf_direct", 1.0, NOW - DAY)
+    store.purge(NOW, dict(DEFAULTS))
+    assert [lk["to_id"] for lk in store.links(0)] == ["!00000003"]
+
+
+def test_set_mine_roundtrip(store):
+    store.upsert_node(node(10))
+    store.set_mine(10, True)
+    assert store.load_nodes()[0]["is_mine"] is True
+    store.set_mine(10, False)
+    assert store.load_nodes()[0]["is_mine"] is False
+
+
+def test_traceroute_roundtrip(store):
+    tid = store.add_traceroute("r1", 10, 100.0)
+    assert store.traceroutes(10)[0]["status"] == "pending"
+    fwd = [{"id": "!0000000a", "snr": None}]
+    store.update_traceroute(tid, "ok", None, fwd, [])
+    t = store.traceroutes(10)[0]
+    assert t == {"id": tid, "radio_id": "r1", "target_id": "!0000000a", "time": 100.0,
+                 "status": "ok", "error": None, "forward": fwd, "back": []}
+    assert store.traceroutes(11) == []
