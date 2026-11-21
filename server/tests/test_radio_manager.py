@@ -462,3 +462,52 @@ async def test_stale_pending_traceroutes_become_timeout_at_startup():
                  clock=lambda: e.now)
     row = e.store.traceroutes(0x42)[0]
     assert row["id"] == tid and row["status"] == "timeout"
+
+
+async def test_traceroute_early_reply_during_send_resolves_ok():
+    e = Env()
+    r = await e.mgr.add("usb", "COM5", "A")
+    fc = FakeConnector.instances[0]
+    orig = fc.send_traceroute
+
+    async def send_with_early_reply(dest, ch=0):
+        pid = await orig(dest, ch)
+        fc.on_traceroute(r["id"], pid, route_event(request_id=pid))
+        return pid
+
+    fc.send_traceroute = send_with_early_reply
+    await e.mgr.traceroute(TARGET, None)
+    row = e.store.traceroutes(0x42)[0]
+    assert row["status"] == "ok" and row["forward"][1] == {"id": "!00000077", "snr": 5.0}
+    assert e.mgr._early_acks == {} and e.mgr._early_traces == {}
+
+
+async def test_traceroute_early_routing_error_keeps_reason_and_skips_chat_buffer():
+    e = Env()
+    r = await e.mgr.add("usb", "COM5", "A")
+    fc = FakeConnector.instances[0]
+    orig = fc.send_traceroute
+
+    async def send_with_early_error(dest, ch=0):
+        pid = await orig(dest, ch)
+        fc.on_ack(r["id"], pid, False, "NO_ROUTE")
+        return pid
+
+    fc.send_traceroute = send_with_early_error
+    await e.mgr.traceroute(TARGET, None)
+    row = e.store.traceroutes(0x42)[0]
+    assert row["status"] == "failed" and row["error"] == "Nessun percorso verso il nodo"
+    assert e.mgr._early_acks == {} and e.mgr._early_traces == {}
+
+
+async def test_traceroute_slot_released_if_store_fails():
+    e = Env()
+    r = await e.mgr.add("usb", "COM5", "A")
+
+    def boom(*a):
+        raise RuntimeError("db")
+
+    e.store.add_traceroute = boom
+    with pytest.raises(RuntimeError):
+        await e.mgr.traceroute(TARGET, r["id"])
+    assert r["id"] not in e.mgr._last_trace and e.mgr._tracing == set()

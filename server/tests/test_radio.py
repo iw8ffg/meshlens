@@ -515,3 +515,14 @@ async def test_traceroute_routing_error_is_forwarded_as_ack_failure():
     h.conn.on_packet(ack_pkt(pid, 0x42, "NO_RESPONSE"))
     assert h.acks == [(CFG["id"], pid, False, "NO_RESPONSE")]
     await h.conn.stop()
+
+
+async def test_traceroute_early_error_during_send_is_reported():
+    iface = FakeIface()
+    h = Harness(lambda cfg, n: iface)
+    await connected(h)
+    iface.on_send = lambda pid: h.loop.call_soon_threadsafe(
+        h.conn.on_packet, ack_pkt(pid, 0x42, "NO_ROUTE"))
+    pid = await h.conn.send_traceroute(0x42)
+    assert h.acks == [(CFG["id"], pid, False, "NO_ROUTE")]
+    await h.conn.stop()

@@ -31,6 +31,10 @@ ROUTING_ERRORS = {
 }
 
 
+def _routing_text(reason: str | None) -> str:
+    return ROUTING_ERRORS.get(reason or "", f"Errore di instradamento ({reason})")
+
+
 class NoRadioConnected(Exception):
     pass
 
@@ -95,6 +99,10 @@ class RadioManager:
         # traceroute in attesa: (radio, id pacchetto) -> risultato parziale
         self._traces: dict[tuple[str, int], dict] = {}
         self._last_trace: dict[str, float] = {}
+        # esiti arrivati prima della registrazione (sendData dorme nel suo thread):
+        # (radio, id) -> (istante, evento di risposta | None, motivo dell'errore)
+        self._early_traces: dict[tuple[str, int], tuple[float, MeshEvent | None, str | None]] = {}
+        self._tracing: set[str] = set()  # radio con un traceroute in invio
         # dopo un riavvio nessuna risposta puo' piu' arrivare ai pending rimasti nel DB
         store.expire_pending_traceroutes(MSG_TRACE_TIMEOUT)
         store.commit()
@@ -143,10 +151,14 @@ class RadioManager:
         self._publish_radios()
 
     def _on_ack(self, radio_id: str, packet_id: int, ok: bool, reason: str | None) -> None:
-        if (radio_id, packet_id) in self._traces:  # errore di un traceroute, non e' una chat
+        key = (radio_id, packet_id)
+        if key in self._traces or radio_id in self._tracing:
+            # errore di un traceroute (anche in anticipo): non e' una chat
             if not ok:
-                self._finish_trace((radio_id, packet_id), "failed", ROUTING_ERRORS.get(
-                    reason or "", f"Errore di instradamento ({reason})"))
+                if key in self._traces:
+                    self._finish_trace(key, "failed", _routing_text(reason))
+                else:
+                    self._buffer_early_trace(key, None, reason)
             return
         status = "acked" if ok else "failed"
         key = f"out:{radio_id}:{packet_id}"
@@ -161,7 +173,19 @@ class RadioManager:
     def _on_traceroute(self, radio_id: str, request_id: int, ev: MeshEvent) -> None:
         key = (radio_id, request_id)
         if key not in self._traces:
+            self._buffer_early_trace(key, ev, None)
             return
+        self._finish_ok(key, ev)
+
+    def _buffer_early_trace(self, key, ev: MeshEvent | None, reason: str | None) -> None:
+        now = self._clock()
+        for k in [k for k, e in self._early_traces.items() if now - e[0] >= TRACEROUTE_TIMEOUT]:
+            del self._early_traces[k]
+        self._early_traces[key] = (now, ev, reason)
+        while len(self._early_traces) > MAX_EARLY_ACKS:
+            del self._early_traces[next(iter(self._early_traces))]
+
+    def _finish_ok(self, key: tuple[str, int], ev: MeshEvent) -> None:
         forward, back = traceroute_chains(ev)
         self._finish_trace(key, "ok", None,
                            [{"id": node_id(n), "snr": snr} for n, snr in forward],
@@ -358,21 +382,31 @@ class RadioManager:
         if last is not None and now - last < TRACEROUTE_INTERVAL:
             raise TracerouteThrottled(math.ceil(TRACEROUTE_INTERVAL - (now - last)))
         self._last_trace[radio_id] = now  # prenota subito: un solo invio alla volta
+        self._tracing.add(radio_id)
         try:
-            packet_id = await conn.send_traceroute(num)
-        except asyncio.CancelledError:
+            try:
+                packet_id = await conn.send_traceroute(num)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                raise ValueError(str(exc)) from exc
+            tid = self.store.add_traceroute(radio_id, num, now)
+            self.store.commit()
+        except BaseException:
+            self._last_trace.pop(radio_id, None)  # niente invio utile: libera il limite
             raise
-        except Exception as exc:
-            self._last_trace.pop(radio_id, None)
-            raise ValueError(str(exc)) from exc
-        tid = self.store.add_traceroute(radio_id, num, now)
-        self.store.commit()
+        finally:
+            self._tracing.discard(radio_id)
         result = {"id": tid, "radio_id": radio_id, "target_id": target_id, "time": now,
                   "status": "pending", "error": None, "forward": [], "back": []}
         key = (radio_id, packet_id)
         self._traces[key] = result
-        if self._early_acks.pop(key, None) == "failed":  # errore arrivato durante l'invio
-            self._finish_trace(key, "failed", "Errore di instradamento")
-            return dict(result)
+        snapshot = dict(result)
         self.bus.publish({"type": "traceroute", "result": dict(result)})
-        return dict(result)
+        early = self._early_traces.pop(key, None)  # esito arrivato durante l'invio
+        if early is not None and self._clock() - early[0] < TRACEROUTE_TIMEOUT:
+            if early[1] is not None:
+                self._finish_ok(key, early[1])
+            else:
+                self._finish_trace(key, "failed", _routing_text(early[2]))
+        return snapshot
