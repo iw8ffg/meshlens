@@ -1,5 +1,6 @@
 """API REST e WebSocket. Tutti gli handler sono async: la connessione sqlite e
 condivisa e va usata solo dal thread dell'event loop."""
+import logging
 import asyncio
 import ipaddress
 import mimetypes
@@ -28,6 +29,7 @@ from .geo import CountryLocator
 from .live import LiveState
 from .maps import MapsError
 from .updater import UpdateError
+from .mqtt_publish import MqttSendError
 from .radio_manager import NoRadioConnected, TracerouteThrottled
 from .settings import load_settings, save_settings
 from .store import Store
@@ -57,6 +59,7 @@ class AppContext:
     maps: object | None = None  # MapsManager
     updater: object | None = None  # Updater
     mqtt_channel_counts: Callable[[], dict] = lambda: {}  # canali MQTT visti nell'ultima ora
+    mqtt_sender: object | None = None  # MqttSender
     exit_callback: Callable[[], None] | None = None  # impostata dal lanciatore
     _alerts: list = field(default_factory=list)
 
@@ -92,6 +95,13 @@ class MapsDownloadBody(BaseModel):
     kind: Literal["tool", "world", "italy", "area"]
     bbox: list[float] | None = None
     name: str | None = Field(None, max_length=80)
+
+
+class MqttSendBody(BaseModel):
+    text: str
+    channel: str = "LongFast"
+    to: str | None = None
+    confirm_public: bool = False
 
 
 class UpdateInstallBody(BaseModel):
@@ -479,6 +489,24 @@ def create_app(ctx: AppContext) -> FastAPI:
         await ctx.on_settings_changed(saved)
         ctx.alerts()  # soglie cambiate: pubblica subito gli avvisi aggiornati
         return _mask_settings(saved)
+
+    @app.post("/api/mqtt/send", status_code=202,
+              dependencies=[Depends(require_auth), Depends(require_json)])
+    async def mqtt_send(body: MqttSendBody):
+        if ctx.mqtt_sender is None:
+            raise HTTPException(503, "Invio MQTT non disponibile")
+        try:
+            message = ctx.mqtt_sender.send(body.text, body.channel, body.to, body.confirm_public)
+        except MqttSendError as e:
+            return JSONResponse(status_code=e.status, content={"detail": e.message, "code": e.code})
+        if body.confirm_public and not load_settings(ctx.conn).get("mqtt_send_confirmed"):
+            # la conferma si ricorda: la prossima volta non viene richiesta
+            try:
+                await ctx.on_settings_changed(
+                    save_settings(ctx.conn, {"mqtt_send_confirmed": True}))
+            except Exception:  # il messaggio e' gia' partito: non si risponde con un errore
+                logging.getLogger(__name__).exception("Salvataggio di mqtt_send_confirmed fallito")
+        return {"message": message}
 
     @app.get("/api/mqtt/channels", dependencies=[Depends(require_auth)])
     async def mqtt_channels():

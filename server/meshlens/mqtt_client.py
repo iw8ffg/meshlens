@@ -1,4 +1,5 @@
-"""Connettore MQTT: solo sottoscrizione (MeshLens non pubblica mai sui broker).
+"""Connettore MQTT: sottoscrizione e, solo su richiesta esplicita dell'utente, publish di
+messaggi di testo (vedi mqtt_publish.py).
 I callback di paho girano in un thread dedicato: qui si decodifica soltanto, poi
 gli eventi passano al loop asyncio con call_soon_threadsafe."""
 import asyncio
@@ -57,6 +58,17 @@ class MqttConnector:
             client.loop_stop()
         except Exception:
             pass
+
+    def publish(self, topic: str, payload: bytes) -> bool:
+        """Pubblica con QoS 0; False se non connesso o se il client rifiuta."""
+        client = self._client
+        if client is None or not self._connected:
+            return False
+        try:
+            info = client.publish(topic, payload, qos=0)
+        except Exception:
+            return False
+        return getattr(info, "rc", 0) == 0
 
     def status(self) -> dict:
         now = time.time()
