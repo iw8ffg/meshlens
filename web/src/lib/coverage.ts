@@ -1,7 +1,7 @@
 import type { Feature, FeatureCollection, LineString, Point } from 'geojson'
 import { formatMeters } from './geo'
 import { snrColor } from './links'
-import type { CoverageCheck, CoverageDetail, CoverageMode, CoverageSession } from './types'
+import type { CoverageCheck, CoverageDetail, CoverageMode, CoveragePoint, CoverageSession } from './types'
 
 export interface ChecklistItem {
   key: 'radio' | 'mobile' | 'gps' | 'precision' | 'rangetest'
@@ -111,4 +111,14 @@ export function coverageGeoJSON(detail: CoverageDetail): CoverageGeo {
       : []
   const fc = <G extends Point | LineString>(features: Feature<G>[]): FeatureCollection<G> => ({ type: 'FeatureCollection', features })
   return { points: fc(points), missing: fc(missing), track: fc(track), base: fc(base) }
+}
+
+/** Nuova lista con il punto aggiunto o, se già presente (stesso id, o stesso tratto e seq), sostituito. */
+export function upsertPoint(points: CoveragePoint[], p: CoveragePoint): CoveragePoint[] {
+  let i = points.findIndex((x) => x.id === p.id)
+  if (i < 0 && p.seq !== null) i = points.findIndex((x) => x.segment === p.segment && x.seq === p.seq)
+  if (i < 0) return [...points, p]
+  const out = [...points]
+  out[i] = p
+  return out
 }

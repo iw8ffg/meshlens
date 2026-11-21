@@ -3,6 +3,7 @@ import { loadFilter, saveFilter } from './filters'
 import type { NodeFilter } from './filters'
 import { MAX_REPLACED, insertMessage, removeByKey, mergeRadioMessages, pruneSet } from './chat'
 import { shouldStore } from './traceroute'
+import { upsertPoint } from './coverage'
 import type { Alert, CoverageDetail, CoveragePoint, CoverageSession, Message, MessageStatus, Node, Radio, Status, Traceroute } from './types'
 
 const MAX_MESSAGES = 500
@@ -41,7 +42,7 @@ export function applyCoverage(session: CoverageSession, point: CoveragePoint | n
   if (point && session.ended === null) coverage.last = { id: session.id, snr: point.snr, time: point.time }
   if (session.id === coverage.openId && coverage.detail?.id === session.id) {
     const d = coverage.detail
-    coverage.detail = { ...d, ...session, points: point ? [...d.points, point] : d.points }
+    coverage.detail = { ...d, ...session, points: point ? upsertPoint(d.points, point) : d.points }
   }
 }
 

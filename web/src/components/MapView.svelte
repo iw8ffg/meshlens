@@ -269,44 +269,45 @@
       })
       if (!bound) {
         bound = true
-      for (const l of ['cov-points', 'cov-missing']) {
-        m.on('click', l, (e: maplibregl.MapLayerMouseEvent) => {
-          if (picking) return
-          const p = e.features?.[0]?.properties
-          if (p) showCoveragePopup(e.lngLat, p, l === 'cov-missing')
-        })
-        m.on('mouseenter', l, () => {
-          if (!picking) m.getCanvas().style.cursor = 'pointer'
-        })
-        m.on('mouseleave', l, () => {
-          if (!picking) m.getCanvas().style.cursor = ''
-        })
-      }
-      m.on('click', 'points', (e: maplibregl.MapLayerMouseEvent) => {
-        const id = e.features?.[0]?.properties?.id
-        if (typeof id === 'string') app.selectedId = id
-      })
-      m.on('click', 'clusters', async (e: maplibregl.MapLayerMouseEvent) => {
-        const f = e.features?.[0]
-        if (!f) return
-        try {
-          const zoom = await src('nodes')!.getClusterExpansionZoom(f.properties.cluster_id)
-          m.easeTo({ center: (f.geometry as Point).coordinates as [number, number], zoom })
-        } catch {
-          // cluster scomparso nel frattempo: niente da fare
+        for (const l of ['cov-points', 'cov-missing']) {
+          m.on('click', l, (e: maplibregl.MapLayerMouseEvent) => {
+            if (picking) return
+            const p = e.features?.[0]?.properties
+            if (p) showCoveragePopup(e.lngLat, p, l === 'cov-missing')
+          })
+          m.on('mouseenter', l, () => {
+            if (!picking) m.getCanvas().style.cursor = 'pointer'
+          })
+          m.on('mouseleave', l, () => {
+            if (!picking) m.getCanvas().style.cursor = ''
+          })
         }
-      })
-      for (const l of ['links', 'links-trace']) {
-        m.on('click', l, (e: maplibregl.MapLayerMouseEvent) => {
-          if (m.queryRenderedFeatures(e.point, { layers: ['points', 'clusters'] }).length > 0) return
-          const p = e.features?.[0]?.properties
-          if (p) showLinkPopup(e.lngLat, p)
+        m.on('click', 'points', (e: maplibregl.MapLayerMouseEvent) => {
+          if (picking) return
+          const id = e.features?.[0]?.properties?.id
+          if (typeof id === 'string') app.selectedId = id
         })
-      }
-      for (const l of ['points', 'clusters', 'links', 'links-trace']) {
-        m.on('mouseenter', l, () => (m.getCanvas().style.cursor = 'pointer'))
-        m.on('mouseleave', l, () => (m.getCanvas().style.cursor = ''))
-      }
+        m.on('click', 'clusters', async (e: maplibregl.MapLayerMouseEvent) => {
+          const f = e.features?.[0]
+          if (!f) return
+          try {
+            const zoom = await src('nodes')!.getClusterExpansionZoom(f.properties.cluster_id)
+            m.easeTo({ center: (f.geometry as Point).coordinates as [number, number], zoom })
+          } catch {
+            // cluster scomparso nel frattempo: niente da fare
+          }
+        })
+        for (const l of ['links', 'links-trace']) {
+          m.on('click', l, (e: maplibregl.MapLayerMouseEvent) => {
+            if (m.queryRenderedFeatures(e.point, { layers: ['points', 'clusters'] }).length > 0) return
+            const p = e.features?.[0]?.properties
+            if (p) showLinkPopup(e.lngLat, p)
+          })
+        }
+        for (const l of ['points', 'clusters', 'links', 'links-trace']) {
+          m.on('mouseenter', l, () => (m.getCanvas().style.cursor = 'pointer'))
+          m.on('mouseleave', l, () => (m.getCanvas().style.cursor = ''))
+        }
       }
       ready = true
       pushNodes()
@@ -434,14 +435,20 @@
       const id = coverage.openId
       cancelPick()
       if (id === null) return
+      const msg = (err: unknown) => (err instanceof Error ? err.message : 'Errore')
       try {
         const s = await patchCoverage(id, { base_lat: e.lngLat.lat, base_lon: e.lngLat.lng })
         const i = coverage.sessions.findIndex((x) => x.id === id)
         if (i >= 0) coverage.sessions[i] = s
+      } catch (err) {
+        pickError = msg(err)
+        return
+      }
+      try {
         const d = await coverageSession(id)
         if (coverage.openId === id) coverage.detail = d
-      } catch (err) {
-        pickError = err instanceof Error ? err.message : 'Errore'
+      } catch {
+        pickError = 'Posizione salvata, ricarico non riuscito'
       }
     }
     map.on('click', pickHandler)

@@ -159,6 +159,8 @@ export interface CoverageSession {
 }
 
 export interface CoveragePoint {
+  id: number
+  segment: number
   seq: number | null
   time: number
   snr: number | null

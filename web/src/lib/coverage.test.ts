@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { checklist, formatLoss, validInterval } from './coverage'
-import type { CoverageCheck } from './types'
+import { checklist, coverageGeoJSON, formatLoss, upsertPoint, validInterval } from './coverage'
+import type { CoverageCheck, CoverageDetail, CoveragePoint } from './types'
 
 const good: CoverageCheck = {
   radio_connected: true,
@@ -63,8 +63,6 @@ describe('validInterval', () => {
   })
 })
 
-import { coverageGeoJSON } from './coverage'
-import type { CoverageDetail } from './types'
 
 const detail = (over: Partial<CoverageDetail> = {}): CoverageDetail =>
   ({
@@ -77,7 +75,7 @@ const detail = (over: Partial<CoverageDetail> = {}): CoverageDetail =>
     ...over,
   }) as unknown as CoverageDetail
 
-const pt = (o: object) => ({ seq: 0, time: 1, snr: 1, rssi: -90, hops: 0, lat: 45, lon: 9, precision_bits: 32, distance_m: 10, ...o })
+const pt = (o: object) => ({ id: 1, segment: 0, seq: 0, time: 1, snr: 1, rssi: -90, hops: 0, lat: 45, lon: 9, precision_bits: 32, distance_m: 10, ...o })
 
 describe('coverageGeoJSON', () => {
   it('salta i punti con lat null', () => {
@@ -113,5 +111,30 @@ describe('coverageGeoJSON', () => {
       detail({ missing_points: [{ seq: 1, time: 1, lat: null, lon: null }, { seq: 2, time: 2, lat: 1, lon: 2 }] }),
     )
     expect(g.missing.features.length).toBe(1)
+  })
+})
+
+describe('upsertPoint', () => {
+  const p = (o: Partial<CoveragePoint>) => pt(o) as CoveragePoint
+  it('aggiunge un punto nuovo', () => {
+    const a = [p({ id: 1, seq: 0 })]
+    const out = upsertPoint(a, p({ id: 2, seq: 1 }))
+    expect(out.length).toBe(2)
+  })
+  it('sostituisce per id', () => {
+    const a = [p({ id: 1, seq: 0, lat: null }), p({ id: 2, seq: 1 })]
+    const out = upsertPoint(a, p({ id: 1, seq: 0, lat: 5 }))
+    expect(out.length).toBe(2)
+    expect(out[0].lat).toBe(5)
+  })
+  it('ripiego: stesso tratto e seq', () => {
+    const a = [p({ id: 1, segment: 0, seq: 3 })]
+    expect(upsertPoint(a, p({ id: 9, segment: 0, seq: 3 })).length).toBe(1)
+    expect(upsertPoint(a, p({ id: 9, segment: 1, seq: 3 })).length).toBe(2)
+  })
+  it('non modifica la lista di partenza', () => {
+    const a = [p({ id: 1, lat: null })]
+    upsertPoint(a, p({ id: 1, lat: 5 }))
+    expect(a[0].lat).toBeNull()
   })
 })
