@@ -1,13 +1,15 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onMount, untrack } from 'svelte'
   import * as maplibregl from 'maplibre-gl'
   import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url'
   import type { Feature, FeatureCollection, Point } from 'geojson'
   import 'maplibre-gl/dist/maplibre-gl.css'
-  import { app } from '../lib/stores.svelte'
+  import { app, coverage } from '../lib/stores.svelte'
   import { ageClass } from '../lib/filters'
-  import { circlePolygon, precisionRadiusM } from '../lib/geo'
-  import { links as fetchLinks } from '../lib/api'
+  import { circlePolygon, formatMeters, precisionRadiusM } from '../lib/geo'
+  import { coverageSession, links as fetchLinks, patchCoverage } from '../lib/api'
+  import { coverageGeoJSON } from '../lib/coverage'
+  import { formatDate } from '../lib/format'
   import { linksToGeoJSON } from '../lib/links'
   import type { Link, Node } from '../lib/types'
 
@@ -123,6 +125,7 @@
       m.addSource('precision', { type: 'geojson', data: EMPTY })
       m.addSource('track', { type: 'geojson', data: EMPTY })
       m.addSource('links', { type: 'geojson', data: EMPTY })
+      for (const id of ['cov-track', 'cov-missing', 'cov-points', 'cov-base']) m.addSource(id, { type: 'geojson', data: EMPTY })
       m.addLayer({
         id: 'precision-fill',
         type: 'fill',
@@ -225,39 +228,93 @@
           'circle-stroke-color': '#2563eb',
         },
       })
+      m.addLayer({
+        id: 'cov-track',
+        type: 'line',
+        source: 'cov-track',
+        paint: { 'line-color': '#2563eb', 'line-width': 1.5 },
+      })
+      m.addLayer({
+        id: 'cov-missing',
+        type: 'circle',
+        source: 'cov-missing',
+        paint: {
+          'circle-color': 'rgba(0,0,0,0)',
+          'circle-radius': 4,
+          'circle-stroke-width': 1.5,
+          'circle-stroke-color': '#8a8a8a',
+        },
+      })
+      m.addLayer({
+        id: 'cov-points',
+        type: 'circle',
+        source: 'cov-points',
+        paint: {
+          'circle-color': ['get', 'color'],
+          'circle-radius': 6,
+          'circle-stroke-width': 1.5,
+          'circle-stroke-color': '#ffffff',
+        },
+      })
+      m.addLayer({
+        id: 'cov-base',
+        type: 'circle',
+        source: 'cov-base',
+        paint: {
+          'circle-color': '#111827',
+          'circle-radius': 9,
+          'circle-stroke-width': 3,
+          'circle-stroke-color': '#facc15',
+        },
+      })
       if (!bound) {
         bound = true
-      m.on('click', 'points', (e: maplibregl.MapLayerMouseEvent) => {
-        const id = e.features?.[0]?.properties?.id
-        if (typeof id === 'string') app.selectedId = id
-      })
-      m.on('click', 'clusters', async (e: maplibregl.MapLayerMouseEvent) => {
-        const f = e.features?.[0]
-        if (!f) return
-        try {
-          const zoom = await src('nodes')!.getClusterExpansionZoom(f.properties.cluster_id)
-          m.easeTo({ center: (f.geometry as Point).coordinates as [number, number], zoom })
-        } catch {
-          // cluster scomparso nel frattempo: niente da fare
+        for (const l of ['cov-points', 'cov-missing']) {
+          m.on('click', l, (e: maplibregl.MapLayerMouseEvent) => {
+            if (picking) return
+            const p = e.features?.[0]?.properties
+            if (p) showCoveragePopup(e.lngLat, p, l === 'cov-missing')
+          })
+          m.on('mouseenter', l, () => {
+            if (!picking) m.getCanvas().style.cursor = 'pointer'
+          })
+          m.on('mouseleave', l, () => {
+            if (!picking) m.getCanvas().style.cursor = ''
+          })
         }
-      })
-      for (const l of ['links', 'links-trace']) {
-        m.on('click', l, (e: maplibregl.MapLayerMouseEvent) => {
-          if (m.queryRenderedFeatures(e.point, { layers: ['points', 'clusters'] }).length > 0) return
-          const p = e.features?.[0]?.properties
-          if (p) showLinkPopup(e.lngLat, p)
+        m.on('click', 'points', (e: maplibregl.MapLayerMouseEvent) => {
+          if (picking) return
+          const id = e.features?.[0]?.properties?.id
+          if (typeof id === 'string') app.selectedId = id
         })
-      }
-      for (const l of ['points', 'clusters', 'links', 'links-trace']) {
-        m.on('mouseenter', l, () => (m.getCanvas().style.cursor = 'pointer'))
-        m.on('mouseleave', l, () => (m.getCanvas().style.cursor = ''))
-      }
+        m.on('click', 'clusters', async (e: maplibregl.MapLayerMouseEvent) => {
+          const f = e.features?.[0]
+          if (!f) return
+          try {
+            const zoom = await src('nodes')!.getClusterExpansionZoom(f.properties.cluster_id)
+            m.easeTo({ center: (f.geometry as Point).coordinates as [number, number], zoom })
+          } catch {
+            // cluster scomparso nel frattempo: niente da fare
+          }
+        })
+        for (const l of ['links', 'links-trace']) {
+          m.on('click', l, (e: maplibregl.MapLayerMouseEvent) => {
+            if (m.queryRenderedFeatures(e.point, { layers: ['points', 'clusters'] }).length > 0) return
+            const p = e.features?.[0]?.properties
+            if (p) showLinkPopup(e.lngLat, p)
+          })
+        }
+        for (const l of ['points', 'clusters', 'links', 'links-trace']) {
+          m.on('mouseenter', l, () => (m.getCanvas().style.cursor = 'pointer'))
+          m.on('mouseleave', l, () => (m.getCanvas().style.cursor = ''))
+        }
       }
       ready = true
       pushNodes()
       pushSelection()
       pushTrack()
       pushLinks()
+      pushCoverage()
     }
 
     // Solo se lo stile non e' davvero raggiungibile: niente timeout, il primo caricamento puo' essere lento
@@ -286,6 +343,7 @@
     return () => {
       window.removeEventListener('online', recover)
       if (timer) clearTimeout(timer)
+      cancelPick()
       map?.remove()
       map = null
       ready = false
@@ -310,6 +368,97 @@
       box.append(document.createElement('br'), line)
     }
     new maplibregl.Popup({ closeButton: true }).setLngLat(at).setDOMContent(box).addTo(map)
+  }
+
+  const fmtSnr = (v: unknown) => (typeof v === 'number' ? `${String(Math.round(v * 10) / 10).replace('.', ',')} dB` : 'sconosciuto')
+
+  function showCoveragePopup(at: maplibregl.LngLat, p: Record<string, unknown>, missing: boolean) {
+    if (!map) return
+    const lines: string[] = missing
+      ? ['Pacchetto non ricevuto']
+      : [
+          `SNR: ${fmtSnr(p.snr)}`,
+          `RSSI: ${typeof p.rssi === 'number' ? `${p.rssi} dBm` : 'sconosciuto'}`,
+          `Salti: ${typeof p.hops === 'number' ? p.hops : 'sconosciuto'}`,
+          `Distanza dalla base: ${typeof p.distance_m === 'number' ? formatMeters(p.distance_m) : 'sconosciuta'}`,
+        ]
+    const box = document.createElement('div')
+    const title = document.createElement('b')
+    title.textContent = `${typeof p.seq === 'number' ? `Pacchetto ${p.seq}` : 'Pacchetto'} · ${formatDate(Number(p.time))}`
+    box.append(title)
+    for (const line of lines) box.append(document.createElement('br'), line)
+    new maplibregl.Popup({ closeButton: true }).setLngLat(at).setDOMContent(box).addTo(map)
+  }
+
+  // Prova aperta: risultati sulla mappa; all'apertura la vista si adatta ai punti
+  let fittedId: number | null = null
+  function pushCoverage() {
+    if (!ready) return
+    const d = coverage.detail
+    const g = d ? coverageGeoJSON(d) : null
+    src('cov-track')?.setData(g?.track ?? EMPTY)
+    src('cov-missing')?.setData(g?.missing ?? EMPTY)
+    src('cov-points')?.setData(g?.points ?? EMPTY)
+    src('cov-base')?.setData(g?.base ?? EMPTY)
+    if (!d || !g) {
+      fittedId = null
+      return
+    }
+    if (fittedId === d.id) return
+    const coords = [...g.points.features, ...g.missing.features, ...g.base.features].map((f) => f.geometry.coordinates as [number, number])
+    for (const f of g.track.features) coords.push(...(f.geometry.coordinates as [number, number][]))
+    if (coords.length === 0) return // dettaglio ancora senza punti: riprova al prossimo aggiornamento
+    fittedId = d.id
+    const b = new maplibregl.LngLatBounds(coords[0], coords[0])
+    for (const c of coords) b.extend(c)
+    map?.fitBounds(b, { padding: 60, maxZoom: 16, duration: 0 })
+  }
+
+  // Scelta della posizione della base: un solo tocco sulla mappa
+  let picking = $state(false)
+  let pickError = $state('')
+  let pickHandler: ((e: maplibregl.MapMouseEvent) => void) | null = null
+
+  function cancelPick() {
+    if (pickHandler) map?.off('click', pickHandler)
+    pickHandler = null
+    picking = false
+    if (map) map.getCanvas().style.cursor = ''
+  }
+
+  function startPick() {
+    if (!map || picking) return
+    pickError = ''
+    picking = true
+    map.getCanvas().style.cursor = 'crosshair'
+    pickHandler = async (e) => {
+      const id = coverage.openId
+      cancelPick()
+      if (id === null) return
+      const msg = (err: unknown) => (err instanceof Error ? err.message : 'Errore')
+      try {
+        const s = await patchCoverage(id, { base_lat: e.lngLat.lat, base_lon: e.lngLat.lng })
+        const i = coverage.sessions.findIndex((x) => x.id === id)
+        if (i >= 0) coverage.sessions[i] = s
+      } catch (err) {
+        pickError = msg(err)
+        return
+      }
+      try {
+        const d = await coverageSession(id)
+        if (coverage.openId === id) coverage.detail = d
+      } catch {
+        pickError = 'Posizione salvata, ricarico non riuscito'
+      }
+    }
+    map.on('click', pickHandler)
+  }
+
+  function closeTest() {
+    cancelPick()
+    pickError = ''
+    coverage.openId = null
+    coverage.detail = null
   }
 
   function pushLinks() {
@@ -369,13 +518,82 @@
     pushTrack()
   })
   $effect(() => {
+    void coverage.detail // i punti in diretta arrivano come nuovo oggetto dettaglio
+    untrack(pushCoverage)
+  })
+  $effect(() => {
+    if (!coverage.detail) {
+      untrack(() => {
+        cancelPick()
+        pickError = ''
+      })
+    }
+  })
+  $effect(() => {
     if (focus && map) map.easeTo({ center: [focus.lon, focus.lat], zoom: Math.max(map.getZoom(), 10) })
   })
 </script>
 
 <div class="map" bind:this={el}></div>
+{#if coverage.detail}
+  <div class="covbar">
+    <div class="row">
+      <b>{coverage.detail.name}</b>
+      <button onclick={closeTest}>Chiudi prova</button>
+    </div>
+    {#if coverage.detail.base_lat === null}
+      <p>Posizione della base sconosciuta: tocca la mappa per impostarla</p>
+    {/if}
+    {#if picking}
+      <p>Tocca la mappa nel punto in cui si trova la base.</p>
+      <button class="ghost" onclick={cancelPick}>Annulla</button>
+    {:else}
+      <button onclick={startPick}>Imposta posizione base</button>
+    {/if}
+    {#if pickError}<p class="err">{pickError}</p>{/if}
+  </div>
+{/if}
 
 <style>
+  .covbar {
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    z-index: 5;
+    max-width: 260px;
+    padding: 8px;
+    border-radius: 6px;
+    background: rgba(17, 24, 39, 0.92);
+    color: #f3f4f6;
+    font-size: 0.85em;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .covbar p {
+    margin: 0;
+  }
+  .covbar .row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .covbar .err {
+    color: #f87171;
+  }
+  .covbar button {
+    padding: 6px 8px;
+    border: 0;
+    border-radius: 6px;
+    background: #2563eb;
+    color: #fff;
+    font: inherit;
+    cursor: pointer;
+  }
+  .covbar .ghost {
+    background: #374151;
+  }
   .map {
     position: absolute;
     inset: 0;

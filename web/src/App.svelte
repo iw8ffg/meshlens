@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onMount, untrack } from 'svelte'
   import Login from './components/Login.svelte'
   import MapView from './components/MapView.svelte'
   import NodeList from './components/NodeList.svelte'
@@ -10,20 +10,22 @@
   import Radios from './components/Radios.svelte'
   import Settings from './components/Settings.svelte'
   import Network from './components/Network.svelte'
+  import Coverage from './components/Coverage.svelte'
   import Alerts from './components/Alerts.svelte'
   import { matchNode } from './lib/filters'
-  import { getJSON, alerts as fetchAlerts, AUTH_REQUIRED } from './lib/api'
+  import { getJSON, alerts as fetchAlerts, coverageSessions, coverageSession, AUTH_REQUIRED } from './lib/api'
   import { connectWS } from './lib/ws'
-  import { app, upsertNodes, addMessage, addRadioHistory, setMessageStatus, setStatus, setRadios, setAlerts, setTraceroute, persistFilter } from './lib/stores.svelte'
+  import { app, upsertNodes, addMessage, addRadioHistory, setMessageStatus, setStatus, setRadios, setAlerts, setTraceroute, persistFilter, coverage, setCoverageSessions, applyCoverage } from './lib/stores.svelte'
   import type { AuthStatus, Message, Node, Radio } from './lib/types'
 
   let auth = $state<AuthStatus | null>(null)
   let error = $state('')
-  type Tab = 'map' | 'nodes' | 'network' | 'chat' | 'radio' | 'settings'
+  type Tab = 'map' | 'nodes' | 'network' | 'coverage' | 'chat' | 'radio' | 'settings'
   const TABS: [Tab, string][] = [
     ['map', 'Mappa'],
     ['nodes', 'Nodi'],
     ['network', 'Rete'],
+    ['coverage', 'Copertura'],
     ['chat', 'Chat'],
     ['radio', 'Radio'],
     ['settings', 'Impostazioni'],
@@ -104,6 +106,18 @@
       fetchAlerts()
         .then(setAlerts)
         .catch(() => {})
+      coverageSessions()
+        .then(setCoverageSessions)
+        .catch(() => {})
+      const openId = untrack(() => coverage.openId)
+      if (openId !== null) {
+        const id = openId
+        coverageSession(id)
+          .then((d) => {
+            if (coverage.openId === id) coverage.detail = d
+          })
+          .catch(() => {})
+      }
     }
     load()
     return connectWS({
@@ -117,6 +131,7 @@
       radios: setRadios,
       alerts: setAlerts,
       traceroute: setTraceroute,
+      coverage: applyCoverage,
       messageStatus: setMessageStatus,
     })
   })
@@ -151,6 +166,8 @@
             <NodeList nodes={visible} {now} onpick={pick} />
           {:else if activeTab === 'network'}
             <Network nodes={[...app.nodes.values()]} {now} onpick={pick} />
+          {:else if activeTab === 'coverage'}
+            <Coverage {now} />
           {:else if activeTab === 'chat'}
             <Chat {now} onpick={pickId} />
           {:else if activeTab === 'radio'}

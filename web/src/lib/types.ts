@@ -131,3 +131,86 @@ export interface Traceroute {
   forward: TracerouteHop[]
   back: TracerouteHop[]
 }
+
+export type CoverageMode = 'rangetest' | 'position'
+
+export interface CoverageSession {
+  id: number
+  name: string
+  radio_id: string
+  mobile_id: string
+  mode: CoverageMode
+  channel_index: number | null
+  interval_s: number
+  started: number
+  ended: number | null
+  end_reason: 'manual' | 'timeout' | null
+  base_lat: number | null
+  base_lon: number | null
+  notes: string
+  received: number
+  expected: number | null
+  missing: number | null
+  loss_pct: number | null
+  best_snr: number | null
+  worst_snr: number | null
+  max_distance_m: number | null
+  approx_precision_m: number | null
+}
+
+export interface CoveragePoint {
+  id: number
+  segment: number
+  seq: number | null
+  time: number
+  snr: number | null
+  rssi: number | null
+  hops: number | null
+  lat: number | null
+  lon: number | null
+  precision_bits: number | null
+  distance_m: number | null
+}
+
+export interface CoverageMissing {
+  seq: number
+  time: number
+  lat: number | null
+  lon: number | null
+}
+
+export interface CoverageTrackPoint {
+  time: number
+  lat: number
+  lon: number
+  precision_bits: number | null
+}
+
+export interface CoverageDetail extends CoverageSession {
+  points: CoveragePoint[]
+  missing_points: CoverageMissing[]
+  track: CoverageTrackPoint[]
+}
+
+export interface CoverageCheck {
+  radio_connected: boolean
+  radio_channels: { index: number; name: string }[]
+  mobile_known: boolean
+  position_age_s: number | null
+  precision_bits: number | null
+  precision_m: number | null
+  gps_ok: boolean
+  rangetest_age_s: number | null
+  base_position: { lat: number; lon: number } | null
+}
+
+export interface CoverageStartBody {
+  name?: string
+  radio_id: string
+  mobile_id: string
+  mode?: CoverageMode
+  interval_s?: number
+  base_lat?: number
+  base_lon?: number
+  accept_approx?: boolean
+}

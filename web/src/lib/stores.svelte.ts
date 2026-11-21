@@ -3,7 +3,8 @@ import { loadFilter, saveFilter } from './filters'
 import type { NodeFilter } from './filters'
 import { MAX_REPLACED, insertMessage, removeByKey, mergeRadioMessages, pruneSet } from './chat'
 import { shouldStore } from './traceroute'
-import type { Alert, Message, MessageStatus, Node, Radio, Status, Traceroute } from './types'
+import { upsertPoint } from './coverage'
+import type { Alert, CoverageDetail, CoveragePoint, CoverageSession, Message, MessageStatus, Node, Radio, Status, Traceroute } from './types'
 
 const MAX_MESSAGES = 500
 
@@ -20,6 +21,30 @@ export const app = $state({
   traceroutes: new SvelteMap<string, Traceroute>(),
   reconnects: 0, // contatore: cresce a ogni riconnessione del WebSocket
 })
+
+export const coverage = $state({
+  sessions: [] as CoverageSession[],
+  openId: null as number | null,
+  detail: null as CoverageDetail | null,
+  /** Ultimo punto della sessione attiva (indipendente dalla sessione aperta). */
+  last: null as { id: number; snr: number | null; time: number } | null,
+})
+
+export function setCoverageSessions(list: CoverageSession[]): void {
+  coverage.sessions = list
+}
+
+/** Aggiornamento dal WebSocket: sostituisce il riepilogo e aggiunge il punto al dettaglio aperto. */
+export function applyCoverage(session: CoverageSession, point: CoveragePoint | null): void {
+  const i = coverage.sessions.findIndex((s) => s.id === session.id)
+  if (i >= 0) coverage.sessions[i] = session
+  else coverage.sessions.unshift(session)
+  if (point && session.ended === null) coverage.last = { id: session.id, snr: point.snr, time: point.time }
+  if (session.id === coverage.openId && coverage.detail?.id === session.id) {
+    const d = coverage.detail
+    coverage.detail = { ...d, ...session, points: point ? upsertPoint(d.points, point) : d.points }
+  }
+}
 
 export function upsertNodes(list: Node[]): void {
   for (const n of list) app.nodes.set(n.id, n)
