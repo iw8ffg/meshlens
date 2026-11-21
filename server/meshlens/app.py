@@ -34,6 +34,7 @@ from .radio_manager import RadioManager
 from .settings import (CONNECT_KEYS, enabled_brokers, find_broker, load_settings,
                        migrate_brokers, migrate_secrets, scrub_text)
 from .store import PURGE_CHUNK, Store
+from .storeforward import StoreForwardService
 from .updater import Updater
 
 # installata: PyInstaller mette web/dist accanto alle librerie incluse (sys._MEIPASS)
@@ -119,6 +120,7 @@ class Runtime:
     _integrity_conn: object = None  # connessione del quick_check in corso (per interromperla)
     _stopping: bool = False
     _start_errors: dict = field(default_factory=dict)  # id broker -> (testo, time()) dell'avvio fallito
+    storeforward: StoreForwardService | None = None
 
     def start_connector(self, broker: dict) -> None:
         bid = broker["id"]
@@ -428,6 +430,8 @@ class Runtime:
             asyncio.create_task(self._every_async(BACKUP_CHECK_S, self._backup_if_due,
                                                   BACKUP_FIRST_DELAY_S)),
         ]
+        if self.storeforward is not None:
+            self.tasks.append(asyncio.create_task(self._every(5, self.storeforward.check)))
         if self.updater is not None and self.auto_update:
             self.tasks.append(asyncio.create_task(self.updater.run()))
 
@@ -496,12 +500,21 @@ def build(data_dir: Path, connector_factory=MqttConnector,
     coverage = CoverageRecorder(store, live, bus,
                                 radio_node=ingestor.radio_node)
 
+    # i messaggi rigiocati dal router S&F rientrano da on_event come testi normali
+    sf = StoreForwardService(store, live, lambda ev: on_event(ev), bus,
+                             lambda rid: rt.radios.connector(rid))
+
     def on_event(ev) -> None:
+        if ev.kind == "storeforward":
+            sf.handle(ev)
+            return
+        if ev.kind == "text":
+            sf.observe_text(ev)  # rifiuto di una richiesta S&F: il testo va comunque in chat
         # prima l'ingestor (aggiorna i nodi), poi il registratore delle prove di copertura
         ingestor.handle(ev)
         coverage.handle(ev)
 
-    rt.coverage, rt.on_event = coverage, on_event
+    rt.coverage, rt.on_event, rt.storeforward = coverage, on_event, sf
     rt.radios = RadioManager(store, ingestor, bus, None, PubSubHub(None),
                               connector_factory=radio_connector_factory, on_event=on_event)
     rt.config = ConfigService(store, rt.radios, live, bus)

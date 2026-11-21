@@ -63,6 +63,9 @@ CREATE TABLE IF NOT EXISTS auth_attempts(time REAL, ip TEXT);
 CREATE TABLE IF NOT EXISTS coverage_prepare(
   id INTEGER PRIMARY KEY AUTOINCREMENT, radio_id TEXT, mobile_num INTEGER, created REAL,
   applied REAL, restored REAL, steps TEXT);
+CREATE TABLE IF NOT EXISTS sf_routers(
+  num INTEGER PRIMARY KEY, radio_id TEXT, last_seen REAL, heartbeat_period INTEGER,
+  secondary INTEGER, stats TEXT, last_request REAL);
 CREATE INDEX IF NOT EXISTS idx_config_reads_node ON config_reads(node_num, time);
 CREATE INDEX IF NOT EXISTS idx_config_backups_node ON config_backups(node_num, time);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_cov_points_seq

@@ -139,20 +139,22 @@ class Ingestor:
             # seen_mqtt: copia gia' arrivata dal broker (serve a contare i gateway)
             is_new, seen_mqtt = self.dedup.observe(num, ev.packet_id, ev.rx_time, ev.source)
             is_dup = not is_new
-        if ev.source == "rf" and ev.radio_id and not no_time:
+        # rigioco S&F: non e' una ricezione radio, niente statistiche RF ne' collegamenti
+        if ev.source == "rf" and ev.radio_id and not no_time and not ev.replayed:
             heard_by = node.setdefault("heard_by", {})
             old = heard_by.get(ev.radio_id)
             if old is None or int(ev.rx_time) >= old["time"]:
                 heard_by[ev.radio_id] = {"snr": ev.snr, "rssi": ev.rssi, "hops": ev.hops,
                                          "time": int(ev.rx_time)}
         # copie dello stesso pacchetto: si tiene l'SNR migliore e il minor numero di hop
-        if ev.snr is not None and not stale and not no_time:
+        if ev.snr is not None and not stale and not no_time and not ev.replayed:
             prev = node["last_snr"]
             node["last_snr"] = ev.snr if not is_dup or prev is None else max(prev, ev.snr)
-        if not stale and not no_time:
+        if not stale and not no_time and not ev.replayed:
             self._update_hops(node, ev, is_dup)
 
-        self._record_links(ev)  # anche per i duplicati: l'upsert tiene l'ultima copia ricevuta
+        if not ev.replayed:
+            self._record_links(ev)  # anche per i duplicati: l'upsert tiene l'ultima copia ricevuta
 
         if ev.source == "mqtt":
             if is_dup:

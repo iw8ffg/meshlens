@@ -100,6 +100,7 @@ class MeshEvent:
     relay_node: int | None = None
     hops_min: int | None = None
     broker: str | None = None  # MQTT: id del broker che ha consegnato il pacchetto
+    replayed: bool = False  # S&F: messaggio rigiocato da un router (ora originale)
 
     @property
     def gateway_num(self) -> int | None:

@@ -177,3 +177,19 @@ def test_rangetest_updates_only_last_heard(env):
     assert n["lat"] is None and n["battery"] is None and not got
     assert count(conn, "positions") == 0 and count(conn, "messages") == 0
     assert count(conn, "telemetry") == 0
+
+
+def test_replayed_text_does_not_touch_rf_stats(env):
+    ing, live, store, conn, got = env
+    ing.set_radio_node("rA", 99)
+    ing.handle(rf("position", pos(BERLIN), "rB", pid=1, snr=-9.0, rssi=-110, hops=2))
+    n = live.nodes[1]
+    before = (dict(n["heard_by"]), n["last_snr"], n["hops"])
+    # campi RF valorizzati apposta: un rigioco S&F non deve usarli comunque
+    ing.handle(rf("text", TextData("da S&F"), "rA", pid=2, t=NOW + 10, snr=4.0, rssi=-60,
+                  hops=0, replayed=True))
+    assert len(got) == 1 and got[0]["text"] == "da S&F" and got[0]["time"] == int(NOW + 10)
+    assert count(conn, "messages") == 1
+    assert (n["heard_by"], n["last_snr"], n["hops"]) == before
+    assert "rA" not in n["heard_by"]
+    assert store.links(0) == []
