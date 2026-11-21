@@ -4,7 +4,7 @@
   import { flag } from '../lib/format'
   import OfflineMaps from './OfflineMaps.svelte'
   import Updates from './Updates.svelte'
-  import { joinLines, parseLines, type AppSettings } from '../lib/settings'
+  import { channelOptions, joinLines, parseLines, type AppSettings, type MqttChannel } from '../lib/settings'
 
   let { onlogout }: { onlogout: () => void } = $props()
 
@@ -26,6 +26,9 @@
   let password = $state('')
   let topics = $state('')
   let keys = $state('')
+  let onlyChosen = $state(false)
+  let chosen = $state<string[]>([])
+  let seenChannels = $state<MqttChannel[]>([])
   let loaded = $state(false)
   let loadError = $state('')
   let error = $state('')
@@ -47,6 +50,8 @@
     password = s.mqtt.password
     topics = joinLines(s.mqtt.topics)
     keys = joinLines(s.mqtt.extra_keys)
+    chosen = [...(s.mqtt_channels ?? [])]
+    onlyChosen = chosen.length > 0
   }
 
   onMount(async () => {
@@ -55,6 +60,11 @@
       loaded = true
     } catch {
       loadError = 'Impostazioni non disponibili'
+    }
+    try {
+      seenChannels = await getJSON<MqttChannel[]>('/mqtt/channels')
+    } catch {
+      /* restano i preset standard */
     }
     try {
       countries = (await getJSON<Country[]>('/countries'))
@@ -70,6 +80,12 @@
     ...countries,
     ...saved.filter((c) => !countries.some((x) => x.code === c)).map((c) => ({ code: c, name: c, nodes: 0 })),
   ])
+
+  const channels = $derived(channelOptions(seenChannels, chosen))
+
+  function toggleChannel(name: string) {
+    chosen = chosen.includes(name) ? chosen.filter((x) => x !== name) : [...chosen, name]
+  }
 
   function toggle(code: string) {
     saved = saved.includes(code) ? saved.filter((x) => x !== code) : [...saved, code]
@@ -87,6 +103,7 @@
         retention_telemetry_days: retTel,
         storage_cap_mb: capMb,
         lan_access: lan,
+        mqtt_channels: onlyChosen ? chosen : [],
         battery_alert_pct: batteryPct,
         silent_alert_hours: silentH,
         mqtt: {
@@ -167,6 +184,23 @@
       <label>Chiavi aggiuntive base64 (una per riga) <textarea rows="3" bind:value={keys}></textarea></label>
     </fieldset>
 
+    <fieldset>
+      <legend>Canali da ascoltare (MQTT)</legend>
+      <label class="inline"><input type="radio" name="chmode" checked={!onlyChosen} onchange={() => (onlyChosen = false)} /> Tutti i canali</label>
+      <label class="inline"><input type="radio" name="chmode" checked={onlyChosen} onchange={() => (onlyChosen = true)} /> Solo i canali scelti</label>
+      <ul class="countries">
+        {#each channels as c (c.name)}
+          <li>
+            <label>
+              <input type="checkbox" disabled={!onlyChosen} checked={chosen.includes(c.name)} onchange={() => toggleChannel(c.name)} />
+              {c.name} <span class="n">{c.count} nell'ultima ora</span>
+            </label>
+          </li>
+        {/each}
+      </ul>
+      <p class="muted">LongFast è il canale pubblico predefinito; gli altri sono preset usati da meno nodi. I canali non scelti vengono ignorati del tutto (nodi, mappa, messaggi, archivio). La radio non è mai filtrata.</p>
+    </fieldset>
+
     {#if error}<p class="err" role="alert">{error}</p>{/if}
     {#if ok}<p class="ok" role="status">{ok}</p>{/if}
     <button type="submit" class="primary" disabled={busy}>Salva</button>
@@ -241,6 +275,11 @@
   button.primary {
     background: #2563eb;
     border-color: #2563eb;
+  }
+  .n {
+    margin-left: auto;
+    color: #9ca3af;
+    font-size: 13px;
   }
   .maps {
     padding: 0 8px 8px;

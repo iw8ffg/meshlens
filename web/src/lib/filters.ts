@@ -61,3 +61,45 @@ export function saveFilter(storage: FilterStorage, f: NodeFilter): void {
     // storage non disponibile: ignora
   }
 }
+
+// ---- filtro del feed dei messaggi MQTT (indipendente da quello della mappa) ----
+export type FeedFilter = {
+  /** Vuoto = tutte le nazioni. */
+  countries: string[]
+  /** Mostra anche i mittenti senza nazione (mai inviata una posizione). */
+  includeUnknown: boolean
+}
+
+export const FEED_FILTER_KEY = 'meshlens.feedfilter'
+
+const defaultFeedFilter = (): FeedFilter => ({ countries: [], includeUnknown: true })
+
+export function matchFeed(country: string | null, f: FeedFilter): boolean {
+  if (country === null) return f.includeUnknown
+  return f.countries.length === 0 || f.countries.includes(country)
+}
+
+export function countFeedHidden(messages: { country: string | null }[], f: FeedFilter): number {
+  return messages.filter((m) => !matchFeed(m.country, f)).length
+}
+
+// Ripristina il filtro del feed (default: tutto); tollera dati assenti o malformati
+export function loadFeedFilter(storage: FilterStorage): FeedFilter {
+  try {
+    const saved = JSON.parse(storage.getItem(FEED_FILTER_KEY) ?? 'null')
+    return {
+      countries: Array.isArray(saved?.countries) ? saved.countries.filter((c: unknown) => typeof c === 'string') : [],
+      includeUnknown: typeof saved?.includeUnknown === 'boolean' ? saved.includeUnknown : true,
+    }
+  } catch {
+    return defaultFeedFilter()
+  }
+}
+
+export function saveFeedFilter(storage: FilterStorage, f: FeedFilter): void {
+  try {
+    storage.setItem(FEED_FILTER_KEY, JSON.stringify({ countries: [...f.countries], includeUnknown: f.includeUnknown }))
+  } catch {
+    // storage non disponibile: ignora
+  }
+}

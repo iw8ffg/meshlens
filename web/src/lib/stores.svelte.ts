@@ -1,6 +1,6 @@
 import { SvelteMap } from 'svelte/reactivity'
-import { loadFilter, saveFilter } from './filters'
-import type { NodeFilter } from './filters'
+import { loadFilter, saveFilter, loadFeedFilter, saveFeedFilter } from './filters'
+import type { NodeFilter, FeedFilter } from './filters'
 import { MAX_REPLACED, insertMessage, removeByKey, mergeRadioMessages, pruneSet } from './chat'
 import { shouldStore } from './traceroute'
 import { appendTrackPoint, upsertPoint } from './coverage'
@@ -17,6 +17,7 @@ export const app = $state({
   status: null as Status | null,
   radios: [] as Radio[],
   filter: loadFilter(localStorage) as NodeFilter,
+  feedFilter: loadFeedFilter(localStorage) as FeedFilter,
   selectedId: null as string | null,
   chatConv: null as string | null,
   alerts: [] as Alert[],
@@ -104,6 +105,11 @@ export function setStatus(s: Status): void {
 export function persistFilter(): void {
   const { countries, maxAgeH, sources, text, links } = app.filter
   saveFilter(localStorage, { countries: [...countries], maxAgeH, sources: [...sources], text, links })
+}
+
+export function persistFeedFilter(): void {
+  const { countries, includeUnknown } = app.feedFilter
+  saveFeedFilter(localStorage, { countries: [...countries], includeUnknown })
 }
 
 /** Lavori di configurazione, aggiornati dal WebSocket. */

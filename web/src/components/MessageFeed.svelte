@@ -1,7 +1,9 @@
 <script lang="ts">
+  import { onMount } from 'svelte'
   import { getJSON } from '../lib/api'
   import { flag, timeAgo } from '../lib/format'
   import { app, addMessage } from '../lib/stores.svelte'
+  import { matchFeed } from '../lib/filters'
   import type { Message } from '../lib/types'
 
   let { now, onpick }: { now: number; onpick: (id: string) => void } = $props()
@@ -12,37 +14,36 @@
   let loading = $state(false)
   let exhausted = $state(false)
 
-  // Il server filtra per tutte le nazioni selezionate (elenco separato da virgole)
-  const countryParam = $derived(
-    app.filter.countries.length > 0 ? encodeURIComponent(app.filter.countries.join(',')) : null,
-  )
+  type Country = { code: string; name: string; nodes: number }
+  let countries = $state<Country[]>([])
 
-  const shown = $derived.by(() => {
+  // Il feed ha un filtro suo (non quello della mappa): il server manda tutto, si filtra qui
+  const all = $derived.by(() => {
     const byKey = new Map<string, Message>()
     for (const m of [...older, ...app.messages]) byKey.set(m.key, m)
-    const cs = app.filter.countries
-    return [...byKey.values()]
-      .filter((m) => !m.radio_id)
-      .filter((m) => cs.length === 0 || cs.includes(m.country ?? 'none'))
-      .sort((a, b) => b.time - a.time)
+    return [...byKey.values()].filter((m) => !m.radio_id).sort((a, b) => b.time - a.time)
   })
+  const shown = $derived(all.filter((m) => matchFeed(m.country, app.feedFilter)))
+  const hidden = $derived(all.length - shown.length)
 
-  function qs(extra: string): string {
-    return `limit=${LIMIT}${countryParam ? `&country=${countryParam}` : ''}${extra}`
-  }
+  const qs = (extra: string) => `limit=${LIMIT}${extra}`
 
-  $effect(() => {
-    const q = qs('')
-    older = []
-    exhausted = false
-    error = ''
-    getJSON<Message[]>(`/messages?${q}`)
+  onMount(() => {
+    getJSON<Message[]>(`/messages?${qs('')}`)
       .then((list) => {
         // dal piu' vecchio al piu' recente: il limite dello store scarta i piu' vecchi
         for (const m of [...list].reverse()) addMessage(m)
       })
       .catch(() => (error = 'Messaggi non disponibili'))
+    getJSON<Country[]>('/countries')
+      .then((list) => (countries = list.filter((c) => c.code !== 'none')))
+      .catch(() => {})
   })
+
+  function toggle(code: string) {
+    const c = app.feedFilter.countries
+    app.feedFilter.countries = c.includes(code) ? c.filter((x) => x !== code) : [...c, code]
+  }
 
   async function loadOlder() {
     const oldest = shown.length ? shown[shown.length - 1].time : Math.floor(Date.now() / 1000)
@@ -61,15 +62,33 @@
 </script>
 
 <div class="feed">
+  <details class="ff">
+    <summary>
+      Filtro messaggi ({app.feedFilter.countries.length === 0 ? 'tutte le nazioni' : `${app.feedFilter.countries.length} nazioni`})
+    </summary>
+    <label class="opt"><input type="checkbox" bind:checked={app.feedFilter.includeUnknown} /> Includi nodi senza posizione</label>
+    <button class="chip" onclick={() => (app.feedFilter.countries = [])}>Tutte le nazioni</button>
+    <ul class="cl">
+      {#each countries as c (c.code)}
+        <li>
+          <label class="opt">
+            <input type="checkbox" checked={app.feedFilter.countries.includes(c.code)} onchange={() => toggle(c.code)} />
+            <span>{flag(c.code)} {c.name}</span>
+          </label>
+        </li>
+      {/each}
+    </ul>
+  </details>
+  {#if hidden > 0}<p class="hid" role="status">{hidden} {hidden === 1 ? 'messaggio nascosto' : 'messaggi nascosti'} dal filtro</p>{/if}
   {#if error}<p class="err" role="alert">{error}</p>{/if}
   {#if shown.length === 0 && !error}<p class="empty">Nessun messaggio</p>{/if}
   <ul>
     {#each shown as m (m.key)}
       <li>
         <div class="head">
-          <span>{flag(m.country)}</span>
+          <span title={m.country ?? 'Posizione sconosciuta'}>{m.country ? flag(m.country) : '?'}</span>
           <button class="name" onclick={() => onpick(m.from)}>{m.from_name ?? m.from}</button>
-          <span class="ch">{m.channel}</span>
+          {#if m.channel}<span class="ch">{m.channel}</span>{/if}
           <span class="t">{timeAgo(m.time, now)}</span>
         </div>
         <p class="text">{m.text}</p>
@@ -84,6 +103,44 @@
 </div>
 
 <style>
+  .ff {
+    padding: 6px 8px;
+    border-bottom: 1px solid #1f2937;
+    font-size: 13px;
+  }
+  .ff summary {
+    cursor: pointer;
+    min-height: 40px;
+    display: flex;
+    align-items: center;
+  }
+  .opt {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    min-height: 40px;
+    cursor: pointer;
+  }
+  .chip {
+    background: #1f2937;
+    color: inherit;
+    border: 1px solid #374151;
+    border-radius: 999px;
+    padding: 6px 14px;
+    min-height: 40px;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .cl {
+    max-height: 200px;
+    overflow: auto;
+  }
+  .hid {
+    margin: 0;
+    padding: 6px 8px;
+    font-size: 13px;
+    color: #fbbf24;
+  }
   ul {
     list-style: none;
     margin: 0;
@@ -117,7 +174,7 @@
     margin-left: auto;
     color: #9ca3af;
     white-space: nowrap;
-    font-size: 12px;
+    font-size: 13px;
   }
   .text {
     margin: 4px 0 0;
@@ -128,6 +185,8 @@
     display: block;
     margin: 8px auto;
     padding: 6px 12px;
+    min-height: 40px;
+    font-size: 13px;
     background: #1f2937;
     color: inherit;
     border: 1px solid #374151;

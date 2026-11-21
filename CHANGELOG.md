@@ -3,6 +3,24 @@
 Il formato segue [Keep a Changelog](https://keepachangelog.com/it-IT/1.1.0/) e il progetto usa il [versionamento semantico](https://semver.org/lang/it/).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [1.0.1] - 2026-11-21
+
+### Italiano
+
+#### Corretto
+- **Feed dei messaggi:** il feed pubblico MQTT usava il filtro della mappa (default solo Italia) e scartava i mittenti senza nazione, quindi sembrava vuoto. Ora ha un filtro suo: di default mostra tutte le nazioni, compresi i nodi senza posizione; si può limitare a nazioni scelte e escludere i nodi senza posizione. Il filtro è ricordato e viene indicato quanti messaggi nasconde. Ogni messaggio mostra il canale MQTT e la bandiera del mittente ("?" se sconosciuta).
+
+#### Aggiunto
+- **Scelta dei canali MQTT:** in Impostazioni, "Canali da ascoltare" permette di ascoltare tutti i canali o solo quelli scelti (LongFast, MediumFast, MediumSlow, ShortFast, ShortSlow, LongModerate, LongSlow, ShortTurbo e quelli visti) con il numero di messaggi dell'ultima ora. I canali non scelti sono ignorati del tutto; la radio non è mai filtrata. Nuova API `GET /api/mqtt/channels` e impostazione `mqtt_channels`.
+
+### English
+
+#### Fixed
+- **Message feed:** the public MQTT feed used the map's country filter (default Italy only) and dropped senders with an unknown country, so it looked empty. It now has its own filter: by default it shows all countries, including nodes without a position; it can be restricted to chosen countries and can exclude nodes without a position. The filter is remembered and the feed says how many messages it hides. Each message shows its MQTT channel and the sender's flag ("?" if unknown).
+
+#### Added
+- **MQTT channel selection:** Settings, "Channels to listen to" lets you listen to all channels or only chosen ones (LongFast, MediumFast, MediumSlow, ShortFast, ShortSlow, LongModerate, LongSlow, ShortTurbo and any seen) with the last hour's message count. Unselected channels are ignored entirely; the radio is never filtered. New `GET /api/mqtt/channels` API and `mqtt_channels` setting.
+
 ## [1.0.0] - 2026-11-21
 
 ### Italiano
@@ -27,4 +45,5 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - **Offline (phase 6):** PMTiles maps (world, Italy, chosen areas) with guided download, automatic online/offline switching, bundled glyphs and sprites; phone polish.
 - **Release (phase 7):** per-user Windows installer with notification-area icon and optional autostart; in-app update with check, verified download (SHA-256) and install; bilingual documentation, logo and GPL-3.0 license.
 
+[1.0.1]: https://github.com/iw8ffg/meshlens/releases/tag/v1.0.1
 [1.0.0]: https://github.com/iw8ffg/meshlens/releases/tag/v1.0.0

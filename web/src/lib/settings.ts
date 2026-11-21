@@ -23,6 +23,8 @@ export interface AppSettings {
   /** Mascherato: "••••" se impostato, "" altrimenti. */
   update_token?: string
   update_auto_check?: boolean
+  /** Vuoto = tutti i canali MQTT. */
+  mqtt_channels?: string[]
 }
 
 // Una voce per riga: spazi tolti, righe vuote scartate
@@ -35,4 +37,26 @@ export function parseLines(text: string): string[] {
 
 export function joinLines(items: string[]): string {
   return items.join('\n')
+}
+
+/** Preset di modem MQTT noti; LongFast e' il canale pubblico predefinito. */
+export const STANDARD_CHANNELS = [
+  'LongFast', 'MediumFast', 'MediumSlow', 'ShortFast', 'ShortSlow', 'LongModerate', 'LongSlow', 'ShortTurbo',
+]
+
+export interface MqttChannel {
+  name: string
+  count_1h: number
+  enabled: boolean
+}
+
+/** Elenco per le caselle: preset standard, canali visti e gia' scelti; piu' attivi per primi. */
+export function channelOptions(seen: MqttChannel[], selected: string[]): { name: string; count: number }[] {
+  const counts = new Map<string, number>()
+  for (const n of [...STANDARD_CHANNELS, ...selected]) counts.set(n, 0)
+  for (const c of seen) counts.set(c.name, c.count_1h)
+  const order = new Map([...counts.keys()].map((n, i) => [n, i]))
+  return [...counts.entries()]
+    .map(([name, count]) => ({ name, count }))
+    .sort((a, b) => b.count - a.count || order.get(a.name)! - order.get(b.name)!)
 }

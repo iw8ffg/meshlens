@@ -16,7 +16,7 @@
   import { matchNode } from './lib/filters'
   import { getJSON, alerts as fetchAlerts, coverageSessions, coverageSession, updateStatus, AUTH_REQUIRED } from './lib/api'
   import { connectWS } from './lib/ws'
-  import { app, upsertNodes, addMessage, addRadioHistory, setMessageStatus, setStatus, setRadios, setAlerts, setTraceroute, persistFilter, coverage, setCoverageSessions, applyCoverage, configUi, setConfigJob, setMapJob, setUpdateStatus, setUpdateJob } from './lib/stores.svelte'
+  import { app, upsertNodes, addMessage, addRadioHistory, setMessageStatus, setStatus, setRadios, setAlerts, setTraceroute, persistFilter, persistFeedFilter, coverage, setCoverageSessions, applyCoverage, configUi, setConfigJob, setMapJob, setUpdateStatus, setUpdateJob } from './lib/stores.svelte'
   import type { AuthStatus, Message, Node, Radio } from './lib/types'
 
   let auth = $state<AuthStatus | null>(null)
@@ -91,6 +91,7 @@
   })
 
   $effect(persistFilter)
+  $effect(persistFeedFilter)
 
   let navEl = $state<HTMLElement>()
   // Su telefono la barra delle schede scorre: porta la scheda attiva in vista

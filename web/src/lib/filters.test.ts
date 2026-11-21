@@ -76,3 +76,47 @@ test('null last_heard', () => {
   expect(matchNode(nn, { countries: [], maxAgeH: 24, sources: [], text: '', links: false }, now)).toBe(false)
   expect(matchNode(nn, { countries: [], maxAgeH: null, sources: [], text: '', links: false }, now)).toBe(true)
 })
+
+// ---- filtro del feed MQTT (separato dalla mappa) ----
+import { matchFeed, countFeedHidden, loadFeedFilter, saveFeedFilter, FEED_FILTER_KEY } from './filters'
+
+function memFeed(init?: string) {
+  const m = new Map<string, string>()
+  if (init !== undefined) m.set(FEED_FILTER_KEY, init)
+  return { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => void m.set(k, v) }
+}
+
+test('feed default: tutte le nazioni, senza posizione incluse', () => {
+  const f = loadFeedFilter(memFeed())
+  expect(f).toEqual({ countries: [], includeUnknown: true })
+  expect(matchFeed('IT', f)).toBe(true)
+  expect(matchFeed('DE', f)).toBe(true)
+  expect(matchFeed(null, f)).toBe(true)
+})
+
+test('feed: nazioni scelte e nodi senza posizione', () => {
+  const f = { countries: ['IT'], includeUnknown: true }
+  expect(matchFeed('IT', f)).toBe(true)
+  expect(matchFeed('DE', f)).toBe(false)
+  expect(matchFeed(null, f)).toBe(true)
+  expect(matchFeed(null, { ...f, includeUnknown: false })).toBe(false)
+  expect(matchFeed('DE', { countries: [], includeUnknown: false })).toBe(true)
+})
+
+test('feed: conteggio nascosti', () => {
+  const msgs = [{ country: 'IT' }, { country: 'DE' }, { country: null }, { country: 'FR' }]
+  expect(countFeedHidden(msgs, { countries: ['IT'], includeUnknown: false })).toBe(3)
+  expect(countFeedHidden(msgs, { countries: [], includeUnknown: true })).toBe(0)
+})
+
+test('feed: salvataggio e dati vecchi o corrotti', () => {
+  const s = memFeed()
+  saveFeedFilter(s, { countries: ['IT', 'FR'], includeUnknown: false })
+  expect(loadFeedFilter(s)).toEqual({ countries: ['IT', 'FR'], includeUnknown: false })
+  expect(loadFeedFilter(memFeed('{"countries":"IT","includeUnknown":"x"}'))).toEqual({ countries: [], includeUnknown: true })
+  expect(loadFeedFilter(memFeed('{"countries":["IT",3]}'))).toEqual({ countries: ['IT'], includeUnknown: true })
+  expect(loadFeedFilter(memFeed('not json'))).toEqual({ countries: [], includeUnknown: true })
+  const bad = { getItem: () => { throw new Error('x') }, setItem: () => { throw new Error('x') } }
+  expect(loadFeedFilter(bad)).toEqual({ countries: [], includeUnknown: true })
+  expect(() => saveFeedFilter(bad, { countries: [], includeUnknown: true })).not.toThrow()
+})
