@@ -37,10 +37,13 @@ from .live import LiveState
 from .diagnostics import build_bundle
 from .maintenance import compact, read_db_stats
 from .maps import MapsError
+from . import notify
+from .notify import TELEGRAM_NO_CHAT, TOAST_UNAVAILABLE, Notifier, NotifyError
 from .updater import UpdateError
 from .mqtt_publish import MqttSendError, pick_broker
 from .radio_manager import NoRadioConnected, TracerouteThrottled
 from .backup import NAME_RE, BackupUnusable
+from .secretbox import SECRET_KEYS
 from .settings import (DEFAULT_BROKER_ID, MASK, export_settings, find_broker, load_settings,
                        mask_secrets, merge_channels, prepare_import, resolve_broker_secrets,
                        resolve_extra_keys, save_settings)
@@ -100,7 +103,17 @@ class AppContext:
     # stato dell'HTTPS per la rete (impostato da chi avvia il server) ed errori degli ascolti
     tls: dict = field(default_factory=tls_status)
     tls_errors: list[str] = field(default_factory=list)
+    # notifiche di Windows: impostata dal lanciatore con l'icona (None senza icona)
+    toast: Callable[[str, str], None] | None = None
+    notifier: Notifier | None = None  # se manca se ne crea uno sulle impostazioni del database
     _alerts: list = field(default_factory=list)
+    _alerts_ready: bool = False
+
+    def __post_init__(self) -> None:
+        if self.notifier is None:
+            self.notifier = Notifier(
+                lambda: load_settings(self.conn), lambda: self.toast,
+                lambda: self.radios.radios() if self.radios is not None else [], time.time)
 
     def request_exit(self, delay_s: float = 0.0) -> None:
         """Chiede al lanciatore di uscire (anche l'aggiornamento la usa, senza HTTP)."""
@@ -127,6 +140,13 @@ class AppContext:
         self._alerts = new
         if [(a["key"], a["value"]) for a in new] != [(a["key"], a["value"]) for a in old]:
             self.bus.publish({"type": "alerts", "alerts": new})
+        if self._alerts_ready:
+            try:
+                self.notifier.on_alerts(old, new)
+            except Exception:  # noqa: BLE001 - le notifiche non fermano gli avvisi
+                logging.getLogger(__name__).exception("Notifiche degli avvisi non riuscite")
+        # il primo calcolo (avvio) non notifica: un nodo muto da giorni non avvisa a ogni avvio
+        self._alerts_ready = True
         return new
 
 
@@ -218,6 +238,12 @@ WAYPOINT_ONLY_MINE = "Puoi eliminare solo i tuoi waypoint"
 WAYPOINT_UNKNOWN = "Waypoint non trovato"
 CONV_KEY_INVALID = "Conversazione non valida"
 CONV_TIME_INVALID = "Orario non valido"
+TELEGRAM_NOT_CONFIGURED = notify.TELEGRAM_NOT_CONFIGURED
+TELEGRAM_NO_TOKEN = "Inserisci prima il token del bot"
+
+
+class NotifyTestBody(BaseModel):
+    channel: Literal["toast", "telegram"]
 
 
 class SendBody(BaseModel):
@@ -670,8 +696,9 @@ def create_app(ctx: AppContext) -> FastAPI:
                     mqtt["extra_keys"], load_settings(ctx.conn)["mqtt"]["extra_keys"])}
             except ValueError as e:
                 raise HTTPException(400, str(e))
-        if changes.get("update_token") == MASK:
-            del changes["update_token"]  # invariato
+        for key in SECRET_KEYS:
+            if changes.get(key) == MASK:
+                del changes[key]  # invariato
         try:
             saved = save_settings(ctx.conn, changes)
         except ValueError as e:
@@ -841,6 +868,38 @@ def create_app(ctx: AppContext) -> FastAPI:
             raise HTTPException(409, "Database occupato (backup o lettura in corso): "
                                      "riprova tra qualche minuto")
         return {"before_bytes": before, "after_bytes": after}
+
+    # ---- notifiche esterne ----
+    @app.get("/api/notify/status", dependencies=[Depends(require_auth)])
+    async def notify_status():
+        return ctx.notifier.status()
+
+    @app.post("/api/notify/test", dependencies=[Depends(require_auth), Depends(require_json)])
+    async def notify_test(body: NotifyTestBody):
+        try:
+            if body.channel == "toast":
+                if ctx.toast is None:
+                    raise HTTPException(400, TOAST_UNAVAILABLE)
+                ctx.notifier.test("toast")
+            else:
+                s = load_settings(ctx.conn)
+                if not (s["telegram_token"] and s["telegram_chat_id"]):
+                    raise HTTPException(400, TELEGRAM_NOT_CONFIGURED)
+                await asyncio.to_thread(ctx.notifier.test, "telegram")
+        except NotifyError as e:  # messaggio gia' senza token
+            raise HTTPException(502, str(e))
+        return {"ok": True}
+
+    @app.post("/api/notify/telegram/chat", dependencies=[Depends(require_auth)])
+    async def notify_telegram_chat():
+        token = load_settings(ctx.conn)["telegram_token"]
+        if not token:
+            raise HTTPException(400, TELEGRAM_NO_TOKEN)
+        try:
+            chat_id, title = await asyncio.to_thread(notify.telegram_find_chat, token)
+        except NotifyError as e:
+            raise HTTPException(404 if str(e) == TELEGRAM_NO_CHAT else 502, str(e))
+        return {"chat_id": chat_id, "title": title}
 
     # ---- diagnostica ----
     @app.get("/api/diagnostics/bundle", dependencies=[Depends(require_auth)])

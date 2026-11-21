@@ -257,6 +257,14 @@ def run_tray(data_dir: Path, port: int = PORT, open_browser: bool = True) -> int
     # l'aggiornamento chiude tutto passando da qui
     rt.ctx.exit_callback = icon.stop
 
+    def toast(title: str, body: str) -> None:
+        try:
+            icon.notify(body, title)
+        except Exception as e:  # noqa: BLE001 - un errore della shell non arriva mai al server
+            log.warning("Notifica di Windows non riuscita: %s", e)
+
+    rt.ctx.toast = toast
+
     def watch() -> None:  # se il server muore da solo, chiudi anche l'icona
         srv.thread.join()
         icon.stop()

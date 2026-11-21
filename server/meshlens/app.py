@@ -28,6 +28,7 @@ from .maps import MapsManager
 from .mqtt_client import MqttConnector
 from .mqtt_decode import EnvelopeDecoder
 from .mqtt_publish import MqttSender
+from .notify import Notifier
 from .pubsub_hub import PubSubHub
 from .radio import RadioConnector
 from .radio_manager import RadioManager
@@ -106,6 +107,7 @@ class Runtime:
     connectors: dict = field(default_factory=dict)  # id broker -> connettore
     learned_keys: dict = field(default_factory=dict)  # id broker -> canale -> chiave
     ctx: object = None  # AppContext
+    notifier: Notifier | None = None
     tasks: list = field(default_factory=list)
     last_purge: dict | None = None
     db_path: Path | None = None
@@ -331,6 +333,9 @@ class Runtime:
         if changed:
             self.bus.publish({"type": "nodes", "nodes": [
                 dict(n) for n in changed]})
+        if self.notifier is not None:
+            # anche senza nodi cambiati: segue i cambi delle radio connesse
+            self.notifier.on_nodes(changed)
 
     def _check_traceroutes(self) -> None:
         if self.radios is not None:
@@ -486,8 +491,14 @@ def build(data_dir: Path, connector_factory=MqttConnector,
         auth.forget_sessions_and_locks()
         log.warning("Dopo il ripristino: sessioni e blocchi dei tentativi azzerati, "
                     "ogni dispositivo deve accedere di nuovo")
-    ingestor = Ingestor(live, store, dedup, locator, lambda: rt.settings,
-                        lambda msg: bus.publish({"type": "message", "message": msg}),
+    def on_message(msg: dict) -> None:
+        bus.publish({"type": "message", "message": msg})
+        try:
+            notifier.on_message(msg)
+        except Exception:  # noqa: BLE001 - una notifica fallita non ferma l'ingestione
+            log.exception("Notifica del messaggio non riuscita")
+
+    ingestor = Ingestor(live, store, dedup, locator, lambda: rt.settings, on_message,
                         lambda key, status, error=None: bus.publish(
                             {"type": "message_status", "key": key, "status": status,
                              "error": error}),
@@ -515,6 +526,9 @@ def build(data_dir: Path, connector_factory=MqttConnector,
                          launcher_exit=lambda d: rt.ctx.request_exit(d),
                          before_install=lambda: rt.backups.create("pre-aggiornamento"))
     rt.auto_update = auto_update
+    notifier = Notifier(lambda: rt.settings, lambda: rt.ctx.toast, rt.radios.radios, time.time)
+    notifier.seed(live.nodes.values())
+    rt.notifier = notifier
     ctx = AppContext(live=live, store=store, auth=auth, bus=bus, locator=locator, conn=conn,
                      mqtt_status=rt.mqtt_status,
                      mqtt_channel_counts=ingestor.mqtt_channel_counts,
@@ -523,7 +537,8 @@ def build(data_dir: Path, connector_factory=MqttConnector,
                      static_dir=static_dir, radios=rt.radios, coverage=coverage,
                      config=rt.config, maps=rt.maps, updater=rt.updater, data_dir=Path(data_dir),
                      db_path=rt.db_path, last_purge=lambda: rt.last_purge,
-                     backups=backups, db_health=lambda: rt.db_health, log_dir=log_dir)
+                     backups=backups, db_health=lambda: rt.db_health, log_dir=log_dir,
+                     notifier=notifier)
     rt.ctx = ctx
     def key_for(bid: str, channel: str) -> bytes | None:
         """Chiave del canale vista dal decoder del broker (personalizzata o imparata);

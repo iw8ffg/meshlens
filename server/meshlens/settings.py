@@ -45,6 +45,14 @@ DEFAULTS: dict = {
         "extra_keys": [],
     },
     "mqtt_send_confirmed_brokers": [],  # broker per cui la conferma e' gia' data
+    # notifiche esterne (toast di Windows dall'icona, bot Telegram)
+    "notify_toast": True,
+    "notify_telegram": False,
+    "telegram_token": "",  # segreto (SECRET_KEYS)
+    "telegram_chat_id": "",
+    "notify_mine_status": True,
+    "notify_new_node": False,
+    "notify_keywords": [],
 }
 
 DEFAULT_BROKER_ID = "default"
@@ -105,6 +113,10 @@ _INT_KEYS = ("retention_messages_days", "retention_positions_days",
 # interi con intervallo ammesso (min, max)
 _RANGE_KEYS = {"battery_alert_pct": (1, 99), "silent_alert_hours": (1, 168)}
 _MQTT_STR = ("host", "username", "password")
+_BOOL_KEYS = ("lan_access", "lan_https", "notify_toast", "notify_telegram",
+              "notify_mine_status", "notify_new_node")
+MAX_NOTIFY_KEYWORDS = 20
+_CHAT_ID_RE = re.compile(r"-?[0-9]{1,20}")
 
 
 def normalize_topic(topic: str) -> str:
@@ -320,7 +332,7 @@ def _validate(key: str, value) -> None:
         lo, hi = _RANGE_KEYS[key]
         if not (_is_int(value) and lo <= value <= hi):
             raise ValueError(f"{key} deve essere un numero intero tra {lo} e {hi}")
-    elif key in ("lan_access", "lan_https"):
+    elif key in _BOOL_KEYS:
         if not isinstance(value, bool):
             raise ValueError(f"{key} deve essere vero o falso")
     elif key == "map_mode":
@@ -336,9 +348,18 @@ def _validate(key: str, value) -> None:
     elif key == "update_repo":
         if not (isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", value)):
             raise ValueError("update_repo deve avere il formato owner/nome")
-    elif key == "update_token":
+    elif key in ("update_token", "telegram_token"):
         if not isinstance(value, str):
-            raise ValueError("update_token deve essere una stringa")
+            raise ValueError(f"{key} deve essere una stringa")
+    elif key == "telegram_chat_id":
+        if not (isinstance(value, str) and (value == "" or _CHAT_ID_RE.fullmatch(value))):
+            raise ValueError("telegram_chat_id deve essere vuoto oppure un numero intero")
+    elif key == "notify_keywords":
+        if not (isinstance(value, list) and len(value) <= MAX_NOTIFY_KEYWORDS and all(
+                isinstance(w, str) and 2 <= len(w) <= 32 and w == w.strip() for w in value)):
+            raise ValueError(f"notify_keywords deve essere una lista di al massimo "
+                             f"{MAX_NOTIFY_KEYWORDS} parole (da 2 a 32 caratteri, senza spazi "
+                             f"agli estremi)")
     elif key == "update_auto_check":
         if not isinstance(value, bool):
             raise ValueError("update_auto_check deve essere vero o falso")
@@ -533,7 +554,7 @@ def migrate_secrets(conn: sqlite3.Connection) -> int:
 
 
 def mask_secrets(s: dict) -> dict:
-    """Copia senza segreti in chiaro: password MQTT, token di aggiornamento, chiavi PSK extra,
+    """Copia senza segreti in chiaro: password MQTT, token (SECRET_KEYS), chiavi PSK extra,
     PSK dei canali dei broker."""
     out = copy.deepcopy(s)
     mqtt = out.get("mqtt")
@@ -576,9 +597,10 @@ def prepare_import(data: dict, current: dict | None = None) -> tuple[dict, list[
     if "mqtt_send_confirmed_brokers" in changes:
         del changes["mqtt_send_confirmed_brokers"]
         skipped.append("mqtt_send_confirmed_brokers")
-    if changes.get("update_token") == MASK:
-        del changes["update_token"]
-        skipped.append("update_token")
+    for key in SECRET_KEYS:
+        if changes.get(key) == MASK:
+            del changes[key]
+            skipped.append(key)
     if "mqtt_brokers" in changes:
         changes.pop("mqtt", None)  # vista di compatibilita': vale la lista dei broker
         if isinstance(changes["mqtt_brokers"], list):

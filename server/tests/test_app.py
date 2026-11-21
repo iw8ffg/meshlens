@@ -774,3 +774,18 @@ async def test_ingestor_status_and_waypoint_reach_bus(tmp_path):
         {"type": "message_status", "key": "out:r1:5", "status": "failed", "error": "NO_ROUTE"},
         {"type": "waypoint", "waypoint": {"id": 7, "name": "W"}},
         {"type": "waypoint_deleted", "id": 7}]
+
+
+def test_notifier_wired_into_runtime(tmp_path):
+    _, rt = build(tmp_path, connector_factory=FakeConnector, static_dir=None)
+    assert rt.notifier is rt.ctx.notifier
+    nodes, msgs = [], []
+    rt.notifier.on_nodes = nodes.append
+    rt.notifier.on_message = msgs.append
+    rt._publish_changed()  # anche senza nodi cambiati (segue le radio connesse)
+    assert nodes == [[]]
+    rt.ingestor.on_message({"key": "1:1", "direction": "in", "text": "ciao"})
+    assert msgs and msgs[0]["key"] == "1:1"
+    assert rt.notifier.status()["toast_available"] is False
+    rt.ctx.toast = lambda t, b: None
+    assert rt.notifier.status()["toast_available"] is True

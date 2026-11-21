@@ -6,8 +6,8 @@ import base64
 import sys
 from typing import Protocol
 
-# chiavi di primo livello delle impostazioni salvate cifrate (la fase 10 potra' aggiungerne)
-SECRET_KEYS = ("update_token",)
+# chiavi di primo livello delle impostazioni salvate cifrate
+SECRET_KEYS = ("update_token", "telegram_token")
 
 DPAPI_PREFIX = "dpapi:v1:"
 PLAIN_PREFIX = "plain:"

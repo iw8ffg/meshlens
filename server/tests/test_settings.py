@@ -99,3 +99,30 @@ def test_lan_https_setting_validation(conn):
         with pytest.raises(ValueError):
             save_settings(conn, {"lan_https": bad})
     assert load_settings(conn)["lan_https"] is True
+
+
+def test_notify_settings_validation(conn):
+    import json
+    from meshlens.settings import MASK, mask_secrets, prepare_import
+    s = load_settings(conn)
+    assert (s["notify_toast"], s["notify_telegram"], s["notify_mine_status"],
+            s["notify_new_node"]) == (True, False, True, False)
+    assert s["telegram_token"] == "" and s["telegram_chat_id"] == "" and s["notify_keywords"] == []
+    for bad in ({"telegram_chat_id": "abc"}, {"telegram_chat_id": "1" * 21},
+                {"telegram_chat_id": 42}, {"notify_keywords": [f"p{i:02d}" for i in range(21)]},
+                {"notify_keywords": ["a"]}, {"notify_keywords": ["x" * 33]},
+                {"notify_keywords": [" sp"]}, {"notify_keywords": "parola"},
+                {"notify_toast": 1}, {"notify_new_node": None}, {"telegram_token": 5}):
+        with pytest.raises(ValueError):
+            save_settings(conn, bad)
+    out = save_settings(conn, {"telegram_chat_id": "-1001234", "telegram_token": "123:ABCdef",
+                               "notify_keywords": ["aiuto", "perché"], "notify_telegram": True})
+    assert out["telegram_chat_id"] == "-1001234" and out["notify_keywords"] == ["aiuto", "perché"]
+    raw = conn.execute("SELECT value FROM settings WHERE key='telegram_token'").fetchone()["value"]
+    assert "ABCdef" not in json.loads(raw)  # salvato cifrato
+    assert load_settings(conn)["telegram_token"] == "123:ABCdef"
+    assert mask_secrets(load_settings(conn))["telegram_token"] == MASK
+    changes, skipped = prepare_import({"format": 1, "settings": {"telegram_token": MASK,
+                                                                 "notify_toast": False}})
+    assert "telegram_token" not in changes and "telegram_token" in skipped
+    assert changes["notify_toast"] is False

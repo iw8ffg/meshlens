@@ -1235,3 +1235,70 @@ def test_conversations_read_broadcasts(ctx):
                        json={"key": "dm:r1a2b3c4d:!00000042", "time": 1}).status_code == 200
         assert tc.post("/api/conversations/read",
                        json={"key": key, "time": time.time() + 3600}).status_code == 400
+
+
+async def test_put_settings_keeps_masked_telegram_token(ctx):
+    from meshlens.settings import load_settings
+    save_settings(ctx.conn, {"telegram_token": "123:SEGRETO", "telegram_chat_id": "42"})
+    async with logged(ctx) as c:
+        s = (await c.get("/api/settings")).json()
+        assert s["telegram_token"] == "••••" and "SEGRETO" not in str(s)
+        r = await c.put("/api/settings", json={"telegram_token": "••••", "notify_telegram": True})
+        assert r.status_code == 200 and r.json()["telegram_token"] == "••••"
+        assert load_settings(ctx.conn)["telegram_token"] == "123:SEGRETO"
+        assert load_settings(ctx.conn)["notify_telegram"] is True
+
+
+async def test_notify_test_without_config(ctx):
+    from meshlens.notify import TOAST_UNAVAILABLE
+    async with logged(ctx) as c:
+        r = await c.post("/api/notify/test", json={"channel": "telegram"})
+        assert r.status_code == 400
+        r = await c.post("/api/notify/test", json={"channel": "toast"})
+        assert r.status_code == 400 and r.json()["detail"] == TOAST_UNAVAILABLE
+        r = await c.post("/api/notify/test", json={"channel": "sms"})
+        assert r.status_code == 422
+        r = await c.post("/api/notify/telegram/chat")
+        assert r.status_code == 400
+        st = (await c.get("/api/notify/status")).json()
+        assert st == {"toast_available": False, "telegram_last_ok": None,
+                      "telegram_last_error": None}
+        shown = []
+        ctx.toast = lambda t, b: shown.append((t, b))
+        r = await c.post("/api/notify/test", json={"channel": "toast"})
+        assert r.status_code == 200 and r.json() == {"ok": True}
+        assert shown == [("Prova di MeshLens", "Le notifiche funzionano")]
+        assert (await c.get("/api/notify/status")).json()["toast_available"] is True
+
+
+async def test_notify_telegram_failure_502_without_token(ctx, monkeypatch):
+    from meshlens import notify
+    token = "123456:SEGRETISSIMO"
+    save_settings(ctx.conn, {"telegram_token": token, "telegram_chat_id": "42"})
+
+    def fail(tok, chat, text, **_k):
+        raise notify.NotifyError(notify.scrub_text(f"rete giù per bot{tok}", tok))
+
+    def no_chat(tok, **_k):
+        raise notify.NotifyError(notify.TELEGRAM_NO_CHAT)
+
+    ctx.notifier.send_telegram = fail
+    monkeypatch.setattr(notify, "telegram_find_chat", no_chat)
+    async with logged(ctx) as c:
+        r = await c.post("/api/notify/test", json={"channel": "telegram"})
+        assert r.status_code == 502 and "SEGRETISSIMO" not in r.text
+        st = (await c.get("/api/notify/status")).json()
+        assert st["telegram_last_error"] and "SEGRETISSIMO" not in st["telegram_last_error"]
+        r = await c.post("/api/notify/telegram/chat")
+        assert r.status_code == 404 and r.json()["detail"] == notify.TELEGRAM_NO_CHAT
+        monkeypatch.setattr(notify, "telegram_find_chat", lambda tok, **_k: ("-100", "Gruppo"))
+        r = await c.post("/api/notify/telegram/chat")
+        assert r.json() == {"chat_id": "-100", "title": "Gruppo"}
+
+
+def test_alerts_feed_notifier(ctx):
+    calls = []
+    ctx.notifier.on_alerts = lambda old, new: calls.append((old, new))
+    ctx.alerts()  # primo calcolo all'avvio: nessuna notifica per gli avvisi gia' presenti
+    ctx.alerts()
+    assert len(calls) == 1

@@ -220,3 +220,55 @@ def test_build_failure_shows_message_and_exits(tmp_path, monkeypatch, caplog):
     assert len(shown) == 1
     assert "non è riuscito ad avviarsi" in shown[0] and "database bloccato" in shown[0]
     assert "Avvio di MeshLens fallito" in caplog.text
+
+
+def test_tray_sets_toast_on_context(tmp_path, monkeypatch):
+    import sys
+    import types
+    import meshlens.app as app_mod
+
+    class Icon:
+        last = None
+
+        def __init__(self, *a, **k):
+            self.notified = []
+            Icon.last = self
+
+        def notify(self, message, title=None):
+            self.notified.append((message, title))
+            if message == "boom":
+                raise OSError("Shell_NotifyIcon fallita")
+
+        def run(self):
+            # mentre l'icona e' attiva il server usa ctx.toast
+            rt.ctx.toast("T", "B")
+            rt.ctx.toast("X", "boom")  # l'errore non arriva al chiamante
+
+        def stop(self):
+            pass
+
+    fake = types.SimpleNamespace(Icon=Icon, Menu=lambda *a: a, MenuItem=lambda *a, **k: a)
+    monkeypatch.setitem(sys.modules, "pystray", fake)
+
+    class Srv:
+        def __init__(self, *a):
+            self.errors = []
+            self.thread = types.SimpleNamespace(join=lambda *a: None)
+
+        def start(self): pass
+        def wait_started(self): return True
+        def stop(self, *a): pass
+
+    ctx = types.SimpleNamespace(toast=None, tls=None, tls_errors=None, exit_callback=None)
+    rt = types.SimpleNamespace(ctx=ctx, conn=None)
+    monkeypatch.setattr(tray, "single_instance", lambda port: "free")
+    monkeypatch.setattr(tray, "create_app_mutex", lambda: (123, False))
+    monkeypatch.setattr(app_mod, "build", lambda *a, **k: (object(), rt))
+    monkeypatch.setattr("meshlens.settings.load_settings",
+                        lambda conn: {"lan_access": False, "lan_https": False})
+    monkeypatch.setattr(tray, "prepare_serving", lambda *a: ([], None, {}))
+    monkeypatch.setattr(tray, "ServerThread", Srv)
+    monkeypatch.setattr(tray, "ensure_icon", lambda: tmp_path / "x.png")
+    monkeypatch.setattr("PIL.Image.open", lambda p: object())
+    assert tray.run_tray(tmp_path, 8686, open_browser=False) == 0
+    assert Icon.last.notified == [("B", "T"), ("boom", "X")]
