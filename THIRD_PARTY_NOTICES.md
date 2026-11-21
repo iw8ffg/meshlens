@@ -100,6 +100,9 @@ Le bandiere SVG (flag-icons 7.6, MIT) sono copiate in `web/public/flags` in fase
 | [Lucide](https://lucide.dev) | ISC | icone dell'interfaccia / UI icons |
 | [flag-icons](https://github.com/lipis/flag-icons) | MIT | bandiere delle nazioni / country flags |
 | [Natural Earth](https://www.naturalearthdata.com) | Pubblico dominio / Public domain | confini delle nazioni (`countries.geojson`) / country borders |
+| [NTIA Irregular Terrain Model (ITM)](https://github.com/NTIA/itm) | Opera del Governo USA, non soggetta a copyright negli USA (17 U.S.C. 105); altrove licenza NTIA libera per opere derivate / US Government work, not subject to copyright in the US; elsewhere NTIA royalty-free license for derivative works | porting in Python del modo punto-punto in `server/meshlens/itm.py` (dal commit `183ad95`), modificato da MeshLens il 2026-11-21; vettori di prova `p2p.csv` e `pfls.csv` copiati in `server/tests/data` / Python port of point-to-point mode, modified by MeshLens on 2026-11-21; test vectors copied into `server/tests/data` |
+
+Il modello ITM è stato sviluppato dalla NTIA (National Telecommunications and Information Administration), che chiede di riconoscerne la paternità: il calcolo della copertura prevista di MeshLens deriva dal suo software. / ITM was developed by NTIA, which asks for acknowledgment: MeshLens' predicted coverage derives from its software.
 
 ## Dati / Data
 
