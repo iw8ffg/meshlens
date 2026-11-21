@@ -500,6 +500,27 @@ async def test_traceroute_early_routing_error_keeps_reason_and_skips_chat_buffer
     assert e.mgr._early_acks == {} and e.mgr._early_traces == {}
 
 
+async def test_chat_ack_during_traceroute_send_reaches_message():
+    e = Env()
+    r = await e.mgr.add("usb", "COM5", "A")
+    fc = FakeConnector.instances[0]
+    await e.mgr.send(r["id"], "ciao", 0, "!00000042")
+    await settle()
+    chat_key = e.live.messages[0]["key"]
+    chat_pid = int(chat_key.rsplit(":", 1)[1])
+    orig = fc.send_traceroute
+
+    async def send_with_chat_ack(dest, ch=0):
+        pid = await orig(dest, ch)
+        fc.on_ack(r["id"], chat_pid, True, None)  # ack del messaggio precedente
+        return pid
+
+    fc.send_traceroute = send_with_chat_ack
+    await e.mgr.traceroute(TARGET, None)
+    assert e.live.messages[0]["status"] == "acked"
+    assert e.store.traceroutes(0x42)[0]["status"] == "pending"
+
+
 async def test_traceroute_slot_released_if_store_fails():
     e = Env()
     r = await e.mgr.add("usb", "COM5", "A")

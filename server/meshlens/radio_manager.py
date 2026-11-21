@@ -152,18 +152,21 @@ class RadioManager:
 
     def _on_ack(self, radio_id: str, packet_id: int, ok: bool, reason: str | None) -> None:
         key = (radio_id, packet_id)
-        if key in self._traces or radio_id in self._tracing:
-            # errore di un traceroute (anche in anticipo): non e' una chat
+        if key in self._traces:  # errore di un traceroute: non e' una chat
             if not ok:
-                if key in self._traces:
-                    self._finish_trace(key, "failed", _routing_text(reason))
-                else:
-                    self._buffer_early_trace(key, None, reason)
+                self._finish_trace(key, "failed", _routing_text(reason))
             return
         status = "acked" if ok else "failed"
-        key = f"out:{radio_id}:{packet_id}"
-        if any(m["key"] == key for m in self.ingestor.live.messages):
-            self.ingestor.set_status(key, status)
+        msg_key = f"out:{radio_id}:{packet_id}"
+        if any(m["key"] == msg_key for m in self.ingestor.live.messages):
+            # ack di un messaggio gia' registrato, anche se arriva durante un traceroute
+            self.ingestor.set_status(msg_key, status)
+            return
+        if radio_id in self._tracing:
+            # id sconosciuto durante l'invio di un traceroute (il lock esclude invii chat
+            # contemporanei sulla stessa radio): e' l'esito in anticipo del traceroute
+            if not ok:
+                self._buffer_early_trace(key, None, reason)
             return
         # ack arrivato durante send_text: il messaggio definitivo non esiste ancora
         self._early_acks[(radio_id, packet_id)] = status
