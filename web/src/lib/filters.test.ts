@@ -6,25 +6,25 @@ const now = 1_000_000
 const n = { id: '!a1b2c3d4', long_name: 'Base Milano', short_name: 'BM', country: 'IT', last_heard: now - 3600, sources: ['mqtt'] } as Node
 
 test('country filter', () => {
-  expect(matchNode(n, { countries: ['IT'], maxAgeH: null, sources: [], text: '' }, now)).toBe(true)
-  expect(matchNode(n, { countries: ['FR'], maxAgeH: null, sources: [], text: '' }, now)).toBe(false)
-  expect(matchNode({ ...n, country: null }, { countries: ['none'], maxAgeH: null, sources: [], text: '' }, now)).toBe(true)
+  expect(matchNode(n, { countries: ['IT'], maxAgeH: null, sources: [], text: '', links: false }, now)).toBe(true)
+  expect(matchNode(n, { countries: ['FR'], maxAgeH: null, sources: [], text: '', links: false }, now)).toBe(false)
+  expect(matchNode({ ...n, country: null }, { countries: ['none'], maxAgeH: null, sources: [], text: '', links: false }, now)).toBe(true)
 })
 
 test('age and text', () => {
-  expect(matchNode(n, { countries: [], maxAgeH: 0.5, sources: [], text: '' }, now)).toBe(false)
-  expect(matchNode(n, { countries: [], maxAgeH: null, sources: [], text: 'milano' }, now)).toBe(true)
+  expect(matchNode(n, { countries: [], maxAgeH: 0.5, sources: [], text: '', links: false }, now)).toBe(false)
+  expect(matchNode(n, { countries: [], maxAgeH: null, sources: [], text: 'milano', links: false }, now)).toBe(true)
   expect(ageClass(now - 3600, now)).toBe('fresh')
   expect(ageClass(now - 3 * 3600, now)).toBe('recent')
   expect(ageClass(now - 25 * 3600, now)).toBe('old')
 })
 
 test('sources and null names', () => {
-  expect(matchNode(n, { countries: [], maxAgeH: null, sources: ['rf'], text: '' }, now)).toBe(false)
-  expect(matchNode(n, { countries: [], maxAgeH: null, sources: ['rf', 'mqtt'], text: '' }, now)).toBe(true)
+  expect(matchNode(n, { countries: [], maxAgeH: null, sources: ['rf'], text: '', links: false }, now)).toBe(false)
+  expect(matchNode(n, { countries: [], maxAgeH: null, sources: ['rf', 'mqtt'], text: '', links: false }, now)).toBe(true)
   const bare = { ...n, long_name: null, short_name: null } as Node
-  expect(matchNode(bare, { countries: [], maxAgeH: null, sources: [], text: 'A1B2' }, now)).toBe(true)
-  expect(matchNode(bare, { countries: [], maxAgeH: null, sources: [], text: 'zzz' }, now)).toBe(false)
+  expect(matchNode(bare, { countries: [], maxAgeH: null, sources: [], text: 'A1B2', links: false }, now)).toBe(true)
+  expect(matchNode(bare, { countries: [], maxAgeH: null, sources: [], text: 'zzz', links: false }, now)).toBe(false)
 })
 
 function mem(init?: string) {
@@ -34,7 +34,7 @@ function mem(init?: string) {
 }
 
 test('loadFilter defaults to IT when empty', () => {
-  expect(loadFilter(mem())).toEqual({ countries: ['IT'], maxAgeH: null, sources: [], text: '' })
+  expect(loadFilter(mem())).toEqual({ countries: ['IT'], maxAgeH: null, sources: [], text: '', links: false })
 })
 
 test('loadFilter defaults on invalid JSON', () => {
@@ -43,7 +43,7 @@ test('loadFilter defaults on invalid JSON', () => {
 
 test('saveFilter/loadFilter round trip', () => {
   const s = mem()
-  const f = { countries: ['FR', 'none'], maxAgeH: 24, sources: [], text: 'abc' }
+  const f = { countries: ['FR', 'none'], maxAgeH: 24, sources: [], text: 'abc', links: false }
   saveFilter(s, f)
   expect(loadFilter(s)).toEqual(f)
   saveFilter(s, { ...f, countries: [] })
@@ -63,9 +63,16 @@ test('storage throwing falls back to default and does not throw on save', () => 
   expect(() => saveFilter(bad, loadFilter(bad))).not.toThrow()
 })
 
+test('links toggle round trip', () => {
+  const s = mem()
+  saveFilter(s, { ...loadFilter(s), links: true })
+  expect(loadFilter(s).links).toBe(true)
+  expect(loadFilter(mem('{"links":"si"}')).links).toBe(false)
+})
+
 test('null last_heard', () => {
   expect(ageClass(null, now)).toBe('old')
   const nn = { ...n, last_heard: null } as Node
-  expect(matchNode(nn, { countries: [], maxAgeH: 24, sources: [], text: '' }, now)).toBe(false)
-  expect(matchNode(nn, { countries: [], maxAgeH: null, sources: [], text: '' }, now)).toBe(true)
+  expect(matchNode(nn, { countries: [], maxAgeH: 24, sources: [], text: '', links: false }, now)).toBe(false)
+  expect(matchNode(nn, { countries: [], maxAgeH: null, sources: [], text: '', links: false }, now)).toBe(true)
 })

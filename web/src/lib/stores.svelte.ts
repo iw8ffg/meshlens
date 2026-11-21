@@ -64,6 +64,6 @@ export function setStatus(s: Status): void {
 }
 
 export function persistFilter(): void {
-  const { countries, maxAgeH, sources, text } = app.filter
-  saveFilter(localStorage, { countries: [...countries], maxAgeH, sources: [...sources], text })
+  const { countries, maxAgeH, sources, text, links } = app.filter
+  saveFilter(localStorage, { countries: [...countries], maxAgeH, sources: [...sources], text, links })
 }
