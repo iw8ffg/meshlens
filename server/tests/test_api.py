@@ -571,6 +571,63 @@ async def test_telemetry_route(ctx):
         assert (await c.get("/api/nodes/!000000ff/telemetry")).status_code == 404
 
 
+async def test_positions_route_max_points(ctx):
+    now = time.time()
+    for i in range(50):
+        ctx.store.add_position(1, now - 3000 + i, 45.0 + i / 1000, 9.0, 32, "rf")
+    async with logged(ctx) as c:
+        r = await c.get("/api/nodes/!00000001/positions?hours=24&max_points=10")
+        body = r.json()
+        assert r.status_code == 200 and 2 <= len(body) <= 11
+        assert set(body[0]) == {"time", "lat", "lon", "precision_bits", "source"}
+        assert body[-1]["lat"] == pytest.approx(45.049)
+        assert len((await c.get("/api/nodes/!00000001/positions")).json()) == 50
+
+
+async def test_metrics_and_snr_routes(ctx):
+    now = time.time()
+    ctx.store.add_metrics(1, now - 60, "environment", {"temperature": 21.5})
+    async with logged(ctx) as c:
+        body = (await c.get("/api/nodes/!00000001/metrics?hours=24")).json()
+        assert body["latest"]["environment.temperature"]["value"] == 21.5
+        assert [v for _, v in body["series"]["environment.temperature"]] == [21.5]
+        assert (await c.get("/api/nodes/!00000001/snr")).json() == []
+        ctx.store.upsert_node_hourly([(int(now // 3600) * 3600, 1, "rf", 2, -6.0, 2, -2.0)])
+        snr = (await c.get("/api/nodes/!00000001/snr")).json()
+        assert snr[0]["snr_avg"] == -3.0 and snr[0]["packets"] == 2
+
+
+async def test_data_routes_use_thread_with_db_path(tmp_path, monkeypatch):
+    import asyncio
+    from meshlens.app import build
+    app, rt = build(tmp_path, static_dir=None)
+    calls = []
+    real = asyncio.to_thread
+
+    async def spy(fn, *a, **kw):
+        calls.append(fn)
+        return await real(fn, *a, **kw)
+    monkeypatch.setattr(asyncio, "to_thread", spy)
+    try:
+        rt.conn.execute("INSERT INTO metrics(node_num, time, variant, metric, value) "
+                        "VALUES(5, ?, 'environment', 'temperature', 19.0)", (time.time(),))
+        rt.conn.commit()
+        async with client_for_app(app) as c:
+            assert (await c.post("/api/auth/setup", json={"pin": "1234"})).status_code == 200
+            calls.clear()
+            r = await c.get("/api/nodes/!00000005/metrics")
+            assert r.json()["latest"]["environment.temperature"]["value"] == 19.0
+            assert calls
+    finally:
+        rt.conn.close()
+
+
+@pytest.mark.parametrize("path", ["telemetry", "positions", "metrics", "snr"])
+async def test_data_routes_reject_zero_hours(ctx, path):
+    async with logged(ctx) as c:
+        assert (await c.get(f"/api/nodes/!00000001/{path}?hours=0")).status_code == 422
+
+
 async def test_links_route(ctx):
     ctx.store.upsert_link(1, 2, "rf_direct", 4.5, time.time())
     async with logged(ctx) as c:

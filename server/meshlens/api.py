@@ -24,6 +24,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.websockets import WebSocketDisconnect
 
 from . import api_prediction, api_storeforward
+from .api_data import register_data_routes
 from .alerts import CHUTIL_MIN_SAMPLES, CHUTIL_WINDOW_S, compute_alerts
 from .auth import LOOPBACK, MIN_PIN, MIN_PIN_LAN, Auth, LockedError
 from .bus import Bus
@@ -578,20 +579,6 @@ def create_app(ctx: AppContext) -> FastAPI:
         if node is None:
             raise HTTPException(404, "Nodo non trovato")
         return {**_public(node), "telemetry": ctx.store.telemetry(num, time.time() - 24 * 3600)}
-
-    @app.get("/api/nodes/{node_id}/positions", dependencies=[Depends(require_auth)])
-    async def node_positions(node_id: str, hours: float = 24):
-        num = _num_from_id(node_id)
-        return ctx.store.positions(num, time.time() - hours * 3600)
-
-    @app.get("/api/nodes/{node_id}/telemetry", dependencies=[Depends(require_auth)])
-    async def node_telemetry(node_id: str, hours: float = 168):
-        num = _num_from_id(node_id)
-        if num not in ctx.live.nodes:
-            raise HTTPException(404, "Nodo non trovato")
-        keys = ("time", "battery", "voltage", "channel_util", "air_util_tx")
-        return [{k: p[k] for k in keys}
-                for p in ctx.store.telemetry(num, time.time() - hours * 3600)]
 
     def _live_or_revive(num: int) -> dict:
         """Nodo in memoria; se il limite dei nodi lo ha tolto ma e' archiviato (i client lo
@@ -1437,6 +1424,7 @@ def create_app(ctx: AppContext) -> FastAPI:
 
     api_storeforward.register(app, ctx, require_auth, require_json)
     api_prediction.register(app, ctx, require_auth, require_json)
+    register_data_routes(app, ctx, require_auth)
 
     # ---- statici (ultimi: catch-all) ----
     if ctx.static_dir is not None and Path(ctx.static_dir).exists():
