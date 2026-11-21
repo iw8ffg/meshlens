@@ -27,6 +27,7 @@ class FakeIface:
             SimpleNamespace(index=2, role="DISABLED", settings=SimpleNamespace(name="")),
         ])
         self.sent = []
+        self.sent_data = []
         self.closed = 0
         self.send_thread = None
         self.next_id = 1000
@@ -36,6 +37,15 @@ class FakeIface:
     def sendText(self, text, destinationId="^all", wantAck=False, channelIndex=0, **kw):
         self.send_thread = threading.current_thread()
         self.sent.append((text, destinationId, wantAck, channelIndex))
+        self.next_id += 1
+        if self.on_send:
+            self.on_send(self.next_id)
+        return SimpleNamespace(id=self.next_id)
+
+    def sendData(self, data, destinationId="^all", portNum=None, wantAck=False,
+                 wantResponse=False, channelIndex=0, **kw):
+        self.send_thread = threading.current_thread()
+        self.sent_data.append((data, destinationId, portNum, wantResponse, channelIndex))
         self.next_id += 1
         if self.on_send:
             self.on_send(self.next_id)
@@ -65,6 +75,7 @@ class Harness:
         self.hub = PubSubHub(self.loop, self.pubsub)
         self.hub.start()
         self.events, self.states, self.acks, self.sleeps = [], [], [], []
+        self.traces = []
         self.now = 1000.0
         self.gate = asyncio.Event()  # se non impostato blocca lo sleep
         self.gate.set()
@@ -83,7 +94,8 @@ class Harness:
         self.conn = RadioConnector(
             CFG, self.hub, self.events.append, lambda s: self.states.append(s["state"]),
             lambda *a: self.acks.append(a), factory_wrapper,
-            clock=lambda: self.now, sleep=sleep)
+            clock=lambda: self.now, sleep=sleep,
+            on_traceroute=lambda *a: self.traces.append(a))
 
     async def until(self, cond, timeout=3.0):
         async def poll():
@@ -455,3 +467,51 @@ async def test_real_pubsub_roundtrip():
         pub.unsubscribe(hub._on_receive, "meshtastic.receive")
         pub.unsubscribe(hub._on_lost, "meshtastic.connection.lost")
         pub.unsubscribe(hub._on_established, "meshtastic.connection.established")
+
+
+async def test_send_traceroute_calls_senddata():
+    from meshtastic.protobuf import mesh_pb2, portnums_pb2
+    iface = FakeIface()
+    h = Harness(lambda cfg, n: iface)
+    await connected(h)
+    pid = await h.conn.send_traceroute(0x42, 2)
+    assert pid == 1001
+    data, dest, port, want, ch = iface.sent_data[0]
+    assert isinstance(data, mesh_pb2.RouteDiscovery)
+    assert (dest, port, want, ch) == (0x42, portnums_pb2.TRACEROUTE_APP, True, 2)
+    assert iface.send_thread is not threading.main_thread()
+    await h.conn.stop()
+
+
+async def test_send_traceroute_not_connected():
+    h = Harness(lambda cfg, n: FakeIface())
+    with pytest.raises(RuntimeError, match="non connessa"):
+        await h.conn.send_traceroute(0x42)
+
+
+async def test_traceroute_reply_calls_callback_and_still_reaches_ingest():
+    h = Harness(lambda cfg, n: FakeIface())
+    await connected(h)
+    pkt = {"from": 0x42, "to": MY_NUM, "id": 7, "decoded": {
+        "portnum": "TRACEROUTE_APP", "requestId": 55,
+        "traceroute": {"route": [], "snrTowards": [20], "routeBack": [], "snrBack": [8]}}}
+    h.conn.on_packet(pkt)
+    assert [(t[0], t[1], t[2].kind) for t in h.traces] == [(CFG["id"], 55, "traceroute")]
+    assert h.events[-1].kind == "traceroute"
+    # senza requestId (richiesta di altri): nessuna callback
+    del pkt["decoded"]["requestId"]
+    h.conn.on_packet(pkt)
+    assert len(h.traces) == 1
+    await h.conn.stop()
+
+
+async def test_traceroute_routing_error_is_forwarded_as_ack_failure():
+    iface = FakeIface()
+    h = Harness(lambda cfg, n: iface)
+    await connected(h)
+    pid = await h.conn.send_traceroute(0x42)
+    h.conn.on_packet(ack_pkt(pid, MY_NUM))  # ack locale ok: ignorato
+    assert h.acks == []
+    h.conn.on_packet(ack_pkt(pid, 0x42, "NO_RESPONSE"))
+    assert h.acks == [(CFG["id"], pid, False, "NO_RESPONSE")]
+    await h.conn.stop()

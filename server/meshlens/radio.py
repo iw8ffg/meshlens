@@ -105,12 +105,14 @@ class RadioConnector:
                  on_state: Callable[[dict], None],
                  on_ack: Callable[[str, int, bool, str | None], None],
                  iface_factory: Callable[[dict], Any], clock=time.time, *,
-                 sleep=asyncio.sleep):
+                 sleep=asyncio.sleep,
+                 on_traceroute: Callable[[str, int, MeshEvent], None] | None = None):
         self._cfg = cfg
         self._hub = hub
         self._on_event = on_event
         self._on_state = on_state
         self._on_ack = on_ack
+        self._on_traceroute = on_traceroute
         self._factory = iface_factory
         self._clock = clock
         self._sleep = sleep
@@ -120,6 +122,7 @@ class RadioConnector:
         self._wake = asyncio.Event()
         self._send_lock = asyncio.Lock()
         self._pending: dict[int, float] = {}
+        self._traces: dict[int, float] = {}  # traceroute inviati: id pacchetto -> istante
         self._early: dict[int, tuple[float, int | None, bool, str | None]] = {}
         self._state = "disconnected"
         self._error: str | None = None
@@ -170,6 +173,7 @@ class RadioConnector:
                 pass
         await self._close_iface()
         self._pending.clear()
+        self._traces.clear()
         self._set_state("disconnected")
 
     async def _call(self, fn, *args):
@@ -319,7 +323,11 @@ class RadioConnector:
             return
         ev = packet_to_event(packet, self.radio_id, self._clock())
         if ev is not None:
-            self._emit(self._on_event, ev)
+            if (ev.kind == "traceroute" and ev.payload is not None
+                    and ev.payload.request_id and self._on_traceroute is not None):
+                self._traces.pop(ev.payload.request_id, None)
+                self._emit(self._on_traceroute, self.radio_id, ev.payload.request_id, ev)
+            self._emit(self._on_event, ev)  # l'ingest registra comunque i collegamenti
 
     # ---- invio e conferme -------------------------------------------
     async def send_text(self, text: str, channel_index: int, dest: str | None) -> int:
@@ -344,12 +352,44 @@ class RadioConnector:
                 self._resolve(packet_id, early[1], early[2], early[3])
         return packet_id
 
+    async def send_traceroute(self, dest_num: int, channel_index: int = 0) -> int:
+        from meshtastic.protobuf import mesh_pb2, portnums_pb2
+        iface = self._iface
+        if iface is None or self._state != "connected":
+            raise RuntimeError("Radio non connessa")
+        async with self._send_lock:  # un invio alla volta per radio
+            try:
+                packet = await asyncio.wait_for(self._call(
+                    lambda: iface.sendData(
+                        mesh_pb2.RouteDiscovery(), destinationId=dest_num,
+                        portNum=portnums_pb2.TRACEROUTE_APP, wantResponse=True,
+                        channelIndex=channel_index)), SEND_TIMEOUT)
+            except asyncio.TimeoutError:
+                raise RuntimeError("Invio scaduto") from None
+            except _LibraryError as err:
+                raise RuntimeError(f"Invio fallito: {type(err.original).__name__}") from err
+        packet_id = packet.id
+        self._traces[packet_id] = self._clock()
+        early = self._early.pop(packet_id, None)
+        if early is not None:  # errore arrivato mentre sendData era ancora in thread
+            self._handle_trace_routing(packet_id, early[2], early[3])
+        return packet_id
+
+    def _handle_trace_routing(self, rid: int, ok: bool, reason) -> None:
+        # solo gli errori contano: l'ack del nodo locale non e' la risposta
+        if not ok:
+            self._traces.pop(rid, None)
+            self._emit(self._on_ack, self.radio_id, rid, False, reason)
+
     def _handle_routing(self, packet: dict, decoded: dict) -> None:
         rid = decoded.get("requestId")
         if rid is None:
             return
         reason = (decoded.get("routing") or {}).get("errorReason")
         ok = reason in (None, "NONE")
+        if rid in self._traces:
+            self._handle_trace_routing(rid, ok, reason)
+            return
         if rid not in self._pending:
             self._early[rid] = (self._clock(), packet.get("from"), ok, reason)
             return
@@ -365,6 +405,8 @@ class RadioConnector:
         now = self._clock()
         for rid in [r for r, e in self._early.items() if now - e[0] >= ACK_TIMEOUT]:
             del self._early[rid]
+        for rid in [r for r, t in self._traces.items() if now - t >= ACK_TIMEOUT]:
+            del self._traces[rid]
         for pid in [p for p, t in self._pending.items() if now - t >= ACK_TIMEOUT]:
             del self._pending[pid]
             self._emit(self._on_ack, self.radio_id, pid, False, "TIMEOUT")

@@ -91,6 +91,10 @@ class Runtime:
             self.bus.publish({"type": "nodes", "nodes": [
                 dict(n) for n in changed]})
 
+    def _check_traceroutes(self) -> None:
+        if self.radios is not None:
+            self.radios.check_traceroutes()
+
     def _publish_status(self) -> None:
         self.bus.publish({"type": "status", "mqtt": self.mqtt_status()})
 
@@ -111,6 +115,7 @@ class Runtime:
             asyncio.create_task(self._every(1, self.store.commit)),
             asyncio.create_task(self._every(PURGE_INTERVAL_S, self._purge, first_now=True)),
             asyncio.create_task(self._every(60, lambda: self.dedup.prune(time.time()))),
+            asyncio.create_task(self._every(5, self._check_traceroutes)),
         ]
 
     async def stop(self) -> None:

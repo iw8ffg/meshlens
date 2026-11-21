@@ -94,3 +94,31 @@ async def test_radio_messages_endpoint(env):
                 m["status"]) == ("uscita", "out", rid, 0, 1, "sent")
         assert (await c.get("/api/messages/radio?before=1")).json() == []
         assert (await c.get("/api/messages/radio?limit=0")).status_code == 422
+
+
+async def test_traceroute_endpoints(env):
+    async with logged(make_ctx(env)) as c:
+        assert (await c.post("/api/nodes/!00000042/traceroute", json={})).status_code == 409
+        rid = (await c.post("/api/radios", json={"kind": "usb", "address": "COM5",
+                                                 "name": "H"})).json()["id"]
+        r = await c.post("/api/nodes/!00000042/traceroute", json={})
+        assert r.status_code == 202
+        body = r.json()
+        assert body["status"] == "pending" and body["radio_id"] == rid
+        assert body["target_id"] == "!00000042"
+        env.now += 10
+        r = await c.post("/api/nodes/!00000042/traceroute", json={"radio_id": rid})
+        assert r.status_code == 429 and r.json()["detail"] == "Attendi 20 s"
+        env.now += 100
+        assert (await c.post("/api/nodes/!00000042/traceroute",
+                             json={"radio_id": "rnope"})).status_code == 404
+        assert (await c.post("/api/nodes/zzz/traceroute", json={})).status_code == 404
+        r = await c.get("/api/nodes/!00000042/traceroutes")
+        assert r.status_code == 200 and [t["id"] for t in r.json()] == [body["id"]]
+        assert (await c.get("/api/nodes/zzz/traceroutes")).status_code == 404
+
+
+async def test_traceroute_requires_auth(env):
+    async with client(make_ctx(env)) as c:
+        assert (await c.post("/api/nodes/!00000042/traceroute", json={})).status_code == 401
+        assert (await c.get("/api/nodes/!00000042/traceroutes")).status_code == 401

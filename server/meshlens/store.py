@@ -132,6 +132,10 @@ class Store:
             "UPDATE traceroutes SET status=?, error=?, forward=?, back=? WHERE id=?",
             (status, error, json.dumps(forward), json.dumps(back), tid))
 
+    def expire_pending_traceroutes(self, error: str) -> None:
+        self.conn.execute("UPDATE traceroutes SET status='timeout', error=? WHERE status='pending'",
+                          (error,))
+
     def traceroutes(self, target_num: int, limit: int = 10) -> list[dict]:
         rows = self.conn.execute(
             "SELECT * FROM traceroutes WHERE target_num=? ORDER BY time DESC, id DESC LIMIT ?",

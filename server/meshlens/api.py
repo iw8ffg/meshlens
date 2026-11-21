@@ -21,6 +21,7 @@ from .auth import Auth, LockedError
 from .bus import Bus
 from .geo import CountryLocator
 from .live import LiveState
+from .radio_manager import NoRadioConnected, TracerouteThrottled
 from .settings import load_settings, save_settings
 from .store import Store
 
@@ -53,6 +54,10 @@ class RadioBody(BaseModel):
     kind: str
     address: str
     name: str | None = None
+
+
+class TracerouteBody(BaseModel):
+    radio_id: str | None = None
 
 
 class SendBody(BaseModel):
@@ -331,6 +336,25 @@ def create_app(ctx: AppContext) -> FastAPI:
     async def send_radio(radio_id: str, body: SendBody):
         return await radio_call(
             ctx.radios.send(radio_id, body.text, body.channel_index, body.to))
+
+    @app.post("/api/nodes/{node_id}/traceroute", status_code=202,
+              dependencies=[Depends(require_auth), Depends(require_json)])
+    async def start_traceroute(node_id: str, body: TracerouteBody):
+        _num_from_id(node_id)
+        try:
+            return await ctx.radios.traceroute(node_id, body.radio_id)
+        except NoRadioConnected as e:
+            raise HTTPException(409, str(e))
+        except TracerouteThrottled as e:
+            raise HTTPException(429, str(e))
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+        except KeyError:
+            raise HTTPException(404, "Radio non trovata")
+
+    @app.get("/api/nodes/{node_id}/traceroutes", dependencies=[Depends(require_auth)])
+    async def node_traceroutes(node_id: str):
+        return ctx.store.traceroutes(_num_from_id(node_id), 10)
 
     # ---- websocket ----
     @app.websocket("/ws")

@@ -10,7 +10,8 @@ from meshlens.dedup import Deduplicator
 from meshlens.geo import CountryLocator
 from meshlens.ingest import Ingestor
 from meshlens.live import LiveState
-from meshlens.radio_manager import RadioManager
+from meshlens.events import MeshEvent, RouteData
+from meshlens.radio_manager import NoRadioConnected, RadioManager, TracerouteThrottled
 from meshlens.store import Store
 
 MY_ID = "!a1b2c3d4"
@@ -19,8 +20,9 @@ MY_ID = "!a1b2c3d4"
 class FakeConnector:
     instances = []
 
-    def __init__(self, cfg, hub, on_event, on_state, on_ack, iface_factory):
+    def __init__(self, cfg, hub, on_event, on_state, on_ack, iface_factory, on_traceroute=None):
         self.cfg, self.on_state, self.on_ack = cfg, on_state, on_ack
+        self.on_traceroute, self.traces = on_traceroute, []
         self.state_name, self.starts, self.stops = "disconnected", 0, 0
         self.sent, self.next_id, self.fail = [], 500, None
         self.gate = None
@@ -55,6 +57,14 @@ class FakeConnector:
         return self.next_id
 
 
+    async def send_traceroute(self, dest_num, channel_index=0):
+        if self.fail:
+            raise RuntimeError(self.fail)
+        self.traces.append((dest_num, channel_index))
+        self.next_id += 1
+        return self.next_id
+
+
 class FakeHub:
     def __init__(self):
         self.loop = None
@@ -76,6 +86,7 @@ class Env:
             lambda: {"saved_countries": []},
             lambda m: self.bus.publish({"type": "message", "message": m}),
             lambda k, s: self.bus.publish({"type": "message_status", "key": k, "status": s}))
+        self.now = 1000.0
         self.ports = [SimpleNamespace(device="COM5", description="CP210x", vid=0x10C4, pid=0xEA60),
                       SimpleNamespace(device="COM1", description="Porta", vid=None, pid=None)]
         self.scan_threads = []
@@ -86,7 +97,8 @@ class Env:
 
         self.mgr = RadioManager(self.store, self.ingestor, self.bus, None, FakeHub(),
                                 connector_factory=FakeConnector, iface_factory=lambda c: None,
-                                list_ports_fn=lambda: self.ports, ble_scan_fn=scan)
+                                list_ports_fn=lambda: self.ports, ble_scan_fn=scan,
+                                clock=lambda: self.now)
 
     def drain(self):
         out = []
@@ -313,3 +325,140 @@ async def test_stop_stops_connectors_concurrently():
         slow(c)
     await e.mgr.stop()
     assert peak[0] == 2
+
+
+TARGET = "!00000042"
+
+
+def route_event(radio_node=0xA1B2C3D4, target=0x42, request_id=501):
+    payload = RouteData(request_id, [0x77], [5.0, 2.25], [], [-3.0])
+    return MeshEvent(source="rf", from_node=target, to_node=radio_node, packet_id=9,
+                     channel="0", rx_time=1000, snr=None, rssi=None, hops=None,
+                     gateway_id=None, radio_id="r", kind="traceroute", payload=payload)
+
+
+async def test_traceroute_response_resolves_pending():
+    e = Env()
+    r = await e.mgr.add("usb", "COM5", "A")
+    fc = FakeConnector.instances[0]
+    e.drain()
+    res = await e.mgr.traceroute(TARGET, None)
+    assert fc.traces == [(0x42, 0)]
+    assert res["status"] == "pending" and res["radio_id"] == r["id"]
+    assert res["target_id"] == TARGET and res["forward"] == [] and res["time"] == 1000.0
+    assert e.drain() == [{"type": "traceroute", "result": res}]
+    fc.on_traceroute(r["id"], 501, route_event())
+    out = e.drain()
+    assert len(out) == 1 and out[0]["type"] == "traceroute"
+    done = out[0]["result"]
+    assert done["id"] == res["id"] and done["status"] == "ok" and done["error"] is None
+    assert done["forward"] == [{"id": MY_ID, "snr": None}, {"id": "!00000077", "snr": 5.0},
+                               {"id": TARGET, "snr": 2.25}]
+    assert done["back"] == [{"id": TARGET, "snr": None}, {"id": MY_ID, "snr": -3.0}]
+    assert e.store.traceroutes(0x42)[0] == done
+    e.now += 100
+    e.mgr.check_traceroutes()  # gia' risolto: non scade
+    assert e.drain() == [] and e.store.traceroutes(0x42)[0]["status"] == "ok"
+    fc.on_traceroute(r["id"], 501, route_event())  # risposta doppia o sconosciuta: ignorata
+    assert e.drain() == []
+
+
+async def test_traceroute_routing_error_fails_and_is_not_a_chat_ack():
+    e = Env()
+    r = await e.mgr.add("usb", "COM5", "A")
+    fc = FakeConnector.instances[0]
+    await e.mgr.traceroute(TARGET, None)
+    e.drain()
+    fc.on_ack(r["id"], 501, True, None)  # ack implicito: ignorato
+    assert e.drain() == [] and e.mgr._early_acks == {}
+    fc.on_ack(r["id"], 501, False, "NO_RESPONSE")
+    out = e.drain()
+    assert e.mgr._early_acks == {}
+    res = out[0]["result"]
+    assert res["status"] == "failed" and res["error"] == "Nessuna risposta dal nodo"
+    assert e.store.traceroutes(0x42)[0]["status"] == "failed"
+
+
+async def test_traceroute_timeout_after_60s():
+    e = Env()
+    await e.mgr.add("usb", "COM5", "A")
+    await e.mgr.traceroute(TARGET, None)
+    e.drain()
+    e.now += 59
+    e.mgr.check_traceroutes()
+    assert e.drain() == []
+    e.now += 2
+    e.mgr.check_traceroutes()
+    out = e.drain()
+    assert out[0]["result"]["status"] == "timeout"
+    assert e.store.traceroutes(0x42)[0]["status"] == "timeout"
+    e.mgr.check_traceroutes()
+    assert e.drain() == []
+
+
+async def test_traceroute_throttled_per_radio():
+    e = Env()
+    r1 = await e.mgr.add("usb", "COM5", "A")
+    r2 = await e.mgr.add("usb", "COM6", "B")
+    await e.mgr.traceroute(TARGET, r1["id"])
+    e.now += 10
+    with pytest.raises(TracerouteThrottled) as exc:
+        await e.mgr.traceroute(TARGET, r1["id"])
+    assert exc.value.wait_s == 20
+    await e.mgr.traceroute(TARGET, r2["id"])  # l'altra radio ha il suo limite
+    e.now += 20
+    await e.mgr.traceroute(TARGET, r1["id"])
+
+
+async def test_traceroute_send_failure_does_not_consume_the_slot():
+    e = Env()
+    r = await e.mgr.add("usb", "COM5", "A")
+    FakeConnector.instances[0].fail = "Invio scaduto"
+    with pytest.raises(ValueError, match="Invio scaduto"):
+        await e.mgr.traceroute(TARGET, r["id"])
+    FakeConnector.instances[0].fail = None
+    await e.mgr.traceroute(TARGET, r["id"])
+    assert len(e.store.traceroutes(0x42)) == 1
+
+
+async def test_traceroute_picks_radio_with_fewest_hops():
+    e = Env()
+    r1 = await e.mgr.add("usb", "COM5", "A")
+    r2 = await e.mgr.add("usb", "COM6", "B")
+    r3 = await e.mgr.add("usb", "COM7", "C")
+    FakeConnector.instances[2].set("disconnected")
+    e.live.nodes[0x42] = {"heard_by": {r1["id"]: {"hops": 3}, r2["id"]: {"hops": 1},
+                                       r3["id"]: {"hops": 0}}}
+    res = await e.mgr.traceroute(TARGET, None)
+    assert res["radio_id"] == r2["id"]  # r3 e' scollegata
+    e.live.nodes.pop(0x42)
+    e.now += 100
+    res = await e.mgr.traceroute(TARGET, None)  # nessuno lo sente: la prima collegata
+    assert res["radio_id"] == r1["id"]
+
+
+async def test_traceroute_no_radio_connected():
+    e = Env()
+    with pytest.raises(NoRadioConnected):
+        await e.mgr.traceroute(TARGET, None)
+    r = await e.mgr.add("usb", "COM5", "A")
+    FakeConnector.instances[0].set("disconnected")
+    with pytest.raises(NoRadioConnected):
+        await e.mgr.traceroute(TARGET, None)
+    with pytest.raises(NoRadioConnected):
+        await e.mgr.traceroute(TARGET, r["id"])
+    with pytest.raises(KeyError):
+        await e.mgr.traceroute(TARGET, "rnope")
+    with pytest.raises(ValueError):
+        await e.mgr.traceroute("xyz", None)
+
+
+async def test_stale_pending_traceroutes_become_timeout_at_startup():
+    e = Env()
+    tid = e.store.add_traceroute("r1", 0x42, 900.0)
+    e.store.commit()
+    assert e.store.traceroutes(0x42)[0]["status"] == "pending"
+    RadioManager(e.store, e.ingestor, e.bus, None, FakeHub(), connector_factory=FakeConnector,
+                 clock=lambda: e.now)
+    row = e.store.traceroutes(0x42)[0]
+    assert row["id"] == tid and row["status"] == "timeout"
