@@ -42,6 +42,8 @@ else:
 PURGE_INTERVAL_S = 3600
 PURGE_FIRST_DELAY_S = 60
 BACKUP_CHECK_S = 3600
+MQTT_SILENT_S = 300  # connesso ma muto da tanto: ricollega
+MQTT_WATCHDOG_EVERY_S = 30
 BACKUP_FIRST_DELAY_S = 300
 LIVE_NODE_TTL_S = 7 * 24 * 3600
 log = logging.getLogger(__name__)
@@ -79,6 +81,7 @@ class Runtime:
     db_path: Path | None = None
     backups: BackupManager | None = None
     db_health: str = "non controllata"
+    watchdog_restarts: int = 0
 
     def start_connector(self) -> None:
         cfg = self.settings["mqtt"]
@@ -89,8 +92,44 @@ class Runtime:
         self.connector.start()
 
     def mqtt_status(self) -> dict:
-        return self.connector.status() if self.connector else {
-            "connected": False, "msgs_per_s": 0.0, "undecodable": 0}
+        base = self.connector.status() if self.connector else {
+            "connected": False, "msgs_per_s": 0.0, "undecodable": 0,
+            "connected_since": None, "last_msg_age_s": None, "reconnects": 0,
+            "last_error": None, "last_error_at": None, "decoded": 0,
+            "drops": {"empty": 0, "unsupported_port": 0, "undecodable": 0,
+                      "json_topic": 0, "not_protobuf": 0}}
+        return {**base, "filtered_channel": self.ingestor.filtered_channel,
+                "watchdog_restarts": self.watchdog_restarts}
+
+    async def restart_connector(self, reason: str) -> None:
+        old, self.connector = self.connector, None
+        if old is not None:
+            self.learned_keys.update(getattr(getattr(old, "decoder", None), "channel_keys", {}))
+            await asyncio.to_thread(old.stop)
+        self.watchdog_restarts += 1
+        log.warning("MQTT: %s", reason)
+        try:
+            self.start_connector()
+        except Exception:
+            log.exception("Riavvio del connettore MQTT fallito")
+            self.connector = None
+            return
+        note = getattr(self.connector, "set_error", None)
+        if note is not None:
+            note(reason)
+
+    async def mqtt_watchdog(self) -> None:
+        """Se il broker risulta connesso ma tace da troppo, ricollega da zero."""
+        if self.connector is None:
+            return
+        st = self.connector.status()
+        if not st.get("connected"):
+            return
+        ages = [a for a in (st.get("last_msg_age_s"),
+                            None if st.get("connected_since") is None
+                            else time.time() - st["connected_since"]) if a is not None]
+        if ages and min(ages) > MQTT_SILENT_S:
+            await self.restart_connector(f"Nessun messaggio da {MQTT_SILENT_S} s: ricollegamento")
 
     async def on_settings_changed(self, saved: dict) -> None:
         self.settings = saved
@@ -186,6 +225,8 @@ class Runtime:
             asyncio.create_task(self._every(5, self._check_traceroutes)),
             asyncio.create_task(self._every(60, lambda: self.ctx.alerts())),
             asyncio.create_task(self._every(60, self._coverage_tick)),
+            asyncio.create_task(self._every_async(MQTT_WATCHDOG_EVERY_S, self.mqtt_watchdog,
+                                                  MQTT_WATCHDOG_EVERY_S)),
             asyncio.create_task(self._every_async(BACKUP_CHECK_S, self._backup_if_due,
                                                   BACKUP_FIRST_DELAY_S)),
         ]

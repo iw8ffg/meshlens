@@ -74,3 +74,11 @@ async def test_bundle_endpoint(tmp_path):
         assert "uptime_s" in info and "mqtt" in info and "radios" in info
         assert info["db"]["schema_version"] >= 1 and "backups" in info
         assert b"INFO riga" in z.read("meshlens.log")
+
+
+def test_bundle_scrubs_mqtt_credentials_from_last_error():
+    import io, json, zipfile
+    info = {"mqtt": {"connected": False, "last_error": "errore s3gr3t0 per mario"}}
+    data = build_bundle(info, {"mqtt": {"username": "mario", "password": "s3gr3t0"}}, None)
+    out = json.loads(zipfile.ZipFile(io.BytesIO(data)).read("info.json"))
+    assert "s3gr3t0" not in out["mqtt"]["last_error"] and "mario" not in out["mqtt"]["last_error"]

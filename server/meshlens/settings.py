@@ -242,3 +242,12 @@ def resolve_extra_keys(entries, existing: list[str]):
         else:
             raise ValueError("Chiave mascherata senza corrispondenza: reinseriscila")
     return out
+
+
+def scrub_text(text: str, *secrets) -> str:
+    """Sostituisce con MASK le occorrenze (come parola intera) dei segreti dati."""
+    import re
+    for secret in secrets:
+        if secret and isinstance(secret, str):
+            text = re.sub(rf"(?<!\w){re.escape(secret)}(?!\w)", MASK, text)
+    return text

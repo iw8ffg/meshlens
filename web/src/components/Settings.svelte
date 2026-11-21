@@ -14,6 +14,8 @@
   import Flag from '../lib/ui/Flag.svelte'
   import OfflineMaps from './OfflineMaps.svelte'
   import Updates from './Updates.svelte'
+  import MqttStatusDetail from '../lib/shell/MqttStatusDetail.svelte'
+  import { app } from '../lib/stores.svelte'
   import Maintenance from './settings/Maintenance.svelte'
   import Diagnostics from './settings/Diagnostics.svelte'
   import { channelOptions, checkMqttNodeId, joinLines, maskedKeyLines, parseLines, type AppSettings, type MqttChannel } from '../lib/settings'
@@ -236,6 +238,7 @@
       <Card>
         <section class="sec">
           <h3>MQTT</h3>
+          <MqttStatusDetail status={app.status?.mqtt ?? null} />
           <div class="grid">
             <Field label="Host" for="set-host">{#snippet children()}<input id="set-host" class="ui-input" type="text" bind:value={host} />{/snippet}</Field>
             <Field label="Porta" for="set-port">{#snippet children()}<input id="set-port" class="ui-input ui-mono" type="number" min="1" max="65535" bind:value={port} />{/snippet}</Field>

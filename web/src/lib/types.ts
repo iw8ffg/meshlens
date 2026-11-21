@@ -51,8 +51,26 @@ export interface Message {
   via?: 'radio' | 'mqtt'
 }
 
+/** Stato del connettore MQTT. I campi oltre i primi tre sono facoltativi: il client regge un server vecchio. */
+export interface MqttStatus {
+  connected: boolean
+  msgs_per_s: number
+  undecodable: number
+  connected_since?: number | null
+  last_msg_age_s?: number | null
+  reconnects?: number
+  watchdog_restarts?: number
+  last_error?: string | null
+  last_error_at?: number | null
+  decoded?: number
+  drops?: Partial<Record<'empty' | 'unsupported_port' | 'undecodable' | 'json_topic' | 'not_protobuf', number>>
+  filtered_channel?: number
+  queue_dropped?: number
+  queue_size?: number
+}
+
 export interface Status {
-  mqtt: { connected: boolean; msgs_per_s: number; undecodable: number }
+  mqtt: MqttStatus
 }
 
 export interface AuthStatus {

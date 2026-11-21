@@ -1,0 +1,44 @@
+<script lang="ts">
+  import { onMount } from 'svelte'
+  import { mqttSummary } from '../mqttstatus'
+  import type { MqttStatus } from '../types'
+
+  let { status, onsettings }: { status: MqttStatus | null; onsettings?: () => void } = $props()
+
+  // l'orologio avanza da solo: i tempi relativi restano esatti anche tra due messaggi di stato
+  let now = $state(Date.now() / 1000)
+  onMount(() => {
+    const t = setInterval(() => (now = Date.now() / 1000), 5000)
+    return () => clearInterval(t)
+  })
+  const sum = $derived(mqttSummary(status, now))
+</script>
+
+<div class="md">
+  <div class="head"><span class="dot {sum.tone}"></span><strong>{sum.title}</strong></div>
+  {#if sum.rows.length}
+    <dl>
+      {#each sum.rows as r (r.label)}
+        <dt>{r.label}</dt>
+        <dd>{r.value}</dd>
+      {/each}
+    </dl>
+  {/if}
+  {#if onsettings}
+    <button type="button" class="link" onclick={onsettings}>Impostazioni MQTT</button>
+  {/if}
+</div>
+
+<style>
+  .md { font: 400 14px/20px var(--font-sans); color: var(--ink); }
+  .head { display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-2); }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--ink-muted); flex: none; }
+  .dot.ok { background: var(--ok); }
+  .dot.warn { background: var(--warn); }
+  .dot.ko { background: var(--danger); }
+  dl { display: grid; grid-template-columns: 1fr auto; gap: 2px var(--space-3); margin: 0 0 var(--space-2); }
+  dt { color: var(--ink-muted); }
+  dd { margin: 0; text-align: right; overflow-wrap: anywhere; }
+  .link { min-height: var(--touch-min); padding: 0; border: 0; background: none; color: var(--accent-ink); font: 600 14px/20px var(--font-sans); cursor: pointer; text-align: left; }
+  .link:hover { text-decoration: underline; }
+</style>

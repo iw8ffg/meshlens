@@ -576,6 +576,10 @@ def create_app(ctx: AppContext) -> FastAPI:
     async def status():
         return ctx.mqtt_status()
 
+    @app.get("/api/mqtt/status", dependencies=[Depends(require_auth)])
+    async def mqtt_status_route():
+        return ctx.mqtt_status()
+
     # ---- database ----
     @app.get("/api/db", dependencies=[Depends(require_auth)])
     async def db_info():

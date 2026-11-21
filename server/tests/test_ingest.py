@@ -344,3 +344,11 @@ def test_mqtt_duplicate_copies_do_not_clear_direct_hops(env):
     ing.handle(ev("position", pos(MILAN), pid=5, hops=None, hops_min=1, relay_node=0x11,
                   gateway_id="!00000088"))
     assert live.nodes[1]["hops"] == 0
+
+
+def test_filtered_channel_counted(locator):
+    ing, live, got = make_env(locator, {"saved_countries": ["IT"], "mqtt_channels": ["LongFast"]})
+    assert ing.filtered_channel == 0
+    ing.handle(ev("text", TextData("a"), num=1, pid=1, channel="MediumFast"))
+    ing.handle(ev("text", TextData("b"), num=2, pid=2, channel="LongFast"))
+    assert ing.filtered_channel == 1

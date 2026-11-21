@@ -83,9 +83,10 @@ async def test_periodic_status_payload_uses_mqtt_key(tmp_path):
     rt.start_connector()
     q = rt.bus.subscribe()
     rt._publish_status()
-    assert q.get_nowait() == {
-        "type": "status",
-        "mqtt": {"connected": True, "msgs_per_s": 1.0, "undecodable": 0}}
+    msg = q.get_nowait()
+    assert msg["type"] == "status"
+    assert msg["mqtt"] == {"connected": True, "msgs_per_s": 1.0, "undecodable": 0,
+                           "filtered_channel": 0, "watchdog_restarts": 0}
 
 
 async def test_purge_evicts_live_nodes_not_heard_for_7_days(tmp_path):
@@ -182,3 +183,48 @@ async def test_first_purge_is_delayed(tmp_path, monkeypatch):
         assert rt.conn.execute("SELECT COUNT(*) FROM positions").fetchone()[0] == 1
         await asyncio.sleep(0.5)
         assert rt.conn.execute("SELECT COUNT(*) FROM positions").fetchone()[0] == 0
+
+
+async def _watchdog_rt(tmp_path, status):
+    import asyncio
+
+    class Silent(FakeConnector):
+        def status(self):
+            return status
+
+    _, rt = build(tmp_path, connector_factory=Silent, static_dir=None)
+    rt.loop = asyncio.get_running_loop()
+    rt.start_connector()
+    return rt
+
+
+async def test_watchdog_restarts_silent_connector(tmp_path):
+    rt = await _watchdog_rt(tmp_path, {"connected": True, "last_msg_age_s": 301.0,
+                                       "connected_since": None})
+    old = rt.connector
+    await rt.mqtt_watchdog()
+    assert rt.connector is not old and rt.connector.started and old.stopped
+    assert rt.mqtt_status()["watchdog_restarts"] == 1
+
+
+async def test_watchdog_leaves_healthy_or_disconnected_alone(tmp_path):
+    import time
+    for st in ({"connected": True, "last_msg_age_s": 10.0, "connected_since": None},
+               {"connected": False, "last_msg_age_s": 999.0, "connected_since": None},
+               {"connected": True, "last_msg_age_s": 999.0, "connected_since": time.time() - 5}):
+        rt = await _watchdog_rt(tmp_path, st)
+        old = rt.connector
+        await rt.mqtt_watchdog()
+        assert rt.connector is old and not old.stopped
+        assert rt.mqtt_status()["watchdog_restarts"] == 0
+
+
+async def test_mqtt_status_route_has_new_fields(tmp_path):
+    app, rt = build(tmp_path, connector_factory=FakeConnector, static_dir=None)
+    async with app.router.lifespan_context(app):
+        transport = httpx.ASGITransport(app=app, client=("127.0.0.1", 1))
+        async with httpx.AsyncClient(transport=transport, base_url="http://127.0.0.1") as c:
+            await c.post("/api/auth/setup", json={"pin": "123456"})
+            body = (await c.get("/api/mqtt/status")).json()
+    assert body["filtered_channel"] == 0 and body["watchdog_restarts"] == 0
+    assert body["connected"] is True

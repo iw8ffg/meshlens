@@ -3,6 +3,7 @@
   import Icon from '../ui/Icon.svelte'
   import Segmented from '../ui/Segmented.svelte'
   import Logo from './Logo.svelte'
+  import MqttStatusDetail from './MqttStatusDetail.svelte'
   import { app, updates } from '../stores.svelte'
   import { viewport } from '../viewport.svelte'
   import { getTheme, THEME_LABELS, type ThemePref } from '../theme'
@@ -23,7 +24,7 @@
   const upd = $derived(updates.status?.available ? updates.status.latest : null)
   const radiosOn = $derived(app.radios.filter((r) => r.state === 'connected').length)
 
-  let open = $state<'alerts' | 'menu' | null>(null)
+  let open = $state<'alerts' | 'menu' | 'mqtt' | null>(null)
   let root = $state<HTMLElement>()
   let pref = $state<ThemePref>('auto')
   const themeItems = (Object.keys(THEME_LABELS) as ThemePref[]).map((v) => ({ value: v, label: THEME_LABELS[v] }))
@@ -34,7 +35,7 @@
     return ctl.subscribe((_t, p) => (pref = p))
   })
 
-  function toggle(which: 'alerts' | 'menu') {
+  function toggle(which: 'alerts' | 'menu' | 'mqtt') {
     open = open === which ? null : which
   }
   function outside(e: MouseEvent) {
@@ -67,10 +68,22 @@
   {/if}
 
   <div class="status">
-    <span class="it" title={mqtt ? (mqtt.connected ? 'MQTT connesso' : 'MQTT non connesso') : 'MQTT: in attesa'}>
-      <span class="dot" class:ok={mqtt?.connected} class:ko={mqtt && !mqtt.connected}></span>
-      {#if viewport.phone}MQTT{:else}MQTT {mqtt ? (mqtt.connected ? 'connesso' : 'non connesso') : '…'}{/if}
-    </span>
+    <div class="pop-wrap">
+      <button type="button" class="it mq" aria-expanded={open === 'mqtt'} title={mqtt ? (mqtt.connected ? 'MQTT connesso' : 'MQTT non connesso') : 'MQTT: in attesa'} onclick={() => toggle('mqtt')}>
+        <span class="dot" class:ok={mqtt?.connected} class:ko={mqtt && !mqtt.connected}></span>
+        {#if viewport.phone}MQTT{:else}MQTT {mqtt ? (mqtt.connected ? 'connesso' : 'non connesso') : '…'}{/if}
+      </button>
+      {#if open === 'mqtt'}
+        <div class="pop mqtt" role="dialog" aria-label="Stato MQTT">
+          <MqttStatusDetail
+            status={mqtt}
+            onsettings={() => {
+              open = null
+              onselect('settings')
+            }} />
+        </div>
+      {/if}
+    </div>
     {#if !viewport.phone}
       <span class="it ui-mono">{mqtt ? num(mqtt.msgs_per_s, 1) : '–'} msg/s</span>
     {/if}
@@ -131,6 +144,9 @@
   .tabs button.on { background: var(--accent-soft); color: var(--accent-ink); }
   .status { display: flex; align-items: center; gap: var(--space-4); margin-left: auto; min-width: 0; white-space: nowrap; }
   .it { display: inline-flex; align-items: center; gap: 6px; }
+  .mq { min-height: 32px; padding: 0 var(--space-2); border: 0; border-radius: var(--radius-md); background: none; color: inherit; font: inherit; cursor: pointer; }
+  .mq:hover { background: var(--surface-sunken); }
+  .pop.mqtt { right: auto; left: 0; }
   .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--ink-muted); flex: none; }
   .dot.ok { background: var(--ok); }
   .dot.ko { background: var(--danger); }
@@ -151,4 +167,6 @@
   :global(.vp-phone) .status { gap: var(--space-3); overflow: hidden; }
   :global(.vp-phone) .upd { height: var(--touch-min); }
   :global(.vp-phone) .pop { position: fixed; top: calc(var(--topbar-h) + env(safe-area-inset-top)); right: 8px; }
+  :global(.vp-phone) .pop.mqtt { left: 8px; right: 8px; width: auto; }
+  :global(.vp-phone) .mq { min-height: var(--touch-min); }
 </style>

@@ -83,3 +83,84 @@ async def test_refused_connack_does_not_connect_or_subscribe():
     c._on_connect(client, None, None, ReasonCode(PacketTypes.CONNACK, "Bad user name or password"), None)
     assert c.status()["connected"] is False
     assert client.subscribed == []
+
+
+def _connector(cfg=CFG, factory=FakeClient):
+    c = MqttConnector(cfg, EnvelopeDecoder([DEFAULT_KEY]), asyncio.get_running_loop(),
+                      lambda ev: None, client_factory=factory)
+    c.start()
+    return c
+
+
+async def test_status_reports_connected_since_and_reconnects(monkeypatch):
+    from meshlens import mqtt_client
+    c = _connector()
+    assert c.status()["connected_since"] is None and c.status()["reconnects"] == 0
+    clock = iter([1000.0, 2000.0])
+    monkeypatch.setattr(mqtt_client.time, "time", lambda: next(clock))
+    c._on_connect(c._client, None, None, 0, None)
+    c._on_connect(c._client, None, None, 0, None)
+    monkeypatch.undo()
+    st = c.status()
+    assert st["connected_since"] == 2000.0 and st["reconnects"] == 1
+
+
+async def test_refused_connack_sets_last_error():
+    from paho.mqtt.reasoncodes import ReasonCode
+    from paho.mqtt.packettypes import PacketTypes
+    c = _connector()
+    c._on_connect(c._client, None, None, ReasonCode(PacketTypes.CONNACK, "Bad user name or password"), None)
+    st = c.status()
+    assert st["last_error"] == "Utente o password MQTT rifiutati" and st["last_error_at"] > 0
+    c._on_connect(c._client, None, None, ReasonCode(PacketTypes.CONNACK, "Server unavailable"), None)
+    assert c.status()["last_error"].startswith("Connessione rifiutata dal broker:")
+
+
+async def test_network_error_sets_last_error():
+    c = _connector(factory=lambda cid: FakeClient(cid, fail=True))
+    assert c.status()["last_error"].startswith("Broker non raggiungibile")
+
+
+async def test_unexpected_disconnect_sets_last_error():
+    c = _connector()
+    c._on_connect(c._client, None, None, 0, None)
+    c._on_disconnect(c._client, None, None, 7, None)
+    assert c.status()["last_error"] == "Connessione persa: 7"
+
+
+async def test_last_error_never_contains_credentials():
+    cfg = {**CFG, "username": "mario-rossi", "password": "s3gr3t0-xyz"}
+
+    class Leaky(FakeClient):
+        def connect_async(self, *a, **k):
+            raise OSError("fallito con mario-rossi:s3gr3t0-xyz@broker")
+
+    c = _connector(cfg, Leaky)
+    err = c.status()["last_error"]
+    assert "s3gr3t0-xyz" not in err and "mario-rossi" not in err and "Broker non raggiungibile" in err
+    c._on_disconnect(c._client, None, None, "perso s3gr3t0-xyz", None)
+    c._connected = True
+    c._on_disconnect(c._client, None, None, "perso s3gr3t0-xyz", None)
+    assert "s3gr3t0-xyz" not in c.status()["last_error"]
+    import json
+    assert "s3gr3t0-xyz" not in json.dumps(c.status())
+
+
+async def test_last_msg_age_and_drop_reasons():
+    c = _connector()
+    assert c.status()["last_msg_age_s"] is None
+
+    class Bad:
+        topic = "msh/EU_868/2/e/LongFast/!00000001"
+        payload = b"\x00\x01 non protobuf"
+
+    class Good:
+        topic = "msh/EU_868/2/e/LongFast/!00000001"
+        payload = make_envelope(portnums_pb2.TEXT_MESSAGE_APP, b"ciao")
+
+    c._on_message(None, None, Bad)
+    c._on_message(None, None, Good)
+    st = c.status()
+    assert st["drops"]["not_protobuf"] == 1 and st["decoded"] == 1
+    assert st["last_msg_age_s"] >= 0
+    assert set(st["drops"]) == {"empty", "unsupported_port", "undecodable", "json_topic", "not_protobuf"}

@@ -70,6 +70,7 @@ class Ingestor:
         self._mqtt_seen: OrderedDict[tuple[int, int], None] = OrderedDict()
         # canali visti da MQTT (anche se scartati): canale -> {minuto: conteggio}
         self._channel_buckets: dict[str, dict[int, int]] = {}
+        self.filtered_channel = 0  # eventi MQTT scartati dal filtro mqtt_channels
 
     def _note_mqtt_channel(self, name: str, t: float) -> None:
         buckets = self._channel_buckets.setdefault(name, {})
@@ -95,6 +96,7 @@ class Ingestor:
             self._note_mqtt_channel(ev.channel, ev.rx_time)
             wanted = self.get_settings().get("mqtt_channels") or []
             if wanted and ev.channel not in wanted:
+                self.filtered_channel += 1
                 return  # canale non ascoltato: ignorato del tutto
         num = ev.from_node
         node = self.live.nodes.get(num)
