@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from 'vitest'
-import { dispatch, type WSHandlers } from './ws'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { connectWS, dispatch, reconnectNow, type WSHandlers } from './ws'
 
 function handlers() {
   return {
@@ -24,5 +24,72 @@ describe('dispatch', () => {
     const h = handlers()
     expect(() => { dispatch({ type: 'boh' }, h); dispatch(null, h); dispatch('x', h) }).not.toThrow()
     for (const f of Object.values(h)) expect(f).not.toHaveBeenCalled()
+  })
+})
+
+class FakeWebSocket {
+  static instances: FakeWebSocket[] = []
+  onopen: (() => void) | null = null
+  onclose: ((ev: { code: number }) => void) | null = null
+  onmessage: ((ev: { data: string }) => void) | null = null
+  constructor(public url: string) { FakeWebSocket.instances.push(this) }
+  close() {}
+}
+
+describe('connectWS: connessione', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    FakeWebSocket.instances = []
+    vi.stubGlobal('WebSocket', FakeWebSocket)
+    vi.stubGlobal('location', { protocol: 'http:', host: 'localhost:8000' })
+    vi.stubGlobal('window', { dispatchEvent: vi.fn() })
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.unstubAllGlobals()
+  })
+  const make = () => {
+    const connection = vi.fn()
+    const stop = connectWS({ ...handlers(), connection })
+    return { connection, stop }
+  }
+
+  it('onopen: connection(true)', () => {
+    const { connection, stop } = make()
+    FakeWebSocket.instances[0].onopen?.()
+    expect(connection).toHaveBeenCalledWith(true)
+    stop()
+  })
+  it('onclose 1006: connection(false)', () => {
+    const { connection, stop } = make()
+    FakeWebSocket.instances[0].onclose?.({ code: 1006 })
+    expect(connection).toHaveBeenCalledWith(false)
+    stop()
+  })
+  it('onclose 4401: nessun connection(false)', () => {
+    const { connection, stop } = make()
+    FakeWebSocket.instances[0].onclose?.({ code: 4401 })
+    expect(connection).not.toHaveBeenCalled()
+    stop()
+  })
+  it('reconnectNow dopo una chiusura apre subito un secondo WebSocket', () => {
+    const { stop } = make()
+    FakeWebSocket.instances[0].onclose?.({ code: 1006 })
+    expect(FakeWebSocket.instances).toHaveLength(1)
+    reconnectNow()
+    expect(FakeWebSocket.instances).toHaveLength(2)
+    vi.advanceTimersByTime(3000)
+    expect(FakeWebSocket.instances).toHaveLength(2) // il timer annullato non apre un terzo
+    stop()
+  })
+  it('dopo la chiusura voluta reconnectNow non apre nulla', () => {
+    const { connection, stop } = make()
+    FakeWebSocket.instances[0].onclose?.({ code: 1006 })
+    stop()
+    reconnectNow()
+    expect(FakeWebSocket.instances).toHaveLength(1)
+    connection.mockClear()
+    FakeWebSocket.instances[0].onclose?.({ code: 1000 })
+    expect(connection).not.toHaveBeenCalled()
   })
 })

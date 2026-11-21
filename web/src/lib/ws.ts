@@ -17,9 +17,18 @@ export interface WSHandlers {
   reconnected?(): void
   /** Il server ha scartato eventi (coda piena): ricaricare i dati. */
   resync?(): void
+  /** true a ogni apertura, false a ogni chiusura imprevista (non 4401, non voluta). */
+  connection?(online: boolean): void
 }
 
 const RECONNECT_MS = 3000
+
+let retryNow: (() => void) | null = null
+
+/** Se un tentativo e' in attesa, lo anticipa; altrimenti non fa nulla. */
+export function reconnectNow(): void {
+  retryNow?.()
+}
 
 /** Smista un messaggio del WebSocket verso l'handler giusto; tipi ignoti o non-oggetti: nessun effetto. */
 export function dispatch(msg: unknown, h: WSHandlers): void {
@@ -50,6 +59,7 @@ export function connectWS(handlers: WSHandlers): () => void {
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
     ws = new WebSocket(`${proto}//${location.host}/ws`)
     ws.onopen = () => {
+      handlers.connection?.(true)
       if (opened) handlers.reconnected?.()
       opened = true
     }
@@ -67,13 +77,26 @@ export function connectWS(handlers: WSHandlers): () => void {
         emitAuthRequired()
         return // niente riconnessione: serve prima l'accesso
       }
-      timer = setTimeout(open, RECONNECT_MS)
+      handlers.connection?.(false)
+      timer = setTimeout(() => {
+        timer = null
+        retryNow = null
+        open()
+      }, RECONNECT_MS)
+      retryNow = () => {
+        if (!timer) return
+        clearTimeout(timer)
+        timer = null
+        retryNow = null
+        open()
+      }
     }
   }
   open()
 
   return () => {
     stopped = true
+    retryNow = null
     if (timer) clearTimeout(timer)
     ws?.close()
   }

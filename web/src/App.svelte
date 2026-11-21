@@ -14,6 +14,7 @@
   import TopBar from './lib/shell/TopBar.svelte'
   import Panel from './lib/shell/Panel.svelte'
   import BottomNav from './lib/shell/BottomNav.svelte'
+  import ConnectionBar from './lib/shell/ConnectionBar.svelte'
   import Icon from './lib/ui/Icon.svelte'
   import Sheet from './lib/ui/Sheet.svelte'
   import { viewport } from './lib/viewport.svelte'
@@ -22,6 +23,7 @@
   import { matchNode } from './lib/filters'
   import { getJSON, alerts as fetchAlerts, coverageSessions, coverageSession, updateStatus, AUTH_REQUIRED } from './lib/api'
   import { connectWS } from './lib/ws'
+  import { markOnline, markOffline } from './lib/connection.svelte'
   import { serialRunner } from './lib/serial'
   import { app, upsertNodes, addMessage, addRadioHistory, setMessageStatus, setStatus, setRadios, setAlerts, setTraceroute, persistFilter, persistFeedFilter, coverage, setCoverageSessions, applyCoverage, configUi, setConfigJob, setMapJob, setUpdateStatus, setUpdateJob } from './lib/stores.svelte'
   import type { AuthStatus, Message, Node, Radio } from './lib/types'
@@ -128,6 +130,7 @@
         app.reconnects++
       },
       resync: load,
+      connection: (on) => (on ? markOnline(Date.now()) : markOffline(Date.now())),
       nodes: upsertNodes,
       message: addMessage,
       status: setStatus,
@@ -173,6 +176,7 @@
 {:else}
   <div class="app">
     <TopBar visible={visible.length} tab={activeTab} onselect={goTab} onupdate={() => goTab('settings')} onpickalert={pickId} />
+    <ConnectionBar />
     <div class="main">
       <div class="mapwrap"><MapView nodes={visible} {now} {track} {focus} /></div>
 
