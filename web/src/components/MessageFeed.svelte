@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { getJSON } from '../lib/api'
+  import { getJSON, getCountries } from '../lib/api'
   import { ago } from '../lib/format'
   import { statusIcon } from '../lib/chat'
   import { statusAria } from '../lib/send'

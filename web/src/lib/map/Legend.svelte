@@ -4,7 +4,13 @@
   import SourceMark from '../ui/SourceMark.svelte'
   import { viewport } from '../viewport.svelte'
 
+  let { collapse = false }: { collapse?: boolean } = $props()
   let open = $state(!viewport.phone)
+
+  // Ricerca o righello aperti: la legenda si chiude per non coprirli
+  $effect(() => {
+    if (collapse) open = false
+  })
 </script>
 
 <div class="legend" class:open>

@@ -162,7 +162,7 @@
   // L'hash e la vista ricordata seguono scheda e nodo selezionato (nessuno stato reattivo scritto qui)
   $effect(() => {
     const t = activeTab === 'more' ? null : activeTab
-    history.replaceState(null, '', formatHash({ tab: t, nodeId: app.selectedId }) || location.pathname)
+    history.replaceState(null, '', formatHash({ tab: t, nodeId: app.selectedId ?? pendingNode }) || location.pathname)
     if (t) saveView(localStorage, { tab: t })
   })
 

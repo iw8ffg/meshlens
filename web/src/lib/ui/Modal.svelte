@@ -48,6 +48,7 @@
     ;(node.querySelector<HTMLElement>('[data-autofocus]') ?? node).focus()
     const onkey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
+        e.preventDefault()
         e.stopPropagation()
         oncancel?.()
         return

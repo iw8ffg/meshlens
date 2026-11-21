@@ -6,6 +6,7 @@
   import type { Point } from 'geojson'
   import 'maplibre-gl/dist/maplibre-gl.css'
   import { app, coverage, maps, openChat } from '../lib/stores.svelte'
+  import { viewport } from '../lib/viewport.svelte'
   import { navigate } from '../lib/shell/navigate'
   import { haversineM, myOrigin } from '../lib/distance'
   import { copyText } from '../lib/clipboard'
@@ -74,6 +75,8 @@
 
   let el: HTMLDivElement
   let map: maplibregl.Map | null = null
+  let jumpFocus = false
+  let mapReady = $state(false) // la mappa non e' reattiva: l'effetto del focus dipende da questo flag
   let ready = false
   let lastPush = 0
   let timer: ReturnType<typeof setTimeout> | null = null
@@ -401,6 +404,8 @@
       const cam = loadView(localStorage).map ?? { lon: 12.5, lat: 42.5, zoom: 5 }
       map = new maplibregl.Map({ container: el, style: styleFor(current), center: [cam.lon, cam.lat], zoom: cam.zoom, attributionControl: { compact: true }, fadeDuration: 0 })
       map.on('style.load', () => setup(current !== 'fallback'))
+      jumpFocus = focus !== null // link diretto: si apre sul nodo, non sulla vista salvata
+      mapReady = true
       map.on('moveend', onMoveEnd)
       publishBounds()
       window.addEventListener('online', onOnline)
@@ -428,6 +433,7 @@
       map?.remove()
       map = null
       ready = false
+      mapReady = false
     }
   })
 
@@ -611,6 +617,8 @@
   }
 
   function pickFromSearch(id: string) {
+    closeRuler()
+    cancelPick()
     onpick(id)
     searchOpen = false
     const n = app.nodes.get(id)
@@ -651,7 +659,7 @@
   $effect(() => {
     if (tool !== 'ruler') return
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') closeRuler()
+      if (e.key === 'Escape' && !e.defaultPrevented) closeRuler()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -790,7 +798,13 @@
     })
   })
   $effect(() => {
-    if (focus && map) map.easeTo({ center: [focus.lon, focus.lat], zoom: Math.max(map.getZoom(), 10) })
+    const f = focus
+    const mr = mapReady
+    if (!f || !mr || !map) return
+    const view = { center: [f.lon, f.lat] as [number, number], zoom: Math.max(map.getZoom(), 10) }
+    if (jumpFocus) map.jumpTo(view)
+    else map.easeTo(view)
+    jumpFocus = false
   })
 
 </script>
@@ -808,18 +822,24 @@
   onlocate={whereAmI}
   {locating}
 />
-<Legend />
+<Legend collapse={searchOpen || tool === 'ruler'} />
 {#if offlineBadge}
   <div class="badge" role="status"><Icon name="cloudoff" size={16} />Mappa offline</div>
 {/if}
-{#if nodes.length === 0 && total > 0}
+{#snippet noNodesCard()}
   <div class="nonodes" role="status">
     <span>Nessun nodo con i filtri attivi</span>
     <ActiveFilters compact />
   </div>
+{/snippet}
+{#if nodes.length === 0 && total > 0 && !viewport.phone}
+  {@render noNodesCard()}
 {/if}
 {#if notice}<div class="notice" role="status">{notice}</div>{/if}
 <div class="topleft">
+  {#if nodes.length === 0 && total > 0 && viewport.phone}
+    {@render noNodesCard()}
+  {/if}
   {#if searchOpen}
     <MapSearch onpick={pickFromSearch} onclose={() => (searchOpen = false)} />
   {/if}
@@ -932,6 +952,15 @@
     align-items: center;
     gap: var(--space-2);
     text-align: center;
+  }
+  :global(.vp-phone) .nonodes {
+    /* su telefono sta in cima, nella colonna di .topleft, lontano dal pannello in basso */
+    position: static;
+    transform: none;
+    align-items: flex-start;
+    text-align: left;
+    pointer-events: auto;
+    max-width: calc(100vw - var(--space-3) * 2 - var(--touch-min) - var(--space-2));
   }
   .badge {
     top: var(--space-3);
