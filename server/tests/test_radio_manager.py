@@ -85,7 +85,8 @@ class Env:
             self.live, self.store, Deduplicator(), CountryLocator(),
             lambda: {"saved_countries": []},
             lambda m: self.bus.publish({"type": "message", "message": m}),
-            lambda k, s: self.bus.publish({"type": "message_status", "key": k, "status": s}))
+            lambda k, s, e=None: self.bus.publish(
+                {"type": "message_status", "key": k, "status": s}))
         self.now = 1000.0
         self.ports = [SimpleNamespace(device="COM5", description="CP210x", vid=0x10C4, pid=0xEA60),
                       SimpleNamespace(device="COM1", description="Porta", vid=None, pid=None)]

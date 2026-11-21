@@ -107,3 +107,18 @@ def test_kind_order():
              node(1, battery=5, long_name="A")]
     out = compute_alerts(nodes, SET, NOW, {}, chutil={"!00000003": 50.0})
     assert [a["kind"] for a in out] == ["battery_low", "silent", "chutil_high", "firmware_old"]
+
+
+def test_key_changed_for_mine_and_favorite():
+    fav = node(5, is_mine=False, is_favorite=True, key_changed=NOW - 3600, battery=5,
+               last_heard=NOW - 9 * 3600)
+    out = compute_alerts([fav], SET, NOW, {})
+    assert out == [{"key": "pki:!00000005", "kind": "key_changed", "node_id": "!00000005",
+                    "node_name": "N5", "value": 0, "since": NOW - 3600}]
+    assert compute_alerts([{**fav, "key_changed": NOW - 8 * 86400}], SET, NOW, {}) == []
+    assert compute_alerts([node(6, is_mine=False, key_changed=NOW - 60)], SET, NOW, {}) == []
+    nodes = [node(1, key_changed=NOW - 60, long_name="A"),
+             node(2, last_heard=NOW - 8 * 3600, long_name="B"),
+             node(3, long_name="C")]
+    out = compute_alerts(nodes, SET, NOW, {}, chutil={"!00000003": 50.0})
+    assert [a["kind"] for a in out] == ["silent", "key_changed", "chutil_high"]

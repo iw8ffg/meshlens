@@ -3,6 +3,7 @@ import pytest
 from meshlens.db import connect
 from meshlens.dedup import Deduplicator
 from meshlens.events import MeshEvent, NodeInfoData, PositionData, TelemetryData, TextData
+from meshlens.events import WaypointData
 from meshlens.events import node_id
 from meshlens.geo import CountryLocator
 from meshlens.ingest import Ingestor, _new_node
@@ -425,3 +426,120 @@ def test_channel_counts_per_broker(env):
     assert ing.mqtt_channel_counts(now=NOW) == {"LongFast": 3}
     assert ing.mqtt_channel_counts(now=NOW, broker="b1") == {"LongFast": 1}
     assert ing.mqtt_channel_brokers(now=NOW)["LongFast"] == ["default", "b1"]
+
+
+def test_message_carries_reply_emoji_pki(env):
+    ing, live, store, conn, got = env
+    ing.handle(ev("position", pos(MILAN), pid=1))
+    ing.handle(ev("text", TextData("\U0001F44D", reply_id=5, emoji=True), pid=2, pki=True))
+    m = got[0]
+    assert m["reply_id"] == 5 and m["emoji"] is True and m["pki"] is True and m["error"] is None
+    saved = store.messages(None, None, 10)[0]
+    assert saved["reply_id"] == 5 and saved["emoji"] is True and saved["pki"] is True
+    ing.handle(ev("text", TextData("ciao"), pid=3))
+    assert got[1]["reply_id"] is None and got[1]["emoji"] is False and got[1]["pki"] is False
+
+
+def test_outgoing_carries_reply_and_emoji(env):
+    ing, live, store, conn, got = env
+    m = ing.record_outgoing("rA", "!00000001", 55, "\U0001F44D", 0, "!ffffffff",
+                            reply_id=7, emoji=True)
+    assert (m["reply_id"], m["emoji"], m["pki"]) == (7, True, False)
+    q = ing.record_outgoing_mqtt(1, 0xFFFFFFFF, 99, "ok", "LongFast", reply_id=8)
+    assert (q["reply_id"], q["emoji"], q["pki"]) == (8, False, False)
+    saved = {x["key"]: x for x in store.messages(None, None, 10)}
+    assert saved["out:rA:55"]["reply_id"] == 7 and saved["out:rA:55"]["emoji"] is True
+    assert saved["1:99"]["reply_id"] == 8 and saved["1:99"]["emoji"] is False
+
+
+def _ni(key):
+    return NodeInfoData("Mario", "MA", "HELTEC_V3", "CLIENT", public_key=key)
+
+
+def test_public_key_change_detection(env):
+    import base64
+    ing, live, store, conn, _ = env
+    ing.handle(ev("position", pos(MILAN), pid=1))
+    ing.handle(ev("nodeinfo", _ni(b"A" * 32), pid=2))
+    n = live.nodes[1]
+    a64 = base64.b64encode(b"A" * 32).decode()
+    assert n["public_key"] == a64 and n["key_changed"] is None
+    ing.handle(ev("nodeinfo", _ni(b"A" * 32), pid=3, source="rf", radio_id="rA",
+                  gateway_id=None, channel="0"))
+    assert n["key_changed"] is None
+    ing.handle(ev("nodeinfo", _ni(None), pid=4))
+    ing.handle(ev("nodeinfo", _ni(b""), pid=5))
+    assert n["public_key"] == a64 and n["key_changed"] is None
+    ing.handle(ev("nodeinfo", _ni(b"B" * 32), pid=6, t=1000))
+    b64 = base64.b64encode(b"B" * 32).decode()
+    assert n["key_changed"] == 1000 and n["public_key"] == b64
+    saved = store.get_node(1)
+    assert saved["public_key"] == b64 and saved["key_changed"] == 1000
+
+
+def test_new_node_has_no_public_key():
+    n = _new_node(9)
+    assert n["public_key"] is None and n["key_changed"] is None
+
+
+def _wp(wid=42, lat=MILAN[0], lon=MILAN[1], icon=0x1F4CD, expire=0, locked_to=0):
+    return WaypointData(id=wid, lat=lat, lon=lon, name="Ritrovo", description="qui",
+                        icon=icon, expire=expire, locked_to=locked_to)
+
+
+def _rfwp(payload, pid):
+    return ev("waypoint", payload, pid=pid, source="rf", radio_id="rA", gateway_id=None,
+              channel="0")
+
+
+def test_waypoint_store_and_delete(env):
+    ing, live, store, conn, _ = env
+    wps = []
+    ing.on_waypoint = wps.append
+    ing.set_radio_node("rA", 1)
+    ing.handle(_rfwp(_wp(locked_to=1), 1))
+    assert wps[-1] == {"id": 42, "from": "!00000001", "from_name": None, "lat": MILAN[0],
+                       "lon": MILAN[1], "name": "Ritrovo", "description": "qui",
+                       "icon": "\U0001F4CD", "expire": None, "locked_to": "!00000001",
+                       "time": int(NOW), "source": "rf", "radio_id": "rA", "channel": "0",
+                       "mine": True}
+    (row,) = store.active_waypoints(NOW)
+    assert row["id"] == 42 and row["icon"] == 0x1F4CD and row["country"] == "IT"
+    assert row["from_num"] == 1 and row["locked_to"] == 1
+    # stesso id con expire=1: l'eliminazione delle app ufficiali
+    ing.handle(_rfwp(_wp(expire=1), 2))
+    assert wps[-1] == {"deleted": 42} and store.active_waypoints(NOW) == []
+    # coordinate non valide: eliminazione
+    ing.handle(ev("waypoint", _wp(wid=43, lat=None, lon=None), pid=3))
+    assert wps[-1] == {"deleted": 43}
+    # MQTT fuori dalle nazioni salvate: in diretta ma non salvato
+    ing.handle(ev("waypoint", _wp(wid=44, lat=48.85, lon=2.35, expire=int(NOW) + 3600),
+                  num=2, pid=4))
+    assert wps[-1]["id"] == 44 and wps[-1]["mine"] is False
+    assert wps[-1]["expire"] == int(NOW) + 3600 and wps[-1]["locked_to"] is None
+    assert store.active_waypoints(NOW) == []
+    # MQTT in una nazione salvata: si salva
+    ing.handle(ev("waypoint", _wp(wid=45), num=2, pid=5))
+    assert [r["id"] for r in store.active_waypoints(NOW)] == [45]
+    # icona non valida (surrogato) o assente
+    ing.handle(ev("waypoint", _wp(wid=46, icon=0xD800), num=2, pid=6))
+    assert wps[-1]["icon"] == ""
+    ing.handle(ev("waypoint", _wp(wid=47, icon=0), num=2, pid=7))
+    assert wps[-1]["icon"] == ""
+
+
+def test_waypoint_without_callback(env):
+    ing, live, store, *_ = env
+    ing.handle(ev("waypoint", _wp(), pid=1))
+    assert [r["id"] for r in store.active_waypoints(NOW)] == [42]
+
+
+def test_set_status_with_error(env):
+    ing, live, store, *_ = env
+    calls = []
+    ing.on_status = lambda *a: calls.append(a)
+    ing.record_outgoing("rA", "!00000001", 5, "x", 0, "!00000002")
+    ing.set_status("out:rA:5", "failed", "NO_ROUTE")
+    assert calls == [("out:rA:5", "failed", "NO_ROUTE")]
+    assert live.messages[-1]["status"] == "failed" and live.messages[-1]["error"] == "NO_ROUTE"
+    assert store.messages(None, None, 10)[0]["error"] == "NO_ROUTE"

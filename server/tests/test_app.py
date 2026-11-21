@@ -762,3 +762,15 @@ async def test_integrity_stop_between_check_and_store_aborts(tmp_path):
         rt._integrity_opened(Conn())
     assert rt._integrity_conn is None
     rt.conn.close()
+
+
+async def test_ingestor_status_and_waypoint_reach_bus(tmp_path):
+    _, rt = build(tmp_path, connector_factory=FakeConnector, static_dir=None)
+    q = rt.bus.subscribe()
+    rt.ingestor.set_status("out:r1:5", "failed", "NO_ROUTE")
+    rt.ingestor.on_waypoint({"id": 7, "name": "W"})
+    rt.ingestor.on_waypoint({"deleted": 7})
+    assert [q.get_nowait() for _ in range(3)] == [
+        {"type": "message_status", "key": "out:r1:5", "status": "failed", "error": "NO_ROUTE"},
+        {"type": "waypoint", "waypoint": {"id": 7, "name": "W"}},
+        {"type": "waypoint_deleted", "id": 7}]

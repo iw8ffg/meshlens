@@ -8,7 +8,9 @@ CHUTIL_WINDOW_S = 1800
 CHUTIL_MIN_SAMPLES = 2
 BACK_ONLINE_KEEP_S = 3600
 FIRMWARE_MIN = (2, 5, 0)
-KIND_ORDER = {"battery_low": 0, "silent": 1, "chutil_high": 2, "firmware_old": 3, "back_online": 4}
+KEY_CHANGED_KEEP_S = 7 * 86400
+KIND_ORDER = {"battery_low": 0, "silent": 1, "key_changed": 2, "chutil_high": 3,
+              "firmware_old": 4, "back_online": 5}
 
 
 _FW_RE = re.compile(r"\D*([0-9]+)\.([0-9]+)\.([0-9]+)", re.ASCII)
@@ -31,9 +33,16 @@ def compute_alerts(nodes: Iterable[dict], settings: dict, now: float,
                    chutil: dict[str, float] | None = None) -> list[dict]:
     out = []
     for n in nodes:
-        if not n.get("is_mine"):
+        mine = bool(n.get("is_mine"))
+        if not mine and not n.get("is_favorite"):
             continue
         found = []
+        changed = n.get("key_changed")
+        if changed is not None and now - changed < KEY_CHANGED_KEEP_S:
+            found.append(("pki:" + n["id"], "key_changed", 0, None))
+        if not mine:  # i preferiti non miei ricevono solo l'avviso di chiave cambiata
+            out.extend(_alerts(n, found, now, previous))
+            continue
         battery = n.get("battery")
         if battery is not None and battery < BATTERY_EXTERNAL \
                 and battery < settings["battery_alert_pct"]:
@@ -58,13 +67,22 @@ def compute_alerts(nodes: Iterable[dict], settings: dict, now: float,
                 found.append((okey, "back_online", previous[skey]["value"], None))
             elif okey in previous and now - previous[okey]["since"] < BACK_ONLINE_KEEP_S:
                 found.append((okey, "back_online", previous[okey]["value"], None))
-        for key, kind, value, detail in found:
+        out.extend(_alerts(n, found, now, previous))
+    out.sort(key=lambda a: (KIND_ORDER[a["kind"]], a["node_name"]))
+    return out
+
+
+def _alerts(n: dict, found: list, now: float, previous: dict[str, dict]) -> list[dict]:
+    out = []
+    for key, kind, value, detail in found:
+        if kind == "key_changed":
+            since = n["key_changed"]
+        else:
             # back_online nato ora: since = now (la chiave online non e' in previous)
             since = previous[key]["since"] if key in previous else now
-            alert = {"key": key, "kind": kind, "node_id": n["id"],
-                     "node_name": _name(n), "value": value, "since": since}
-            if detail is not None:
-                alert["detail"] = detail
-            out.append(alert)
-    out.sort(key=lambda a: (KIND_ORDER[a["kind"]], a["node_name"]))
+        alert = {"key": key, "kind": kind, "node_id": n["id"],
+                 "node_name": _name(n), "value": value, "since": since}
+        if detail is not None:
+            alert["detail"] = detail
+        out.append(alert)
     return out

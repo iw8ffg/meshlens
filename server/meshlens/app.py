@@ -488,8 +488,12 @@ def build(data_dir: Path, connector_factory=MqttConnector,
                     "ogni dispositivo deve accedere di nuovo")
     ingestor = Ingestor(live, store, dedup, locator, lambda: rt.settings,
                         lambda msg: bus.publish({"type": "message", "message": msg}),
-                        lambda key, status: bus.publish(
-                            {"type": "message_status", "key": key, "status": status}))
+                        lambda key, status, error=None: bus.publish(
+                            {"type": "message_status", "key": key, "status": status,
+                             "error": error}),
+                        lambda wp: bus.publish(
+                            {"type": "waypoint_deleted", "id": wp["deleted"]} if "deleted" in wp
+                            else {"type": "waypoint", "waypoint": wp}))
     rt = Runtime(conn, store, live, auth, bus, dedup, ingestor, connector_factory,
                  settings=load_settings(conn), db_path=db_path,
                  backups=backups)

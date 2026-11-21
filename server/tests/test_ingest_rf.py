@@ -36,7 +36,7 @@ def test_rf_node_in_unsaved_country_is_persisted(env):
 def test_record_outgoing_and_status(env):
     ing, live, store, conn, got = env
     statuses = []
-    ing.on_status = lambda k, s: statuses.append((k, s))
+    ing.on_status = lambda k, s, e=None: statuses.append((k, s))
     m = ing.record_outgoing("rA", "!00000001", 55, "ciao", 2, "!ffffffff")
     assert m["key"] == "out:rA:55" and m["direction"] == "out" and m["status"] == "sent"
     assert got == [m]
@@ -177,3 +177,15 @@ def test_rangetest_updates_only_last_heard(env):
     assert n["lat"] is None and n["battery"] is None and not got
     assert count(conn, "positions") == 0 and count(conn, "messages") == 0
     assert count(conn, "telemetry") == 0
+
+
+def test_rf_reaction_dedup_keeps_fields(env):
+    ing, live, store, conn, got = env
+    ing.handle(ev("text", TextData("\U0001F44D", reply_id=9, emoji=True), pid=12))
+    ing.handle(rf("text", TextData("\U0001F44D", reply_id=9, emoji=True), "rA", pid=12,
+                  t=NOW + 1))
+    m = live.messages[0]
+    assert m["radio_id"] == "rA" and m["reply_id"] == 9 and m["emoji"] is True
+    assert got[-1]["reply_id"] == 9 and got[-1]["emoji"] is True
+    row = store.messages(None, None, 10)[0]
+    assert row["reply_id"] == 9 and row["emoji"] is True and row["radio_id"] == "rA"

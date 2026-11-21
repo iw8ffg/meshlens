@@ -1,4 +1,5 @@
 """Pipeline di ingestione: da MeshEvent a stato live e archivio."""
+import base64
 import time
 from typing import Callable
 
@@ -23,6 +24,13 @@ def _channel_index(channel: str) -> int | None:
         return int(channel)
     except (TypeError, ValueError):
         return None
+
+
+def icon_char(codepoint: int) -> str:
+    """Carattere dell'icona di un waypoint; "" se manca o non e' un codepoint valido."""
+    if codepoint < 0x20 or 0xD800 <= codepoint <= 0xDFFF or codepoint > 0x10FFFF:
+        return ""
+    return chr(codepoint)
 
 
 def _snr_at(snrs: list, i: int):
@@ -54,14 +62,15 @@ def _new_node(num: int) -> dict:
             "country": None, "last_heard": None, "sources": [], "battery": None,
             "voltage": None, "channel_util": None, "air_util_tx": None, "mqtt_gateways": 0,
             "last_snr": None, "hops": None, "heard_by": {}, "is_local_radio": False, "is_mine": False,
-            "is_favorite": False, "hops_min": None}
+            "is_favorite": False, "hops_min": None, "public_key": None, "key_changed": None}
 
 
 class Ingestor:
     def __init__(self, live: LiveState, store: Store, dedup: Deduplicator,
                  locator: CountryLocator, get_settings: Callable[[], dict],
                  on_message: Callable[[dict], None],
-                 on_status: Callable[[str, str], None] | None = None):
+                 on_status: Callable[[str, str, str | None], None] | None = None,
+                 on_waypoint: Callable[[dict], None] | None = None):
         self.live = live
         self.store = store
         self.dedup = dedup
@@ -69,6 +78,7 @@ class Ingestor:
         self.get_settings = get_settings
         self.on_message = on_message
         self.on_status = on_status
+        self.on_waypoint = on_waypoint
         self._telemetry_time: dict[int, float] = {}
         self._rf_hops_time: dict[int, float] = {}  # nodo -> istante dell'ultimo hops da RF
         self._radio_nodes: dict[str, int] = {}  # radio_id -> numero del nodo della radio
@@ -185,9 +195,9 @@ class Ingestor:
             ev_pos = (p.lat, p.lon, p.precision_bits, ev.source)
             self._update_position(node, ev, *ev_pos)
         elif kind == "nodeinfo":
-            self._update_identity(node, p)
+            self._update_identity(node, p, ev.rx_time or time.time())
         elif kind == "mapreport":
-            self._update_identity(node, p)
+            self._update_identity(node, p, ev.rx_time or time.time())
             if p.firmware_version:
                 node["firmware"] = p.firmware_version
             if (p.lat is not None and p.lon is not None
@@ -197,6 +207,8 @@ class Ingestor:
         elif kind == "telemetry":
             self._telemetry_time[num] = ev.rx_time
             self._update_telemetry(node, p)
+        elif kind == "waypoint":
+            self._handle_waypoint(node, ev)
 
         persist = (node["country"] in self.get_settings()["saved_countries"]
                    or ev.source == "rf" or bool(node.get("is_mine"))
@@ -314,7 +326,8 @@ class Ingestor:
     def record_outgoing(self, radio_id: str, my_node_id: str, packet_id: int, text: str,
                         channel_index: int, to: str, status: str = "sent",
                         replaces: str | None = None,
-                        time_: int | None = None) -> dict:
+                        time_: int | None = None, reply_id: int | None = None,
+                        emoji: bool = False) -> dict:
         """Registra un messaggio inviato da una radio locale e lo pubblica."""
         mine = self.live.nodes.get(int(my_node_id[1:], 16))
         message = {"key": f"out:{radio_id}:{packet_id}", "from": my_node_id,
@@ -322,7 +335,8 @@ class Ingestor:
                    "channel": str(channel_index), "text": text, "time": int(time.time()) if time_ is None else time_,
                    "country": mine["country"] if mine else None, "source": "rf",
                    "direction": "out", "radio_id": radio_id, "channel_index": channel_index,
-                   "packet_id": packet_id, "status": status, "broker": None}
+                   "packet_id": packet_id, "status": status, "broker": None,
+                   "reply_id": reply_id, "emoji": emoji, "pki": False, "error": None}
         self.live.messages.append(message)
         self.store.add_message(message)
         # "replaces": il client sostituisce il messaggio provvisorio con questa chiave
@@ -331,7 +345,8 @@ class Ingestor:
 
     def record_outgoing_mqtt(self, from_num: int, to_num: int, packet_id: int, text: str,
                              channel: str, now: float | None = None,
-                             broker: str | None = None) -> dict:
+                             broker: str | None = None, reply_id: int | None = None,
+                             emoji: bool = False) -> dict:
         """Registra un testo pubblicato via MQTT dal proprio nodo.
         (from, id) entra subito nel dedup: l'eco che il broker ci rimanda viene scartato
         e non genera un secondo messaggio."""
@@ -343,19 +358,21 @@ class Ingestor:
                    "channel": channel, "text": text, "time": int(t),
                    "country": mine["country"] if mine else None, "source": "mqtt",
                    "direction": "out", "via": "mqtt", "radio_id": None, "channel_index": None,
-                   "packet_id": packet_id, "status": "sent", "broker": broker}
+                   "packet_id": packet_id, "status": "sent", "broker": broker,
+                   "reply_id": reply_id, "emoji": emoji, "pki": False, "error": None}
         self.live.messages.append(message)
         self.store.add_message(message)
         self.on_message(message)
         return message
 
-    def set_status(self, key: str, status: str) -> None:
-        self.store.update_message_status(key, status)
+    def set_status(self, key: str, status: str, error: str | None = None) -> None:
+        self.store.update_message_status(key, status, error)
         for message in self.live.messages:
             if message["key"] == key:
                 message["status"] = status
+                message["error"] = error
         if self.on_status is not None:
-            self.on_status(key, status)
+            self.on_status(key, status, error)
 
     def _update_position(self, node: dict, ev: MeshEvent, lat: float, lon: float,
                          precision_bits: int | None, source: str) -> None:
@@ -371,11 +388,39 @@ class Ingestor:
                         country=self.locator.locate(lat, lon))
 
     @staticmethod
-    def _update_identity(node: dict, p) -> None:
+    def _update_identity(node: dict, p, t: float) -> None:
         for field in ("long_name", "short_name", "hw_model", "role"):
             value = getattr(p, field)
             if value:
                 node[field] = value
+        key = getattr(p, "public_key", None)  # mapreport non porta la chiave
+        if key:  # vuota o assente (firmware vecchio): non e' un cambio
+            b64 = base64.b64encode(key).decode()
+            if node.get("public_key") and node["public_key"] != b64:
+                node["key_changed"] = t
+            node["public_key"] = b64
+
+    def _handle_waypoint(self, node: dict, ev: MeshEvent) -> None:
+        """Waypoint ricevuto: scaduto o senza coordinate vale come eliminazione."""
+        p = ev.payload
+        if (p.expire and p.expire <= ev.rx_time) or p.lat is None or p.lon is None:
+            self.store.delete_waypoint(p.id)
+            if self.on_waypoint is not None:
+                self.on_waypoint({"deleted": p.id})
+            return
+        wp = {"id": p.id, "from": node_id(ev.from_node), "from_name": node["long_name"],
+              "lat": p.lat, "lon": p.lon, "name": p.name, "description": p.description,
+              "icon": icon_char(p.icon), "expire": p.expire or None,
+              "locked_to": node_id(p.locked_to) if p.locked_to else None,
+              "time": int(ev.rx_time), "source": ev.source, "radio_id": ev.radio_id,
+              "channel": ev.channel, "mine": ev.from_node in self._radio_nodes.values()}
+        country = self.locator.locate(p.lat, p.lon)
+        if ev.source == "rf" or country in self.get_settings()["saved_countries"]:
+            self.store.upsert_waypoint(
+                {**wp, "from_num": ev.from_node, "icon": p.icon if wp["icon"] else 0,
+                 "locked_to": p.locked_to or None, "country": country})
+        if self.on_waypoint is not None:
+            self.on_waypoint(wp)
 
     @staticmethod
     def _update_telemetry(node: dict, t: TelemetryData) -> None:
@@ -391,4 +436,6 @@ class Ingestor:
                 "channel": ev.channel, "text": ev.payload.text, "time": int(ev.rx_time),
                 "country": node["country"], "source": ev.source, "direction": "in",
                 "radio_id": ev.radio_id, "channel_index": _channel_index(ev.channel),
-                "packet_id": ev.packet_id, "status": None, "broker": ev.broker}
+                "packet_id": ev.packet_id, "status": None, "broker": ev.broker,
+                "reply_id": ev.payload.reply_id, "emoji": ev.payload.emoji, "pki": ev.pki,
+                "error": None}
