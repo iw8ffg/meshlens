@@ -1,4 +1,5 @@
 """Punto di ingresso per PyInstaller (il modulo __main__ del pacchetto usa import relativi)."""
+import multiprocessing
 import os
 import sys
 
@@ -37,4 +38,5 @@ _fix_std_streams()
 from meshlens.__main__ import main  # noqa: E402
 
 if __name__ == "__main__":
+    multiprocessing.freeze_support()  # figli del ProcessPool nell'eseguibile congelato
     sys.exit(main())
