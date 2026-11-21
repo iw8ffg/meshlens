@@ -1,24 +1,35 @@
-"""Riga di comando: meshlens run | reset-pin."""
+"""Riga di comando: meshlens run | tray | reset-pin."""
 import argparse
 import threading
 import webbrowser
 from pathlib import Path
 
-from .paths import default_data_dir
+from .paths import default_data_dir, is_frozen
 
 PORT = 8686
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="meshlens")
-    sub = parser.add_subparsers(dest="cmd", required=True)
+    # nella versione installata, senza comando si avvia l'icona di notifica
+    sub = parser.add_subparsers(dest="cmd", required=not is_frozen())
     run = sub.add_parser("run", help="avvia MeshLens")
     run.add_argument("--data-dir", default=str(default_data_dir()))
     run.add_argument("--port", type=int, default=PORT)
     run.add_argument("--no-browser", action="store_true")
+    tr = sub.add_parser("tray", help="avvia MeshLens con l'icona di notifica")
+    tr.add_argument("--data-dir", default=str(default_data_dir()))
+    tr.add_argument("--port", type=int, default=PORT)
+    tr.add_argument("--no-browser", action="store_true")
     rp = sub.add_parser("reset-pin", help="azzera il PIN")
     rp.add_argument("--data-dir", default=str(default_data_dir()))
     args = parser.parse_args(argv)
+    if args.cmd is None:  # solo installata: comando predefinito
+        args = parser.parse_args(["tray"])
+
+    if args.cmd == "tray":
+        from .tray import run_tray
+        return run_tray(Path(args.data_dir), args.port, not args.no_browser)
 
     if args.cmd == "reset-pin":
         from .auth import Auth

@@ -19,6 +19,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest", "pytest-asyncio", "httpx"]
+tray = ["pystray", "Pillow"]
 
 [project.scripts]
 meshlens = "meshlens.__main__:main"
@@ -33,7 +34,7 @@ package-dir = {"" = "server"}
 where = ["server"]
 
 [tool.setuptools.package-data]
-meshlens = ["data/*.geojson"]
+meshlens = ["data/*.geojson", "assets/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["server/tests"]

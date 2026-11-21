@@ -3,7 +3,9 @@ condivisa e va usata solo dal thread dell'event loop."""
 import asyncio
 import ipaddress
 import mimetypes
+import secrets
 import sqlite3
+import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -53,7 +55,22 @@ class AppContext:
     data_dir: Path | None = None
     config: object | None = None  # ConfigService
     maps: object | None = None  # MapsManager
+    # token casuale generato all'avvio: lo conosce solo il lanciatore (in-process)
+    shutdown_token: str = field(default_factory=lambda: secrets.token_urlsafe(32))
+    exit_callback: Callable[[], None] | None = None  # impostata dal lanciatore
     _alerts: list = field(default_factory=list)
+
+    def request_exit(self, delay_s: float = 0.0) -> None:
+        """Chiede al lanciatore di uscire (anche l'aggiornamento la usa, senza HTTP)."""
+        def fire() -> None:
+            if self.exit_callback:
+                self.exit_callback()
+        if delay_s <= 0:
+            threading.Thread(target=fire, daemon=True).start()
+        else:
+            t = threading.Timer(delay_s, fire)
+            t.daemon = True
+            t.start()
 
     def alerts(self) -> list[dict]:
         """Ricalcola gli avvisi; pubblica sul WS solo se key o value cambiano."""
@@ -282,6 +299,22 @@ def create_app(ctx: AppContext) -> FastAPI:
     async def require_auth(request: Request) -> None:
         if not ctx.auth.check(request.cookies.get(COOKIE)):
             raise HTTPException(401, "Accesso richiesto")
+
+    # ---- istanza singola e chiusura ----
+    @app.get("/api/ping")
+    async def ping():
+        # non autenticato e senza altri dati: serve solo a riconoscere MeshLens sulla porta
+        from . import __version__
+        return {"app": "meshlens", "version": __version__}
+
+    @app.post("/api/internal/shutdown")
+    async def internal_shutdown(request: Request):
+        given = request.headers.get("x-shutdown-token", "")
+        if (not is_local(request)
+                or not secrets.compare_digest(given.encode(), ctx.shutdown_token.encode())):
+            raise HTTPException(403, "Non consentito")
+        ctx.request_exit(0.2)
+        return {"ok": True}
 
     # ---- auth ----
     @app.get("/api/version", dependencies=[Depends(require_auth)])
