@@ -14,9 +14,9 @@
 
 | | |
 |---|---|
-| ![Mappa con i nodi](docs/img/screen-map.png)<br>**Mappa** con i nodi da radio e MQTT | ![Scheda Rete](docs/img/screen-network.png)<br>**Rete**: stato, batteria e grafici |
-| ![Chat radio](docs/img/screen-chat.png)<br>**Chat** via radio | ![Prova di copertura](docs/img/screen-coverage.png)<br>**Copertura** sul campo |
-| ![Pannello Configura](docs/img/screen-config.png)<br>**Configura** radio e nodi | ![Vista telefono](docs/img/screen-mobile.png)<br>**Telefono** |
+| ![Mappa con i nodi](docs/img/screen-map.png)<br>**Mappa** con i nodi da radio e MQTT | ![Dettaglio nodo](docs/img/screen-node.png)<br>**Dettaglio nodo** con grafico della batteria |
+| ![Scheda Rete](docs/img/screen-network.png)<br>**Rete**: i tuoi nodi a colpo d'occhio | ![Prova di copertura](docs/img/screen-coverage.png)<br>**Copertura** sul campo |
+| ![Impostazioni](docs/img/screen-settings.png)<br>**Mappe offline** e aggiornamenti | ![Vista telefono](docs/img/screen-mobile.png)<br>**Telefono** |
 
 > Le schermate usano un database dimostrativo con nodi inventati.
 

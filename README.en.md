@@ -14,9 +14,9 @@
 
 | | |
 |---|---|
-| ![Map with nodes](docs/img/screen-map.png)<br>**Map** with nodes from radio and MQTT | ![Network tab](docs/img/screen-network.png)<br>**Network**: status, battery and charts |
-| ![Radio chat](docs/img/screen-chat.png)<br>**Chat** over radio | ![Coverage test](docs/img/screen-coverage.png)<br>Field **coverage** tests |
-| ![Configuration panel](docs/img/screen-config.png)<br>**Configure** radios and nodes | ![Phone view](docs/img/screen-mobile.png)<br>**Phone** |
+| ![Map with nodes](docs/img/screen-map.png)<br>**Map** with nodes from radio and MQTT | ![Node details](docs/img/screen-node.png)<br>**Node details** with battery chart |
+| ![Network tab](docs/img/screen-network.png)<br>**Network**: your nodes at a glance | ![Coverage test](docs/img/screen-coverage.png)<br>Field **coverage** tests |
+| ![Settings](docs/img/screen-settings.png)<br>**Offline maps** and updates | ![Phone view](docs/img/screen-mobile.png)<br>**Phone** |
 
 > Screenshots use a demo database with invented nodes. The app interface is in Italian.
 
