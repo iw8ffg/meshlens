@@ -540,18 +540,21 @@ REMOTE_NUM = 0x42
 
 
 class FakeNode:
-    """Registra le chiamate admin; i protobuf sono reali."""
+    """Registra le chiamate admin (inviando davvero un pacchetto); i protobuf sono reali."""
 
-    def __init__(self, iface, calls):
-        self.iface, self.calls = iface, calls
+    def __init__(self, iface, calls, remote=False):
+        self.iface, self.calls, self.remote = iface, calls, remote
         self.localConfig = localonly_pb2.LocalConfig()
         self.moduleConfig = localonly_pb2.LocalModuleConfig()
         self.channels = [channel_pb2.Channel(index=i) for i in range(3)]
         self.channels[0].role = channel_pb2.Channel.PRIMARY
         self.request_hook = None  # funzione(configType) chiamata da requestConfig
+        self.write_hook = None  # funzione() chiamata da writeConfig
+        self.channel_error = None
 
     def _rec(self, *a):
         self.calls.append(a)
+        self.iface.sendData(None)
 
     def beginSettingsTransaction(self):
         self._rec("begin")
@@ -561,8 +564,12 @@ class FakeNode:
 
     def writeConfig(self, name):
         self._rec("writeConfig", name, self.localConfig.lora.hop_limit)
+        if self.write_hook:
+            self.write_hook()
 
     def writeChannel(self, i):
+        if self.channel_error:
+            raise self.channel_error
         self._rec("writeChannel", i)
 
     def setOwner(self, long_name=None, short_name=None, is_licensed=False):
@@ -575,6 +582,8 @@ class FakeNode:
         self._rec("requestConfig", getattr(cfg, "name", cfg))
         if self.request_hook:
             self.request_hook(cfg)
+        if self.remote:
+            self.iface.waitForAckNak()  # come la libreria, che poi azzera l'ack
 
     def reboot(self, secs=10):
         self._rec("reboot", secs)
@@ -594,22 +603,35 @@ class AdminIface(FakeIface):
         self.localNode = self.local
         self.local.localConfig.security.public_key = bytes(range(32))
         self.local.localConfig.security.private_key = b"segretissimo"
-        self.remote = FakeNode(self, self.calls)
+        self.remote = FakeNode(self, self.calls, remote=True)
         self.nodesByNum = {}
         self._timeout = SimpleNamespace(expireTimeout=300)
         self.timeouts_seen = []
         self.get_node_hook = None
-        self._acknowledgment = SimpleNamespace(reset=lambda: self.calls.append(("ack_reset",)))
+        self.ack_mode = "ack"  # "ack" | "nak" | "none": cosa risponde ogni invio
+        self._acknowledgment = SimpleNamespace(
+            receivedAck=False, receivedNak=False, receivedImplAck=False, reset=self._reset_ack)
+
+    def _reset_ack(self):
+        self.calls.append(("ack_reset",))
+        a = self._acknowledgment
+        a.receivedAck = a.receivedNak = a.receivedImplAck = False
+
+    def sendData(self, *a, **kw):
+        pkt = super().sendData(*a, **kw)
+        if self.ack_mode == "ack":
+            self._acknowledgment.receivedAck = True
+        elif self.ack_mode == "nak":
+            self._acknowledgment.receivedNak = True
+        return pkt
 
     def getNode(self, nid, requestChannels=True, requestChannelAttempts=3, timeout=300):
         self.calls.append(("getNode", nid, requestChannels, timeout))
         self.timeouts_seen.append(self._timeout.expireTimeout)
+        self.sendData(None)
         if self.get_node_hook:
             self.get_node_hook()
         return self.remote
-
-    def waitForAckNak(self):
-        self.calls.append(("waitForAckNak", self._timeout.expireTimeout))
 
 
 async def admin_connected():
@@ -617,6 +639,11 @@ async def admin_connected():
     h = Harness(lambda cfg, n: iface)
     await connected(h)
     return h, iface
+
+
+def routing_from_thread(h, iface, reason, sender=REMOTE_NUM):
+    """Come il hub: il pacchetto ROUTING arriva nel loop per l'ultimo pacchetto inviato."""
+    h.loop.call_soon_threadsafe(h.conn.on_packet, ack_pkt(iface.next_id, sender, reason))
 
 
 def changed(iface, hop=4, channel1="prova", owner="Nuovo", node=None):
@@ -638,6 +665,7 @@ async def test_read_local_returns_masked_dict():
     assert len(cfg["channels"]) == 3
     assert "segretissimo" not in str(cfg)
     assert await h.conn.admin_public_key() == base64.b64encode(bytes(range(32))).decode()
+    assert iface._timeout.expireTimeout == 300 and iface.timeouts_seen == []
     await h.conn.stop()
 
 
@@ -645,7 +673,7 @@ async def test_read_remote_unauthorized_fails_fast():
     h, iface = await admin_connected()
 
     def deny():  # il nodo risponde ROUTING 37 e la libreria uscirebbe con SystemExit
-        h.loop.call_soon_threadsafe(h.conn.on_packet, ack_pkt(77, REMOTE_NUM, "ADMIN_PUBLIC_KEY_UNAUTHORIZED"))
+        routing_from_thread(h, iface, "ADMIN_PUBLIC_KEY_UNAUTHORIZED")
         raise SystemExit(1)
     iface.get_node_hook = deny
     t0 = asyncio.get_running_loop().time()
@@ -660,7 +688,36 @@ async def test_read_remote_unauthorized_fails_fast():
 
 async def test_read_remote_unauthorized_on_request_config():
     h, iface = await admin_connected()
-    iface.remote.request_hook = lambda cfg: h.loop.call_soon_threadsafe(h.conn.on_packet, ack_pkt(5, REMOTE_NUM, "NOT_AUTHORIZED"))
+    iface.remote.request_hook = lambda cfg: routing_from_thread(h, iface, "NOT_AUTHORIZED")
+    with pytest.raises(AdminError) as ei:
+        await h.conn.read_remote(REMOTE_NUM, ["lora"], lambda *a: None)
+    assert ei.value.code == "unauthorized"
+    await h.conn.stop()
+
+
+async def test_unrelated_routing_error_does_not_abort():
+    h, iface = await admin_connected()
+    iface.remote.request_hook = lambda cfg: h.loop.call_soon_threadsafe(
+        h.conn.on_packet, ack_pkt(9999, REMOTE_NUM, "NO_ROUTE"))  # ack di una chat, non nostro
+    cfg = await h.conn.read_remote(REMOTE_NUM, ["lora"], lambda *a: None)
+    assert "lora" in cfg["config"]
+    await h.conn.stop()
+
+
+async def test_read_remote_nak_without_reason_is_error():
+    h, iface = await admin_connected()
+    iface.ack_mode = "nak"  # la libreria azzera l'ack e torna come se nulla fosse
+    with pytest.raises(AdminError) as ei:
+        await h.conn.read_remote(REMOTE_NUM, ["lora"], lambda *a: None)
+    assert ei.value.code == "error"
+    await h.conn.stop()
+
+
+async def test_read_remote_nak_with_unauthorized_reason():
+    h, iface = await admin_connected()
+    iface.ack_mode = "nak"
+    iface.remote.request_hook = lambda cfg: routing_from_thread(h, iface, "ADMIN_PUBLIC_KEY_UNAUTHORIZED")
+    iface.get_node_hook = None
     with pytest.raises(AdminError) as ei:
         await h.conn.read_remote(REMOTE_NUM, ["lora"], lambda *a: None)
     assert ei.value.code == "unauthorized"
@@ -692,15 +749,66 @@ async def test_read_remote_timeout():
     await h.conn.stop()
 
 
+async def test_busy_while_abandoned_thread_still_runs():
+    h, iface = await admin_connected()
+    gate = threading.Event()
+    first = [True]
+
+    def deny():
+        if first[0]:
+            first[0] = False
+            routing_from_thread(h, iface, "ADMIN_PUBLIC_KEY_UNAUTHORIZED")
+            gate.wait(5)  # il thread della libreria resta bloccato
+            raise SystemExit(1)
+    iface.get_node_hook = deny
+    with pytest.raises(AdminError) as ei:
+        await h.conn.read_remote(REMOTE_NUM, ["lora"], lambda *a: None)
+    assert ei.value.code == "unauthorized"
+    with pytest.raises(AdminError) as ei:
+        await h.conn.read_remote(REMOTE_NUM, ["lora"], lambda *a: None)
+    assert ei.value.code == "busy"
+    assert "ancora in corso" in ei.value.message
+    gate.set()
+    await h.until(lambda: h.conn._admin_task.done())
+    cfg = await h.conn.read_remote(REMOTE_NUM, ["lora"], lambda *a: None)
+    assert "lora" in cfg["config"]
+    await h.conn.stop()
+
+
+async def test_other_thread_stdout_not_swallowed(capsys):
+    h, iface = await admin_connected()
+
+    def hook(cfg):
+        print("dal-thread-admin")  # scartato
+        t = threading.Thread(target=lambda: print("da-altro-thread"))
+        t.start()
+        t.join()
+    iface.remote.request_hook = hook
+    await h.conn.read_remote(REMOTE_NUM, ["lora"], lambda *a: None)
+    out = capsys.readouterr().out
+    assert "da-altro-thread" in out and "dal-thread-admin" not in out
+    await h.conn.stop()
+
+
 async def test_write_uses_single_transaction():
     h, iface = await admin_connected()
     steps = []
     await h.conn.write(None, changed(iface), lambda *a: steps.append(a))
-    seq = [c for c in iface.calls if c[0] != "ack_reset"]
+    seq = [c for c in iface.calls if c[0] not in ("ack_reset", "getNode")]
     assert seq == [("begin",), ("writeConfig", "lora", 4), ("writeChannel", 1),
                    ("setOwner", "Nuovo", "HB", False), ("commit",)]
     assert iface.local.localConfig.lora.hop_limit == 4  # copiato nel Node prima di scrivere
     assert steps[-1][1] == steps[-1][2]
+    await h.conn.stop()
+
+
+async def test_failed_write_restores_node():
+    h, iface = await admin_connected()
+    iface.local.channel_error = RuntimeError("boom")
+    with pytest.raises(AdminError):
+        await h.conn.write(None, changed(iface), lambda *a: None)
+    assert iface.local.localConfig.lora.hop_limit == 0
+    assert iface.local.channels[1].settings.name == ""
     await h.conn.stop()
 
 
@@ -711,8 +819,8 @@ async def test_write_remote_calls_ensure_session_key_and_waits_ack():
     await h.conn.write(REMOTE_NUM, changed(iface, node=iface.remote), lambda *a: None)
     names = [c[0] for c in iface.calls]
     assert names[0] == "ensureSessionKey"
-    assert names.index("ack_reset") < names.index("commit") < names.index("waitForAckNak")
-    assert ("waitForAckNak", 60) in iface.calls
+    assert names.index("ack_reset") < names.index("commit")
+    assert names[names.index("commit"):].count("ack_reset") == 1  # ack consumato dopo il commit
     assert iface._timeout.expireTimeout == 300
     await h.conn.stop()
 
@@ -722,6 +830,40 @@ async def test_write_remote_without_prior_read_fails():
     with pytest.raises(AdminError) as ei:
         await h.conn.write(REMOTE_NUM, changed(iface), lambda *a: None)
     assert ei.value.code == "error"
+    await h.conn.stop()
+
+
+async def test_remote_cache_cleared_on_close_and_expires():
+    h, iface = await admin_connected()
+    await h.conn.read_remote(REMOTE_NUM, ["lora"], lambda *a: None)
+    assert REMOTE_NUM in h.conn._remote_nodes
+    h.now += 241  # lettura troppo vecchia: serve una nuova (e una nuova chiave di sessione)
+    with pytest.raises(AdminError) as ei:
+        await h.conn.write(REMOTE_NUM, changed(iface, node=iface.remote), lambda *a: None)
+    assert ei.value.code == "error" and REMOTE_NUM not in h.conn._remote_nodes
+    await h.conn.read_remote(REMOTE_NUM, ["lora"], lambda *a: None)
+    await h.conn._close_iface()
+    assert h.conn._remote_nodes == {}
+    await h.conn.stop()
+
+
+async def test_write_remote_retries_once_on_bad_session_key():
+    h, iface = await admin_connected()
+    await h.conn.read_remote(REMOTE_NUM, ["lora"], lambda *a: None)
+    iface.calls.clear()
+    iface.nodesByNum[REMOTE_NUM] = {"adminSessionPassKey": b"vecchia"}
+    first = [True]
+
+    def bad():
+        if first[0]:
+            first[0] = False
+            routing_from_thread(h, iface, "ADMIN_BAD_SESSION_KEY")
+            iface._acknowledgment.receivedNak = True
+    iface.remote.write_hook = bad
+    await h.conn.write(REMOTE_NUM, changed(iface, node=iface.remote), lambda *a: None)
+    names = [c[0] for c in iface.calls]
+    assert names.count("ensureSessionKey") == 2 and names.count("commit") == 1
+    assert "adminSessionPassKey" not in iface.nodesByNum[REMOTE_NUM]
     await h.conn.stop()
 
 
@@ -750,6 +892,14 @@ async def test_reboot_and_fixed_position_local():
     assert ("reboot", 7) in iface.calls
     assert ("setFixedPosition", 45.5, 9.25, 120) in iface.calls
     assert ("removeFixedPosition",) in iface.calls
+    await h.conn.stop()
+
+
+async def test_remote_reboot_does_not_wait_for_ack():
+    h, iface = await admin_connected()
+    iface.ack_mode = "none"  # il nodo che si riavvia non conferma
+    await asyncio.wait_for(h.conn.reboot(REMOTE_NUM, 5), 5)
+    assert ("reboot", 5) in iface.calls
     await h.conn.stop()
 
 
