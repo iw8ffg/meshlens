@@ -2,6 +2,7 @@
   import { ApiError, traceroute, traceroutes } from '../lib/api'
   import { formatDate } from '../lib/format'
   import { app, setTraceroute } from '../lib/stores.svelte'
+  import { mergeHistory } from '../lib/traceroute'
   import type { Node, Traceroute, TracerouteHop } from '../lib/types'
 
   let { node }: { node: Node } = $props()
@@ -14,10 +15,10 @@
 
   const current = $derived(app.traceroutes.get(node.id) ?? null)
 
-  // Un esito finale arrivato dallo store entra in cima allo storico (se non c'e' gia')
+  // Un esito finale arrivato dallo store entra nello storico (sostituisce la voce con lo stesso id)
   $effect(() => {
     const c = app.traceroutes.get(node.id)
-    if (c && c.status !== 'pending' && !history.some((h) => h.id === c.id)) history = [c, ...history]
+    if (c && c.status !== 'pending') history = mergeHistory(history, c)
   })
 
   // Una radio scelta che si scollega torna ad "automatica"
@@ -25,12 +26,9 @@
     if (radioId && !connected.some((r) => r.id === radioId)) radioId = ''
   })
 
-  // All'apertura del nodo: storico, e semina dello store col piu' recente
+  // Storico del nodo e semina dello store col piu' recente
   // (un esito arrivato a WebSocket giu' non resta "pending")
-  $effect(() => {
-    const id = node.id
-    error = ''
-    history = []
+  function refresh(id: string) {
     traceroutes(id)
       .then((list) => {
         if (id !== node.id) return
@@ -42,6 +40,32 @@
       .catch(() => {
         /* lo storico e' accessorio */
       })
+  }
+
+  // All'apertura del nodo
+  $effect(() => {
+    const id = node.id
+    error = ''
+    history = []
+    refresh(id)
+  })
+
+  // Riconnessione del WebSocket: l'esito finale potrebbe essersi perso
+  let seenReconnects = app.reconnects
+  $effect(() => {
+    const n = app.reconnects
+    if (n === seenReconnects) return
+    seenReconnects = n
+    refresh(node.id)
+  })
+
+  // Ancora "pending" dopo 65 s (oltre il timeout del server): ricarica dal server
+  $effect(() => {
+    const id = node.id
+    const c = app.traceroutes.get(id)
+    if (c?.status !== 'pending') return
+    const t = setTimeout(() => refresh(id), 65_000)
+    return () => clearTimeout(t)
   })
 
   async function run() {

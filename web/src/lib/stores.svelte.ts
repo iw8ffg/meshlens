@@ -2,6 +2,7 @@ import { SvelteMap } from 'svelte/reactivity'
 import { loadFilter, saveFilter } from './filters'
 import type { NodeFilter } from './filters'
 import { MAX_REPLACED, insertMessage, removeByKey, mergeRadioMessages, pruneSet } from './chat'
+import { shouldStore } from './traceroute'
 import type { Alert, Message, MessageStatus, Node, Radio, Status, Traceroute } from './types'
 
 const MAX_MESSAGES = 500
@@ -17,6 +18,7 @@ export const app = $state({
   chatConv: null as string | null,
   alerts: [] as Alert[],
   traceroutes: new SvelteMap<string, Traceroute>(),
+  reconnects: 0, // contatore: cresce a ogni riconnessione del WebSocket
 })
 
 export function upsertNodes(list: Node[]): void {
@@ -56,7 +58,7 @@ export function setAlerts(list: Alert[]): void {
 
 /** Ultimo traceroute per nodo di destinazione. */
 export function setTraceroute(t: Traceroute): void {
-  app.traceroutes.set(t.target_id, t)
+  if (shouldStore(app.traceroutes.get(t.target_id), t)) app.traceroutes.set(t.target_id, t)
 }
 
 export function setStatus(s: Status): void {

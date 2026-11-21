@@ -314,7 +314,7 @@
 
   function pushLinks() {
     if (!ready) return
-    src('links')?.setData(app.filter.links ? linksToGeoJSON(linkList, app.nodes) : EMPTY)
+    src('links')?.setData(app.filter.links ? linksToGeoJSON(linkList, new Map(nodes.map((n) => [n.id, n]))) : EMPTY)
   }
 
   async function loadLinks() {

@@ -107,7 +107,10 @@
     }
     load()
     return connectWS({
-      reconnected: load,
+      reconnected: () => {
+        load()
+        app.reconnects++
+      },
       nodes: upsertNodes,
       message: addMessage,
       status: setStatus,
