@@ -179,6 +179,42 @@ def _validate_channels(name: str, channels) -> None:
             raise ValueError(f"Canale {cname}: chiave PSK non valida ({e})") from e
 
 
+def merge_channels(broker: dict, entries: list[dict]) -> tuple[list[str], list[dict]]:
+    """Aggiunge in coda al broker i canali nuovi (modifica `broker`). Restituisce i nomi
+    aggiunti e i saltati con il motivo."""
+    from .crypto import DEFAULT_KEY
+    from .mqtt_publish import PRESET_CHANNELS  # import locale: mqtt_publish importa settings
+    channels = broker.setdefault("channels", [])
+    added: list[str] = []
+    skipped: list[dict] = []
+    for e in entries:
+        name, psk = e.get("name"), e.get("psk")
+        reason = None
+        key = None
+        if (not isinstance(name, str) or not 1 <= len(name.encode("utf-8")) <= MAX_CHANNEL_NAME_BYTES
+                or any(c in name for c in "/#+")):
+            reason = "nome troppo lungo"
+        else:
+            try:
+                key = expand_psk(psk) if isinstance(psk, str) else None
+            except ValueError:
+                key = None
+            if key is None:
+                reason = "chiave non valida"
+            elif any(c["name"] == name for c in channels):
+                reason = "già presente"
+            elif name in PRESET_CHANNELS and key == DEFAULT_KEY:
+                reason = "canale pubblico predefinito"
+            elif len(channels) >= MAX_BROKER_CHANNELS:
+                reason = f"limite di {MAX_BROKER_CHANNELS} canali"
+        if reason:
+            skipped.append({"name": name if isinstance(name, str) else "", "reason": reason})
+            continue
+        channels.append({"name": name, "psk": psk})
+        added.append(name)
+    return added, skipped
+
+
 def _validate_broker(b) -> None:
     if not isinstance(b, dict):
         raise ValueError("Ogni broker deve essere un oggetto")

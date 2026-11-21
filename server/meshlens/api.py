@@ -2,6 +2,7 @@
 condivisa e va usata solo dal thread dell'event loop."""
 import logging
 import asyncio
+import copy
 import contextlib
 import ipaddress
 import mimetypes
@@ -23,6 +24,7 @@ from starlette.websockets import WebSocketDisconnect
 from .alerts import compute_alerts
 from .auth import LOOPBACK, MIN_PIN, MIN_PIN_LAN, Auth, LockedError
 from .bus import Bus
+from .channel_link import parse_channel_url
 from .ingest import revive_node
 from .config_model import schema as config_schema
 from .config_service import ConfigError
@@ -37,7 +39,7 @@ from .mqtt_publish import MqttSendError, pick_broker
 from .radio_manager import NoRadioConnected, TracerouteThrottled
 from .backup import NAME_RE, BackupUnusable
 from .settings import (DEFAULT_BROKER_ID, MASK, export_settings, find_broker, load_settings,
-                       mask_secrets, prepare_import, resolve_broker_secrets,
+                       mask_secrets, merge_channels, prepare_import, resolve_broker_secrets,
                        resolve_extra_keys, save_settings)
 from .serving import tls_status
 from .store import Store
@@ -137,6 +139,14 @@ class MqttSendBody(BaseModel):
     to: str | None = None
     confirm_public: bool = False
     broker: str | None = Field(None, max_length=24)  # None = primo broker attivo
+
+
+class ImportLinkBody(BaseModel):
+    url: str = Field(max_length=4096)
+
+
+class ImportRadioBody(BaseModel):
+    radio_id: str = Field(max_length=64)
 
 
 class UpdateInstallBody(BaseModel):
@@ -681,6 +691,55 @@ def create_app(ctx: AppContext) -> FastAPI:
             except Exception:  # il messaggio e' gia' partito: non si risponde con un errore
                 logging.getLogger(__name__).exception("Salvataggio della conferma MQTT fallito")
         return {"message": message}
+
+    async def import_channels(broker_id: str, entries_fn):
+        """Importa i canali nel broker salvato; le PSK escono solo mascherate."""
+        current = load_settings(ctx.conn)
+        if find_broker(current, broker_id) is None:
+            raise HTTPException(404, "Broker non trovato")
+        try:
+            entries = await entries_fn()
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+        brokers = copy.deepcopy(current["mqtt_brokers"])
+        added, skipped = merge_channels(find_broker({"mqtt_brokers": brokers}, broker_id), entries)
+        saved = current
+        if added:
+            try:
+                saved = save_settings(ctx.conn, {"mqtt_brokers": brokers})
+            except ValueError as e:
+                raise HTTPException(400, str(e))
+            await ctx.on_settings_changed(saved)
+        return {"settings": _mask_settings(saved), "added": added, "skipped": skipped}
+
+    @app.post("/api/mqtt/brokers/{broker_id}/channels/import-link",
+              dependencies=[Depends(require_auth), Depends(require_json)])
+    async def mqtt_import_link(broker_id: str, body: ImportLinkBody):
+        async def entries():
+            return parse_channel_url(body.url)
+        return await import_channels(broker_id, entries)
+
+    @app.post("/api/mqtt/brokers/{broker_id}/channels/import-radio",
+              dependencies=[Depends(require_auth), Depends(require_json)])
+    async def mqtt_import_radio(broker_id: str, body: ImportRadioBody):
+        if ctx.config is None:
+            raise HTTPException(503, "Configurazione dei nodi non disponibile")
+
+        async def entries():
+            return await config_call(ctx.config.channel_secrets(body.radio_id))
+        return await import_channels(broker_id, entries)
+
+    @app.post("/api/mqtt/brokers/{broker_id}/channels/{index}/reveal",
+              dependencies=[Depends(require_auth)])
+    async def mqtt_reveal_channel_psk(broker_id: str, index: int, request: Request):
+        if not is_loopback(request):
+            raise HTTPException(403, "Le chiavi si mostrano solo da questo PC")
+        broker = find_broker(load_settings(ctx.conn), broker_id)
+        if broker is None:
+            raise HTTPException(404, "Broker non trovato")
+        if not 0 <= index < len(broker["channels"]):
+            raise HTTPException(404, "Canale non trovato")
+        return {"psk": broker["channels"][index]["psk"]}
 
     @app.get("/api/mqtt/channels", dependencies=[Depends(require_auth)])
     async def mqtt_channels(broker: str | None = Query(None, max_length=24)):

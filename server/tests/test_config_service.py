@@ -432,3 +432,21 @@ async def test_reveal_psk_and_admin_key():
     assert err.value.status == 404
     key = await svc.admin_key(e.mgr.radios()[0]["id"])
     assert base64.b64decode(key["public_key_b64"]) == b"PUBLIC-KEY-0123456789abcdef-----"
+
+
+async def test_channel_secrets_from_local_radio():
+    e, svc, conn = await make_service()
+    conn.nodes[None]["channels"][0].settings.name = ""  # primario senza nome
+    off = channel_pb2.Channel(index=2, role=channel_pb2.Channel.DISABLED)
+    off.settings.name = "spento"
+    conn.nodes[None]["channels"].append(off)
+    out = await svc.channel_secrets(e.mgr.radios()[0]["id"])
+    assert [c["name"] for c in out] == ["LongFast", "uno"]
+    assert base64.b64decode(out[0]["psk"]) == CHAN_PSK
+    conn.state_name = "reconnecting"
+    with pytest.raises(ConfigError) as err:
+        await svc.channel_secrets(e.mgr.radios()[0]["id"])
+    assert err.value.status == 409 and err.value.message == "Radio non collegata"
+    with pytest.raises(ConfigError) as err:
+        await svc.channel_secrets("rnope")
+    assert err.value.status == 404
