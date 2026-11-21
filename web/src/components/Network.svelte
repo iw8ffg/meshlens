@@ -2,6 +2,7 @@
   import { app } from '../lib/stores.svelte'
   import { ago } from '../lib/format'
   import { sortNodes, type SortKey } from '../lib/network'
+  import { loadView, saveView } from '../lib/viewstate'
   import { alertText, alertsByNode, batteryView, contactMinutes, fmtOpt, hopsLabel, networkNodes, nodeName } from '../lib/nodes'
   import Banner from '../lib/ui/Banner.svelte'
   import BatteryBadge from '../lib/ui/BatteryBadge.svelte'
@@ -33,8 +34,9 @@
   let mineChoice = $state<boolean | null>(null)
   const onlyMine = $derived(mineChoice ?? hasMine)
   let onlyFav = $state(false)
-  let key = $state<SortKey>('last_heard')
-  let dir = $state<'asc' | 'desc'>('desc')
+  const initialSort = loadView(localStorage).netSort ?? { key: 'last_heard', dir: 'desc' }
+  let key = $state<SortKey>(initialSort.key)
+  let dir = $state<'asc' | 'desc'>(initialSort.dir)
 
   const rows = $derived(sortNodes(networkNodes(nodes, onlyMine, onlyFav), key, dir))
   const alerts = $derived(alertsByNode(app.alerts))
@@ -47,6 +49,7 @@
       key = sk
       dir = sk === 'name' || sk === 'role' || sk === 'firmware' ? 'asc' : 'desc'
     }
+    saveView(localStorage, { netSort: { key, dir } })
   }
 </script>
 

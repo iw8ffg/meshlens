@@ -11,6 +11,7 @@
   import { copyText } from '../lib/clipboard'
   import { geopos } from '../lib/geopos.svelte'
   import { bboxFromBounds } from '../lib/maps'
+  import { loadView, saveView } from '../lib/viewstate'
   import { formatMeters } from '../lib/geo'
   import { coverageSession, getJSON, links as fetchLinks, patchCoverage } from '../lib/api'
   import { coverageGeoJSON } from '../lib/coverage'
@@ -347,12 +348,21 @@
       const b = map.getBounds()
       maps.bounds = bboxFromBounds(b)
     }
+    // vista ricordata: centro con 5 decimali, zoom con 2
+    const saveCamera = () => {
+      if (!map) return
+      const c = map.getCenter().wrap()
+      const round = (x: number, d: number) => Number(x.toFixed(d))
+      saveView(localStorage, { map: { lon: round(c.lng, 5), lat: round(c.lat, 5), zoom: round(map.getZoom(), 2) } })
+    }
     let boundsTimer: ReturnType<typeof setTimeout> | null = null
     const onMoveEnd = () => {
       if (boundsTimer) return
       boundsTimer = setTimeout(() => {
         boundsTimer = null
-        if (!disposed) publishBounds()
+        if (disposed) return
+        publishBounds()
+        saveCamera()
       }, 250)
     }
 
@@ -374,7 +384,8 @@
       boot = needsStyle
       notice = noticeFor(needsStyle ? wanted : current)
       offlineBadge = current === 'offline'
-      map = new maplibregl.Map({ container: el, style: styleFor(current), center: [12.5, 42.5], zoom: 5, attributionControl: { compact: true }, fadeDuration: 0 })
+      const cam = loadView(localStorage).map ?? { lon: 12.5, lat: 42.5, zoom: 5 }
+      map = new maplibregl.Map({ container: el, style: styleFor(current), center: [cam.lon, cam.lat], zoom: cam.zoom, attributionControl: { compact: true }, fadeDuration: 0 })
       map.on('style.load', () => setup(current !== 'fallback'))
       map.on('moveend', onMoveEnd)
       publishBounds()

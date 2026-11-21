@@ -20,7 +20,7 @@
     type MqttSendBody,
   } from '../lib/send'
   import { keepAboveKeyboard } from '../lib/keyboard'
-  import { app, addMessage, addRadioHistory, attachChat } from '../lib/stores.svelte'
+  import { app, addMessage, addRadioHistory, attachChat, rememberConv } from '../lib/stores.svelte'
   import Badge from '../lib/ui/Badge.svelte'
   import Banner from '../lib/ui/Banner.svelte'
   import Button from '../lib/ui/Button.svelte'
@@ -96,6 +96,7 @@
       chat.detach()
     }
   })
+  $effect(() => rememberConv(conv))
 
   const localIds = $derived(localNodeIds(app.radios))
   const groups = $derived(groupMessages(app.radioMessages, localIds))

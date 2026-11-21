@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onDestroy } from 'svelte'
   import { getJSON, setFavorite, setMine } from '../lib/api'
   import { formatDate, ago, num } from '../lib/format'
   import { batteryView, contactMinutes, fmtOpt, hopsLabel, nodeName, sourceKind } from '../lib/nodes'
@@ -13,6 +14,8 @@
   import TelemetryChart from './TelemetryChart.svelte'
   import Traceroute from './Traceroute.svelte'
   import { formatPrecision } from '../lib/geo'
+  import { copyText } from '../lib/clipboard'
+  import { nodeLink } from '../lib/route'
   import type { Node } from '../lib/types'
 
   type Pos = { time: number; lat: number; lon: number; precision_bits: number | null; source: string }
@@ -70,6 +73,21 @@
     }
   }
 
+  // «Copia link»: link diretto al nodo, conferma «Link copiato» per 2 s
+  let linkCopied = $state(false)
+  let copiedTimer: ReturnType<typeof setTimeout> | undefined
+  async function copyLink() {
+    msg = ''
+    if (await copyText(nodeLink(node.id, location))) {
+      linkCopied = true
+      clearTimeout(copiedTimer)
+      copiedTimer = setTimeout(() => (linkCopied = false), 2000)
+    } else {
+      msg = 'Impossibile copiare il link'
+    }
+  }
+  onDestroy(() => clearTimeout(copiedTimer))
+
   let loading = $state(false)
   let msg = $state('')
   let shown = $state(false)
@@ -80,6 +98,7 @@
     void nodeId
     shown = false
     msg = ''
+    linkCopied = false
     ontrack(null)
   })
 
@@ -157,6 +176,7 @@
     {#if node.lat !== null}
       <Button icon="route" disabled={loading} onclick={toggleTrack}>{shown ? 'Nascondi percorso' : loading ? 'Caricamento…' : 'Mostra percorso'}</Button>
     {/if}
+    <Button icon="copy" onclick={copyLink}>{linkCopied ? 'Link copiato' : 'Copia link'}</Button>
   </div>
   {#if !firstRadio}<p class="hint">Collega una radio per i messaggi diretti e per configurare il nodo.</p>{/if}
   {#if msg}

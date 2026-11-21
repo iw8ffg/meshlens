@@ -21,6 +21,7 @@
   import Sheet from './lib/ui/Sheet.svelte'
   import Empty from './lib/ui/Empty.svelte'
   import Button from './lib/ui/Button.svelte'
+  import Toast from './lib/ui/Toast.svelte'
   import { setNavigator } from './lib/shell/navigate'
   import { viewport } from './lib/viewport.svelte'
   import { MORE_TABS, effectiveTab, isMoreTab, isPageTab, sheetVisible, type Tab } from './lib/shell/nav'
@@ -29,16 +30,21 @@
   import { myOrigin } from './lib/distance'
   import { geopos } from './lib/geopos.svelte'
   import type { NodeSortKey } from './lib/nodesort'
-  import { getJSON, alerts as fetchAlerts, coverageSessions, coverageSession, updateStatus, AUTH_REQUIRED } from './lib/api'
+  import { formatHash, parseHash, type Route } from './lib/route'
+  import { loadView, saveView } from './lib/viewstate'
+  import { ApiError, getJSON, alerts as fetchAlerts, coverageSessions, coverageSession, updateStatus, AUTH_REQUIRED } from './lib/api'
   import { connectWS } from './lib/ws'
   import { markOnline, markOffline } from './lib/connection.svelte'
   import { serialRunner } from './lib/serial'
-  import { app, upsertNodes, addMessage, addRadioHistory, setMessageStatus, setStatus, setRadios, setAlerts, setTraceroute, persistFilter, persistFeedFilter, coverage, setCoverageSessions, applyCoverage, configUi, setConfigJob, setMapJob, setUpdateStatus, setUpdateJob } from './lib/stores.svelte'
+  import { app, upsertNodes, addMessage, addRadioHistory, setMessageStatus, setStatus, setRadios, setAlerts, setTraceroute, persistFilter, persistFeedFilter, coverage, setCoverageSessions, applyCoverage, configUi, setConfigJob, setMapJob, setUpdateStatus, setUpdateJob, openChat } from './lib/stores.svelte'
   import type { AuthStatus, Message, Node, Radio } from './lib/types'
 
   let auth = $state<AuthStatus | null>(null)
   let error = $state('')
-  let tab = $state<Tab>(viewport.phone ? 'map' : 'nodes')
+  // Vista iniziale: prima l'hash (link diretto), poi la vista ricordata, poi il predefinito
+  const initialRoute = parseHash(location.hash)
+  const initialView = loadView(localStorage)
+  let tab = $state<Tab>(initialRoute.tab ?? initialView.tab ?? (viewport.phone ? 'map' : 'nodes'))
   let snap = $state<SheetSnap>(1)
   let now = $state(Math.floor(Date.now() / 1000))
   let track = $state<[number, number][] | null>(null)
@@ -47,7 +53,7 @@
   const visible = $derived(
     [...app.nodes.values()].filter((n) => matchNode(n, app.filter, now)),
   )
-  let nodeSort = $state<NodeSortKey>('recent')
+  let nodeSort = $state<NodeSortKey>(initialView.nodeSort)
   const origin = $derived(myOrigin(app.nodes, app.radios, geopos.pos))
   const selected = $derived(app.selectedId ? (app.nodes.get(app.selectedId) ?? null) : null)
   // Su desktop "Mappa" e "Altro" non esistono come schede: la mappa e' sempre visibile
@@ -79,6 +85,38 @@
     else app.selectedId = id
   }
 
+  // Nodo del link diretto non ancora caricato: variabile semplice, non reattiva
+  let pendingNode: string | null = null
+  let nodesLoaded = false
+  let routeError = $state('')
+
+  function applyRoute(r: Route) {
+    if (r.tab) goTab(r.tab)
+    if (!r.nodeId) return
+    if (app.nodes.has(r.nodeId)) {
+      pendingNode = null
+      pickId(r.nodeId)
+    } else {
+      pendingNode = r.nodeId
+      if (nodesLoaded) void resolvePending()
+    }
+  }
+
+  /** Dopo il caricamento dei nodi: seleziona il nodo in attesa (una volta sola) o segnala che non esiste. */
+  async function resolvePending() {
+    const id = pendingNode
+    if (!id) return
+    pendingNode = null
+    if (app.nodes.has(id)) return pickId(id)
+    try {
+      upsertNodes([await getJSON<Node>('/nodes/' + encodeURIComponent(id))])
+      pickId(id)
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 404) routeError = `Nodo ${id} non trovato`
+      else if (pendingNode === null) pendingNode = id // errore di rete: si riprova al prossimo caricamento
+    }
+  }
+
   function close() {
     app.selectedId = null
     track = null
@@ -95,6 +133,11 @@
 
   onMount(() => {
     setNavigator(goTab)
+    applyRoute(initialRoute)
+    // ultima conversazione: resta in attesa nel ponte finche' Messaggi non si monta
+    if (initialView.conv && !initialRoute.nodeId) openChat(initialView.conv)
+    const onHash = () => applyRoute(parseHash(location.hash))
+    window.addEventListener('hashchange', onHash)
     refresh()
     const tick = setInterval(() => (now = Math.floor(Date.now() / 1000)), 30_000)
     const onAuth = () => {
@@ -103,6 +146,7 @@
     window.addEventListener(AUTH_REQUIRED, onAuth)
     return () => {
       window.removeEventListener(AUTH_REQUIRED, onAuth)
+      window.removeEventListener('hashchange', onHash)
       clearInterval(tick)
       setNavigator(null)
     }
@@ -115,6 +159,13 @@
     return () => clearInterval(t)
   })
 
+  // L'hash e la vista ricordata seguono scheda e nodo selezionato (nessuno stato reattivo scritto qui)
+  $effect(() => {
+    const t = activeTab === 'more' ? null : activeTab
+    history.replaceState(null, '', formatHash({ tab: t, nodeId: app.selectedId }) || location.pathname)
+    if (t) saveView(localStorage, { tab: t })
+  })
+
   $effect(persistFilter)
   $effect(persistFeedFilter)
 
@@ -123,7 +174,11 @@
     // un caricamento alla volta: un resync arrivato a metà riparte dopo, non si sovrappone
     const loader = serialRunner(() => {
       const jobs: Promise<unknown>[] = [
-        getJSON<Node[]>('/nodes').then(upsertNodes),
+        getJSON<Node[]>('/nodes').then((list) => {
+          upsertNodes(list)
+          nodesLoaded = true
+          void resolvePending()
+        }),
         getJSON<Message[]>('/messages/radio?limit=200').then(addRadioHistory),
         getJSON<Radio[]>('/radios').then(setRadios),
         fetchAlerts().then(setAlerts),
@@ -173,7 +228,14 @@
   {#if activeTab === 'nodes'}
     <Filters />
     <ActiveFilters />
-    <NodeSortBar value={nodeSort} hasOrigin={origin !== null} onchange={(k) => (nodeSort = k)} />
+    <NodeSortBar
+      value={nodeSort}
+      hasOrigin={origin !== null}
+      onchange={(k) => {
+        nodeSort = k
+        saveView(localStorage, { nodeSort: k })
+      }}
+    />
     <NodeList nodes={visible} {now} sort={nodeSort} {origin} onpick={pick} />
   {:else if activeTab === 'network'}
     <Network nodes={[...app.nodes.values()]} {now} onpick={pick} />
@@ -204,6 +266,9 @@
     <TopBar visible={visible.length} tab={activeTab} onselect={goTab} onupdate={() => goTab('settings')} onpickalert={pickId} />
     <ConnectionBar />
     <div class="main">
+      {#if routeError}
+        <div class="route-toast"><Toast kind="warn" onclose={() => (routeError = '')}>{routeError}</Toast></div>
+      {/if}
       <div class="mapwrap"><MapView nodes={visible} total={app.nodes.size} {now} {track} {focus} onpick={pickId} /></div>
 
       {#if !viewport.phone}
@@ -285,6 +350,15 @@
   /* La barra in basso gestisce gia' la safe area: lo Sheet non la raddoppia */
   .main :global(.ui-sheet) {
     padding-bottom: 0;
+  }
+  .route-toast {
+    position: absolute;
+    top: var(--space-3);
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: var(--z-toast);
+    width: max-content;
+    max-width: calc(100% - 2 * var(--space-3));
   }
   .more {
     list-style: none;
