@@ -369,6 +369,11 @@
     .muted {
       font-size: 13px;
     }
+    button,
+    select,
+    input:not([type='checkbox']) {
+      min-height: 40px;
+    }
   }
   .err {
     color: #f87171;

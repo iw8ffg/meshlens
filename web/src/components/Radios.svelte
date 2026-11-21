@@ -304,4 +304,11 @@
     flex-direction: column;
     gap: 4px;
   }
+  @media (max-width: 767px) {
+    button,
+    select,
+    input:not([type='checkbox']) {
+      min-height: 40px;
+    }
+  }
 </style>
