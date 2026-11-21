@@ -242,7 +242,7 @@
           <Switch bind:checked={lan} label="Accesso dalla rete locale" />
           <p class="ui-hint">Richiede il riavvio di MeshLens.</p>
           <Switch bind:checked={lanHttps} disabled={!lan} label="Usa HTTPS per l'accesso dalla rete" />
-          {#if lanHttps}<p class="ui-hint">{httpsNote(tls?.port)}</p>{/if}
+          {#if lan && lanHttps}<p class="ui-hint">{httpsNote(tls?.port)}</p>{/if}
           {#if tls?.fingerprint_sha256}
             <div class="fld">
               <span class="ui-lbl">Impronta del certificato (SHA-256)</span>

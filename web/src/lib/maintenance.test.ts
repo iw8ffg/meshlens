@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { bytes, exportUrl, reasonLabel } from './maintenance'
+import { bytes, exportUrl, integrityDamaged, reasonLabel } from './maintenance'
 
 describe('bytes', () => {
   it('formatta con la virgola italiana', () => {
@@ -26,5 +26,17 @@ describe('exportUrl', () => {
   it('senza e con segreti', () => {
     expect(exportUrl(false)).toBe('/api/settings/export?secrets=0')
     expect(exportUrl(true)).toBe('/api/settings/export?secrets=1')
+  })
+})
+
+describe('integrityDamaged', () => {
+  it('neutro per ok, non controllata e in corso', () => {
+    expect(integrityDamaged('ok')).toBe(false)
+    expect(integrityDamaged('non controllata')).toBe(false)
+    expect(integrityDamaged('in corso')).toBe(false)
+  })
+  it('danneggiato per qualsiasi altro esito', () => {
+    expect(integrityDamaged('*** in database main ***')).toBe(true)
+    expect(integrityDamaged('non leggibile (file is not a database)')).toBe(true)
   })
 })

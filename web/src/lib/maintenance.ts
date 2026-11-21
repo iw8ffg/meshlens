@@ -9,6 +9,12 @@ export type DbInfo = {
   last_purge: { time: number; deleted: Record<string, number> } | null
 }
 
+/** Esito del controllo d'integrità che indica un database danneggiato
+ * (non per "ok", per il controllo non ancora fatto o ancora in corso all'avvio). */
+export function integrityDamaged(integrity: string): boolean {
+  return integrity !== 'ok' && integrity !== 'non controllata' && integrity !== 'in corso'
+}
+
 /** Dimensione leggibile in italiano: 1536000 -> "1,5 MB". */
 export function bytes(n: number): string {
   return formatBytes(n)

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { ApiError, getJSON, send } from '../../lib/api'
-  import { bytes, exportUrl, reasonLabel, TABLE_LABELS, type BackupInfo, type DbInfo, type ImportResult } from '../../lib/maintenance'
+  import { bytes, exportUrl, integrityDamaged, reasonLabel, TABLE_LABELS, type BackupInfo, type DbInfo, type ImportResult } from '../../lib/maintenance'
   import Banner from '../../lib/ui/Banner.svelte'
   import Button from '../../lib/ui/Button.svelte'
   import Card from '../../lib/ui/Card.svelte'
@@ -116,7 +116,7 @@
   <section class="sec">
     <h3>Database e backup</h3>
     {#if loadError}<Banner kind="danger" title={loadError} />{/if}
-    {#if info && info.integrity !== 'ok' && info.integrity !== 'non controllata'}
+    {#if info && integrityDamaged(info.integrity)}
       <Banner kind="danger" title="Il database risulta danneggiato: ripristina un backup" />
     {/if}
     {#if info}
@@ -187,7 +187,10 @@
   onconfirm={restore}
   oncancel={() => (restoring = null)}
 >
-  <p>Il ripristino sostituisce tutti i dati attuali. Riavvia MeshLens per completarlo.</p>
+  <p>
+    Il ripristino sostituisce tutti i dati attuali. Riavvia MeshLens per completarlo. Il PIN torna quello in
+    uso al momento del backup e tutti i dispositivi, compreso questo, dovranno accedere di nuovo.
+  </p>
 </Modal>
 
 <Modal

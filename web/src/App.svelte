@@ -22,6 +22,7 @@
   import { matchNode } from './lib/filters'
   import { getJSON, alerts as fetchAlerts, coverageSessions, coverageSession, updateStatus, AUTH_REQUIRED } from './lib/api'
   import { connectWS } from './lib/ws'
+  import { serialRunner } from './lib/serial'
   import { app, upsertNodes, addMessage, addRadioHistory, setMessageStatus, setStatus, setRadios, setAlerts, setTraceroute, persistFilter, persistFeedFilter, coverage, setCoverageSessions, applyCoverage, configUi, setConfigJob, setMapJob, setUpdateStatus, setUpdateJob } from './lib/stores.svelte'
   import type { AuthStatus, Message, Node, Radio } from './lib/types'
 
@@ -98,37 +99,30 @@
 
   $effect(() => {
     if (!auth?.authenticated) return
-    const load = () => {
-      getJSON<Node[]>('/nodes')
-        .then(upsertNodes)
-        .catch(() => {})
-      getJSON<Message[]>('/messages/radio?limit=200')
-        .then(addRadioHistory)
-        .catch(() => {})
-      getJSON<Radio[]>('/radios')
-        .then(setRadios)
-        .catch(() => {})
-      fetchAlerts()
-        .then(setAlerts)
-        .catch(() => {})
-      coverageSessions()
-        .then(setCoverageSessions)
-        .catch(() => {})
-      updateStatus()
-        .then(setUpdateStatus)
-        .catch(() => {})
+    // un caricamento alla volta: un resync arrivato a metà riparte dopo, non si sovrappone
+    const loader = serialRunner(() => {
+      const jobs: Promise<unknown>[] = [
+        getJSON<Node[]>('/nodes').then(upsertNodes),
+        getJSON<Message[]>('/messages/radio?limit=200').then(addRadioHistory),
+        getJSON<Radio[]>('/radios').then(setRadios),
+        fetchAlerts().then(setAlerts),
+        coverageSessions().then(setCoverageSessions),
+        updateStatus().then(setUpdateStatus),
+      ]
       const openId = untrack(() => coverage.openId)
       if (openId !== null) {
         const id = openId
-        coverageSession(id)
-          .then((d) => {
+        jobs.push(
+          coverageSession(id).then((d) => {
             if (coverage.openId === id) coverage.detail = d
-          })
-          .catch(() => {})
+          }),
+        )
       }
-    }
+      return Promise.allSettled(jobs)
+    })
+    const load = loader.trigger
     load()
-    return connectWS({
+    const stopWS = connectWS({
       reconnected: () => {
         load()
         app.reconnects++
@@ -146,6 +140,10 @@
       mapJob: setMapJob,
       updateJob: setUpdateJob,
     })
+    return () => {
+      loader.dispose()
+      stopWS()
+    }
   })
 </script>
 
