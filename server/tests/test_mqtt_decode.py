@@ -94,7 +94,7 @@ def test_unknown_key_counted_undecodable():
 
 def test_unsupported_port_counted():
     d = EnvelopeDecoder([DEFAULT_KEY])
-    assert d.decode(T, make_envelope(70, b""), now=1.0) is None and d.stats["unsupported_port"] == 1
+    assert d.decode(T, make_envelope(5, b""), now=1.0) is None and d.stats["unsupported_port"] == 1
 
 
 def test_ok_is_counted():
@@ -157,3 +157,26 @@ def test_hops_never_negative():
     ev = EnvelopeDecoder([DEFAULT_KEY]).decode(
         T, make_envelope(1, b"x", hop_start=1, hop_limit=3), now=1.0)
     assert ev.hops == 0
+
+
+def test_mqtt_neighborinfo_decoded():
+    info = mesh_pb2.NeighborInfo(node_id=3, neighbors=[
+        mesh_pb2.Neighbor(node_id=5, snr=6.5), mesh_pb2.Neighbor(node_id=6, snr=-3.0)])
+    ev = EnvelopeDecoder([DEFAULT_KEY]).decode(T, make_envelope(71, info), now=1.0)
+    assert ev.kind == "neighbors"
+    assert ev.payload.neighbors == [(5, 6.5), (6, -3.0)]
+
+
+def test_mqtt_traceroute_decoded_snr_scaled():
+    from meshtastic.protobuf import portnums_pb2
+    rd = mesh_pb2.RouteDiscovery(route=[0x0b], snr_towards=[24, -128], snr_back=[-8])
+    data = mesh_pb2.Data(portnum=portnums_pb2.TRACEROUTE_APP, payload=rd.SerializeToString(),
+                         request_id=77)
+    from meshlens import mqtt_decode
+    ev = mqtt_decode._parse_route(data)
+    assert ev.snr_towards == [6.0, None] and ev.snr_back == [-2.0]
+    assert ev.route == [0x0b] and ev.route_back == [] and ev.request_id == 77
+    # e dalla busta completa
+    ev = EnvelopeDecoder([DEFAULT_KEY]).decode(T, make_envelope(70, rd), now=1.0)
+    assert ev.kind == "traceroute" and ev.payload.snr_towards == [6.0, None]
+    assert ev.payload.request_id is None

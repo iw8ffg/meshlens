@@ -1,8 +1,11 @@
 """Conversione dei dict del pacchetto/nodo (libreria meshtastic) in MeshEvent."""
 import base64
 
+from meshtastic.protobuf import mesh_pb2
+
 from .events import (
-    MeshEvent, NodeInfoData, PositionData, TelemetryData, TextData,
+    MeshEvent, NeighborData, NodeInfoData, PositionData, RouteData, TelemetryData,
+    TextData, scale_snr,
 )
 
 
@@ -63,6 +66,34 @@ def _telemetry(dm: dict | None) -> TelemetryData | None:
     )
 
 
+def _neighbors(info: dict | None) -> NeighborData | None:
+    if not info:
+        return None
+    return NeighborData([(n["nodeId"], n.get("snr")) for n in info.get("neighbors", [])
+                         if n.get("nodeId")])
+
+
+def _route(decoded: dict, packet: dict) -> RouteData | None:
+    tr = decoded.get("traceroute")
+    if tr is None and decoded.get("payload"):  # la libreria non l'ha decodificato
+        try:
+            rd = mesh_pb2.RouteDiscovery()
+            rd.ParseFromString(bytes(decoded["payload"]))
+            tr = {"route": list(rd.route), "snrTowards": list(rd.snr_towards),
+                  "routeBack": list(rd.route_back), "snrBack": list(rd.snr_back)}
+        except Exception:
+            return None
+    if tr is None:
+        return None
+    return RouteData(
+        request_id=decoded.get("requestId") or packet.get("requestId") or None,
+        route=list(tr.get("route", [])),
+        snr_towards=[scale_snr(v) for v in tr.get("snrTowards", [])],
+        route_back=list(tr.get("routeBack", [])),
+        snr_back=[scale_snr(v) for v in tr.get("snrBack", [])],
+    )
+
+
 def _event(kind, payload, *, from_node, to_node, packet_id, channel, rx_time,
            snr, rssi, hops, radio_id) -> MeshEvent:
     return MeshEvent(
@@ -87,6 +118,10 @@ def packet_to_event(packet: dict, radio_id: str, now: float) -> MeshEvent | None
     elif port == "TELEMETRY_APP":
         kind = "telemetry"
         payload = _telemetry((decoded.get("telemetry") or {}).get("deviceMetrics"))
+    elif port == "NEIGHBORINFO_APP":
+        kind, payload = "neighbors", _neighbors(decoded.get("neighborinfo"))
+    elif port == "TRACEROUTE_APP":
+        kind, payload = "traceroute", _route(decoded, packet)
     else:
         return None
     if payload is None:

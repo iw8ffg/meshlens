@@ -25,6 +25,21 @@ def _channel_index(channel: str) -> int | None:
         return None
 
 
+def _snr_at(snrs: list, i: int):
+    return snrs[i] if i < len(snrs) else None
+
+
+def traceroute_chains(ev: MeshEvent) -> tuple[list[tuple[int, float | None]],
+                                              list[tuple[int, float | None]]]:
+    """Catene (nodo, snr) di andata e ritorno; from_node e' il nodo raggiunto, to_node chi ha avviato."""
+    p = ev.payload
+    fwd_nodes = p.route + [ev.from_node]
+    back_nodes = p.route_back + [ev.to_node]
+    forward = [(ev.to_node, None)] + [(n, _snr_at(p.snr_towards, i)) for i, n in enumerate(fwd_nodes)]
+    back = [(ev.from_node, None)] + [(n, _snr_at(p.snr_back, i)) for i, n in enumerate(back_nodes)]
+    return forward, back
+
+
 def _new_node(num: int) -> dict:
     return {"id": node_id(num), "num": num, "long_name": None, "short_name": None,
             "hw_model": None, "role": None, "firmware": None, "lat": None, "lon": None,
@@ -47,6 +62,7 @@ class Ingestor:
         self.on_message = on_message
         self.on_status = on_status
         self._telemetry_time: dict[int, float] = {}
+        self._radio_nodes: dict[str, int] = {}  # radio_id -> numero del nodo della radio
         # (nodo, packet id) gia' visti da MQTT: serve a contare i gateway anche se l'RF e' arrivato prima
         self._mqtt_seen: OrderedDict[tuple[int, int], None] = OrderedDict()
 
@@ -82,6 +98,8 @@ class Ingestor:
         if ev.hops is not None and not stale and not no_time:
             prev = node["hops"]
             node["hops"] = ev.hops if not is_dup or prev is None else min(prev, ev.hops)
+
+        self._record_links(ev)  # anche per i duplicati: un'altra copia puo' avere SNR migliore
 
         if ev.source == "mqtt":
             key = (num, ev.packet_id)
@@ -147,6 +165,22 @@ class Ingestor:
 
         if message is not None:
             self.on_message(message)
+
+    def _record_links(self, ev: MeshEvent) -> None:
+        if ev.kind == "neighbors":
+            for neighbor, snr in ev.payload.neighbors:
+                self.store.upsert_link(neighbor, ev.from_node, "neighborinfo", snr, ev.rx_time)
+        elif ev.kind == "traceroute":
+            for chain in traceroute_chains(ev):
+                for (a, _), (b, snr) in zip(chain, chain[1:]):
+                    self.store.upsert_link(a, b, "traceroute", snr, ev.rx_time)
+        if ev.source == "rf" and ev.hops == 0 and ev.rx_time > 0:
+            radio_num = self._radio_nodes.get(ev.radio_id)
+            if radio_num is not None:
+                self.store.upsert_link(ev.from_node, radio_num, "rf_direct", ev.snr, ev.rx_time)
+
+    def set_radio_node(self, radio_id: str, num: int) -> None:
+        self._radio_nodes[radio_id] = num
 
     def _adopt_rf_copy(self, ev: MeshEvent) -> None:
         """Copia RF di un testo gia' creato da MQTT: il messaggio passa alla radio che l'ha sentito."""

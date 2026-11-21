@@ -106,7 +106,9 @@ class RadioManager:
     # ---- callback dei connettori (thread del loop) --------------------
     def _on_state(self, state: dict) -> None:
         if state.get("state") == "connected" and state.get("my_node_id"):
-            self.ingestor.mark_local_radio(int(state["my_node_id"][1:], 16))
+            num = int(state["my_node_id"][1:], 16)
+            self.ingestor.mark_local_radio(num)
+            self.ingestor.set_radio_node(state["id"], num)
         self._publish_radios()
 
     def _on_ack(self, radio_id: str, packet_id: int, ok: bool, reason: str | None) -> None:

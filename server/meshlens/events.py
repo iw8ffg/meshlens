@@ -54,6 +54,26 @@ class MapReportData:
 
 
 @dataclass
+class NeighborData:
+    # (node_id del vicino, snr); il nodo che riferisce e' ev.from_node
+    neighbors: list[tuple[int, float | None]]
+
+
+@dataclass
+class RouteData:
+    request_id: int | None
+    route: list[int]
+    snr_towards: list[float | None]
+    route_back: list[int]
+    snr_back: list[float | None]
+
+
+def scale_snr(v: int) -> float | None:
+    """SNR dei protobuf di traceroute: quarti di dB, -128 = sconosciuto."""
+    return None if v == -128 else v / 4
+
+
+@dataclass
 class MeshEvent:
     source: str
     from_node: int
@@ -67,4 +87,5 @@ class MeshEvent:
     gateway_id: str | None
     radio_id: str | None
     kind: str
-    payload: PositionData | NodeInfoData | TextData | TelemetryData | MapReportData
+    payload: (PositionData | NodeInfoData | TextData | TelemetryData | MapReportData
+               | NeighborData | RouteData)

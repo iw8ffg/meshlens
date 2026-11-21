@@ -99,3 +99,24 @@ def test_nodedb():
     pos = next(e for e in first if e.kind == "position")
     assert pos.payload.time == 400
     assert next(e for e in first if e.kind == "nodeinfo").payload.role == "ROUTER"
+
+
+def test_rf_traceroute_and_neighbors_converted():
+    ev = packet_to_event(_pkt({"portnum": "TRACEROUTE_APP", "requestId": 9, "traceroute": {
+        "route": [11], "snrTowards": [24, -128], "routeBack": [], "snrBack": [-8]}}), "r", NOW)
+    assert ev.kind == "traceroute"
+    p = ev.payload
+    assert (p.request_id, p.route, p.snr_towards, p.route_back, p.snr_back) == (
+        9, [11], [6.0, None], [], [-2.0])
+    ev = packet_to_event(_pkt({"portnum": "NEIGHBORINFO_APP", "neighborinfo": {
+        "nodeId": 1, "neighbors": [{"nodeId": 5, "snr": 6.5}, {"nodeId": 6, "snr": -3.0}]}}),
+        "r", NOW)
+    assert ev.kind == "neighbors" and ev.payload.neighbors == [(5, 6.5), (6, -3.0)]
+
+
+def test_rf_traceroute_falls_back_to_payload():
+    from meshtastic.protobuf import mesh_pb2
+    rd = mesh_pb2.RouteDiscovery(route=[2], snr_towards=[4])
+    ev = packet_to_event(_pkt({"portnum": "TRACEROUTE_APP", "payload": rd.SerializeToString()}),
+                         "r", NOW)
+    assert ev.payload.route == [2] and ev.payload.snr_towards == [1.0]

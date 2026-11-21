@@ -147,3 +147,14 @@ def test_nodedb_entry_without_lastheard_does_not_look_fresh(env):
     assert count(conn, "positions") == 0
     ing.handle(rf("position", pos((50.0, 10.0)), "rA", pid=0, t=0, snr=None))
     assert n["lat"] == 45.46  # solo i vuoti
+
+
+def test_rf_direct_link_only_with_zero_hops(env):
+    ing, live, store, conn, _ = env
+    ing.set_radio_node("rA", 99)
+    ing.handle(rf("text", TextData("a"), "rA", num=1, pid=1, hops=0))
+    ing.handle(rf("text", TextData("b"), "rA", num=2, pid=2, hops=2))
+    ing.handle(rf("text", TextData("c"), "rA", num=3, pid=3, hops=0, t=0))
+    ing.handle(rf("text", TextData("d"), "rZ", num=4, pid=4, hops=0))
+    assert [(r["from_id"], r["to_id"], r["source"]) for r in store.links(0)] == [
+        ("!00000001", "!00000063", "rf_direct")]

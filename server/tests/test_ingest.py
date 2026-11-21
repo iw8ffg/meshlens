@@ -3,6 +3,7 @@ import pytest
 from meshlens.db import connect
 from meshlens.dedup import Deduplicator
 from meshlens.events import MeshEvent, NodeInfoData, PositionData, TelemetryData, TextData
+from meshlens.events import node_id
 from meshlens.geo import CountryLocator
 from meshlens.ingest import Ingestor, _new_node
 from meshlens.live import LiveState
@@ -161,3 +162,26 @@ def test_duplicate_copies_keep_best_snr_and_min_hops(env):
     assert live.nodes[1]["last_snr"] == -3.0 and live.nodes[1]["hops"] == 1
     ing.handle(ev("position", pos(MILAN), pid=6, snr=-9.0, hops=4))  # nuovo pacchetto
     assert live.nodes[1]["last_snr"] == -9.0 and live.nodes[1]["hops"] == 4
+
+
+def test_traceroute_chains():
+    from meshlens.events import RouteData
+    from meshlens.ingest import traceroute_chains
+    e = ev("traceroute", RouteData(5, [2], [6.0, -1.0], [], [4.0]), num=3, to_node=1)
+    assert traceroute_chains(e) == ([(1, None), (2, 6.0), (3, -1.0)], [(3, None), (1, 4.0)])
+
+
+def test_ingest_records_links(env):
+    from meshlens.events import NeighborData, RouteData
+    ing, live, store, conn, got = env
+    ing.handle(ev("neighbors", NeighborData([(5, 6.5), (6, None)]), num=3, pid=1))
+    ing.handle(ev("traceroute", RouteData(5, [2], [6.0, -1.0], [], [4.0]), num=3, pid=2,
+                  to_node=1))
+    rows = {(r["from_id"], r["to_id"], r["source"]): r["snr"] for r in store.links(0)}
+    assert rows == {(node_id(5), node_id(3), "neighborinfo"): 6.5,
+                    (node_id(6), node_id(3), "neighborinfo"): None,
+                    (node_id(1), node_id(2), "traceroute"): 6.0,
+                    (node_id(2), node_id(3), "traceroute"): -1.0,
+                    (node_id(3), node_id(1), "traceroute"): 4.0}
+    assert live.nodes[3]["last_heard"] == NOW and live.nodes[3]["lat"] is None
+    assert not got

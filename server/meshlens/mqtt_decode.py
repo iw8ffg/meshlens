@@ -5,7 +5,8 @@ from meshtastic.protobuf import config_pb2, mesh_pb2, mqtt_pb2, portnums_pb2, te
 
 from .crypto import decrypt
 from .events import (
-    MapReportData, MeshEvent, NodeInfoData, PositionData, TelemetryData, TextData,
+    MapReportData, MeshEvent, NeighborData, NodeInfoData, PositionData, RouteData,
+    TelemetryData, TextData, scale_snr,
 )
 
 
@@ -113,6 +114,22 @@ def _parse_mapreport(payload: bytes) -> MapReportData:
     )
 
 
+def _parse_neighbors(payload: bytes) -> NeighborData:
+    info = mesh_pb2.NeighborInfo()
+    info.ParseFromString(payload)
+    return NeighborData([(n.node_id, n.snr) for n in info.neighbors])
+
+
+def _parse_route(data: mesh_pb2.Data) -> RouteData:
+    rd = mesh_pb2.RouteDiscovery()
+    rd.ParseFromString(data.payload)
+    return RouteData(
+        request_id=data.request_id or None,
+        route=list(rd.route), snr_towards=[scale_snr(v) for v in rd.snr_towards],
+        route_back=list(rd.route_back), snr_back=[scale_snr(v) for v in rd.snr_back],
+    )
+
+
 def _parse_payload(data: mesh_pb2.Data):
     port = data.portnum
     if port == portnums_pb2.TEXT_MESSAGE_APP:
@@ -125,6 +142,10 @@ def _parse_payload(data: mesh_pb2.Data):
         return "telemetry", _parse_telemetry(data.payload)
     if port == portnums_pb2.MAP_REPORT_APP:
         return "mapreport", _parse_mapreport(data.payload)
+    if port == portnums_pb2.NEIGHBORINFO_APP:
+        return "neighbors", _parse_neighbors(data.payload)
+    if port == portnums_pb2.TRACEROUTE_APP:
+        return "traceroute", _parse_route(data)
     raise _Unsupported
 
 
