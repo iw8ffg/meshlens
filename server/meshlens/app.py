@@ -24,7 +24,9 @@ from .geo import CountryLocator
 from .ingest import Ingestor
 from .live import LiveState
 from .paths import is_frozen, updates_dir
+from .elevation import ElevationCache
 from .maps import MapsManager
+from .prediction_service import PredictionManager
 from .mqtt_client import MqttConnector
 from .mqtt_decode import EnvelopeDecoder
 from .mqtt_publish import MqttSender
@@ -121,6 +123,7 @@ class Runtime:
     _stopping: bool = False
     _start_errors: dict = field(default_factory=dict)  # id broker -> (testo, time()) dell'avvio fallito
     storeforward: StoreForwardService | None = None
+    prediction: PredictionManager | None = None
 
     def start_connector(self, broker: dict) -> None:
         bid = broker["id"]
@@ -408,6 +411,8 @@ class Runtime:
         self.loop = asyncio.get_running_loop()
         if self.maps is not None:
             self.maps.cleanup_tmp()  # .tmp rimasti da un download interrotto
+        if self.prediction is not None:
+            self.prediction.cleanup_tmp()  # .tmp rimasti da un calcolo o download interrotto
         if self.updater is not None:
             self.updater.cleanup_tmp()
         if self.coverage is not None:
@@ -440,6 +445,8 @@ class Runtime:
         self._interrupt_integrity()
         if self.maps is not None:
             await self.maps.shutdown()  # uccide l'eventuale processo di ritaglio
+        if self.prediction is not None:
+            await self.prediction.shutdown()  # annulla il calcolo e chiude i processi
         if self.config is not None:
             await self.config.stop()
         if self.radios is not None:
@@ -519,6 +526,7 @@ def build(data_dir: Path, connector_factory=MqttConnector,
                               connector_factory=radio_connector_factory, on_event=on_event)
     rt.config = ConfigService(store, rt.radios, live, bus)
     rt.maps = MapsManager(data_dir, lambda: rt.settings, bus)
+    rt.prediction = PredictionManager(data_dir, bus, ElevationCache(Path(data_dir) / "elevation"))
     rt.updater = Updater(lambda: rt.settings, bus, update_http, frozen=is_frozen(),
                          updates_dir=updates_dir(),
                          launcher_exit=lambda d: rt.ctx.request_exit(d),
@@ -530,7 +538,7 @@ def build(data_dir: Path, connector_factory=MqttConnector,
                      mqtt_channel_brokers=ingestor.mqtt_channel_brokers,
                      on_settings_changed=rt.on_settings_changed,
                      static_dir=static_dir, radios=rt.radios, coverage=coverage, storeforward=sf,
-                     config=rt.config, maps=rt.maps, updater=rt.updater, data_dir=Path(data_dir),
+                     config=rt.config, maps=rt.maps, prediction=rt.prediction, updater=rt.updater, data_dir=Path(data_dir),
                      db_path=rt.db_path, last_purge=lambda: rt.last_purge,
                      backups=backups, db_health=lambda: rt.db_health, log_dir=log_dir)
     rt.ctx = ctx
