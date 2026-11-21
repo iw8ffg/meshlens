@@ -333,8 +333,23 @@ async def test_local_write_without_reboot_rereads_directly():
     conn.drops = False
     pv = svc.preview(MY_ID, {"owner.long_name": "Altro"})
     done = await run(svc, svc.apply(MY_ID, pv["preview_id"], False))
-    assert done["status"] == "done" and done["verify"] == "verified"
+    # nessun riavvio rilevato: la rilettura non prova nulla, quindi nessuna verifica
+    assert done["status"] == "done" and done["verify"] is None
+    assert done["step"] == "Applicato (nessun riavvio rilevato)"
     assert conn.timeouts == [15]
+
+
+async def test_local_apply_fails_when_config_changed_since_preview():
+    e, svc, conn = await make_service()
+    await read_local(svc)
+    first = svc.preview(MY_ID, {"config.lora.hop_limit": 4})
+    second = svc.preview(MY_ID, {"config.lora.hop_limit": 5})
+    j1 = svc.apply(MY_ID, first["preview_id"], False)
+    j2 = svc.apply(MY_ID, second["preview_id"], False)
+    assert (await run(svc, j1))["status"] == "done"
+    done = await run(svc, j2)
+    assert done["status"] == "failed" and done["error"] == MSG_CHANGED
+    assert conn.nodes[None]["config"].lora.hop_limit == 4
 
 
 async def test_remote_apply_rereads_then_writes():

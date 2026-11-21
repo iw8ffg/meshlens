@@ -82,6 +82,19 @@ def _install_quiet_stdout() -> None:
         sys.stdout = _QuietStdout(sys.stdout)
 
 
+def _silence_library_prints() -> None:
+    """La libreria stampa le config (segreti compresi) dal thread lettore: print azzerata."""
+    try:
+        from meshtastic import mesh_interface, node
+    except ImportError:  # pragma: no cover
+        return
+    for mod in (node, mesh_interface):
+        mod.print = lambda *a, **k: None
+
+
+_silence_library_prints()
+
+
 def describe_error(exc: BaseException) -> str:
     text = f"{type(exc).__name__}: {exc}"
     if (isinstance(exc, PermissionError) or "Access is denied" in text

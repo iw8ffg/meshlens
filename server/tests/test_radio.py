@@ -934,3 +934,14 @@ async def test_wait_reconnected_times_out():
     assert await h.conn.wait_reconnected(90) is False
     assert h.now >= 1000.0 + 90
     await h.conn.stop()
+
+
+def test_library_prints_are_silenced_on_any_thread(capsys):
+    import threading
+    from meshtastic import node as mnode
+    secret = "WIFISECRET-xyz"
+    t = threading.Thread(target=lambda: mnode.print(f"Preferences: {secret}"))
+    t.start()
+    t.join()
+    out = capsys.readouterr()
+    assert secret not in out.out + out.err

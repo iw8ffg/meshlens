@@ -211,3 +211,72 @@ async def test_mobile_local_when_connected_radio():
     async with logged(ctx) as c:
         plan = await prepare(c, rid)
         assert plan["steps"][0]["preview"]["radio_id"] == rid
+
+
+async def test_plan_steps_carry_role_and_base_only_plan():
+    e, ctx, conn = await make_env()
+    rid = e.mgr.radios()[0]["id"]
+    async with logged(ctx) as c:
+        plan = await prepare(c, rid)
+        assert [s["role"] for s in plan["steps"]] == ["mobile", "base"]
+        r = await c.post(f"/api/coverage/prepare/{plan['plan_id']}/apply", json={})
+        await settle(ctx, r.json()["jobs"])
+        last = (await c.get("/api/coverage/prepare/last")).json()
+        assert [s["role"] for s in last["steps"]] == ["mobile", "base"]
+        # mobile gia' pronto: il piano ha solo la base, e lo dice il ruolo (non la posizione)
+        e.now += 1
+        conn.nodes[None]["module_config"].range_test.enabled = False
+        plan = await prepare(c, rid)
+        assert [(s["node_id"], s["role"]) for s in plan["steps"]] == [(MY_ID, "base")]
+
+
+async def test_failed_restore_keeps_plan_and_running_blocks_restore():
+    e, ctx, conn = await make_env()
+    rid = e.mgr.radios()[0]["id"]
+    async with logged(ctx) as c:
+        plan = await prepare(c, rid)
+        r = await c.post(f"/api/coverage/prepare/{plan['plan_id']}/apply", json={})
+        await settle(ctx, r.json()["jobs"])
+        # un lavoro del piano risulta ancora in corso: niente ripristino
+        jid = r.json()["jobs"][0]["id"]
+        e.store.update_job(jid, status="running")
+        r2 = await c.post("/api/coverage/restore", json={"plan_id": plan["plan_id"]})
+        assert r2.status_code == 409 and r2.json()["detail"] == "Preparazione ancora in corso"
+        e.store.update_job(jid, status="done")
+        e.now += 1
+        rplan = (await c.post("/api/coverage/restore", json={"plan_id": plan["plan_id"]})).json()
+        conn.write_error = AdminError("unauthorized", MSG_ADMIN_UNAUTH)
+        r = await c.post(f"/api/coverage/prepare/{rplan['plan_id']}/apply", json={})
+        await settle(ctx, r.json()["jobs"])
+        assert all(ctx.config.job(j["id"])["status"] == "failed" for j in r.json()["jobs"])
+        last = (await c.get("/api/coverage/prepare/last")).json()
+        assert last is not None and last["plan_id"] == plan["plan_id"]
+
+
+async def test_untouched_plan_is_not_restorable():
+    e, ctx, conn = await make_env()
+    rid = e.mgr.radios()[0]["id"]
+    async with logged(ctx) as c:
+        plan = await prepare(c, rid)
+        conn.read_error = AdminError("error", "Nessuna risposta")  # nessun nodo verra' toccato
+        r = await c.post(f"/api/coverage/prepare/{plan['plan_id']}/apply", json={})
+        await settle(ctx, r.json()["jobs"])
+        assert all(ctx.config.job(j["id"])["status"] == "failed" for j in r.json()["jobs"])
+        assert (await c.get("/api/coverage/prepare/last")).json() is None
+        conn.read_error = None
+        r = await c.post("/api/coverage/restore", json={"plan_id": plan["plan_id"]})
+        assert r.status_code == 400 and "Nessuna modifica da ripristinare" in r.json()["detail"]
+        assert e.store.get_plan(plan["plan_id"])["restored"] is not None
+
+
+async def test_apply_plan_prevalidates_base_reads():
+    e, ctx, conn = await make_env()
+    rid = e.mgr.radios()[0]["id"]
+    async with logged(ctx) as c:
+        plan = await prepare(c, rid)
+        base_pv = plan["steps"][1]
+        await ctx.config.join(ctx.config.start_read(MY_ID, None, None)["id"])  # riletta la base
+        r = await c.post(f"/api/coverage/prepare/{plan['plan_id']}/apply", json={})
+        assert r.status_code == 409
+        assert conn.writes == [] and base_pv["node_id"] == MY_ID
+        assert e.store.get_plan(plan["plan_id"])["applied"] is None

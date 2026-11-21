@@ -381,8 +381,9 @@ class ConfigService:
                 phase(1, "Rileggo il nodo prima di scrivere")
                 fresh = await conn.read_remote(num, plain, cb)
                 self._check_unchanged(fresh, p)
-            else:
+            else:  # come per i nodi remoti: la lettura puo' essere cambiata dopo l'anteprima
                 phase(1, "Controllo la radio")
+                self._check_unchanged(await conn.read_local(), p)
             current = await conn.current_protos(None if local else num)
             phase(2, "Salvo la copia di sicurezza")
             bid = self._save_backup(num, current, sections, reason, label)
@@ -391,8 +392,9 @@ class ConfigService:
             phase(3, "Scrivo la configurazione")
             await conn.write(None if local else num, apply_to_protos(current, changes), cb)
             phase(4, "Attendo la radio e verifico" if local else "Verifico")
+            restarted = True
             if local:
-                await self._wait_back(conn)
+                restarted = await self._wait_back(conn)
                 fresh = await conn.read_local()
             else:
                 await self._sleep(REMOTE_SETTLE)
@@ -403,12 +405,14 @@ class ConfigService:
                     self._done(jid, verify=None, step="Scritto: il nodo si sta riavviando, "
                                                       "rileggi tra poco")
                     return
-            verify = self._verify(fresh, changes)
+            # senza riavvio la rilettura locale potrebbe essere ancora quella vecchia: non si verifica
+            verify = self._verify(fresh, changes) if restarted else None
             phase(5, "Salvo la nuova lettura")
             read_sections = list(ALL_SECTIONS) if local else plain + ["channels", "owner"]
             saved = self.store.add_read(num, rid, self._clock(), read_sections, fresh)
             self.store.commit()
-            self._done(jid, verify=verify, result_id=saved, step="Fatto")
+            self._done(jid, verify=verify, result_id=saved,
+                       step="Fatto" if restarted else "Applicato (nessun riavvio rilevato)")
 
         return self._start_job(num, rid, "apply", work, total=TOTAL, after=after)
 
@@ -431,14 +435,17 @@ class ConfigService:
                 return "mismatch"
         return "verified"
 
-    async def _wait_back(self, conn) -> None:
-        """Dopo una scrittura locale la radio di solito si riavvia, ma non sempre."""
+    async def _wait_back(self, conn) -> bool:
+        """Dopo una scrittura locale la radio di solito si riavvia, ma non sempre.
+
+        True se si e' riavviata (la rilettura e' attendibile), False se non si e' mai scollegata."""
         if await conn.wait_reconnected(DROP_WAIT):
-            return
+            return True
         if conn.state()["state"] == "connected":
-            return  # non si e' mai scollegata (es. solo nome o canali): rileggo subito
+            return False  # non si e' mai scollegata (es. solo nome o canali): rileggo subito
         if not await conn.wait_reconnected(RECONNECT_WAIT - DROP_WAIT):
             raise _JobFailed(MSG_NOT_BACK)
+        return True
 
     def _save_backup(self, num: int, protos: dict, sections: list[str], reason: str,
                      label: str | None = None) -> int:
@@ -542,14 +549,20 @@ class ConfigService:
         self.store.commit()
 
     @staticmethod
-    def _plan_view(plan_id: int, previews: list[tuple[str, dict]]) -> dict:
+    def _plan_view(plan_id: int, previews: list[tuple[str, dict, str]]) -> dict:
         return {"plan_id": plan_id,
-                "steps": [{"node_id": nid, "preview": pv} for nid, pv in previews]}
+                "steps": [{"node_id": nid, "role": role, "preview": pv}
+                          for nid, pv, role in previews]}
 
     @staticmethod
-    def _plan_steps(previews: list[tuple[str, dict]]) -> list[dict]:
-        return [{"node_id": nid, "preview_id": pv["preview_id"], "backup_id": None,
-                 "job_id": None} for nid, pv in previews]
+    def _plan_steps(previews: list[tuple[str, dict, str]]) -> list[dict]:
+        return [{"node_id": nid, "role": role, "preview_id": pv["preview_id"],
+                 "backup_id": None, "job_id": None} for nid, pv, role in previews]
+
+    @staticmethod
+    def _role(step: dict, index: int) -> str:
+        """Ruolo del passo (i piani vecchi non lo salvavano: mobile primo, base secondo)."""
+        return step.get("role") or ("mobile" if index == 0 else "base")
 
     async def prepare(self, radio_id: str, mobile_id: str, interval_s: int,
                       private_channel: bool) -> dict:
@@ -579,7 +592,7 @@ class ConfigService:
         for role in ("mobile", "base"):  # ordine di esecuzione: prima il mobile
             pv = self.preview(wanted[role][0], changes[role])
             if pv["changes"]:
-                previews.append((wanted[role][0], pv))
+                previews.append((wanted[role][0], pv, role))
         if not previews:
             raise ConfigError(400, "Le radio sono già pronte per la prova")
         plan_id = self.store.add_plan(radio_id, mnum, self._clock(), {
@@ -600,6 +613,10 @@ class ConfigService:
             p = self._previews.get(stp["preview_id"])
             if p is None or make_node_id(p["num"]) != stp["node_id"]:
                 raise ConfigError(400, "Anteprima sconosciuta o scaduta: ripeti la preparazione")
+            last = self.store.last_read(p["num"])
+            if last is None or last["id"] != p["base_read_id"]:
+                raise ConfigError(409, "La configurazione è stata riletta: ripeti la preparazione")
+            self._resolve(p["num"], p["radio_id"])  # radio ancora collegata?
             risky = risky or any(e["risky"] for e in p["entries"])
         if risky and not confirm_risky:
             raise ConfigError(400, "Conferma richiesta per modifiche a rischio")
@@ -619,10 +636,32 @@ class ConfigService:
         finally:
             if jobs:
                 self.store.update_plan(plan_id, applied=self._clock())
-                if restore:
-                    self.store.update_plan(data["restore_of"], restored=self._clock())
-                self.store.commit()
+                self.store.commit()  # "restored" del piano originale: vedi _sync_restored
         return {"jobs": jobs}
+
+    def _plan_jobs(self, plan: dict) -> list[dict]:
+        return [self.job(s["job_id"]) for s in plan["steps"]["steps"] if s.get("job_id")]
+
+    def _restore_jobs(self, plan_id: int) -> list[dict] | None:
+        """Lavori dell'ultimo piano di ripristino applicato per questo piano (None se non c'e')."""
+        for r in self.store.applied_plans():  # dal piu' recente
+            if r["steps"].get("kind") == "restore" and r["steps"].get("restore_of") == plan_id:
+                return self._plan_jobs(r)
+        return None
+
+    def _sync_restored(self, plan: dict) -> bool:
+        """Il piano e' ripristinato solo se ogni lavoro di ripristino e' finito 'done'."""
+        jobs = self._restore_jobs(plan["id"])
+        if not jobs or any(j["status"] != "done" for j in jobs):
+            return False
+        self.store.update_plan(plan["id"], restored=self._clock())
+        self.store.commit()
+        return True
+
+    def _mark_restored(self, plan_id: int, message: str) -> None:
+        self.store.update_plan(plan_id, restored=self._clock())
+        self.store.commit()
+        raise ConfigError(400, message)
 
     async def restore_plan(self, plan_id: int) -> dict:
         """Anteprime che rimettono le copie salvate dal piano, solo per i nodi modificati."""
@@ -631,27 +670,31 @@ class ConfigService:
             raise ConfigError(404, "Piano non trovato")
         if plan["applied"] is None:
             raise ConfigError(409, "Il piano non è stato applicato")
-        if plan["restored"] is not None:
+        if plan["restored"] is not None or self._sync_restored(plan):
             raise ConfigError(409, "Piano già ripristinato")
+        if any(j["status"] == "running"
+               for j in self._plan_jobs(plan) + (self._restore_jobs(plan_id) or [])):
+            raise ConfigError(409, "Preparazione ancora in corso")
         radio_id = plan["radio_id"]
-        todo = [(s["node_id"], s["backup_id"]) for s in plan["steps"]["steps"]
-                if s.get("backup_id")]
+        todo = [(s["node_id"], s["backup_id"], self._role(s, i))
+                for i, s in enumerate(plan["steps"]["steps"]) if s.get("backup_id")]
+        msg = "Nessuna modifica da ripristinare: le radio non erano state cambiate"
         if not todo:
-            raise ConfigError(400, "Nessuna modifica da ripristinare")
+            self._mark_restored(plan_id, msg)
         reads = []
-        for nid, bid in todo:
+        for nid, bid, _role in todo:
             b = self.store.get_backup(bid)
             if b is None:
                 raise ConfigError(404, "Copia non trovata")
             reads.append((nid, self._node_radio(_num(nid), radio_id), list(b["sections"])))
         await self._read_and_wait(reads)
         previews = []
-        for nid, bid in todo:  # ordine del piano: mobile prima, base dopo
+        for nid, bid, role in todo:  # ordine del piano: mobile prima, base dopo
             pv = self.preview_restore(bid)
             if pv["changes"]:  # nodo gia' com'era: niente da rimettere
-                previews.append((nid, pv))
+                previews.append((nid, pv, role))
         if not previews:
-            raise ConfigError(400, "Nessuna modifica da ripristinare")
+            self._mark_restored(plan_id, msg)
         rid = self.store.add_plan(radio_id, plan["mobile_num"], self._clock(), {
             "kind": "restore", "restore_of": plan_id, "steps": self._plan_steps(previews)})
         self.store.commit()
@@ -663,10 +706,16 @@ class ConfigService:
             if plan["steps"].get("kind") != "prepare":
                 continue
             steps = plan["steps"]["steps"]
+            jobs = self._plan_jobs(plan)
+            if (jobs and all(j["status"] != "running" for j in jobs)
+                    and not any(s.get("backup_id") for s in steps)):
+                continue  # nessun nodo e' stato toccato: niente da ripristinare
+            if self._sync_restored(plan):
+                continue
             return {"plan_id": plan["id"],
-                    "steps": [{"node_id": s["node_id"], "backup_id": s["backup_id"]}
-                              for s in steps],
-                    "jobs": [self.job(s["job_id"]) for s in steps if s.get("job_id")]}
+                    "steps": [{"node_id": s["node_id"], "role": self._role(s, i),
+                               "backup_id": s["backup_id"]} for i, s in enumerate(steps)],
+                    "jobs": jobs}
         return None
 
     # ---- segreti su richiesta esplicita ------------------------------------------

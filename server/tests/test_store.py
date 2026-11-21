@@ -264,3 +264,11 @@ def test_purge_never_touches_config_tables(store):
     store.purge(NOW, {**DEFAULTS, "storage_cap_mb": 0})
     assert store.last_read(1) is not None and len(store.backups(1)) == 1
     assert store.get_job(jid) is not None
+
+
+def test_fail_running_jobs_sets_error_code(store):
+    st = store
+    jid = st.add_job(node_num=1, radio_id="r", kind="read", status="running", started=1.0)
+    st.fail_running_jobs("Interrotto", 2.0)
+    job = st.get_job(jid)
+    assert job["status"] == "failed" and job["error_code"] == "error"

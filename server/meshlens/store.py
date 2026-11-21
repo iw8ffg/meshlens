@@ -338,7 +338,8 @@ class Store:
     def fail_running_jobs(self, error: str, ended: float) -> None:
         """Lavori rimasti "running" da un avvio precedente: non finiranno piu'."""
         self.conn.execute(
-            "UPDATE config_jobs SET status='failed', error=?, ended=? WHERE status='running'",
+            "UPDATE config_jobs SET status='failed', error=?, ended=?, error_code='error' "
+            "WHERE status='running'",
             (error, ended))
 
     def get_job(self, job_id: int) -> dict | None:
