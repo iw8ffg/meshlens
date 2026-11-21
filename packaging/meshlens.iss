@@ -15,6 +15,7 @@ DefaultGroupName=MeshLens
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
 CloseApplications=yes
+AppMutex=MeshLensAppMutex
 RestartApplications=no
 SetupIconFile=..\server\meshlens\assets\meshlens.ico
 UninstallDisplayIcon={app}\MeshLens.exe
@@ -31,11 +32,21 @@ ArchitecturesInstallIn64BitMode=x64compatible
 Name: "italian"; MessagesFile: "compiler:Languages\Italian.isl"
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
+[CustomMessages]
+italian.AutostartTask=Avvia MeshLens all'accesso a Windows
+italian.OptionsGroup=Opzioni:
+english.AutostartTask=Start MeshLens when I sign in to Windows
+english.OptionsGroup=Options:
+
 [Tasks]
-Name: "autostart"; Description: "Avvia MeshLens all'accesso a Windows"; GroupDescription: "Opzioni:"; Flags: unchecked
+Name: "autostart"; Description: "{cm:AutostartTask}"; GroupDescription: "{cm:OptionsGroup}"; Flags: unchecked
 
 [Files]
+; dist\MeshLens contiene anche licenses\ (testi completi delle licenze, generati dalla build)
 Source: "..\dist\MeshLens\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\LICENZA.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\THIRD_PARTY_NOTICES.md"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{autoprograms}\MeshLens"; Filename: "{app}\MeshLens.exe"
@@ -49,8 +60,10 @@ Filename: "{app}\MeshLens.exe"; Description: "Avvia MeshLens"; Flags: nowait pos
 ; silenzioso (aggiornamento dall'app): riavvia sempre MeshLens
 Filename: "{app}\MeshLens.exe"; Flags: nowait skipifnotsilent runasoriginaluser
 
-; Nessuna sezione [UninstallDelete] per %LOCALAPPDATA%\MeshLens\data: i dati restano,
+[UninstallDelete]
+; solo gli installer scaricati: i dati restano in %LOCALAPPDATA%\MeshLens\data,
 ; salvo scelta esplicita nella domanda di disinstallazione (vedi [Code]).
+Type: filesandordirs; Name: "{localappdata}\MeshLens\updates"
 
 [Code]
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);

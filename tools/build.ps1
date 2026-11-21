@@ -1,8 +1,8 @@
 <#
- Build locale: web, PyInstaller (e facoltativamente go-pmtiles). Non serve Inno Setup.
- Uso: tools\build.ps1 [-WithTool]
+ Build locale: web, PyInstaller, licenze e go-pmtiles. Non serve Inno Setup.
+ Uso: tools\build.ps1
 #>
-param([switch]$WithTool)
+param()
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
@@ -17,13 +17,12 @@ npm run build
 if ($LASTEXITCODE) { throw "build web fallita" }
 Pop-Location
 
-& $py -m pip install pyinstaller pystray Pillow
+& $py -m pip install pyinstaller pystray Pillow pip-licenses
 if ($LASTEXITCODE) { throw "pip fallito" }
 & $py -m PyInstaller packaging\meshlens.spec --noconfirm --clean --distpath dist --workpath build
 if ($LASTEXITCODE) { throw "PyInstaller fallito" }
 
-if ($WithTool) {
-    & $py tools\fetch_pmtiles.py (Join-Path $root "dist\MeshLens\tools")
-    if ($LASTEXITCODE) { throw "download go-pmtiles fallito" }
-}
+# licenses\ (testi completi, richiede rete) e tools\pmtiles.exe con SHA-256 verificato
+& $py tools\gen_licenses.py (Join-Path $root "dist\MeshLens\licenses")
+if ($LASTEXITCODE) { throw "generazione licenze fallita" }
 Write-Host "Pronto: dist\MeshLens\MeshLens.exe"

@@ -36,3 +36,6 @@ jobs:
       - name: Controllo tipi web
         working-directory: web
         run: npm run check
+      - name: Build web
+        working-directory: web
+        run: npm run build

@@ -65,7 +65,7 @@ MeshLens parte con un'icona nell'area di notifica (Apri MeshLens, Apri cartella 
 
 ## Primo avvio e PIN
 
-Al primo avvio il browser si apre su `http://127.0.0.1:8686` e ti chiede di scegliere un **PIN**. Ogni dispositivo lo inserisce una volta e poi resta riconosciuto. Se lo dimentichi: `meshlens reset-pin`.
+Al primo avvio il browser si apre su `http://127.0.0.1:8686` e ti chiede di scegliere un **PIN**. Ogni dispositivo lo inserisce una volta e poi resta riconosciuto. Se lo dimentichi, chiudi MeshLens (icona di notifica → Esci) e dal Prompt dei comandi esegui `"%LOCALAPPDATA%\Programs\MeshLens\MeshLens.exe" reset-pin`: non stampa nulla e al prossimo accesso ti chiede un nuovo PIN. Da sorgente (sviluppo) resta `meshlens reset-pin`.
 
 ## Uso dal telefono
 
@@ -86,7 +86,8 @@ Finché il repository è **privato** serve un token:
 
 1. Su GitHub: *Settings → Developer settings → Personal access tokens → Fine-grained tokens*.
 2. Repository: `iw8ffg/meshlens`, permesso **Contents: Read-only**.
-3. In MeshLens: **Impostazioni → Aggiornamenti**, incolla il token. Resta solo sul tuo PC e non compare mai nei log.
+3. Il token deve essere creato dal **proprietario** del repository; se sei un collaboratore usa un token classico con permesso `repo`.
+4. In MeshLens: **Impostazioni → Aggiornamenti**, incolla il token. Resta solo sul tuo PC e non compare mai nei log.
 
 Quando il repository sarà pubblico il token non servirà più.
 

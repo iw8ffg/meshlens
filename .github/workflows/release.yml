@@ -26,7 +26,7 @@ jobs:
           cache-dependency-path: web/package-lock.json
 
       - name: Dipendenze Python
-        run: pip install -e ".[tray,dev]" pyinstaller
+        run: pip install -e ".[tray,dev]" pyinstaller pip-licenses
 
       - name: Versione e tag coincidono
         id: ver
@@ -58,8 +58,8 @@ jobs:
       - name: PyInstaller
         run: python -m PyInstaller packaging/meshlens.spec --noconfirm --clean --distpath dist --workpath build
 
-      - name: go-pmtiles (SHA-256 verificato)
-        run: python tools/fetch_pmtiles.py dist/MeshLens/tools
+      - name: Licenze e go-pmtiles (SHA-256 verificato)
+        run: python tools/gen_licenses.py dist/MeshLens/licenses
 
       - name: Inno Setup
         run: |
@@ -99,6 +99,13 @@ jobs:
         run: |
           $ver = "${{ steps.ver.outputs.version }}"
           $name = "MeshLens-Setup-$ver.exe"
-          gh release create "${{ github.ref_name }}" "dist\$name" "dist\$name.sha256" `
-            --title "MeshLens $ver" --notes-file notes.md
-          if ($LASTEXITCODE) { throw "gh release create fallito" }
+          gh release view "${{ github.ref_name }}" *> $null
+          if ($LASTEXITCODE -eq 0) {
+            # release gia' presente (per esempio bozza creata a mano): carica gli asset
+            gh release upload "${{ github.ref_name }}" "dist\$name" "dist\$name.sha256" --clobber
+            if ($LASTEXITCODE) { throw "gh release upload fallito" }
+          } else {
+            gh release create "${{ github.ref_name }}" "dist\$name" "dist\$name.sha256" `
+              --title "MeshLens $ver" --notes-file notes.md
+            if ($LASTEXITCODE) { throw "gh release create fallito" }
+          }

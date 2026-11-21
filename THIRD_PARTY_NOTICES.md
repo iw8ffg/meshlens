@@ -58,10 +58,24 @@ Elenco generato con `pip-licenses` sull'ambiente del progetto, limitato alle dip
 | winrt-Windows.Foundation | 4!10.0.28000.2957 | MIT |
 | winrt-Windows.Foundation.Collections | 4!10.0.28000.2957 | MIT |
 | winrt-Windows.Storage.Streams | 4!10.0.28000.2957 | MIT |
-| pystray | (build installata) | LGPL-3.0 |
-| Pillow | (build installata) | MIT-CMU (HPND) |
+| pystray | 0.19.5 | LGPL-3.0 |
+| Pillow | 13.0.0 | MIT-CMU (HPND) |
 
 `meshtastic` è GPL-3.0, compatibile con la licenza di MeshLens. / `meshtastic` is GPL-3.0, compatible with MeshLens' license.
+
+## Runtime incluso nell'installer / Runtime bundled in the installer
+
+| Componente / Component | Versione / Version | Licenza / License |
+|---|---|---|
+| CPython (runtime Python / Python runtime) | 3.12 | PSF-2.0 |
+| OpenSSL | 3.0.x | Apache-2.0 |
+| SQLite | 3.49.x | Pubblico dominio / Public domain |
+| libffi | 3.4.x | MIT |
+| PyInstaller (bootloader) | 6.22.3 | GPL-2.0-or-later con eccezione per il bootloader / with bootloader exception |
+
+Il bootloader di PyInstaller è coperto da un'eccezione che consente di distribuire le applicazioni create sotto una licenza qualsiasi. / The PyInstaller bootloader carries an exception that allows the resulting applications to be distributed under any license.
+
+I testi completi delle licenze sono nella cartella `licenses\` dell'installer (`python.txt`, OFL dei caratteri, MIT degli sprite, BSD-3 di go-pmtiles). / Full license texts are in the installer's `licenses\` folder.
 
 ## JavaScript (interfaccia, dipendenze di produzione / UI, production dependencies)
 
