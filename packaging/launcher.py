@@ -1,10 +1,11 @@
 """Punto di ingresso per PyInstaller (il modulo __main__ del pacchetto usa import relativi)."""
+import multiprocessing
 import os
 import sys
 
 
 def _fix_std_streams() -> None:
-    """Senza console (console=False) stdout/stderr sono None e uvicorn/logging si rompono:
+    r"""Senza console (console=False) stdout/stderr sono None e uvicorn/logging si rompono:
     li reindirizza su %LOCALAPPDATA%\MeshLens\logs\console.log (o su devnull).
     Il file meshlens.log e' del gestore di log con rotazione (meshlens.logsetup): su Windows un
     file aperto da un altro stream non si puo' rinominare, quindi i due non lo condividono."""
@@ -37,4 +38,5 @@ _fix_std_streams()
 from meshlens.__main__ import main  # noqa: E402
 
 if __name__ == "__main__":
+    multiprocessing.freeze_support()  # figli del ProcessPool nell'eseguibile congelato
     sys.exit(main())

@@ -1,6 +1,7 @@
 """Riga di comando: meshlens run | tray | reset-pin."""
 import argparse
 import logging
+import multiprocessing
 import threading
 import webbrowser
 from pathlib import Path
@@ -12,6 +13,7 @@ PORT = 8686
 
 
 def main(argv: list[str] | None = None) -> int:
+    multiprocessing.freeze_support()  # non fa nulla se il programma non e' congelato
     parser = argparse.ArgumentParser(prog="meshlens")
     # nella versione installata, senza comando si avvia l'icona di notifica
     sub = parser.add_subparsers(dest="cmd", required=not is_frozen())

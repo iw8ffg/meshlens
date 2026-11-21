@@ -24,7 +24,9 @@ from .geo import CountryLocator
 from .ingest import Ingestor
 from .live import LiveState
 from .paths import is_frozen, updates_dir
+from .elevation import ElevationCache
 from .maps import MapsManager
+from .prediction_service import PredictionManager
 from .mqtt_client import MqttConnector
 from .mqtt_decode import EnvelopeDecoder
 from .mqtt_publish import MqttSender
@@ -35,6 +37,7 @@ from .radio_manager import RadioManager
 from .settings import (CONNECT_KEYS, enabled_brokers, find_broker, load_settings,
                        migrate_brokers, migrate_secrets, scrub_text)
 from .store import PURGE_CHUNK, Store
+from .storeforward import StoreForwardService
 from .updater import Updater
 
 # installata: PyInstaller mette web/dist accanto alle librerie incluse (sys._MEIPASS)
@@ -121,6 +124,8 @@ class Runtime:
     _integrity_conn: object = None  # connessione del quick_check in corso (per interromperla)
     _stopping: bool = False
     _start_errors: dict = field(default_factory=dict)  # id broker -> (testo, time()) dell'avvio fallito
+    storeforward: StoreForwardService | None = None
+    prediction: PredictionManager | None = None
 
     def start_connector(self, broker: dict) -> None:
         bid = broker["id"]
@@ -411,6 +416,8 @@ class Runtime:
         self.loop = asyncio.get_running_loop()
         if self.maps is not None:
             self.maps.cleanup_tmp()  # .tmp rimasti da un download interrotto
+        if self.prediction is not None:
+            self.prediction.cleanup_tmp()  # .tmp rimasti da un calcolo o download interrotto
         if self.updater is not None:
             self.updater.cleanup_tmp()
         if self.coverage is not None:
@@ -433,6 +440,8 @@ class Runtime:
             asyncio.create_task(self._every_async(BACKUP_CHECK_S, self._backup_if_due,
                                                   BACKUP_FIRST_DELAY_S)),
         ]
+        if self.storeforward is not None:
+            self.tasks.append(asyncio.create_task(self._every(5, self.storeforward.check)))
         if self.updater is not None and self.auto_update:
             self.tasks.append(asyncio.create_task(self.updater.run()))
 
@@ -441,6 +450,8 @@ class Runtime:
         self._interrupt_integrity()
         if self.maps is not None:
             await self.maps.shutdown()  # uccide l'eventuale processo di ritaglio
+        if self.prediction is not None:
+            await self.prediction.shutdown()  # annulla il calcolo e chiude i processi
         if self.config is not None:
             await self.config.stop()
         if self.radios is not None:
@@ -511,16 +522,26 @@ def build(data_dir: Path, connector_factory=MqttConnector,
     coverage = CoverageRecorder(store, live, bus,
                                 radio_node=ingestor.radio_node)
 
+    # i messaggi rigiocati dal router S&F rientrano da on_event come testi normali
+    sf = StoreForwardService(store, live, lambda ev: on_event(ev), bus,
+                             lambda rid: rt.radios.connector(rid))
+
     def on_event(ev) -> None:
+        if ev.kind == "storeforward":
+            sf.handle(ev)
+            return
+        if ev.kind == "text":
+            sf.observe_text(ev)  # rifiuto di una richiesta S&F: il testo va comunque in chat
         # prima l'ingestor (aggiorna i nodi), poi il registratore delle prove di copertura
         ingestor.handle(ev)
         coverage.handle(ev)
 
-    rt.coverage, rt.on_event = coverage, on_event
+    rt.coverage, rt.on_event, rt.storeforward = coverage, on_event, sf
     rt.radios = RadioManager(store, ingestor, bus, None, PubSubHub(None),
                               connector_factory=radio_connector_factory, on_event=on_event)
     rt.config = ConfigService(store, rt.radios, live, bus)
     rt.maps = MapsManager(data_dir, lambda: rt.settings, bus)
+    rt.prediction = PredictionManager(data_dir, bus, ElevationCache(Path(data_dir) / "elevation"))
     rt.updater = Updater(lambda: rt.settings, bus, update_http, frozen=is_frozen(),
                          updates_dir=updates_dir(),
                          launcher_exit=lambda d: rt.ctx.request_exit(d),
@@ -535,8 +556,8 @@ def build(data_dir: Path, connector_factory=MqttConnector,
                      mqtt_channel_counts=ingestor.mqtt_channel_counts,
                      mqtt_channel_brokers=ingestor.mqtt_channel_brokers,
                      on_settings_changed=rt.on_settings_changed,
-                     static_dir=static_dir, radios=rt.radios, coverage=coverage,
-                     config=rt.config, maps=rt.maps, updater=rt.updater, data_dir=Path(data_dir),
+                     static_dir=static_dir, radios=rt.radios, coverage=coverage, storeforward=sf,
+                     config=rt.config, maps=rt.maps, prediction=rt.prediction, updater=rt.updater, data_dir=Path(data_dir),
                      db_path=rt.db_path, last_purge=lambda: rt.last_purge,
                      backups=backups, db_health=lambda: rt.db_health, log_dir=log_dir,
                      notifier=notifier)

@@ -32,6 +32,8 @@
   import type { NodeSortKey } from './lib/nodesort'
   import { formatHash, parseHash, type Route } from './lib/route'
   import { loadView, saveView } from './lib/viewstate'
+  import { applyPredictionJob } from './lib/prediction.svelte'
+  import { applySfJob, setSfRouters } from './lib/storeforward.svelte'
   import { ApiError, getJSON, alerts as fetchAlerts, conversations, waypoints as fetchWaypoints, coverageSessions, coverageSession, updateStatus, AUTH_REQUIRED } from './lib/api'
   import { connectWS } from './lib/ws'
   import { onIncoming } from './lib/incoming'
@@ -234,6 +236,9 @@
       configJob: setConfigJob,
       mapJob: setMapJob,
       updateJob: setUpdateJob,
+      prediction_job: applyPredictionJob,
+      sf_job: applySfJob,
+      sf_routers: setSfRouters,
     })
     return () => {
       loader.dispose()

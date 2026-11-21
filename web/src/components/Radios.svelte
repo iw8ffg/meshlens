@@ -12,6 +12,9 @@
   import Segmented from '../lib/ui/Segmented.svelte'
   import Modal from '../lib/ui/Modal.svelte'
   import Icon from '../lib/ui/Icon.svelte'
+  import StoreForward from './StoreForward.svelte'
+  import Toast from '../lib/ui/Toast.svelte'
+  import { clearSfNotice, sf } from '../lib/storeforward.svelte'
   import type { BleDevice, Port, Radio } from '../lib/types'
 
   let adding = $state(false)
@@ -26,6 +29,7 @@
   let acting = $state(false) // azione su una radio in corso (Connetti/Scollega/Rimuovi)
   let error = $state('')
   let confirmId = $state<string | null>(null)
+  let sfRadioId = $state<string | null>(null) // radio per cui e' aperto «Recupera messaggi persi»
 
   const sortedPorts = $derived(sortPorts(ports))
 
@@ -120,6 +124,7 @@
     }
   }
 
+  const sfRadio = $derived(app.radios.find((r) => r.id === sfRadioId && r.state === 'connected') ?? null)
   const removing = $derived(app.radios.find((r) => r.id === confirmId) ?? null)
   const stateKind = (r: Radio): 'ok' | 'danger' | 'neutral' | 'warn' =>
     r.state === 'connected' ? 'ok' : r.state === 'error' ? 'danger' : r.state === 'disconnected' ? 'neutral' : 'warn'
@@ -157,6 +162,9 @@
           {#if r.state === 'connected' && r.my_node_id}
             <Button icon="settings" onclick={() => openConfig(r.my_node_id!, r.id)}>Configura</Button>
             <Button icon="key" onclick={() => openConfig(r.my_node_id!, r.id, 'adminkey')}>Chiave admin</Button>
+          {/if}
+          {#if r.state === 'connected'}
+            <Button icon="refresh" onclick={() => (sfRadioId = r.id)}>Recupera messaggi persi</Button>
           {/if}
           <Button kind="ghost" icon="trash" disabled={acting} onclick={() => (confirmId = r.id)}>Rimuovi</Button>
         </div>
@@ -243,11 +251,20 @@
   {/if}
 </section>
 
+{#if sfRadio}
+  <StoreForward radio={sfRadio} onclose={() => (sfRadioId = null)} />
+{/if}
+
+{#if sf.notice}
+  <div class="sf-toast"><Toast kind="ok" onclose={clearSfNotice}>{sf.notice}</Toast></div>
+{/if}
+
 <Modal open={removing !== null} title="Rimuovere la radio?" danger confirmLabel="Rimuovi" onconfirm={() => removing && remove(removing)} oncancel={() => (confirmId = null)}>
   <p>La radio "{removing?.name ?? ''}" verrà scollegata e rimossa dall'elenco. I dati già salvati restano.</p>
 </Modal>
 
 <style>
+  .sf-toast { position: fixed; bottom: var(--space-4); left: 50%; transform: translateX(-50%); z-index: 1000; }
   section { padding: var(--space-4); display: flex; flex-direction: column; gap: var(--space-3); color: var(--ink); }
   header { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; }
   h2 { margin: 0; font: 600 18px/24px var(--font-sans); }

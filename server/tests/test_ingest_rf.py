@@ -189,3 +189,19 @@ def test_rf_reaction_dedup_keeps_fields(env):
     assert got[-1]["reply_id"] == 9 and got[-1]["emoji"] is True
     row = store.messages(None, None, 10)[0]
     assert row["reply_id"] == 9 and row["emoji"] is True and row["radio_id"] == "rA"
+
+
+def test_replayed_text_does_not_touch_rf_stats(env):
+    ing, live, store, conn, got = env
+    ing.set_radio_node("rA", 99)
+    ing.handle(rf("position", pos(BERLIN), "rB", pid=1, snr=-9.0, rssi=-110, hops=2))
+    n = live.nodes[1]
+    before = (dict(n["heard_by"]), n["last_snr"], n["hops"])
+    # campi RF valorizzati apposta: un rigioco S&F non deve usarli comunque
+    ing.handle(rf("text", TextData("da S&F"), "rA", pid=2, t=NOW + 10, snr=4.0, rssi=-60,
+                  hops=0, replayed=True))
+    assert len(got) == 1 and got[0]["text"] == "da S&F" and got[0]["time"] == int(NOW + 10)
+    assert count(conn, "messages") == 1
+    assert (n["heard_by"], n["last_snr"], n["hops"]) == before
+    assert "rA" not in n["heard_by"]
+    assert store.links(0) == []

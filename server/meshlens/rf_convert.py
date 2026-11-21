@@ -7,6 +7,7 @@ from .events import (
     MeshEvent, NeighborData, NodeInfoData, PositionData, RangeTestData, RouteData,
     TelemetryData, TextData, WaypointData, scale_snr,
 )
+from .storeforward import parse_sf
 
 
 def _coord(d: dict, name: str):
@@ -161,6 +162,8 @@ def packet_to_event(packet: dict, radio_id: str, now: float) -> MeshEvent | None
         kind, payload = "traceroute", _route(decoded, packet)
     elif port == "RANGE_TEST_APP":
         kind, payload = "rangetest", _rangetest(decoded)
+    elif port == "STORE_FORWARD_APP":
+        kind, payload = "storeforward", parse_sf(packet)
     else:
         return None
     if payload is None:

@@ -1,4 +1,6 @@
 import { emitAuthRequired } from './api'
+import type { PredictionJob } from './prediction'
+import type { SfJob, SfRouter } from './storeforward'
 import type { ConfigJob, MapJob, UpdateJob, Alert, CoveragePoint, CoverageSession, CoverageTrackPoint, Message, MessageStatus, Node, Radio, Status, Traceroute, Waypoint } from './types'
 
 export interface WSHandlers {
@@ -17,6 +19,9 @@ export interface WSHandlers {
   configJob?(job: ConfigJob): void
   mapJob?(job: MapJob): void
   updateJob?(job: UpdateJob): void
+  prediction_job?(job: PredictionJob): void
+  sf_job?(job: SfJob): void
+  sf_routers?(routers: SfRouter[]): void
   /** Chiamato a ogni riapertura dopo la prima: lo stato puo' essere vecchio (telefono in standby). */
   reconnected?(): void
   /** Il server ha scartato eventi (coda piena): ricaricare i dati. */
@@ -53,6 +58,9 @@ export function dispatch(msg: unknown, h: WSHandlers): void {
   else if (m.type === 'config_job') h.configJob?.(m.job)
   else if (m.type === 'map_job') h.mapJob?.(m.job)
   else if (m.type === 'update_job') h.updateJob?.(m.job)
+  else if (m.type === 'prediction_job') h.prediction_job?.(m.job)
+  else if (m.type === 'sf_job') h.sf_job?.(m.job)
+  else if (m.type === 'sf_routers') h.sf_routers?.(m.routers)
   else if (m.type === 'status') h.status({ mqtt: m.mqtt })
   else if (m.type === 'resync') h.resync?.()
 }

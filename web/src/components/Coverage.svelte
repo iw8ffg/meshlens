@@ -5,6 +5,7 @@
   import { formatMeters } from '../lib/geo'
   import { applyCoverage, coverage } from '../lib/stores.svelte'
   import type { CoverageSession } from '../lib/types'
+  import Prediction from './Prediction.svelte'
   import CoverageSetup from './CoverageSetup.svelte'
   import CoverageRestoreBox from './CoverageRestoreBox.svelte'
   import Banner from '../lib/ui/Banner.svelte'
@@ -158,6 +159,7 @@
       </ul>
     {/if}
   {/if}
+  <Prediction />
 </div>
 
 <style>

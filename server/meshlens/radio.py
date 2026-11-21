@@ -493,6 +493,30 @@ class RadioConnector:
             self._handle_trace_routing(packet_id, early[2], early[3])
         return packet_id
 
+    async def send_storeforward(self, dest_num: int, rr: str, window_min: int | None,
+                                channel_index: int) -> int:
+        """Richiesta Store & Forward a un router (CLIENT_HISTORY, CLIENT_STATS, ...)."""
+        from meshtastic.protobuf import portnums_pb2, storeforward_pb2
+        sf = storeforward_pb2.StoreAndForward
+        msg = sf(rr=sf.RequestResponse.Value(rr))
+        if window_min is not None:
+            msg.history.window = window_min
+        iface = self._iface
+        if iface is None or self._state != "connected":
+            raise RuntimeError("Radio non connessa")
+        async with self._send_lock:  # un invio alla volta per radio
+            try:
+                packet = await asyncio.wait_for(self._call(
+                    lambda: iface.sendData(
+                        msg, destinationId=dest_num,
+                        portNum=portnums_pb2.STORE_FORWARD_APP, wantResponse=False,
+                        channelIndex=channel_index)), SEND_TIMEOUT)
+            except asyncio.TimeoutError:
+                raise RuntimeError("Invio scaduto") from None
+            except _LibraryError as err:
+                raise RuntimeError(f"Invio fallito: {type(err.original).__name__}") from err
+        return packet.id
+
     def _handle_trace_routing(self, rid: int, ok: bool, reason) -> None:
         # solo gli errori contano: l'ack del nodo locale non e' la risposta
         if not ok:

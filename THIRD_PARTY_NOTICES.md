@@ -100,7 +100,27 @@ Le bandiere SVG (flag-icons 7.6, MIT) sono copiate in `web/public/flags` in fase
 | [Lucide](https://lucide.dev) | ISC | icone dell'interfaccia / UI icons |
 | [flag-icons](https://github.com/lipis/flag-icons) | MIT | bandiere delle nazioni / country flags |
 | [Natural Earth](https://www.naturalearthdata.com) | Pubblico dominio / Public domain | confini delle nazioni (`countries.geojson`) / country borders |
+| [NTIA Irregular Terrain Model (ITM)](https://github.com/NTIA/itm) | Opera del Governo USA, non soggetta a copyright negli USA (17 U.S.C. 105); altrove licenza NTIA libera per opere derivate / US Government work, not subject to copyright in the US; elsewhere NTIA royalty-free license for derivative works | porting in Python del modo punto-punto in `server/meshlens/itm.py` (dal commit `183ad95`), modificato da MeshLens il 2026-11-21; vettori di prova `p2p.csv` e `pfls.csv` copiati in `server/tests/data` / Python port of point-to-point mode, modified by MeshLens on 2026-11-21; test vectors copied into `server/tests/data` |
+
+> Pursuant to Title 15 United States Code Section 105, works of NTIA employees are not subject to copyright protection in the United States and are considered to be in the public domain. Permission to freely use, copy, modify, and distribute this software and its documentation without fee is hereby granted, provided that this notice and disclaimer of warranty appears in all copies.
+>
+> THE SOFTWARE IS PROVIDED "AS IS" WITHOUT ANY WARRANTY OF ANY KIND, EITHER EXPRESSED, IMPLIED, OR STATUTORY, INCLUDING, BUT NOT LIMITED TO, ANY WARRANTY THAT THE SOFTWARE WILL CONFORM TO SPECIFICATIONS, ANY IMPLIED WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND FREEDOM FROM INFRINGEMENT, AND ANY WARRANTY THAT THE DOCUMENTATION WILL CONFORM TO THE SOFTWARE, OR ANY WARRANTY THAT THE SOFTWARE WILL BE ERROR FREE. IN NO EVENT SHALL NTIA BE LIABLE FOR ANY DAMAGES, INCLUDING, BUT NOT LIMITED TO, DIRECT, INDIRECT, SPECIAL OR CONSEQUENTIAL DAMAGES, ARISING OUT OF, RESULTING FROM, OR IN ANY WAY CONNECTED WITH THIS SOFTWARE, WHETHER OR NOT BASED UPON WARRANTY, CONTRACT, TORT, OR OTHERWISE, WHETHER OR NOT INJURY WAS SUSTAINED BY PERSONS OR PROPERTY OR OTHERWISE, AND WHETHER OR NOT LOSS WAS SUSTAINED FROM, OR AROSE OUT OF THE RESULTS OF, OR USE OF, THE SOFTWARE OR SERVICES PROVIDED HEREUNDER.
+
+Il modello ITM è stato sviluppato dalla NTIA (National Telecommunications and Information Administration), che chiede di riconoscerne la paternità: il calcolo della copertura prevista di MeshLens deriva dal suo software. / ITM was developed by NTIA, which asks for acknowledgment: MeshLens' predicted coverage derives from its software.
 
 ## Dati / Data
 
 - **OpenStreetMap**: © OpenStreetMap contributors, dati sotto licenza [ODbL 1.0](https://opendatacommons.org/licenses/odbl/). Le mappe (Protomaps PMTiles e OpenFreeMap) derivano da questi dati; è richiesta l'attribuzione. / Maps (Protomaps PMTiles and OpenFreeMap) derive from this data; attribution is required.
+
+- **Dati di altitudine (AWS Terrain Tiles, formato Terrarium)** / **Elevation data (AWS Terrain Tiles, Terrarium format)**: riquadri scaricati su richiesta dell'utente da `elevation-tiles-prod` e usati per la copertura prevista. Diciture richieste da [tilezen/joerd](https://github.com/tilezen/joerd/blob/master/docs/attribution.md) / tiles downloaded on user request and used for predicted coverage. Attribution required by tilezen/joerd:
+  - ArcticDEM terrain data DEM(s) were created from DigitalGlobe, Inc., imagery and funded under National Science Foundation awards 1043681, 1559691, and 1542736;
+  - Australia terrain data © Commonwealth of Australia (Geoscience Australia) 2017;
+  - Austria terrain data © offene Daten Österreichs – Digitales Geländemodell (DGM) Österreich;
+  - Canada terrain data contains information licensed under the Open Government Licence – Canada;
+  - Europe terrain data produced using Copernicus data and information funded by the European Union - EU-DEM layers;
+  - Global ETOPO1 terrain data U.S. National Oceanic and Atmospheric Administration;
+  - Mexico terrain data source: INEGI, Continental relief, 2016;
+  - New Zealand terrain data Copyright 2011 Crown copyright (c) Land Information New Zealand and the New Zealand Government (All rights reserved);
+  - Norway terrain data © Kartverket;
+  - United Kingdom terrain data © Environment Agency copyright and/or database right 2015. All rights reserved;
+  - United States 3DEP (formerly NED) and global GMTED2010 and SRTM terrain data courtesy of the U.S. Geological Survey.

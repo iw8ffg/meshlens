@@ -23,6 +23,7 @@ from pydantic import BaseModel, Field
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.websockets import WebSocketDisconnect
 
+from . import api_prediction, api_storeforward
 from .alerts import CHUTIL_MIN_SAMPLES, CHUTIL_WINDOW_S, compute_alerts
 from .auth import LOOPBACK, MIN_PIN, MIN_PIN_LAN, Auth, LockedError
 from .bus import Bus
@@ -85,6 +86,8 @@ class AppContext:
     static_dir: Path | None = None
     radios: object | None = None  # RadioManager
     coverage: object | None = None  # CoverageRecorder
+    storeforward: object | None = None  # StoreForwardService
+    prediction: object | None = None  # PredictionManager
     data_dir: Path | None = None
     config: object | None = None  # ConfigService
     maps: object | None = None  # MapsManager
@@ -1431,6 +1434,9 @@ def create_app(ctx: AppContext) -> FastAPI:
             revoked.cancel()
             ctx.bus.unsubscribe(q)
             ctx.auth.unwatch(token_hash, revoked_event)
+
+    api_storeforward.register(app, ctx, require_auth, require_json)
+    api_prediction.register(app, ctx, require_auth, require_json)
 
     # ---- statici (ultimi: catch-all) ----
     if ctx.static_dir is not None and Path(ctx.static_dir).exists():

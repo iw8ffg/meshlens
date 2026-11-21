@@ -13,6 +13,7 @@ dependencies = [
     "meshtastic==2.7.11",
     "cryptography>=42",
     "shapely>=2.0",
+    "numpy>=1.26",  # elevation/prediction (arriva anche con shapely, ma e' una dipendenza diretta)
     "argon2-cffi",
     "pmtiles>=3.8.1",
 ]

@@ -115,6 +115,7 @@ class MeshEvent:
     hops_min: int | None = None
     broker: str | None = None  # MQTT: id del broker che ha consegnato il pacchetto
     pki: bool = False  # DM cifrato con la chiave pubblica del destinatario
+    replayed: bool = False  # S&F: messaggio rigiocato da un router (ora originale)
 
     @property
     def gateway_num(self) -> int | None:
