@@ -38,6 +38,8 @@ import IFilter from '@lucide/svelte/icons/filter'
 import ICopy from '@lucide/svelte/icons/copy'
 import IEye from '@lucide/svelte/icons/eye'
 import IKey from '@lucide/svelte/icons/key'
+import IReply from '@lucide/svelte/icons/reply'
+import ISmile from '@lucide/svelte/icons/smile'
 import IPower from '@lucide/svelte/icons/power'
 import IInfo from '@lucide/svelte/icons/info'
 import ICloudOff from '@lucide/svelte/icons/cloud-off'
@@ -93,6 +95,8 @@ export const ICONS = {
   copy: ICopy,
   eye: IEye,
   key: IKey,
+  reply: IReply,
+  smile: ISmile,
   power: IPower,
   info: IInfo,
   cloudoff: ICloudOff,

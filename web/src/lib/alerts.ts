@@ -1,14 +1,17 @@
 import type { IconName } from './ui/icons'
 import type { Alert } from './types'
 import { num } from './format'
+import { T } from './strings/messaggi'
 
 /** Testo italiano di un avviso, senza nome del nodo. */
-export function alertLabel(a: Pick<Alert, 'kind' | 'value' | 'detail'>): string {
+export function alertLabel(a: Pick<Alert, 'kind' | 'value' | 'detail'> & { node_name?: string }): string {
   switch (a.kind) {
     case 'battery_low':
       return `Batteria al ${Math.round(a.value)}%`
     case 'silent':
       return `Silenzioso da ${Math.round(a.value)} h`
+    case 'key_changed':
+      return T.alertKeyChanged(a.node_name ?? '')
     case 'chutil_high':
       return `Canale occupato al ${num(a.value, 1)}% (media 30 min)`
     case 'back_online':
@@ -33,6 +36,8 @@ export function alertIcon(kind: string): IconName {
       return 'clock'
     case 'chutil_high':
       return 'bars'
+    case 'key_changed':
+      return 'key'
     case 'back_online':
       return 'check'
     default:

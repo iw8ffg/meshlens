@@ -4,6 +4,8 @@
   import { ago } from '../lib/format'
   import { statusIcon } from '../lib/chat'
   import { statusAria } from '../lib/send'
+  import { routingErrorText, threadItems } from '../lib/reactions'
+  import { T } from '../lib/strings/messaggi'
   import Badge from '../lib/ui/Badge.svelte'
   import BrokerBadge from '../lib/ui/BrokerBadge.svelte'
   import Banner from '../lib/ui/Banner.svelte'
@@ -11,12 +13,21 @@
   import Check from '../lib/ui/Check.svelte'
   import Empty from '../lib/ui/Empty.svelte'
   import Flag from '../lib/ui/Flag.svelte'
+  import Icon from '../lib/ui/Icon.svelte'
+  import MessageActions from './chat/MessageActions.svelte'
+  import MessageQuote from './chat/MessageQuote.svelte'
+  import ReactionChips from './chat/ReactionChips.svelte'
   import { app, addMessage } from '../lib/stores.svelte'
   import { matchFeed } from '../lib/filters'
   import { emptyFeedHint, navigate } from '../lib/shell/navigate'
   import type { Message } from '../lib/types'
 
-  let { now, onpick }: { now: number; onpick: (id: string) => void } = $props()
+  let {
+    now,
+    onpick,
+    onreply,
+    onreact,
+  }: { now: number; onpick: (id: string) => void; onreply: (m: Message) => void; onreact: (m: Message, emoji: string) => void } = $props()
 
   const LIMIT = 200
   let older = $state<Message[]>([])
@@ -36,6 +47,14 @@
   // i messaggi inviati da qui restano sempre visibili, qualunque sia il filtro
   const shown = $derived(all.filter((m) => m.direction === 'out' || matchFeed(m.country, app.feedFilter)))
   const hidden = $derived(all.length - shown.length)
+  const nodeName = (id: string) => app.nodes.get(id)?.long_name || app.nodes.get(id)?.short_name || id
+  const items = $derived(threadItems(shown, nodeName, new Set()))
+  let listEl = $state<HTMLElement | null>(null)
+
+  function jumpTo(key: string) {
+    const el = [...(listEl?.querySelectorAll<HTMLElement>('[data-mkey]') ?? [])].find((e) => e.dataset.mkey === key)
+    el?.scrollIntoView({ block: 'center' })
+  }
 
   const qs = (extra: string) => `limit=${LIMIT}${extra}`
 
@@ -120,10 +139,14 @@
       {/snippet}
     </Empty>
   {/if}
-  <ul>
-    {#each shown as m (m.key)}
+  <ul bind:this={listEl}>
+    {#each items as it (it.msg.key)}
+      {@const m = it.msg}
       {@const out = m.direction === 'out'}
-      <li class:out>
+      {#if it.orphan}
+        <li class="orphan">{T.orphanReaction(m.text, out ? T.you : (m.from_name ?? nodeName(m.from)))}</li>
+      {:else}
+      <li class:out data-mkey={m.key}>
         <div class="head">
           <Flag code={m.country} name={m.country ?? 'Posizione sconosciuta'} />
           {#if out}
@@ -138,9 +161,15 @@
           {#if out && m.status}
             <span class="st" role="img" title={statusAria(m.status, m.via)} aria-label={statusAria(m.status, m.via)}>{statusIcon(m.status)}</span>
           {/if}
+          {#if m.pki}<Icon name="lock" size={14} label={T.pkiAria} />{/if}
+          <MessageActions msg={m} {onreply} {onreact} />
         </div>
+        <MessageQuote replyTo={it.replyTo} missing={it.replyMissing} {nodeName} onjump={jumpTo} />
         <p class="text">{m.text}</p>
+        <ReactionChips reactions={it.reactions} />
+        {#if m.status === 'failed'}<p class="fail" role="status">{routingErrorText(m.error)}</p>{/if}
       </li>
+      {/if}
     {/each}
   </ul>
   {#if !exhausted && shown.length > 0}
@@ -231,12 +260,23 @@
     white-space: pre-wrap;
     overflow-wrap: anywhere;
   }
+  li.orphan {
+    color: var(--ink-muted);
+    font: 400 13px/18px var(--font-sans);
+  }
+  .fail {
+    margin: var(--space-1) 0 0;
+    color: var(--danger);
+    font-size: 13px;
+  }
   .more {
     display: flex;
     justify-content: center;
     padding: var(--space-3);
   }
   :global(.vp-phone) .head,
+  :global(.vp-phone) .orphan,
+  :global(.vp-phone) .fail,
   :global(.vp-phone) .hid {
     font-size: 14px;
   }

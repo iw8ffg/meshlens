@@ -106,15 +106,28 @@ export interface MqttSendBody {
   to?: string
   confirm_public?: boolean
   broker?: string
+  reply_id?: number
+  emoji?: boolean
 }
 
-export function mqttBody(text: string, channel: string, to: string | null, confirmPublic: boolean, broker?: string): MqttSendBody {
+/** `replyId`: risposta (o reazione, con `emoji`) al messaggio con quel `packet_id`. */
+export function mqttBody(
+  text: string,
+  channel: string,
+  to: string | null,
+  confirmPublic: boolean,
+  broker?: string,
+  replyId?: number | null,
+  emoji = false,
+): MqttSendBody {
   return {
     text: text.trim(),
     channel,
     ...(to ? { to } : {}),
     ...(confirmPublic ? { confirm_public: true } : {}),
     ...(broker ? { broker } : {}),
+    ...(replyId ? { reply_id: replyId } : {}),
+    ...(replyId && emoji ? { emoji: true } : {}),
   }
 }
 

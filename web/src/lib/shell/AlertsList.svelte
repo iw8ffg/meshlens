@@ -19,7 +19,7 @@
       <button type="button" class="row" onclick={() => onpick(a.node_id)}>
         <span class="ico {tone}"><Icon name={alertIcon(a.kind)} size={18} /></span>
         <span class="txt">
-          <span class="main">{alertLabel(a)} — {a.node_name}</span>
+          <span class="main">{a.kind === 'key_changed' ? alertLabel(a) : `${alertLabel(a)} — ${a.node_name}`}</span>
           <span class="since">{ago((now - a.since) / 60)}</span>
         </span>
       </button>

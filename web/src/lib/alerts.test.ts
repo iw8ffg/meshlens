@@ -10,6 +10,11 @@ describe('alertLabel', () => {
     expect(alertLabel({ kind: 'back_online', value: 7 })).toBe('Di nuovo online dopo 7 h')
     expect(alertLabel({ kind: 'firmware_old', value: 0, detail: '2.3.2.63df972' })).toBe('Firmware vecchio (2.3.2)')
   })
+  it('key_changed con il nome del nodo', () => {
+    expect(alertLabel({ kind: 'key_changed', value: 0, node_name: 'Base' })).toBe('Chiave pubblica di Base cambiata')
+    expect(alertTone('key_changed')).toBe('warn')
+    expect(alertIcon('key_changed')).toBe('key')
+  })
   it('tipo sconosciuto: «Avviso»', () => {
     expect(alertLabel({ kind: 'qualcosa_di_nuovo' as Alert['kind'], value: 0 })).toBe('Avviso')
   })

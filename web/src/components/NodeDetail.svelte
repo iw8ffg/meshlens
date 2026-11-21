@@ -16,6 +16,8 @@
   import { formatPrecision } from '../lib/geo'
   import { copyText } from '../lib/clipboard'
   import { nodeLink } from '../lib/route'
+  import { keyChangedRecently } from '../lib/reactions'
+  import { T } from '../lib/strings/messaggi'
   import type { Node } from '../lib/types'
 
   type Pos = { time: number; lat: number; lon: number; precision_bits: number | null; source: string }
@@ -144,6 +146,7 @@
     ['Uso canale', fmtOpt(node.channel_util, 1, '%')],
     ['Uso aria TX', fmtOpt(node.air_util_tx, 1, '%')],
     ['Gateway MQTT', String(node.mqtt_gateways)],
+    [T.publicKeyLabel, node.public_key ? T.publicKeyPresent : T.publicKeyAbsent],
     ['Salti', hopsLabel(node.hops, node.hops_min)],
   ])
 </script>
@@ -186,6 +189,12 @@
           {#if msg === TRACK_ERROR}<Button onclick={toggleTrack}>Riprova</Button>{/if}
         {/snippet}
       </Banner>
+    </div>
+  {/if}
+
+  {#if keyChangedRecently(node, now)}
+    <div class="gap">
+      <Banner kind="warn" title={T.keyChangedBanner(nodeName(node), formatDate(node.key_changed ?? null))} />
     </div>
   {/if}
 

@@ -1,20 +1,25 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte'
   import { getJSON } from '../../lib/api'
-  import { ago } from '../../lib/format'
-  import { MQTT_CONV, statusIcon } from '../../lib/chat'
+  import { ago, formatDate } from '../../lib/format'
+  import { MQTT_CONV, localNodeIds, splitKey, statusIcon } from '../../lib/chat'
   import { convLabel } from '../../lib/conversations'
   import { statusAria } from '../../lib/send'
+  import { keyChangedRecently, routingErrorText, threadItems } from '../../lib/reactions'
   import { app, addRadioHistory } from '../../lib/stores.svelte'
   import { markRead } from '../../lib/unread.svelte'
   import { T } from '../../lib/strings/messaggi'
   import Badge from '../../lib/ui/Badge.svelte'
   import BrokerBadge from '../../lib/ui/BrokerBadge.svelte'
   import Banner from '../../lib/ui/Banner.svelte'
+  import Icon from '../../lib/ui/Icon.svelte'
   import Button from '../../lib/ui/Button.svelte'
   import Empty from '../../lib/ui/Empty.svelte'
   import { emptyRadioHint, navigate } from '../../lib/shell/navigate'
   import MessageFeed from '../MessageFeed.svelte'
+  import MessageActions from './MessageActions.svelte'
+  import MessageQuote from './MessageQuote.svelte'
+  import ReactionChips from './ReactionChips.svelte'
   import type { Message } from '../../lib/types'
 
   let {
@@ -23,7 +28,17 @@
     now,
     onpick,
     onback,
-  }: { conv: string; msgs: Message[]; now: number; onpick: (id: string) => void; onback: () => void } = $props()
+    onreply,
+    onreact,
+  }: {
+    conv: string
+    msgs: Message[]
+    now: number
+    onpick: (id: string) => void
+    onback: () => void
+    onreply: (m: Message) => void
+    onreact: (m: Message, emoji: string) => void
+  } = $props()
 
   const PAGE = 200
 
@@ -36,6 +51,15 @@
   const nodeName = (id: string) => app.nodes.get(id)?.long_name || app.nodes.get(id)?.short_name || id
   const title = $derived(convLabel(conv, app.radios, nodeName))
   const isRadioConv = $derived(conv !== MQTT_CONV)
+  const items = $derived(threadItems(msgs, nodeName, localNodeIds(app.radios)))
+  // Avviso di chiave cambiata nei messaggi diretti
+  const dmNode = $derived(conv.startsWith('dm:') ? app.nodes.get(splitKey(conv)[2]) : undefined)
+  const keyChanged = $derived(dmNode && keyChangedRecently(dmNode, now) ? dmNode : null)
+
+  function jumpTo(key: string) {
+    const el = [...(listEl?.querySelectorAll<HTMLElement>('[data-mkey]') ?? [])].find((e) => e.dataset.mkey === key)
+    el?.scrollIntoView({ block: 'center' })
+  }
 
   async function loadOlder() {
     const oldest = app.radioMessages.length ? app.radioMessages[0].time : Math.floor(Date.now() / 1000)
@@ -101,8 +125,14 @@
     <h2 class="title">{title}</h2>
   </header>
 
+  {#if keyChanged}
+    <div class="keywarn">
+      <Banner kind="warn" title={T.keyChangedBanner(nodeName(keyChanged.id), formatDate(keyChanged.key_changed ?? null))} />
+    </div>
+  {/if}
+
   {#if !isRadioConv}
-    <div class="feed"><MessageFeed {now} {onpick} /></div>
+    <div class="feed"><MessageFeed {now} {onpick} {onreply} {onreact} /></div>
   {:else}
     <ul
       class="list"
@@ -126,26 +156,36 @@
           </Empty>
         </li>
       {/if}
-      {#each msgs as m (m.key)}
+      {#each items as it (it.msg.key)}
+        {@const m = it.msg}
         {@const out = m.direction === 'out'}
-        <li class="msg" class:out>
-          <div class="bubble">
-            {#if !out}
-              <button type="button" class="name" onclick={() => onpick(m.from)}>{m.from_name ?? nodeName(m.from)}</button>
-            {/if}
-            <p class="text">{m.text}</p>
-            <div class="meta">
-              <span>{ago((now - m.time) / 60)}</span>
-              {#if m.via === 'mqtt'}<Badge kind="info">via MQTT</Badge>{/if}
-              <BrokerBadge id={m.broker} />
-              {#if out && m.status}
-                <span class="st" class:bad={m.status === 'failed'} role="img" title={statusAria(m.status, m.via)} aria-label={statusAria(m.status, m.via)}>
-                  {statusIcon(m.status)}
-                </span>
+        {#if it.orphan}
+          <li class="orphan">{T.orphanReaction(m.text, out ? T.you : (m.from_name ?? nodeName(m.from)))}</li>
+        {:else}
+          <li class="msg" class:out data-mkey={m.key}>
+            <div class="bubble">
+              {#if !out}
+                <button type="button" class="name" onclick={() => onpick(m.from)}>{m.from_name ?? nodeName(m.from)}</button>
               {/if}
+              <MessageQuote replyTo={it.replyTo} missing={it.replyMissing} {nodeName} onjump={jumpTo} />
+              <p class="text">{m.text}</p>
+              <div class="meta">
+                {#if m.pki}<Icon name="lock" size={14} label={T.pkiAria} />{/if}
+                <span>{ago((now - m.time) / 60)}</span>
+                {#if m.via === 'mqtt'}<Badge kind="info">via MQTT</Badge>{/if}
+                <BrokerBadge id={m.broker} />
+                {#if out && m.status}
+                  <span class="st" class:bad={m.status === 'failed'} role="img" title={statusAria(m.status, m.via)} aria-label={statusAria(m.status, m.via)}>
+                    {statusIcon(m.status)}
+                  </span>
+                {/if}
+                <MessageActions msg={m} {onreply} {onreact} />
+              </div>
             </div>
-          </div>
-        </li>
+            <ReactionChips reactions={it.reactions} />
+            {#if m.status === 'failed'}<p class="fail" role="status">{routingErrorText(m.error)}</p>{/if}
+          </li>
+        {/if}
       {/each}
     </ul>
   {/if}
@@ -217,9 +257,29 @@
   }
   .msg {
     display: flex;
+    flex-direction: column;
+    align-items: flex-start;
   }
   .msg.out {
-    justify-content: flex-end;
+    align-items: flex-end;
+  }
+  .keywarn {
+    flex: none;
+    padding: var(--space-2) var(--space-3);
+    border-bottom: 1px solid var(--line);
+  }
+  .orphan {
+    align-self: center;
+    color: var(--ink-muted);
+    font: 400 13px/18px var(--font-sans);
+    text-align: center;
+  }
+  .fail {
+    margin: var(--space-1) 0 0;
+    max-width: 85%;
+    color: var(--danger);
+    font: 400 13px/18px var(--font-sans);
+    text-align: right;
   }
   .bubble {
     max-width: 85%;
@@ -269,7 +329,9 @@
     text-align: center;
   }
   :global(.vp-phone) .name,
-  :global(.vp-phone) .meta {
+  :global(.vp-phone) .meta,
+  :global(.vp-phone) .orphan,
+  :global(.vp-phone) .fail {
     font-size: 14px;
   }
   :global(.vp-phone) .title {

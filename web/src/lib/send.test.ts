@@ -137,3 +137,18 @@ test('classifyMqttError: la conferma usa il testo del server (broker giusto)', (
   expect(r.message).toContain('mio.example')
   expect(classifyMqttError({ status: 409, code: 'confirm_required', message: '' }).message).toBe(PUBLIC_WARNING)
 })
+
+test('mqttBody: reply_id ed emoji solo se indicati', () => {
+  expect(mqttBody('ok', 'LongFast', null, false, undefined, 42)).toEqual({ text: 'ok', channel: 'LongFast', reply_id: 42 })
+  expect(mqttBody('👍', 'LongFast', '!aabbccdd', false, undefined, 42, true)).toEqual({
+    text: '👍',
+    channel: 'LongFast',
+    to: '!aabbccdd',
+    reply_id: 42,
+    emoji: true,
+  })
+  const plain = mqttBody('ciao', 'LongFast', null, false)
+  expect('reply_id' in plain).toBe(false)
+  expect('emoji' in plain).toBe(false)
+  expect('emoji' in mqttBody('x', 'LongFast', null, false, undefined, null, true)).toBe(false)
+})

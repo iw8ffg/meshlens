@@ -46,7 +46,7 @@ export function toggleIn<T>(list: T[], v: T): T[] {
 }
 
 /** Avviso in italiano per una riga della Rete: «Batteria al 12%» / «Silenzioso da 30 h». */
-export function alertText(a: Pick<Alert, 'kind' | 'value' | 'detail'>): string {
+export function alertText(a: Pick<Alert, 'kind' | 'value' | 'detail'> & { node_name?: string }): string {
   return alertLabel(a)
 }
 

@@ -21,20 +21,21 @@
   } from '../../lib/send'
   import { keepAboveKeyboard } from '../../lib/keyboard'
   import { app, addMessage } from '../../lib/stores.svelte'
+  import { T } from '../../lib/strings/messaggi'
   import Banner from '../../lib/ui/Banner.svelte'
   import Button from '../../lib/ui/Button.svelte'
   import Field from '../../lib/ui/Field.svelte'
   import Modal from '../../lib/ui/Modal.svelte'
+  import Icon from '../../lib/ui/Icon.svelte'
   import Select from '../../lib/ui/Select.svelte'
   import Toast from '../../lib/ui/Toast.svelte'
   import BrokerPicker from '../../lib/shell/BrokerPicker.svelte'
   import type { Message, Radio } from '../../lib/types'
 
-  // `replyTo` e `oncancelreply` servono alle risposte (Task 9): qui solo il contratto delle props
   let {
     conv,
-    replyTo: _replyTo,
-    oncancelreply: _oncancelreply,
+    replyTo,
+    oncancelreply,
     onsent,
   }: { conv: string; replyTo: Message | null; oncancelreply: () => void; onsent: (m: Message) => void } = $props()
 
@@ -55,6 +56,12 @@
   let pending = $state<MqttSendBody | null>(null)
   // Conversazione da cui parte l'invio in attesa di conferma (per svuotarne la bozza)
   let pendingConv = ''
+  // La reazione non tocca il testo in corso di scrittura
+  let pendingClear = true
+  interface Reply {
+    id: number
+    emoji: boolean
+  }
 
   // Id nodo impostato (per sapere in anticipo se MQTT e' utilizzabile)
   onMount(() => {
@@ -148,20 +155,23 @@
   const canSend = $derived(!sending && !bc.over && text.trim() !== '' && hasChoice && via !== '')
 
   /** Invio riuscito: svuota il testo (se la conversazione e' ancora quella) e la sua bozza. */
-  function sent(m: Message, from: string) {
+  function sent(m: Message, from: string, clear: boolean) {
     addMessage(m)
-    if (conv === from) text = ''
-    saveDraft(localStorage, from, '')
-    onsent(m)
+    if (clear) {
+      if (conv === from) text = ''
+      saveDraft(localStorage, from, '')
+      onsent(m)
+    }
   }
 
-  async function sendRadio(from: string) {
+  async function sendRadio(from: string, body: string, reply: Reply | null) {
     const m = await send<Message>('POST', `/radios/${encodeURIComponent(radioId)}/send`, {
-      text: text.trim(),
+      text: body.trim(),
       channel_index: dmTo ? 0 : Number(radioChan),
       to: dmTo || null,
+      ...(reply ? { reply_id: reply.id, ...(reply.emoji ? { emoji: true } : {}) } : {}),
     })
-    sent(m, from)
+    sent(m, from, !reply?.emoji)
     // il messaggio non compare nella conversazione aperta: lo si conferma con un avviso
     const inConv = dmTo ? splitKey(conv)[1] === radioId : conv === `ch:${radioId}:${radioChan}`
     if (!inConv) {
@@ -170,10 +180,10 @@
     }
   }
 
-  async function sendMqtt(body: MqttSendBody, from: string) {
+  async function sendMqtt(body: MqttSendBody, from: string, clear = true) {
     try {
       const r = await mqttSend(body)
-      sent(r.message, from)
+      sent(r.message, from, clear)
       const bn = brokerLabel(body.broker, brokers)
       notice = `Pubblicato su MQTT · ${bn ? `${bn} · ` : ''}${body.channel}`
     } catch (e) {
@@ -184,6 +194,7 @@
         confirmText = info.message
         pending = body
         pendingConv = from
+        pendingClear = clear
         confirmOpen = true
         return
       }
@@ -199,8 +210,9 @@
     error = ''
     notice = ''
     try {
-      if (via === MQTT_VIA) await sendMqtt(mqttBody(text, mqttChan, dmTo || null, false, mqttBroker), from)
-      else await sendRadio(from)
+      const rid = replyTo?.packet_id ?? null
+      if (via === MQTT_VIA) await sendMqtt(mqttBody(text, mqttChan, dmTo || null, false, mqttBroker, rid), from)
+      else await sendRadio(from, text, rid ? { id: rid, emoji: false } : null)
     } catch (e) {
       error = e instanceof Error && e.message ? e.message : 'Invio non riuscito'
     } finally {
@@ -216,7 +228,7 @@
     sending = true
     error = ''
     try {
-      await sendMqtt(resendBody(body), pendingConv)
+      await sendMqtt(resendBody(body), pendingConv, pendingClear)
     } finally {
       sending = false
     }
@@ -225,6 +237,30 @@
   function cancelPublic() {
     confirmOpen = false
     pending = null
+  }
+
+  /** Reazione a un messaggio: parte subito, con lo stesso «Invia via» (e la stessa conferma MQTT) del compositore. */
+  export async function react(target: Message, emoji: string) {
+    const rid = target.packet_id
+    if (!rid || sending) return
+    if (!hasChoice || via === '') {
+      error = T.reactionNoVia
+      return
+    }
+    const from = conv
+    sending = true
+    error = ''
+    notice = ''
+    try {
+      if (via === MQTT_VIA) {
+        const ch = target.channel && mqttChans.includes(target.channel) ? target.channel : mqttChan
+        await sendMqtt(mqttBody(emoji, ch, dmTo || null, false, mqttBroker, rid, true), from, false)
+      } else await sendRadio(from, emoji, { id: rid, emoji: true })
+    } catch (e) {
+      error = e instanceof Error && e.message ? e.message : 'Invio non riuscito'
+    } finally {
+      sending = false
+    }
   }
 
   function onkey(e: KeyboardEvent) {
@@ -271,6 +307,18 @@
         {/snippet}
       </Field>
     {/if}
+  {/if}
+
+  {#if replyTo}
+    <div class="reply">
+      <span class="rq">
+        <b>{T.replyingTo(replyTo.direction === 'out' ? T.you : (replyTo.from_name ?? nodeName(replyTo.from)))}</b>
+        <span class="rp">{replyTo.text}</span>
+      </span>
+      <button type="button" class="rx" aria-label={T.cancelReply} title={T.cancelReply} onclick={oncancelreply}>
+        <Icon name="x" size={16} />
+      </button>
+    </div>
   {/if}
 
   <textarea
@@ -383,6 +431,53 @@
   }
   .warn {
     margin: 0;
+  }
+  .reply {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-1) var(--space-2);
+    background: var(--surface-sunken);
+    border-left: 3px solid var(--accent);
+    border-radius: var(--radius-sm);
+    font-size: 14px;
+    min-width: 0;
+  }
+  .rq {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .rp {
+    color: var(--ink-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .rx {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    min-width: 32px;
+    min-height: 32px;
+    background: none;
+    border: 0;
+    border-radius: var(--radius-md);
+    color: var(--ink);
+    cursor: pointer;
+  }
+  .rx:hover {
+    background: var(--accent-soft);
+  }
+  .rx:focus-visible {
+    outline: 2px solid var(--focus-ring);
+    outline-offset: 2px;
+  }
+  :global(.vp-phone) .rx {
+    min-width: var(--touch-min);
+    min-height: var(--touch-min);
   }
   :global(.vp-phone) .count,
   :global(.vp-phone) .why,

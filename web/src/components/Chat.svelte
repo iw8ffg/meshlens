@@ -15,6 +15,7 @@
   // Elenco delle conversazioni o conversazione aperta (uguale su telefono e desktop)
   let view = $state<'list' | 'thread'>('list')
   let replyTo = $state<Message | null>(null)
+  let composer = $state<ReturnType<typeof Composer> | null>(null)
 
   function open(key: string) {
     if (key !== conv) replyTo = null
@@ -60,8 +61,8 @@
   {#if view === 'list'}
     <ConversationList {items} active={conv} onopen={open} {now} {groups} />
   {:else}
-    <Thread {conv} {msgs} {now} {onpick} onback={back} />
-    <Composer {conv} {replyTo} oncancelreply={() => (replyTo = null)} onsent={() => (replyTo = null)} />
+    <Thread {conv} {msgs} {now} {onpick} onback={back} onreply={(m) => (replyTo = m)} onreact={(m, e) => composer?.react(m, e)} />
+    <Composer bind:this={composer} {conv} {replyTo} oncancelreply={() => (replyTo = null)} onsent={() => (replyTo = null)} />
   {/if}
 </div>
 
