@@ -3,8 +3,8 @@ import { loadFilter, saveFilter } from './filters'
 import type { NodeFilter } from './filters'
 import { MAX_REPLACED, insertMessage, removeByKey, mergeRadioMessages, pruneSet } from './chat'
 import { shouldStore } from './traceroute'
-import { upsertPoint } from './coverage'
-import type { Alert, CoverageDetail, CoveragePoint, CoverageSession, Message, MessageStatus, Node, Radio, Status, Traceroute } from './types'
+import { appendTrackPoint, upsertPoint } from './coverage'
+import type { Alert, CoverageDetail, CoveragePoint, CoverageSession, CoverageTrackPoint, Message, MessageStatus, Node, Radio, Status, Traceroute } from './types'
 
 const MAX_MESSAGES = 500
 
@@ -35,14 +35,23 @@ export function setCoverageSessions(list: CoverageSession[]): void {
 }
 
 /** Aggiornamento dal WebSocket: sostituisce il riepilogo e aggiunge il punto al dettaglio aperto. */
-export function applyCoverage(session: CoverageSession, point: CoveragePoint | null): void {
+export function applyCoverage(
+  session: CoverageSession,
+  point: CoveragePoint | null,
+  trackPoint: CoverageTrackPoint | null = null,
+): void {
   const i = coverage.sessions.findIndex((s) => s.id === session.id)
   if (i >= 0) coverage.sessions[i] = session
   else coverage.sessions.unshift(session)
   if (point && session.ended === null) coverage.last = { id: session.id, snr: point.snr, time: point.time }
   if (session.id === coverage.openId && coverage.detail?.id === session.id) {
     const d = coverage.detail
-    coverage.detail = { ...d, ...session, points: point ? upsertPoint(d.points, point) : d.points }
+    coverage.detail = {
+      ...d,
+      ...session,
+      points: point ? upsertPoint(d.points, point) : d.points,
+      track: trackPoint ? appendTrackPoint(d.track, trackPoint) : d.track,
+    }
   }
 }
 

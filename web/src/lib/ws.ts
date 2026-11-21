@@ -1,5 +1,5 @@
 import { emitAuthRequired } from './api'
-import type { Alert, CoveragePoint, CoverageSession, Message, MessageStatus, Node, Radio, Status, Traceroute } from './types'
+import type { Alert, CoveragePoint, CoverageSession, CoverageTrackPoint, Message, MessageStatus, Node, Radio, Status, Traceroute } from './types'
 
 export interface WSHandlers {
   nodes(n: Node[]): void
@@ -8,7 +8,7 @@ export interface WSHandlers {
   radios(r: Radio[]): void
   alerts(a: Alert[]): void
   traceroute(t: Traceroute): void
-  coverage(session: CoverageSession, point: CoveragePoint | null): void
+  coverage(session: CoverageSession, point: CoveragePoint | null, trackPoint?: CoverageTrackPoint | null): void
   messageStatus(key: string, status: MessageStatus): void
   /** Chiamato a ogni riapertura dopo la prima: lo stato puo' essere vecchio (telefono in standby). */
   reconnected?(): void
@@ -38,7 +38,7 @@ export function connectWS(handlers: WSHandlers): () => void {
         else if (msg.type === 'radios') handlers.radios(msg.radios)
         else if (msg.type === 'alerts') handlers.alerts(msg.alerts)
         else if (msg.type === 'traceroute') handlers.traceroute(msg.result)
-        else if (msg.type === 'coverage') handlers.coverage(msg.session, msg.point ?? null)
+        else if (msg.type === 'coverage') handlers.coverage(msg.session, msg.point ?? null, msg.track_point ?? null)
         else if (msg.type === 'message_status') handlers.messageStatus(msg.key, msg.status)
         else if (msg.type === 'status') handlers.status({ mqtt: msg.mqtt })
       } catch {

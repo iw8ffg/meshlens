@@ -299,6 +299,7 @@
         })
         for (const l of ['links', 'links-trace']) {
           m.on('click', l, (e: maplibregl.MapLayerMouseEvent) => {
+            if (picking) return
             if (m.queryRenderedFeatures(e.point, { layers: ['points', 'clusters'] }).length > 0) return
             const p = e.features?.[0]?.properties
             if (p) showLinkPopup(e.lngLat, p)

@@ -3,7 +3,7 @@
   import { formatLoss } from '../lib/coverage'
   import { formatDate } from '../lib/format'
   import { formatMeters } from '../lib/geo'
-  import { coverage } from '../lib/stores.svelte'
+  import { applyCoverage, coverage } from '../lib/stores.svelte'
   import type { CoverageSession } from '../lib/types'
   import CoverageSetup from './CoverageSetup.svelte'
 
@@ -31,7 +31,7 @@
   async function stop(s: CoverageSession) {
     error = ''
     try {
-      await stopCoverage(s.id)
+      applyCoverage(await stopCoverage(s.id), null)
     } catch (e) {
       error = msg(e)
     }

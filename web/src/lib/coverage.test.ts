@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { checklist, coverageGeoJSON, formatLoss, upsertPoint, validInterval } from './coverage'
+import { appendTrackPoint, checklist, coverageGeoJSON, formatLoss, upsertPoint, validInterval } from './coverage'
 import type { CoverageCheck, CoverageDetail, CoveragePoint } from './types'
 
 const good: CoverageCheck = {
@@ -136,5 +136,17 @@ describe('upsertPoint', () => {
     const a = [p({ id: 1, lat: null })]
     upsertPoint(a, p({ id: 1, lat: 5 }))
     expect(a[0].lat).toBeNull()
+  })
+})
+
+describe('appendTrackPoint', () => {
+  const t = (time: number, lat = 45, lon = 11) => ({ time, lat, lon, precision_bits: null })
+  it('aggiunge in ordine di tempo', () => {
+    const out = appendTrackPoint([t(10), t(30)], t(20, 46))
+    expect(out.map((x) => x.time)).toEqual([10, 20, 30])
+  })
+  it('ignora una posizione già presente', () => {
+    const a = [t(10)]
+    expect(appendTrackPoint(a, t(10))).toBe(a)
   })
 })
