@@ -12,6 +12,7 @@ from typing import Callable
 from meshtastic.protobuf import mesh_pb2, mqtt_pb2, portnums_pb2
 
 from .crypto import DEFAULT_KEY, decrypt, expand_psk
+from .messages import reply_problem
 from .mqtt_decode import channel_hash
 from .settings import DEFAULT_BROKER_ID, enabled_brokers, find_broker
 
@@ -22,11 +23,6 @@ HOUR_S = 3600
 BROADCAST = 0xFFFFFFFF
 HOP_LIMIT = 3
 DEFAULT_REGION = "EU_868"
-MAX_REACTION_BYTES = 16
-MAX_PACKET_ID = 2**32 - 1
-REACTION_NEEDS_REPLY = "La reazione richiede il messaggio a cui reagire"
-INVALID_REACTION = "Reazione non valida"
-INVALID_REPLY = "Messaggio di riferimento non valido"
 
 
 def confirm_text(host: str) -> str:
@@ -40,20 +36,6 @@ PRESET_CHANNELS = frozenset({"LongFast", "MediumFast", "MediumSlow", "ShortFast"
                              "LongModerate", "LongSlow", "ShortTurbo"})
 _CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
 _NODE_ID = re.compile(r"!([0-9a-fA-F]{8})")
-
-
-def reply_problem(text: str, reply_id: int | None, emoji: bool) -> str | None:
-    """Motivo per cui risposta o reazione non sono valide (None se valide). Condiviso
-    dall'invio via radio e via MQTT."""
-    if emoji and reply_id is None:
-        return REACTION_NEEDS_REPLY
-    if reply_id is not None and (not isinstance(reply_id, int) or isinstance(reply_id, bool)
-                                 or not 1 <= reply_id <= MAX_PACKET_ID):
-        return INVALID_REPLY
-    if emoji and (len(text.encode("utf-8")) > MAX_REACTION_BYTES
-                  or any(c.isspace() for c in text)):
-        return INVALID_REACTION
-    return None
 
 
 class MqttSendError(Exception):

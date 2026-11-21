@@ -112,15 +112,15 @@ def test_notify_settings_validation(conn):
                 {"telegram_chat_id": 42}, {"notify_keywords": [f"p{i:02d}" for i in range(21)]},
                 {"notify_keywords": ["a"]}, {"notify_keywords": ["x" * 33]},
                 {"notify_keywords": [" sp"]}, {"notify_keywords": "parola"},
-                {"notify_toast": 1}, {"notify_new_node": None}, {"telegram_token": 5}):
+                {"notify_toast": 1}, {"notify_new_node": None}, {"telegram_token": 5}, {"telegram_token": "123:ABCdef"}):
         with pytest.raises(ValueError):
             save_settings(conn, bad)
-    out = save_settings(conn, {"telegram_chat_id": "-1001234", "telegram_token": "123:ABCdef",
+    out = save_settings(conn, {"telegram_chat_id": "-1001234", "telegram_token": "123456789:AAH_secret-token-abcdefghijklmnopqrstu",
                                "notify_keywords": ["aiuto", "perché"], "notify_telegram": True})
     assert out["telegram_chat_id"] == "-1001234" and out["notify_keywords"] == ["aiuto", "perché"]
     raw = conn.execute("SELECT value FROM settings WHERE key='telegram_token'").fetchone()["value"]
-    assert "ABCdef" not in json.loads(raw)  # salvato cifrato
-    assert load_settings(conn)["telegram_token"] == "123:ABCdef"
+    assert "abcdefghij" not in json.loads(raw)  # salvato cifrato
+    assert load_settings(conn)["telegram_token"] == "123456789:AAH_secret-token-abcdefghijklmnopqrstu"
     assert mask_secrets(load_settings(conn))["telegram_token"] == MASK
     changes, skipped = prepare_import({"format": 1, "settings": {"telegram_token": MASK,
                                                                  "notify_toast": False}})

@@ -10,7 +10,7 @@ from typing import Any
 from .events import MeshEvent, WaypointData, node_id
 from .conversations import waypoint_json
 from .ingest import traceroute_chains
-from .mqtt_publish import reply_problem
+from .messages import reply_problem
 from .radio import RadioConnector
 
 log = logging.getLogger(__name__)
@@ -447,6 +447,8 @@ class RadioManager:
             raise KeyError(wid)
         owner = self.local_radio_for(row["from_num"])
         if owner is None:
+            if row["from_num"] in self.ingestor._radio_nodes.values():
+                raise ValueError("Radio non connessa")  # e' il mio, ma la radio e' spenta
             raise PermissionError(wid)
         try:
             channel_index = int(row["channel"])

@@ -117,6 +117,7 @@ _BOOL_KEYS = ("lan_access", "lan_https", "notify_toast", "notify_telegram",
               "notify_mine_status", "notify_new_node")
 MAX_NOTIFY_KEYWORDS = 20
 _CHAT_ID_RE = re.compile(r"-?[0-9]{1,20}")
+_TELEGRAM_TOKEN_RE = re.compile(r"\d{5,12}:[A-Za-z0-9_-]{30,50}")
 
 
 def normalize_topic(topic: str) -> str:
@@ -348,9 +349,12 @@ def _validate(key: str, value) -> None:
     elif key == "update_repo":
         if not (isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", value)):
             raise ValueError("update_repo deve avere il formato owner/nome")
-    elif key in ("update_token", "telegram_token"):
+    elif key == "update_token":
         if not isinstance(value, str):
             raise ValueError(f"{key} deve essere una stringa")
+    elif key == "telegram_token":
+        if not (isinstance(value, str) and (value in ("", MASK) or _TELEGRAM_TOKEN_RE.fullmatch(value))):
+            raise ValueError("telegram_token non ha il formato di un token di BotFather")
     elif key == "telegram_chat_id":
         if not (isinstance(value, str) and (value == "" or _CHAT_ID_RE.fullmatch(value))):
             raise ValueError("telegram_chat_id deve essere vuoto oppure un numero intero")

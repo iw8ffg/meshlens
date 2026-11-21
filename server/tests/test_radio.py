@@ -260,6 +260,8 @@ async def test_send_reaction_builds_emoji_packet():
     assert iface.sent == []
     ((pkt, dest, want_ack),) = iface.packets
     assert pkt.decoded.emoji == 1 and pkt.decoded.reply_id == 42 and pkt.channel == 1
+    from meshtastic.protobuf import mesh_pb2
+    assert pkt.priority == mesh_pb2.MeshPacket.Priority.RELIABLE
     assert pkt.decoded.portnum == portnums_pb2.TEXT_MESSAGE_APP
     assert pkt.decoded.payload == "👍".encode()
     assert dest == "^all" and want_ack is True

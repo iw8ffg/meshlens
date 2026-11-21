@@ -432,6 +432,7 @@ class RadioConnector:
             pkt.decoded.payload = text.encode("utf-8")
             pkt.decoded.reply_id = reply_id or 0
             pkt.decoded.emoji = 1
+            pkt.priority = mesh_pb2.MeshPacket.Priority.RELIABLE  # come sendText
             pkt.id = iface._generatePacketId()
             iface._sendPacket(pkt, dest or BROADCAST, wantAck=True)
             return pkt

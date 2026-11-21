@@ -1207,6 +1207,13 @@ def test_waypoint_routes():
             assert sent[1][0].expire == 1 and sent[1][0].id == wp["id"]
             assert ws.receive_json() == {"type": "waypoint_deleted", "id": wp["id"]}
         assert [w["id"] for w in tc.get("/api/waypoints").json()] == [5]
+        # mio ma con la radio scollegata: 409, non 403
+        env.store.upsert_waypoint({"id": 6, "from_num": int(MY_ID[1:], 16), "lat": 45.0,
+                                   "lon": 9.0, "name": "Mio", "time": time.time(),
+                                   "source": "rf", "radio_id": rid, "channel": "0"})
+        tc.post(f"/api/radios/{rid}/disconnect")
+        r = tc.delete("/api/waypoints/6")
+        assert r.status_code == 409 and r.json()["detail"] == "Radio non connessa"
 
 
 def test_conversations_read_broadcasts(ctx):
@@ -1241,13 +1248,13 @@ def test_conversations_read_broadcasts(ctx):
 
 async def test_put_settings_keeps_masked_telegram_token(ctx):
     from meshlens.settings import load_settings
-    save_settings(ctx.conn, {"telegram_token": "123:SEGRETO", "telegram_chat_id": "42"})
+    save_settings(ctx.conn, {"telegram_token": "123456:SEGRETO_abcdefghijklmnopqrstuvwxyz0123", "telegram_chat_id": "42"})
     async with logged(ctx) as c:
         s = (await c.get("/api/settings")).json()
         assert s["telegram_token"] == "••••" and "SEGRETO" not in str(s)
         r = await c.put("/api/settings", json={"telegram_token": "••••", "notify_telegram": True})
         assert r.status_code == 200 and r.json()["telegram_token"] == "••••"
-        assert load_settings(ctx.conn)["telegram_token"] == "123:SEGRETO"
+        assert load_settings(ctx.conn)["telegram_token"] == "123456:SEGRETO_abcdefghijklmnopqrstuvwxyz0123"
         assert load_settings(ctx.conn)["notify_telegram"] is True
 
 
@@ -1275,7 +1282,7 @@ async def test_notify_test_without_config(ctx):
 
 async def test_notify_telegram_failure_502_without_token(ctx, monkeypatch):
     from meshlens import notify
-    token = "123456:SEGRETISSIMO"
+    token = "123456:SEGRETISSIMO_abcdefghijklmnopqrstuvwxyz"
     save_settings(ctx.conn, {"telegram_token": token, "telegram_chat_id": "42"})
 
     def fail(tok, chat, text, **_k):

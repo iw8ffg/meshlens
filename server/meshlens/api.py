@@ -1045,6 +1045,8 @@ def create_app(ctx: AppContext) -> FastAPI:
             raise HTTPException(404, WAYPOINT_UNKNOWN)
         except PermissionError:
             raise HTTPException(403, WAYPOINT_ONLY_MINE)
+        except ValueError as e:
+            raise HTTPException(409, str(e))
         except RuntimeError as e:
             raise HTTPException(502, str(e))
         return {"ok": True}
