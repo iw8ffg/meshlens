@@ -25,6 +25,7 @@ from .config_service import ConfigError
 from .coverage import SessionActive, precision_m
 from .geo import CountryLocator
 from .live import LiveState
+from .maps import MapsError
 from .radio_manager import NoRadioConnected, TracerouteThrottled
 from .settings import load_settings, save_settings
 from .store import Store
@@ -50,6 +51,7 @@ class AppContext:
     radios: object | None = None  # RadioManager
     coverage: object | None = None  # CoverageRecorder
     config: object | None = None  # ConfigService
+    maps: object | None = None  # MapsManager
     _alerts: list = field(default_factory=list)
 
     def alerts(self) -> list[dict]:
@@ -61,6 +63,17 @@ class AppContext:
         if [(a["key"], a["value"]) for a in new] != [(a["key"], a["value"]) for a in old]:
             self.bus.publish({"type": "alerts", "alerts": new})
         return new
+
+
+class MapsEstimateBody(BaseModel):
+    kind: Literal["world", "italy", "area"]
+    bbox: list[float] | None = None
+
+
+class MapsDownloadBody(BaseModel):
+    kind: Literal["tool", "world", "italy", "area"]
+    bbox: list[float] | None = None
+    name: str | None = Field(None, max_length=80)
 
 
 class MineBody(BaseModel):
@@ -706,6 +719,40 @@ def create_app(ctx: AppContext) -> FastAPI:
     async def coverage_detail(sid: int):
         coverage_session(sid)
         return ctx.coverage.detail(sid)
+
+    # ---- mappe offline ----
+    async def maps_call(coro):
+        if ctx.maps is None:
+            raise HTTPException(503, "Mappe offline non disponibili")
+        try:
+            return await coro
+        except MapsError as e:
+            raise HTTPException(e.status, str(e))
+
+    async def _maps_status():
+        return ctx.maps.status()
+
+    @app.get("/api/maps", dependencies=[Depends(require_auth)])
+    async def maps_status():
+        return await maps_call(_maps_status())
+
+    @app.post("/api/maps/estimate", dependencies=[Depends(require_auth), Depends(require_json)])
+    async def maps_estimate(body: MapsEstimateBody):
+        return await maps_call(ctx.maps.estimate(body.kind, body.bbox))
+
+    @app.post("/api/maps/download", status_code=202,
+              dependencies=[Depends(require_auth), Depends(require_json)])
+    async def maps_download(body: MapsDownloadBody):
+        return await maps_call(ctx.maps.start(body.kind, body.bbox, body.name))
+
+    @app.post("/api/maps/jobs/{job_id}/cancel", dependencies=[Depends(require_auth)])
+    async def maps_cancel(job_id: str):
+        return await maps_call(ctx.maps.cancel(job_id))
+
+    @app.delete("/api/maps/{map_id}", dependencies=[Depends(require_auth)])
+    async def maps_delete(map_id: str):
+        await maps_call(ctx.maps.delete(map_id))
+        return {"ok": True}
 
     # ---- websocket ----
     @app.websocket("/ws")

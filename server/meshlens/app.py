@@ -19,6 +19,7 @@ from .dedup import Deduplicator
 from .geo import CountryLocator
 from .ingest import Ingestor
 from .live import LiveState
+from .maps import MapsManager
 from .mqtt_client import MqttConnector
 from .mqtt_decode import EnvelopeDecoder
 from .pubsub_hub import PubSubHub
@@ -54,6 +55,7 @@ class Runtime:
     settings: dict = field(default_factory=dict)  # copia in cache: evita SQL a ogni pacchetto
     radios: RadioManager | None = None
     config: ConfigService | None = None
+    maps: MapsManager | None = None
     connector: object = None
     ctx: object = None  # AppContext
     tasks: list = field(default_factory=list)
@@ -116,6 +118,8 @@ class Runtime:
 
     async def start(self) -> None:
         self.loop = asyncio.get_running_loop()
+        if self.maps is not None:
+            self.maps.cleanup_tmp()  # .tmp rimasti da un download interrotto
         if self.coverage is not None:
             self.coverage.start()
         self.start_connector()
@@ -133,6 +137,8 @@ class Runtime:
         ]
 
     async def stop(self) -> None:
+        if self.maps is not None:
+            await self.maps.shutdown()  # uccide l'eventuale processo di ritaglio
         if self.config is not None:
             await self.config.stop()
         if self.radios is not None:
@@ -178,10 +184,11 @@ def build(data_dir: Path, connector_factory=MqttConnector,
     rt.radios = RadioManager(store, ingestor, bus, None, PubSubHub(None),
                               connector_factory=radio_connector_factory, on_event=on_event)
     rt.config = ConfigService(store, rt.radios, live, bus)
+    rt.maps = MapsManager(data_dir, lambda: rt.settings, bus)
     ctx = AppContext(live=live, store=store, auth=auth, bus=bus, locator=locator, conn=conn,
                      mqtt_status=rt.mqtt_status, on_settings_changed=rt.on_settings_changed,
                      static_dir=static_dir, radios=rt.radios, coverage=coverage,
-                     config=rt.config)
+                     config=rt.config, maps=rt.maps)
     rt.ctx = ctx
     app = create_app(ctx)
 

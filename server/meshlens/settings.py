@@ -4,6 +4,8 @@ import json
 import re
 import sqlite3
 
+from urllib.parse import urlsplit
+
 from .crypto import expand_psk
 
 DEFAULTS: dict = {
@@ -15,6 +17,8 @@ DEFAULTS: dict = {
     "battery_alert_pct": 20,
     "silent_alert_hours": 6,
     "lan_access": False,
+    "map_mode": "auto",
+    "maps_source_url": "",
     "mqtt": {
         "host": "mqtt.meshtastic.org",
         "port": 1883,
@@ -76,6 +80,16 @@ def _validate(key: str, value) -> None:
     elif key == "lan_access":
         if not isinstance(value, bool):
             raise ValueError("lan_access deve essere vero o falso")
+    elif key == "map_mode":
+        if value not in ("auto", "online", "offline"):
+            raise ValueError("map_mode deve essere auto, online oppure offline")
+    elif key == "maps_source_url":
+        if not isinstance(value, str):
+            raise ValueError("maps_source_url deve essere una stringa")
+        if value:
+            u = urlsplit(value)
+            if u.scheme != "https" or not u.netloc or not u.path.endswith(".pmtiles"):
+                raise ValueError("maps_source_url deve essere un URL https che termina con .pmtiles")
     elif key == "mqtt":
         _validate_mqtt(value)
 
