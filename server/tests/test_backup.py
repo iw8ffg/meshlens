@@ -186,3 +186,29 @@ def test_prune_keeps_special_backups_and_tolerates_vanishing(tmp_path):
     (m.dir / victim).unlink()  # sparito: list non solleva
     assert all(b["name"] != victim for b in m.list())
     conn.close()
+
+
+def test_wal_move_failure_keeps_original_db_and_wal(tmp_path, monkeypatch):
+    import meshlens.backup as bk
+    conn, m = mgr(tmp_path)
+    conn.execute("INSERT INTO settings(key, value) VALUES('marker', '\"originale\"')")
+    conn.commit()
+    name = m.create_sync(conn, "manuale")["name"]
+    conn.close()
+    wal = tmp_path / "meshlens.db-wal"
+    wal.write_bytes(b"wal non ancora trasferito")
+    m.schedule_restore(name)
+    real_move = bk.shutil.move
+
+    def flaky(src, dst, *a, **k):
+        if str(src).endswith("-wal"):
+            raise OSError("file bloccato")
+        return real_move(src, dst, *a, **k)
+
+    monkeypatch.setattr(bk.shutil, "move", flaky)
+    assert apply_pending_restore(tmp_path) is None
+    assert wal.read_bytes() == b"wal non ancora trasferito"
+    cur = sqlite3.connect(tmp_path / "meshlens.db")
+    assert cur.execute("SELECT value FROM settings WHERE key='marker'").fetchone()[0] == '"originale"'
+    cur.close()
+    assert not list((tmp_path / "backups").glob("*-prima-del-ripristino.db*"))

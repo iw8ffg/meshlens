@@ -184,9 +184,8 @@ def apply_pending_restore(data_dir: Path) -> str | None:
     except Exception:
         log.exception("Ripristino fallito: si riparte dal database originale")
         tmp.unlink(missing_ok=True)
-        for suffix in suffixes:  # niente resti del ripristino a meta'
-            if moved:
-                db.with_name(db.name + suffix).unlink(missing_ok=True)
+        for src, _ in moved:  # solo i file davvero spostati: qui puo' esserci un resto a meta'
+            src.unlink(missing_ok=True)
         for src, dst in moved:
             try:
                 shutil.move(str(dst), str(src))
