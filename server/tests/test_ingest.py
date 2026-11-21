@@ -654,3 +654,25 @@ def test_waypoint_callback_only_when_stored(env):
     ing.on_waypoint = wps.append
     ing.handle(ev("waypoint", _wp(lat=-33.9, lon=151.2), num=1, pid=1))  # nazione non salvata
     assert wps == [] and store.active_waypoints(NOW) == []
+
+
+def test_last_outcome_and_raw_guard(env):
+    from meshlens.events import PacketMeta, RawPacket
+    ing, live, _, _, _ = env
+    ing.handle(ev("text", TextData("a"), pid=9))
+    assert ing.last_outcome == "new"
+    ing.handle(ev("text", TextData("a"), pid=9, gateway_id="!gw2"))
+    assert ing.last_outcome == "dup"
+    live.nodes.clear()
+    raw = RawPacket("mqtt", 5, 0, 1, "LongFast", NOW, None, None, None, None, None, None,
+                    "encrypted", PacketMeta(None, None, None))
+    ing.handle(raw)
+    assert ing.last_outcome == "ignored" and 5 not in live.nodes
+    global SETTINGS
+    old = SETTINGS
+    try:
+        SETTINGS = {"saved_countries": ["IT"], "mqtt_channels": ["Altro"]}
+        ing.handle(ev("text", TextData("b"), pid=10))
+        assert ing.last_outcome == "ignored"
+    finally:
+        SETTINGS = old

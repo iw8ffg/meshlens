@@ -180,3 +180,18 @@ def test_waypoint_zero_coords():
         "id": 5, "latitudeI": 0, "longitudeI": 0, "expire": 1}}), "radio1", NOW)
     assert ev.kind == "waypoint" and ev.payload.lat is None and ev.payload.lon is None
     assert ev.payload.expire == 1
+
+
+def test_packet_to_raw_and_meta():
+    from meshlens.rf_convert import packet_to_raw
+    p = _pkt({"portnum": "ADMIN_APP", "payload": b"zz"}, hopStart=3, hopLimit=1, wantAck=True)
+    assert packet_to_event(p, "r1", NOW) is None
+    raw = packet_to_raw(p, "r1", NOW)
+    assert raw.status == "unsupported" and raw.source == "rf" and raw.radio_id == "r1"
+    assert raw.meta.portnum == "ADMIN_APP" and raw.meta.raw == b"zz" and raw.meta.want_ack
+    enc = packet_to_raw({"from": 1, "id": 2, "encrypted": b"abc"}, "r1", NOW)
+    assert enc.status == "encrypted" and enc.meta.raw == b"abc" and enc.meta.encrypted
+    t = packet_to_event(_pkt({"portnum": "TEXT_MESSAGE_APP", "text": "ciao",
+                              "payload": b"ciao"}, hopStart=3, hopLimit=1), "r1", NOW)
+    assert t.meta.raw == b"ciao" and t.meta.portnum == "TEXT_MESSAGE_APP"
+    assert (t.meta.hop_start, t.meta.hop_limit) == (3, 1)

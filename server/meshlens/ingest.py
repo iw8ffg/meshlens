@@ -85,6 +85,7 @@ class Ingestor:
         # canali visti da MQTT (anche se scartati): (broker, canale) -> {minuto: conteggio}
         self._channel_buckets: dict[tuple[str, str], dict[int, int]] = {}
         self.filtered_channel = 0  # eventi MQTT scartati dal filtro mqtt_channels
+        self.last_outcome = "ignored"  # esito dell'ultimo handle: ignored | dup | new
 
     def _note_mqtt_channel(self, name: str, t: float, broker: str | None = None) -> None:
         buckets = self._channel_buckets.setdefault((broker or "", name), {})
@@ -123,6 +124,10 @@ class Ingestor:
         return out
 
     def handle(self, ev: MeshEvent) -> None:
+        if not isinstance(ev, MeshEvent):
+            self.last_outcome = "ignored"
+            return
+        self.last_outcome = "ignored"
         if ev.source == "mqtt" and ev.channel:
             self._note_mqtt_channel(ev.channel, ev.rx_time, ev.broker)
             wanted = self.get_settings().get("mqtt_channels") or []
@@ -149,6 +154,7 @@ class Ingestor:
             # seen_mqtt: copia gia' arrivata dal broker (serve a contare i gateway)
             is_new, seen_mqtt = self.dedup.observe(num, ev.packet_id, ev.rx_time, ev.source)
             is_dup = not is_new
+        self.last_outcome = "dup" if is_dup else "new"
         # rigioco S&F: non e' una ricezione radio, niente statistiche RF ne' collegamenti
         if ev.source == "rf" and ev.radio_id and not no_time and not ev.replayed:
             heard_by = node.setdefault("heard_by", {})
@@ -268,6 +274,9 @@ class Ingestor:
             node["hops_min"] = ev.hops_min
 
     def _persisted(self, num: int) -> bool:
+        return self.is_archived(num)
+
+    def is_archived(self, num: int) -> bool:
         """Nodo che si archivia: in una nazione salvata, "mio" o preferito. Sconosciuto: no."""
         node = self.live.nodes.get(num)
         return node is not None and (node["country"] in self.get_settings()["saved_countries"]

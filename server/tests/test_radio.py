@@ -1017,3 +1017,15 @@ def test_library_prints_are_silenced_on_any_thread(capsys):
     t.join()
     out = capsys.readouterr()
     assert secret not in out.out + out.err
+
+
+async def test_unhandled_packet_emits_raw():
+    from meshlens.events import RawPacket
+    h = Harness(lambda cfg, n: FakeIface())
+    await connected(h)
+    h.events.clear()
+    h.conn.on_packet({"from": 0x42, "id": 5, "decoded": {"portnum": "ADMIN_APP", "payload": b"q"}})
+    h.conn.on_packet(ack_pkt(999, 0x42))  # ROUTING_APP: gestito, ma emesso comunque
+    assert [type(e) for e in h.events] == [RawPacket, RawPacket]
+    assert h.events[0].status == "unsupported" and h.events[0].meta.portnum == "ADMIN_APP"
+    await h.conn.stop()

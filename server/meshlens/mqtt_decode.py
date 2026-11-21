@@ -7,8 +7,8 @@ from meshtastic.protobuf import config_pb2, mesh_pb2, mqtt_pb2, portnums_pb2
 from .crypto import decrypt
 from .telemetry_decode import EmptyTelemetry, UnsupportedTelemetry, parse_telemetry
 from .events import (
-    MapReportData, MeshEvent, NeighborData, NodeInfoData, PositionData, RouteData,
-    TelemetryData, TextData, WaypointData, scale_snr,
+    MapReportData, MeshEvent, NeighborData, NodeInfoData, PacketMeta, PositionData, RAW_MAX,
+    RawPacket, RouteData, TelemetryData, TextData, WaypointData, scale_snr,
 )
 
 
@@ -163,6 +163,19 @@ def _parse_payload(data: mesh_pb2.Data):
     raise _Unsupported
 
 
+def _meta(packet, data, encrypted: bool, raw: bytes | None = None) -> PacketMeta:
+    if raw is None:
+        raw = data.payload if data is not None else b""
+    return PacketMeta(
+        portnum=_enum_name(portnums_pb2.PortNum, data.portnum) if data is not None else None,
+        hop_start=packet.hop_start or None,
+        hop_limit=packet.hop_limit,
+        want_ack=bool(packet.want_ack),
+        encrypted=encrypted,
+        raw=bytes(raw[:RAW_MAX]),
+    )
+
+
 class _KeyView(collections.abc.MutableMapping):
     """Vista delle chiavi per canale: in lettura le personalizzate battono le imparate;
     le scritture vanno solo tra le imparate (e non toccano mai una personalizzata)."""
@@ -193,6 +206,9 @@ class EnvelopeDecoder:
         self.keys = list(keys)
         self.broker = broker
         self.stats: collections.Counter = collections.Counter()
+        # se impostato e vero per il mittente, i pacchetti non trasformati in evento
+        # escono come RawPacket (decode_any); i decoder girano su un thread, il filtro e' leggero
+        self.raw_filter: collections.abc.Callable[[int], bool] | None = None
         # nome canale -> chiave: quelle date (canali personalizzati) piu' l'ultima che ha
         # decifrato un pacchetto (serve all'invio)
         self._custom: dict[str, bytes] = dict(channel_keys or {})
@@ -211,17 +227,60 @@ class EnvelopeDecoder:
 
     def decode(self, topic: str, payload: bytes, now: float) -> MeshEvent | None:
         """Non solleva mai: ogni scarto viene contato in `stats`."""
+        ev = self.decode_any(topic, payload, now)
+        return ev if isinstance(ev, MeshEvent) else None
+
+    def decode_any(self, topic: str, payload: bytes, now: float) -> MeshEvent | RawPacket | None:
+        """Come decode, ma puo' restituire un RawPacket (vedi raw_filter). Non solleva mai."""
+        status = "undecodable"
         try:
             return self._decode(topic, payload, now)
         except _Empty:
             self.stats["empty"] += 1
+            status = "empty"
         except _Unsupported:
             self.stats["unsupported_port"] += 1
+            status = "unsupported"
         except Exception:
             self.stats["undecodable"] += 1
-        return None
+        return self._raw_or_none(topic, payload, now, status)
 
-    def _decode(self, topic: str, payload: bytes, now: float) -> MeshEvent | None:
+    def _raw_or_none(self, topic: str, payload: bytes, now: float,
+                     status: str) -> RawPacket | None:
+        flt = self.raw_filter
+        if flt is None:
+            return None
+        try:
+            return self._build_raw(flt, topic, payload, now, status)
+        except Exception:
+            return None
+
+    def _build_raw(self, flt, topic: str, payload: bytes, now: float,
+                   status: str) -> RawPacket | None:
+        if "json" in topic.split("/"):
+            return None
+        env = mqtt_pb2.ServiceEnvelope()
+        env.ParseFromString(payload)
+        if not env.HasField("packet"):
+            return None
+        packet = env.packet
+        from_node = getattr(packet, "from")
+        if not flt(from_node):
+            return None
+        data = self._extract_data(packet, from_node, env.channel_id or None)
+        if data is not None:
+            meta = _meta(packet, data, bool(packet.encrypted))
+        else:
+            meta = _meta(packet, None, True, bytes(packet.encrypted))
+            status = "encrypted"
+        return RawPacket(
+            source="mqtt", from_node=from_node, to_node=packet.to, packet_id=packet.id,
+            channel=env.channel_id, rx_time=now, snr=packet.rx_snr or None,
+            rssi=packet.rx_rssi or None, gateway_id=env.gateway_id or None, radio_id=None,
+            broker=self.broker, relay_node=packet.relay_node, status=status, meta=meta)
+
+    def _decode(self, topic: str, payload: bytes,
+                now: float) -> MeshEvent | RawPacket | None:
         if "json" in topic.split("/"):
             self.stats["json_topic"] += 1
             return None
@@ -239,7 +298,7 @@ class EnvelopeDecoder:
         data = self._extract_data(packet, from_node, env.channel_id or None)
         if data is None:
             self.stats["pki_encrypted" if packet.pki_encrypted else "undecodable"] += 1
-            return None
+            return self._raw_or_none(topic, payload, now, "encrypted")
         kind, body = _parse_payload(data)
         self.stats["ok"] += 1
         # il broker pubblico azzera hop_limit: i salti si deducono da relay_node
@@ -266,6 +325,7 @@ class EnvelopeDecoder:
             hops_min=hops_min,
             broker=self.broker,
             pki=packet.pki_encrypted,
+            meta=_meta(packet, data, bool(packet.encrypted)),
         )
 
     def _extract_data(self, packet: mesh_pb2.MeshPacket, from_node: int,

@@ -296,3 +296,38 @@ def test_pki_flag_and_stat():
     raw = make_envelope(1, b"dm", key=other, pki=True)
     assert dec.decode(T, raw, now=1.0) is None
     assert dec.stats["pki_encrypted"] == 1 and dec.stats["undecodable"] == 0
+
+
+def test_meta_filled_for_decrypted_packet():
+    d = EnvelopeDecoder([DEFAULT_KEY])
+    ev = d.decode(T, make_envelope(1, b"ciao", hop_start=5, hop_limit=2), now=1.0)
+    assert ev.meta.portnum == "TEXT_MESSAGE_APP" and ev.meta.encrypted is True
+    assert ev.meta.raw == b"ciao" and ev.meta.hop_start == 5 and ev.meta.hop_limit == 2
+
+
+def test_decode_any_raw_only_with_filter():
+    from meshlens.events import RawPacket
+    d = EnvelopeDecoder([DEFAULT_KEY])
+    payload = make_envelope(1, b"x" * 400, key=bytes(range(16)))
+    assert d.decode_any(T, payload, now=1.0) is None
+    d.raw_filter = lambda n: True
+    raw = d.decode_any(T, payload, now=1.0)
+    assert isinstance(raw, RawPacket) and raw.status == "encrypted"
+    assert raw.source == "mqtt" and raw.meta.encrypted is True and raw.meta.portnum is None
+    assert 0 < len(raw.meta.raw) <= 256
+    assert d.stats["undecodable"] == 2
+    assert d.decode(T, payload, now=1.0) is None
+    d.raw_filter = lambda n: False
+    assert d.decode_any(T, payload, now=1.0) is None
+    assert d.decode_any("msh/json/x", b"{}", now=1.0) is None
+    d.raw_filter = lambda n: True
+    assert d.decode_any(T, b"\xff\xff garbage", now=1.0) is None
+
+
+def test_decode_any_unsupported_has_portnum():
+    d = EnvelopeDecoder([DEFAULT_KEY])
+    d.raw_filter = lambda n: True
+    raw = d.decode_any(T, make_envelope(5, b""), now=1.0)
+    assert raw.status == "unsupported" and raw.meta.portnum == "ROUTING_APP"
+    assert d.stats["unsupported_port"] == 1
+    assert d.decode(T, make_envelope(5, b""), now=1.0) is None

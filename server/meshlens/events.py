@@ -95,6 +95,38 @@ def scale_snr(v: int) -> float | None:
     return None if v == -128 else v / 4
 
 
+RAW_MAX = 256
+
+
+@dataclass
+class PacketMeta:
+    portnum: str | None  # "TEXT_MESSAGE_APP"; None se non decifrato
+    hop_start: int | None
+    hop_limit: int | None
+    want_ack: bool = False
+    encrypted: bool = False  # arrivato cifrato
+    raw: bytes = b""  # Data.payload decifrato, altrimenti i byte cifrati; max RAW_MAX
+
+
+@dataclass
+class RawPacket:
+    """Pacchetto ricevuto ma non trasformato in MeshEvent."""
+    source: str
+    from_node: int
+    to_node: int
+    packet_id: int
+    channel: str
+    rx_time: float
+    snr: float | None
+    rssi: int | None
+    gateway_id: str | None
+    radio_id: str | None
+    broker: str | None
+    relay_node: int | None
+    status: str  # "encrypted" | "unsupported" | "undecodable" | "empty"
+    meta: PacketMeta
+
+
 @dataclass
 class MeshEvent:
     source: str
@@ -118,6 +150,7 @@ class MeshEvent:
     broker: str | None = None  # MQTT: id del broker che ha consegnato il pacchetto
     pki: bool = False  # DM cifrato con la chiave pubblica del destinatario
     replayed: bool = False  # S&F: messaggio rigiocato da un router (ora originale)
+    meta: PacketMeta | None = None
 
     @property
     def gateway_num(self) -> int | None:

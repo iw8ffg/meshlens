@@ -11,7 +11,7 @@ from typing import Any, Callable
 
 from .config_model import CONFIG_SECTIONS, node_to_dict
 from .events import MeshEvent, node_id
-from .rf_convert import nodedb_to_events, packet_to_event
+from .rf_convert import nodedb_to_events, packet_to_event, packet_to_raw
 
 log = logging.getLogger(__name__)
 
@@ -404,14 +404,24 @@ class RadioConnector:
         decoded = packet.get("decoded") or {}
         if decoded.get("portnum") == "ROUTING_APP":
             self._handle_routing(packet, decoded)
+            self._emit_raw(packet)
             return
         ev = packet_to_event(packet, self.radio_id, self._clock())
-        if ev is not None:
+        if ev is None:
+            self._emit_raw(packet)
+        else:
             if (ev.kind == "traceroute" and ev.payload is not None
                     and ev.payload.request_id and self._on_traceroute is not None):
                 self._traces.pop(ev.payload.request_id, None)
                 self._emit(self._on_traceroute, self.radio_id, ev.payload.request_id, ev)
             self._emit(self._on_event, ev)  # l'ingest registra comunque i collegamenti
+
+    def _emit_raw(self, packet: dict) -> None:
+        try:
+            raw = packet_to_raw(packet, self.radio_id, self._clock())
+        except Exception:
+            return
+        self._emit(self._on_event, raw)
 
     # ---- invio e conferme -------------------------------------------
     async def send_text(self, text: str, channel_index: int, dest: str | None,

@@ -230,3 +230,20 @@ async def test_log_lines_use_broker_label(caplog):
     c._on_connect(c._client, None, None, 0, None)
     assert any("Mio broker" in r.getMessage() and "connesso" in r.getMessage()
                for r in caplog.records)
+
+
+async def test_raw_packet_goes_to_inbox():
+    from meshlens.events import RawPacket
+    got = asyncio.Queue()
+    dec = EnvelopeDecoder([DEFAULT_KEY])
+    dec.raw_filter = lambda n: True
+    c = MqttConnector(CFG, dec, asyncio.get_running_loop(),
+                      got.put_nowait, client_factory=FakeClient)
+    c.start()
+
+    class Msg:
+        topic = "msh/EU_868/2/e/LongFast/!00000001"
+        payload = make_envelope(portnums_pb2.ROUTING_APP, b"")
+
+    await asyncio.get_running_loop().run_in_executor(None, c._on_message, None, None, Msg)
+    assert isinstance(await asyncio.wait_for(got.get(), 2), RawPacket)

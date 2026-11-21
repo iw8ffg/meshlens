@@ -527,6 +527,8 @@ def build(data_dir: Path, connector_factory=MqttConnector,
                              lambda rid: rt.radios.connector(rid))
 
     def on_event(ev) -> None:
+        if not hasattr(ev, "kind"):
+            return  # RawPacket: non e' un evento di rete (lo registrera' il PacketLog)
         if ev.kind == "storeforward":
             sf.handle(ev)
             return

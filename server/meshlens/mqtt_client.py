@@ -153,6 +153,6 @@ class MqttConnector:
         with self._lock:
             self._stamps.append(now)
             self._last_msg = now
-        ev = self.decoder.decode(msg.topic, msg.payload, now)
-        if ev is not None:
+        ev = self.decoder.decode_any(msg.topic, msg.payload, now)
+        if ev is not None:  # MeshEvent o RawPacket
             self.inbox.put(ev)

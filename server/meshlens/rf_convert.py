@@ -4,8 +4,8 @@ import base64
 from meshtastic.protobuf import mesh_pb2
 
 from .events import (
-    MeshEvent, NeighborData, NodeInfoData, PositionData, RangeTestData, RouteData,
-    TelemetryData, TextData, WaypointData, scale_snr,
+    MeshEvent, NeighborData, NodeInfoData, PacketMeta, PositionData, RAW_MAX, RangeTestData,
+    RawPacket, RouteData, TelemetryData, TextData, WaypointData, scale_snr,
 )
 from .storeforward import parse_sf
 from .telemetry_decode import parse_telemetry, telemetry_from_dict
@@ -129,12 +129,53 @@ def _waypoint(wp: dict | None) -> WaypointData | None:
 
 
 def _event(kind, payload, *, from_node, to_node, packet_id, channel, rx_time,
-           snr, rssi, hops, radio_id, via_mqtt=False, pki=False) -> MeshEvent:
+           snr, rssi, hops, radio_id, via_mqtt=False, pki=False, meta=None) -> MeshEvent:
     return MeshEvent(
         source="rf", from_node=from_node, to_node=to_node, packet_id=packet_id,
         channel=channel, rx_time=rx_time, snr=snr, rssi=rssi, hops=hops,
         gateway_id=None, radio_id=radio_id, kind=kind, payload=payload, via_mqtt=via_mqtt,
-        pki=pki,
+        pki=pki, meta=meta,
+    )
+
+
+def _raw_bytes(value) -> bytes:
+    """Byte di un payload della libreria (bytes o base64 se passato da MessageToDict)."""
+    if not value:
+        return b""
+    if isinstance(value, str):
+        try:
+            return base64.b64decode(value)
+        except Exception:
+            return b""
+    try:
+        return bytes(value)
+    except Exception:
+        return b""
+
+
+def _packet_meta(packet: dict, decoded: dict | None) -> PacketMeta:
+    if decoded:
+        raw, encrypted = _raw_bytes(decoded.get("payload")), bool(packet.get("pkiEncrypted"))
+        portnum = decoded.get("portnum")
+        portnum = None if portnum is None else str(portnum)
+    else:
+        raw, encrypted, portnum = _raw_bytes(packet.get("encrypted")), True, None
+    return PacketMeta(
+        portnum=portnum, hop_start=packet.get("hopStart") or None,
+        hop_limit=packet.get("hopLimit"), want_ack=bool(packet.get("wantAck")),
+        encrypted=encrypted, raw=raw[:RAW_MAX],
+    )
+
+
+def packet_to_raw(packet: dict, radio_id: str, now: float) -> RawPacket:
+    """Pacchetto che la radio ha consegnato ma che non diventa un MeshEvent."""
+    decoded = packet.get("decoded")
+    return RawPacket(
+        source="rf", from_node=packet.get("from", 0), to_node=packet.get("to", 0),
+        packet_id=packet.get("id", 0), channel=str(packet.get("channel", 0)), rx_time=now,
+        snr=packet.get("rxSnr"), rssi=packet.get("rxRssi"), gateway_id=None,
+        radio_id=radio_id, broker=None, relay_node=packet.get("relayNode") or None,
+        status="unsupported" if decoded else "encrypted", meta=_packet_meta(packet, decoded),
     )
 
 
@@ -185,6 +226,7 @@ def packet_to_event(packet: dict, radio_id: str, now: float) -> MeshEvent | None
         rx_time=now, snr=packet.get("rxSnr"), rssi=packet.get("rxRssi"),
         hops=hops, radio_id=radio_id, via_mqtt=bool(packet.get("viaMqtt")),
         pki=bool(packet.get("pkiEncrypted")),
+        meta=_packet_meta(packet, decoded),
     )
 
 
