@@ -789,3 +789,107 @@ def test_notifier_wired_into_runtime(tmp_path):
     assert rt.notifier.status()["toast_available"] is False
     rt.ctx.toast = lambda t, b: None
     assert rt.notifier.status()["toast_available"] is True
+
+
+async def test_trim_packets_chunks_and_yields(tmp_path, monkeypatch):
+    import asyncio
+    import meshlens.app as appmod
+    import meshlens.packet_log as plmod
+    monkeypatch.setattr(plmod, "PACKETS_MAX_ROWS", 100)
+    monkeypatch.setattr(appmod, "PURGE_CHUNK", 50)
+    _, rt = build(tmp_path, connector_factory=FakeConnector, static_dir=None)
+    rt.conn.executemany("INSERT INTO packets(time, packet_id, status) VALUES(?, ?, 'ok')",
+                        [(time.time(), i) for i in range(400)])
+    rt.conn.commit()
+    ticks = 0
+
+    async def ticker():
+        nonlocal ticks
+        while True:
+            ticks += 1
+            await asyncio.sleep(0)
+
+    t = asyncio.create_task(ticker())
+    before = ticks
+    deleted = await rt.trim_packets()
+    t.cancel()
+    assert deleted == 300
+    assert ticks - before >= 5
+    assert rt.conn.execute("SELECT COUNT(*) FROM packets").fetchone()[0] == 100
+    # restano i piu' recenti
+    assert rt.conn.execute("SELECT MIN(packet_id) FROM packets").fetchone()[0] == 300
+
+
+async def test_on_event_routes_raw_packets(tmp_path):
+    from meshlens.events import PacketMeta, RawPacket
+    _, rt = build(tmp_path, connector_factory=FakeConnector, static_dir=None)
+    rt.settings = {**rt.settings, "packet_log_mode": "all"}
+    seen = []
+    orig = rt.ingestor.handle
+    rt.ingestor.handle = lambda ev: (seen.append(ev), orig(ev))
+    raw = RawPacket(source="mqtt", from_node=0xB2, to_node=0xFFFFFFFF, packet_id=9,
+                    channel="LongFast", rx_time=time.time(), snr=-9.0, rssi=None,
+                    gateway_id="!gw", radio_id=None, broker="b1", relay_node=None,
+                    status="encrypted", meta=PacketMeta(None, 3, 2, encrypted=True, raw=b"\x01"))
+    rt.on_event(raw)
+    assert seen == []
+    assert 0xB2 not in rt.live.nodes
+    assert rt.packet_log.flush(force=True) == 1
+    row = rt.conn.execute("SELECT status, kind FROM packets").fetchone()
+    assert tuple(row) == ("encrypted", None)
+
+
+async def test_on_event_feeds_netstats_and_packet_log(tmp_path):
+    from meshlens.events import MeshEvent, PacketMeta, TextData
+    _, rt = build(tmp_path, connector_factory=FakeConnector, static_dir=None)
+    rt.settings = {**rt.settings, "packet_log_mode": "all"}
+    now = time.time()
+
+    def text(pid, replayed=False):
+        return MeshEvent("rf", 5, 0xFFFFFFFF, pid, "0", now, -4.0, -90, 0, None, "r1", "text",
+                         TextData("ciao"), replayed=replayed,
+                         meta=PacketMeta("TEXT_MESSAGE_APP", 3, 3, raw=b"ciao"))
+
+    rt.on_event(text(11))
+    rt.on_event(text(11))  # copia
+    rt.on_event(text(12, replayed=True))  # rigioco S&F: non e' traffico dal vivo
+    assert rt.netstats.flush() == 2
+    assert rt.packet_log.flush(force=True) == 1
+    st = rt.conn.execute("SELECT packets, receptions FROM stats_hourly").fetchone()
+    assert tuple(st) == (1, 2)
+    assert rt.conn.execute("SELECT copies FROM packets").fetchone()[0] == 2
+
+
+async def test_raw_filter_follows_mode(tmp_path):
+    from meshlens.ingest import _new_node
+    FakeConnector.instances.clear()
+    _, rt = build(tmp_path, connector_factory=KeyedConnector, static_dir=None)
+    mine = {**_new_node(0x10), "is_mine": True}
+    rt.live.nodes[0x10] = mine
+    rt.live.nodes[0x20] = _new_node(0x20)
+    rt.settings = {**rt.settings, "packet_log_mode": "off"}
+    assert rt.raw_filter(0x10) is False
+    rt.settings = {**rt.settings, "packet_log_mode": "all"}
+    assert rt.raw_filter(0x20) is True
+    rt.settings = {**rt.settings, "packet_log_mode": "archived"}
+    assert rt.raw_filter(0x10) is False  # insieme non ancora calcolato
+    rt.refresh_archived()
+    assert rt.raw_filter(0x10) is True and rt.raw_filter(0x20) is False
+    rt.settings = _plus(rt.settings, _broker("x"))
+    rt.start_connectors()
+    assert rt.connectors["x"].decoder.raw_filter == rt.raw_filter
+
+
+async def test_stop_flushes_packet_log_and_netstats(tmp_path):
+    from meshlens.db import connect as dbconnect
+    from meshlens.events import MeshEvent, PacketMeta, TextData
+    app, rt = build(tmp_path, connector_factory=FakeConnector, static_dir=None)
+    rt.settings = {**rt.settings, "packet_log_mode": "all"}
+    async with app.router.lifespan_context(app):
+        rt.on_event(MeshEvent("rf", 5, 0xFFFFFFFF, 3, "0", time.time(), -4.0, -90, 0, None,
+                              "r1", "text", TextData("ciao"),
+                              meta=PacketMeta("TEXT_MESSAGE_APP", 3, 3, raw=b"ciao")))
+    conn = dbconnect(tmp_path / "meshlens.db")
+    assert conn.execute("SELECT COUNT(*) FROM packets").fetchone()[0] == 1
+    assert conn.execute("SELECT COUNT(*) FROM stats_hourly").fetchone()[0] == 1
+    conn.close()

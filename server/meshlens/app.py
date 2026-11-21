@@ -25,12 +25,16 @@ from .ingest import Ingestor
 from .live import LiveState
 from .paths import is_frozen, updates_dir
 from .elevation import ElevationCache
+from .events import RawPacket
 from .maps import MapsManager
 from .prediction_service import PredictionManager
 from .mqtt_client import MqttConnector
 from .mqtt_decode import EnvelopeDecoder
 from .mqtt_publish import MqttSender
+from . import packet_log as packet_log_mod
+from .netstats import NetStats
 from .notify import Notifier
+from .packet_log import PacketLog
 from .pubsub_hub import PubSubHub
 from .radio import RadioConnector
 from .radio_manager import RadioManager
@@ -126,6 +130,10 @@ class Runtime:
     _start_errors: dict = field(default_factory=dict)  # id broker -> (testo, time()) dell'avvio fallito
     storeforward: StoreForwardService | None = None
     prediction: PredictionManager | None = None
+    packet_log: PacketLog | None = None
+    netstats: NetStats | None = None
+    # nodi archiviati, ricalcolati ogni 60 s: il thread paho lo legge senza lock (assegnazione unica)
+    _archived: frozenset = frozenset()
 
     def start_connector(self, broker: dict) -> None:
         bid = broker["id"]
@@ -133,6 +141,7 @@ class Runtime:
         keys, custom = broker_keys(broker)
         # le chiavi imparate sopravvivono al riavvio; le personalizzate vincono
         decoder = EnvelopeDecoder(keys, {**self.learned_keys.get(bid, {}), **custom}, broker=bid)
+        decoder.raw_filter = self.raw_filter
         connector = self.connector_factory(
             broker, decoder, self.loop, self.on_event or self.ingestor.handle)
         connector.start()
@@ -357,6 +366,31 @@ class Runtime:
         if removed:
             log.info("Nodi in memoria oltre il limite: rimossi %d sentiti meno di recente", removed)
 
+    def raw_filter(self, num: int) -> bool:
+        """(thread paho) Il decoder deve restituire i pacchetti non decodificati di `num`?"""
+        mode = self.settings.get("packet_log_mode", "archived")
+        if mode == "off":
+            return False
+        return mode == "all" or num in self._archived
+
+    def refresh_archived(self) -> None:
+        is_archived = self.ingestor.is_archived
+        self._archived = frozenset(n for n in list(self.live.nodes) if is_archived(n))
+
+    async def trim_packets(self) -> int:
+        """Tiene `packets` entro PACKETS_MAX_ROWS, a blocchi: tra un blocco e l'altro il loop e' libero."""
+        total = 0
+        while True:
+            n = self.store.trim_packets(packet_log_mod.PACKETS_MAX_ROWS, PURGE_CHUNK)
+            self.store.commit()
+            total += n
+            if n < PURGE_CHUNK:
+                break
+            await asyncio.sleep(0.05)
+        if total:
+            log.info("Ispettore dei pacchetti oltre il limite: cancellate %d righe", total)
+        return total
+
     def _publish_status(self) -> None:
         self.bus.publish({"type": "status", "mqtt": self.mqtt_status()})
 
@@ -440,6 +474,14 @@ class Runtime:
             asyncio.create_task(self._every_async(BACKUP_CHECK_S, self._backup_if_due,
                                                   BACKUP_FIRST_DELAY_S)),
         ]
+        if self.packet_log is not None:
+            self.tasks += [
+                asyncio.create_task(self._every(2, self.packet_log.flush)),
+                asyncio.create_task(self._every(60, self.refresh_archived, first_now=True)),
+                asyncio.create_task(self._every_async(60, self.trim_packets, 60)),
+            ]
+        if self.netstats is not None:
+            self.tasks.append(asyncio.create_task(self._every(60, self.netstats.flush)))
         if self.storeforward is not None:
             self.tasks.append(asyncio.create_task(self._every(5, self.storeforward.check)))
         if self.updater is not None and self.auto_update:
@@ -470,6 +512,13 @@ class Runtime:
                 if isinstance(r, BaseException):
                     log.error("Arresto del connettore MQTT %s fallito", bid, exc_info=r)
             self.connectors.clear()
+        # connettori fermi: niente piu' eventi, si scrive cio' che resta in memoria
+        if self.packet_log is not None:
+            with contextlib.suppress(Exception):
+                self.packet_log.flush(force=True)
+        if self.netstats is not None:
+            with contextlib.suppress(Exception):
+                self.netstats.flush()
         with contextlib.suppress(Exception):
             self.store.commit()
             self.conn.close()
@@ -521,14 +570,20 @@ def build(data_dir: Path, connector_factory=MqttConnector,
                  backups=backups)
     coverage = CoverageRecorder(store, live, bus,
                                 radio_node=ingestor.radio_node)
+    packet_log = PacketLog(store, lambda: rt.settings.get("packet_log_mode", "archived"))
+    netstats = NetStats(store)
 
     # i messaggi rigiocati dal router S&F rientrano da on_event come testi normali
     sf = StoreForwardService(store, live, lambda ev: on_event(ev), bus,
                              lambda rid: rt.radios.connector(rid))
 
     def on_event(ev) -> None:
-        if not hasattr(ev, "kind"):
-            return  # RawPacket: non e' un evento di rete (lo registrera' il PacketLog)
+        if isinstance(ev, RawPacket):  # non decodificato: solo l'ispettore dei pacchetti
+            try:
+                packet_log.observe_raw(ev, ev.source == "rf" or ingestor.is_archived(ev.from_node))
+            except Exception:
+                log.exception("Registro dei pacchetti")
+            return
         if ev.kind == "storeforward":
             sf.handle(ev)
             return
@@ -537,8 +592,17 @@ def build(data_dir: Path, connector_factory=MqttConnector,
         # prima l'ingestor (aggiorna i nodi), poi il registratore delle prove di copertura
         ingestor.handle(ev)
         coverage.handle(ev)
+        # i rigiochi S&F (ev.replayed) non sono traffico dal vivo: li scartano gli osservatori
+        outcome = ingestor.last_outcome
+        archived = ev.source == "rf" or ingestor.is_archived(ev.from_node)
+        try:
+            netstats.observe(ev, outcome, archived)
+            packet_log.observe(ev, outcome, archived)
+        except Exception:
+            log.exception("Osservatori dei pacchetti")  # mai a scapito dell'ingestione
 
     rt.coverage, rt.on_event, rt.storeforward = coverage, on_event, sf
+    rt.packet_log, rt.netstats = packet_log, netstats
     rt.radios = RadioManager(store, ingestor, bus, None, PubSubHub(None),
                               connector_factory=radio_connector_factory, on_event=on_event)
     rt.config = ConfigService(store, rt.radios, live, bus)
