@@ -10,9 +10,14 @@ function mem(init: Record<string, string> = {}) {
   }
 }
 
-const DEFAULTS: ViewState = { tab: null, map: null, conv: null, netSort: null, nodeSort: 'recent', cluster: true }
+const DEFAULTS: ViewState = { tab: null, map: null, conv: null, netSort: null, nodeSort: 'recent', cluster: true, waypoints: true }
 
 describe('loadView', () => {
+  it('waypoints: assente true, false salvato false, valore non booleano true', () => {
+    expect(loadView(mem({ [VIEW_KEY]: JSON.stringify({ v: 1 }) })).waypoints).toBe(true)
+    expect(loadView(mem({ [VIEW_KEY]: JSON.stringify({ v: 1, waypoints: false }) })).waypoints).toBe(false)
+    expect(loadView(mem({ [VIEW_KEY]: JSON.stringify({ v: 1, waypoints: 'no' }) })).waypoints).toBe(true)
+  })
   it('storage vuoto o assente: predefiniti', () => {
     expect(loadView(mem())).toEqual(DEFAULTS)
     expect(loadView(null)).toEqual(DEFAULTS)
@@ -52,6 +57,7 @@ describe('saveView', () => {
       netSort: { key: 'snr', dir: 'asc' },
       nodeSort: 'distance',
       cluster: false,
+      waypoints: false,
     }
     saveView(s, v)
     expect(JSON.parse(s.data.get(VIEW_KEY)!).v).toBe(1)

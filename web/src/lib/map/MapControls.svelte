@@ -2,6 +2,7 @@
   // Controlli della mappa: zoom e adatta ai nodi, poi gli strumenti (cerca, Dove sono, righello, raggruppa); 44 px su telefono.
   import Icon from '../ui/Icon.svelte'
   import { viewport } from '../viewport.svelte'
+  import { T } from '../strings/waypoint'
 
   interface Props {
     onzoomin: () => void
@@ -9,6 +10,8 @@
     onfit: () => void
     ruler: boolean
     cluster: boolean
+    waypoints: boolean
+    onwaypoints: () => void
     onruler: () => void
     oncluster: () => void
     onsearch: () => void
@@ -17,7 +20,7 @@
   }
   let toolsOpen = $state(false) // su telefono gli strumenti stanno dietro un solo pulsante
   const showTools = $derived(!viewport.phone || toolsOpen)
-  let { onzoomin, onzoomout, onfit, ruler, cluster, onruler, oncluster, onsearch, onlocate, locating }: Props = $props()
+  let { onzoomin, onzoomout, onfit, ruler, cluster, waypoints, onwaypoints, onruler, oncluster, onsearch, onlocate, locating }: Props = $props()
 </script>
 
 <div class="stack">
@@ -35,6 +38,7 @@
     <button type="button" aria-label="Dove sono" title="Dove sono" aria-busy={locating} disabled={locating} onclick={onlocate}><Icon name={locating ? 'spinner' : 'locate'} size={18} /></button>
     <button type="button" class:on={ruler} aria-pressed={ruler} aria-label="Righello" title="Righello" onclick={onruler}><Icon name="ruler" size={18} /></button>
     <button type="button" class:on={cluster} aria-pressed={cluster} aria-label="Raggruppa nodi" title="Raggruppa nodi" onclick={oncluster}><Icon name="cluster" size={18} /></button>
+    <button type="button" class:on={waypoints} aria-pressed={waypoints} aria-label={T.layerToggleAria} title={T.layerToggleAria} onclick={onwaypoints}><Icon name="flag" size={18} /></button>
     {/if}
   </div>
 </div>

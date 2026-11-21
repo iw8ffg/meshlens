@@ -45,6 +45,14 @@
   import NodePopup from '../lib/map/NodePopup.svelte'
   import Icon from '../lib/ui/Icon.svelte'
   import Button from '../lib/ui/Button.svelte'
+  import Modal from '../lib/ui/Modal.svelte'
+  import WaypointPopup from '../lib/map/WaypointPopup.svelte'
+  import WaypointForm from './WaypointForm.svelte'
+  import { addWaypointLayers, bindWaypointImages } from '../lib/map/WaypointLayer'
+  import { waypointData } from '../lib/waypoints'
+  import { T as WT } from '../lib/strings/waypoint'
+  import { deleteWaypoint } from '../lib/api'
+  import type { Waypoint } from '../lib/types'
   import ActiveFilters from './ActiveFilters.svelte'
 
   let {
@@ -97,6 +105,14 @@
     if (!ready || timer) return
     const wait = Math.max(0, 1000 - (Date.now() - lastPush))
     timer = setTimeout(pushNodes, wait)
+  }
+
+  function pushWaypoints() {
+    // dipendenze lette prima della guardia su `ready`: l'effetto si riesegue a ogni cambio
+    const list = wpVisible ? [...app.waypoints.values()] : []
+    const t = now
+    if (!ready) return
+    src('waypoints')?.setData(waypointData(list, t))
   }
 
   function pushSelection() {
@@ -156,11 +172,39 @@
       addLinkLayers(m, tk)
       addTrackLayer(m, tk)
       addNodeLayers(m, tk, hasGlyphs, untrack(() => cluster))
+      addWaypointLayers(m, tk, hasGlyphs) // sopra i nodi, sotto la prova di copertura
       addCoverageLayers(m, tk)
       addMeLayers(m, tk) // sotto il righello, sopra i nodi
       addRulerLayers(m, tk)
       if (!bound) {
         bound = true
+        bindWaypointImages(m, readDocumentTokens)
+        m.on('click', 'wp-icons', (e: maplibregl.MapLayerMouseEvent) => {
+          if (picking || tool !== 'none') return
+          const id = e.features?.[0]?.properties?.id
+          const w = typeof id === 'number' ? app.waypoints.get(id) : undefined
+          if (w) showWaypointPopup(w)
+        })
+        m.on('mouseenter', 'wp-icons', () => {
+          if (!picking && tool === 'none') m.getCanvas().style.cursor = 'pointer'
+        })
+        m.on('mouseleave', 'wp-icons', () => (m.getCanvas().style.cursor = restCursor()))
+        // menu contestuale: tasto destro o pressione lunga di 600 ms (tocco)
+        m.on('contextmenu', (e: maplibregl.MapMouseEvent) => showContextMenu(e.lngLat))
+        const cancelLong = () => {
+          if (longTimer) clearTimeout(longTimer)
+          longTimer = null
+        }
+        m.on('touchstart', (e: maplibregl.MapTouchEvent) => {
+          cancelLong()
+          if (e.points.length !== 1) return
+          const at = e.lngLat
+          longTimer = setTimeout(() => {
+            longTimer = null
+            showContextMenu(at)
+          }, 600)
+        })
+        for (const ev of ['touchmove', 'touchend', 'touchcancel', 'movestart', 'zoomstart'] as const) m.on(ev, cancelLong)
         for (const l of ['cov-points', 'cov-missing']) {
           m.on('click', l, (e: maplibregl.MapLayerMouseEvent) => {
             if (picking || tool !== 'none') return
@@ -211,6 +255,7 @@
       }
       ready = true
       pushNodes()
+      pushWaypoints()
       pushSelection()
       pushTrack()
       pushLinks()
@@ -426,6 +471,7 @@
       if (retryTimer) clearTimeout(retryTimer)
       if (verifyTimer) clearTimeout(verifyTimer)
       if (timer) clearTimeout(timer)
+      if (longTimer) clearTimeout(longTimer)
       cancelPick()
       closeRuler()
       if (noticeTimer) clearTimeout(noticeTimer)
@@ -445,10 +491,13 @@
   // Popup in HTML con i token: il contenuto e' un componente Svelte montato nel popup di MapLibre
   type PopupProps = ComponentProps<typeof NodePopup>
   function openPopup(at: maplibregl.LngLat, props: PopupProps) {
+    mountPopup(at, (host) => mount(NodePopup, { target: host, props }))
+  }
+  function mountPopup(at: maplibregl.LngLat, build: (host: HTMLElement) => ReturnType<typeof mount>) {
     if (!map) return
     popup?.remove()
     const host = document.createElement('div')
-    const comp = mount(NodePopup, { target: host, props })
+    const comp = build(host)
     const p = new maplibregl.Popup({ closeButton: true, className: 'ml-popup', maxWidth: '280px' }).setLngLat(at).setDOMContent(host).addTo(map)
     p.on('close', () => {
       void unmount(comp)
@@ -504,6 +553,64 @@
       rows,
       actions,
     })
+  }
+
+  // Waypoint: popup, menu contestuale, modulo di invio ed eliminazione
+  let wpVisible = $state(loadView(localStorage).waypoints)
+  let wpForm = $state<{ lat: number; lon: number } | null>(null)
+  let wpDelete = $state<Waypoint | null>(null)
+  let wpError = $state('')
+  let longTimer: ReturnType<typeof setTimeout> | null = null
+
+  function showWaypointPopup(w: Waypoint) {
+    mountPopup(new maplibregl.LngLat(w.lon, w.lat), (host) =>
+      mount(WaypointPopup, {
+        target: host,
+        props: {
+          wp: w,
+          now,
+          ondelete: () => {
+            popup?.remove()
+            wpError = ''
+            wpDelete = w
+          },
+        },
+      }),
+    )
+  }
+
+  function showContextMenu(at: maplibregl.LngLat) {
+    if (picking || tool !== 'none') return
+    openPopup(at, {
+      title: WT.contextTitle,
+      subtitle: `${at.lat.toFixed(5)}, ${at.lng.toFixed(5)}`,
+      actions: [
+        {
+          label: WT.contextAdd,
+          icon: 'plus',
+          onclick: () => {
+            popup?.remove()
+            wpForm = { lat: at.lat, lon: at.lng }
+          },
+        },
+      ],
+    })
+  }
+
+  async function confirmDelete() {
+    const w = wpDelete
+    if (!w) return
+    try {
+      await deleteWaypoint(w.id)
+      wpDelete = null
+    } catch (e) {
+      wpError = WT.deleteFailed(e instanceof Error ? e.message : 'errore')
+    }
+  }
+
+  function toggleWaypoints() {
+    wpVisible = !wpVisible
+    saveView(localStorage, { waypoints: wpVisible })
   }
 
   function showLinkPopup(at: maplibregl.LngLat, p: Record<string, unknown>) {
@@ -754,6 +861,9 @@
     scheduleNodes()
   })
   $effect(() => {
+    pushWaypoints()
+  })
+  $effect(() => {
     void app.selectedId
     void app.nodes.get(app.selectedId ?? '')
     if (ready) pushSelection()
@@ -818,6 +928,8 @@
   {cluster}
   onruler={toggleRuler}
   oncluster={toggleCluster}
+  waypoints={wpVisible}
+  onwaypoints={toggleWaypoints}
   onsearch={() => (searchOpen = !searchOpen)}
   onlocate={whereAmI}
   {locating}
@@ -865,6 +977,14 @@
     <RulerBar text={rulerText(rulerPts, nodeName)} onclear={() => (rulerPts = [])} onclose={closeRuler} />
   {/if}
 </div>
+
+{#if wpForm}
+  <WaypointForm lat={wpForm.lat} lon={wpForm.lon} onclose={() => (wpForm = null)} />
+{/if}
+<Modal open={wpDelete !== null} title={WT.deleteTitle} confirmLabel={WT.deleteConfirm} cancelLabel={WT.cancel} danger onconfirm={confirmDelete} oncancel={() => (wpDelete = null)}>
+  {#if wpDelete}<p>{WT.deleteBody(wpDelete.name)}</p>{/if}
+  {#if wpError}<p class="err">{wpError}</p>{/if}
+</Modal>
 
 <style>
   .map {

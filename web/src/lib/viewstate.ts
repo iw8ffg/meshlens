@@ -14,6 +14,7 @@ export type ViewState = {
   netSort: { key: SortKey; dir: 'asc' | 'desc' } | null
   nodeSort: NodeSortKey
   cluster: boolean
+  waypoints: boolean
 }
 
 const SORT_KEYS: readonly SortKey[] = [
@@ -30,7 +31,7 @@ const SORT_KEYS: readonly SortKey[] = [
 ]
 
 function defaults(): ViewState {
-  return { tab: null, map: null, conv: null, netSort: null, nodeSort: 'recent', cluster: true }
+  return { tab: null, map: null, conv: null, netSort: null, nodeSort: 'recent', cluster: true, waypoints: true }
 }
 
 const inRange = (x: unknown, lim: number, min = -lim): x is number =>
@@ -72,6 +73,7 @@ export function loadView(storage: Pick<Storage, 'getItem'> | null): ViewState {
   v.netSort = parseNetSort(o.netSort)
   if (NODE_SORTS.some((s) => s.key === o.nodeSort)) v.nodeSort = o.nodeSort as NodeSortKey
   if (typeof o.cluster === 'boolean') v.cluster = o.cluster
+  if (typeof o.waypoints === 'boolean') v.waypoints = o.waypoints
   return v
 }
 
