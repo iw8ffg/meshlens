@@ -309,3 +309,16 @@ def test_quick_check_file_reports_unreadable(tmp_path):
     bad = tmp_path / "rotto.db"
     bad.write_bytes(b"non un database" * 100)
     assert quick_check_file(bad) != "ok"
+
+
+def test_quick_check_file_can_be_interrupted_through_on_open(tmp_path):
+    db = tmp_path / "x.db"
+    connect(db).close()
+    seen = []
+
+    def on_open(c):  # interrompe a meta' del quick_check, come fa Runtime.stop()
+        seen.append(c)
+        c.set_progress_handler(lambda: c.interrupt() or 0, 1)
+
+    assert quick_check_file(db, on_open=on_open) == "non leggibile (interrupted)"
+    assert isinstance(seen[0], sqlite3.Connection)

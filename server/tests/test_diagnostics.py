@@ -89,3 +89,21 @@ def test_scrub_text_handles_symbol_edged_and_short_secrets():
     assert "x!pw" not in scrub_text("errore con x!pw dentro", "x!pw")
     assert scrub_text("errore xpw!y", "pw!") == "errore xpw!y"  # corto: solo parola intera
     assert scrub_text("persa", "p") == "persa"
+
+
+def test_bundle_scrubs_all_broker_credentials():
+    s = json.loads(json.dumps(DEFAULTS))
+    b1 = {**s["mqtt_brokers"][0], "id": "b1", "name": "Secondo", "username": "utente-b1",
+          "password": "pw-b1"}
+    s["mqtt_brokers"].append(b1)
+    info = {"mqtt": {"connected": False, "last_error": "Secondo: rifiutato pw-b1 utente-b1",
+                     "brokers": [{"id": "default", "last_error": None},
+                                 {"id": "b1", "last_error": "rifiutato pw-b1 per utente-b1"}]}}
+    data = build_bundle(info, s, None)
+    with zipfile.ZipFile(io.BytesIO(data)) as z:
+        for name in z.namelist():
+            assert b"pw-b1" not in z.read(name)
+        assert b"utente-b1" not in z.read("info.json")  # in settings.json l'utente resta visibile
+        out = json.loads(z.read("info.json"))
+    assert out["mqtt"]["brokers"][1]["last_error"].startswith("rifiutato")
+    assert out["mqtt"]["brokers"][0]["last_error"] is None

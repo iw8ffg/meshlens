@@ -33,11 +33,15 @@ def _open_ro(path: Path) -> sqlite3.Connection:
     return sqlite3.connect(f"{Path(path).resolve().as_uri()}?mode=ro", uri=True, timeout=30)
 
 
-def quick_check_file(path: Path) -> str:
-    """quick_check con una connessione propria in sola lettura (adatta a to_thread)."""
+def quick_check_file(path: Path,
+                     on_open: Callable[[sqlite3.Connection], None] | None = None) -> str:
+    """quick_check con una connessione propria in sola lettura (adatta a to_thread).
+    `on_open` riceve la connessione appena aperta: chi la tiene puo' interromperla."""
     try:
         conn = _open_ro(path)
         try:
+            if on_open is not None:
+                on_open(conn)
             return quick_check(conn)
         finally:
             conn.close()
