@@ -1,4 +1,5 @@
 """Avvisi sui nodi "miei": funzione pura, ricalcolata periodicamente (non si salvano)."""
+import re
 from typing import Iterable
 
 BATTERY_EXTERNAL = 101  # alimentazione esterna: nessun avviso
@@ -10,6 +11,9 @@ FIRMWARE_MIN = (2, 5, 0)
 KIND_ORDER = {"battery_low": 0, "silent": 1, "chutil_high": 2, "firmware_old": 3, "back_online": 4}
 
 
+_FW_RE = re.compile(r"\D*([0-9]+)\.([0-9]+)\.([0-9]+)", re.ASCII)
+
+
 def _name(n: dict) -> str:
     return n.get("long_name") or n.get("short_name") or n["id"]
 
@@ -18,10 +22,8 @@ def parse_firmware(v: str | None) -> tuple[int, int, int] | None:
     """Le prime tre parti numeriche di "2.3.2.63df972"; None se manca o non si legge."""
     if not v:
         return None
-    parts = str(v).split(".")[:3]
-    if len(parts) < 3 or not all(p.isdigit() for p in parts):
-        return None
-    return int(parts[0]), int(parts[1]), int(parts[2])
+    m = _FW_RE.match(str(v))
+    return (int(m.group(1)), int(m.group(2)), int(m.group(3))) if m else None
 
 
 def compute_alerts(nodes: Iterable[dict], settings: dict, now: float,
@@ -52,7 +54,7 @@ def compute_alerts(nodes: Iterable[dict], settings: dict, now: float,
             found.append(("firmware:" + n["id"], "firmware_old", 0, fw))
         if not silent:
             okey, skey = "online:" + n["id"], "silent:" + n["id"]
-            if skey in previous:
+            if skey in previous and heard is not None and heard >= previous[skey]["since"]:
                 found.append((okey, "back_online", previous[skey]["value"], None))
             elif okey in previous and now - previous[okey]["since"] < BACK_ONLINE_KEEP_S:
                 found.append((okey, "back_online", previous[okey]["value"], None))

@@ -62,6 +62,18 @@ def test_parse_firmware():
     assert parse_firmware("2.6.11.60ec05e") == (2, 6, 11)
     assert parse_firmware("2.5") is None
     assert parse_firmware(None) is None
+    assert parse_firmware("2.3².1") is None
+    assert parse_firmware("v2.3.2") == (2, 3, 2)
+    assert parse_firmware("2.5.0-rc1") == (2, 5, 0)
+
+
+def test_raising_silent_hours_no_false_back_online():
+    first = compute_alerts([node(1, last_heard=NOW - 7 * 3600)], SET, NOW, {})
+    assert [a["kind"] for a in first] == ["silent"]
+    relaxed = dict(SET, silent_alert_hours=12)
+    second = compute_alerts([node(1, last_heard=NOW - 7 * 3600)], relaxed, NOW + 60,
+                            {a["key"]: a for a in first})
+    assert second == []
 
 
 def test_back_online_after_silent():
