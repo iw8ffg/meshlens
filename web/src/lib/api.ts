@@ -17,12 +17,14 @@ import type {
   MapJob,
   MapKind,
   MapsState,
+  Message,
   Node,
   TelemetryPoint,
   Traceroute,
   UpdateJob,
   UpdateStatus,
 } from './types'
+import type { MqttSendBody } from './send'
 
 export class ApiError extends Error {
   status: number
@@ -144,3 +146,6 @@ export const updateStatus = () => getJSON<UpdateStatus>('/update/status')
 export const checkUpdate = () => send<UpdateStatus>('POST', '/update/check', {})
 export const downloadUpdate = () => send<UpdateJob>('POST', '/update/download', {})
 export const installUpdate = () => send<{ ok: boolean }>('POST', '/update/install', { confirm: true })
+
+export const mqttSend = (body: MqttSendBody) => send<{ message: Message }>('POST', '/mqtt/send', body)
+export const mqttChannels = () => getJSON<{ name: string; count_1h: number; enabled: boolean }[]>('/mqtt/channels')
