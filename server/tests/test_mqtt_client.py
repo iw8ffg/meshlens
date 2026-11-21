@@ -164,3 +164,20 @@ async def test_last_msg_age_and_drop_reasons():
     assert st["drops"]["not_protobuf"] == 1 and st["decoded"] == 1
     assert st["last_msg_age_s"] >= 0
     assert set(st["drops"]) == {"empty", "unsupported_port", "undecodable", "json_topic", "not_protobuf"}
+
+
+async def test_status_reports_queue_counters():
+    from meshlens.inbox import EventInbox
+    loop = asyncio.get_running_loop()
+    got = []
+    c = MqttConnector(CFG, EnvelopeDecoder([DEFAULT_KEY]), loop, got.append,
+                      client_factory=FakeClient)
+    st = c.status()
+    assert st["queue_dropped"] == 0 and st["queue_size"] == 0
+    c.inbox = EventInbox(loop, got.append, maxsize=2)
+    for i in range(3):
+        c.inbox.put(i)
+    st = c.status()
+    assert st["queue_dropped"] == 1 and st["queue_size"] == 2
+    await asyncio.sleep(0)
+    assert got == [1, 2] and c.status()["queue_size"] == 0

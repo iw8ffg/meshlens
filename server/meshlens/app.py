@@ -98,7 +98,8 @@ class Runtime:
             "connected_since": None, "last_msg_age_s": None, "reconnects": 0,
             "last_error": None, "last_error_at": None, "decoded": 0,
             "drops": {"empty": 0, "unsupported_port": 0, "undecodable": 0,
-                      "json_topic": 0, "not_protobuf": 0}}
+                      "json_topic": 0, "not_protobuf": 0},
+            "queue_dropped": 0, "queue_size": 0}
         return {**base, "filtered_channel": self.ingestor.filtered_channel,
                 "watchdog_restarts": self.watchdog_restarts}
 
@@ -192,6 +193,13 @@ class Runtime:
         if self.coverage is not None:
             self.coverage.tick()
 
+    def prune_memory(self) -> None:
+        """Ogni minuto: dimentica i pacchetti fuori finestra e tiene i nodi in memoria sotto il limite."""
+        self.dedup.prune(time.time())
+        removed = self.live.enforce_cap()
+        if removed:
+            log.info("Nodi in memoria oltre il limite: rimossi %d sentiti meno di recente", removed)
+
     def _publish_status(self) -> None:
         self.bus.publish({"type": "status", "mqtt": self.mqtt_status()})
 
@@ -230,7 +238,7 @@ class Runtime:
             asyncio.create_task(self._every(5, self._publish_status)),
             asyncio.create_task(self._every(1, self.store.commit)),
             asyncio.create_task(self._every_async(PURGE_INTERVAL_S, self.purge_once, PURGE_FIRST_DELAY_S)),
-            asyncio.create_task(self._every(60, lambda: self.dedup.prune(time.time()))),
+            asyncio.create_task(self._every(60, self.prune_memory)),
             asyncio.create_task(self._every(5, self._check_traceroutes)),
             asyncio.create_task(self._every(60, lambda: self.ctx.alerts())),
             asyncio.create_task(self._every(60, self._coverage_tick)),

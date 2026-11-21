@@ -1,6 +1,5 @@
 """Pipeline di ingestione: da MeshEvent a stato live e archivio."""
 import time
-from collections import OrderedDict
 from typing import Callable
 
 from .dedup import Deduplicator
@@ -66,8 +65,6 @@ class Ingestor:
         self._telemetry_time: dict[int, float] = {}
         self._rf_hops_time: dict[int, float] = {}  # nodo -> istante dell'ultimo hops da RF
         self._radio_nodes: dict[str, int] = {}  # radio_id -> numero del nodo della radio
-        # (nodo, packet id) gia' visti da MQTT: serve a contare i gateway anche se l'RF e' arrivato prima
-        self._mqtt_seen: OrderedDict[tuple[int, int], None] = OrderedDict()
         # canali visti da MQTT (anche se scartati): canale -> {minuto: conteggio}
         self._channel_buckets: dict[str, dict[int, int]] = {}
         self.filtered_channel = 0  # eventi MQTT scartati dal filtro mqtt_channels
@@ -112,10 +109,12 @@ class Ingestor:
             node["last_heard"] = ev.rx_time
         if ev.source not in node["sources"]:
             node["sources"].append(ev.source)
-        is_dup = False
+        is_dup = seen_mqtt = False
         if ev.source == "mqtt" or (ev.source == "rf" and ev.packet_id):
-            # i pacchetti RF senza id (dal database nodi della radio) non si deduplicano
-            is_dup = not self.dedup.is_new(num, ev.packet_id, ev.rx_time)
+            # i pacchetti RF senza id (dal database nodi della radio) non si deduplicano;
+            # seen_mqtt: copia gia' arrivata dal broker (serve a contare i gateway)
+            is_new, seen_mqtt = self.dedup.observe(num, ev.packet_id, ev.rx_time, ev.source)
+            is_dup = not is_new
         if ev.source == "rf" and ev.radio_id and not no_time:
             heard_by = node.setdefault("heard_by", {})
             old = heard_by.get(ev.radio_id)
@@ -132,15 +131,9 @@ class Ingestor:
         self._record_links(ev)  # anche per i duplicati: l'upsert tiene l'ultima copia ricevuta
 
         if ev.source == "mqtt":
-            key = (num, ev.packet_id)
-            seen = key in self._mqtt_seen
-            if not seen:
-                if len(self._mqtt_seen) >= 200_000:
-                    self._mqtt_seen.popitem(last=False)
-                self._mqtt_seen[key] = None
             if is_dup:
                 # copia MQTT di un pacchetto gia' visto: se prima c'era solo l'RF e' il primo gateway
-                node["mqtt_gateways"] = 1 if not seen else (node["mqtt_gateways"] or 0) + 1
+                node["mqtt_gateways"] = 1 if not seen_mqtt else (node["mqtt_gateways"] or 0) + 1
                 return
             node["mqtt_gateways"] = 1
         elif is_dup:

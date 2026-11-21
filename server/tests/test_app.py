@@ -247,3 +247,21 @@ async def test_settings_change_during_watchdog_restart_leaves_one_connector(tmp_
                          rt.on_settings_changed({**rt.settings, "mqtt": {**rt.settings["mqtt"], "host": "nuovo"}}))
     live = [c for c in FakeConnector.instances if c.started and not c.stopped]
     assert live == [rt.connector]
+
+
+async def test_memory_prune_caps_live_nodes_and_prunes_dedup(tmp_path):
+    app, rt = build(tmp_path, connector_factory=FakeConnector, static_dir=None)
+    rt.live.max_nodes = 10
+    for i in range(12):
+        rt.live.nodes[i] = {"num": i, "last_heard": 1000 + i}
+    rt.dedup.is_new(1, 1, time.time() - 10_000)
+    rt.prune_memory()
+    assert len(rt.live.nodes) == 9 and 0 not in rt.live.nodes
+    assert rt.dedup.is_new(1, 1, time.time()) is True
+
+
+async def test_mqtt_status_has_queue_fields_without_connector(tmp_path):
+    app, rt = build(tmp_path, connector_factory=FakeConnector, static_dir=None)
+    rt.connector = None
+    st = rt.mqtt_status()
+    assert st["queue_dropped"] == 0 and st["queue_size"] == 0

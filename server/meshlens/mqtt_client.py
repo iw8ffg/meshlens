@@ -1,7 +1,7 @@
 """Connettore MQTT: sottoscrizione e, solo su richiesta esplicita dell'utente, publish di
 messaggi di testo (vedi mqtt_publish.py).
 I callback di paho girano in un thread dedicato: qui si decodifica soltanto, poi
-gli eventi passano al loop asyncio con call_soon_threadsafe."""
+gli eventi passano al loop asyncio attraverso una coda limitata (vedi inbox.py)."""
 import asyncio
 import collections
 import logging
@@ -13,6 +13,7 @@ from typing import Callable
 import paho.mqtt.client as mqtt
 
 from .events import MeshEvent
+from .inbox import EventInbox
 from .mqtt_decode import EnvelopeDecoder
 from .settings import scrub_text
 
@@ -33,6 +34,7 @@ class MqttConnector:
         self.decoder = decoder
         self.loop = loop
         self.on_event = on_event
+        self.inbox = EventInbox(loop, on_event)  # raffiche: scarta i piu' vecchi e li conta
         self._factory = client_factory or _default_factory
         self._client = None
         self._connected = False
@@ -105,7 +107,8 @@ class MqttConnector:
                 "reconnects": max(0, self._connects - 1),
                 "last_error": self._last_error, "last_error_at": self._last_error_at,
                 "decoded": stats["ok"],
-                "drops": {k: stats[k] for k in DROP_KEYS}}
+                "drops": {k: stats[k] for k in DROP_KEYS},
+                "queue_dropped": self.inbox.dropped, "queue_size": self.inbox.size()}
 
     # ---- callback (thread paho); firme tolleranti a paho v1 e v2 ----
     def _on_connect(self, client, userdata, *args):
@@ -143,7 +146,4 @@ class MqttConnector:
             self._last_msg = now
         ev = self.decoder.decode(msg.topic, msg.payload, now)
         if ev is not None:
-            try:
-                self.loop.call_soon_threadsafe(self.on_event, ev)
-            except RuntimeError:  # loop chiuso durante lo spegnimento
-                pass
+            self.inbox.put(ev)

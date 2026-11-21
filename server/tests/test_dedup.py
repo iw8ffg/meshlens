@@ -41,3 +41,19 @@ def test_memory_limit_evicts_oldest_key():
     assert d.is_new(1, 0, 0) is True
     # la chiave piu' recente e' ancora ricordata
     assert d.is_new(1, 200_000, 0) is False
+
+
+def test_observe_tracks_sources():
+    d = Deduplicator(window_s=600)
+    assert d.observe(1, 5, 0, "rf") == (True, False)
+    assert d.observe(1, 5, 10, "mqtt") == (False, False)
+    assert d.observe(1, 5, 20, "mqtt") == (False, True)
+    assert d.observe(1, 5, 30, "rf") == (False, True)
+    assert d.observe(1, 5, 600, "mqtt") == (True, False)
+
+
+def test_observe_without_source_marks_nothing():
+    d = Deduplicator()
+    assert d.observe(1, 5, 0) == (True, False)
+    assert d.observe(1, 5, 1, "mqtt") == (False, False)
+    assert d.is_new(1, 5, 2) is False

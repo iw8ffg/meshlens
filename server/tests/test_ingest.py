@@ -352,3 +352,18 @@ def test_filtered_channel_counted(locator):
     ing.handle(ev("text", TextData("a"), num=1, pid=1, channel="MediumFast"))
     ing.handle(ev("text", TextData("b"), num=2, pid=2, channel="LongFast"))
     assert ing.filtered_channel == 1
+
+
+def test_ingestor_has_no_private_mqtt_seen(env):
+    ing = env[0]
+    assert not hasattr(ing, "_mqtt_seen")
+
+
+def test_mqtt_gateways_after_rf_copy_use_shared_dedup(env):
+    ing, live, _, _, _ = env
+    rf = ev("text", TextData("ciao"), pid=9, source="rf", radio_id="r1", channel="0")
+    ing.handle(rf)
+    ing.handle(ev("text", TextData("ciao"), pid=9))  # prima copia MQTT: primo gateway
+    assert live.nodes[1]["mqtt_gateways"] == 1
+    ing.handle(ev("text", TextData("ciao"), pid=9))  # seconda copia MQTT
+    assert live.nodes[1]["mqtt_gateways"] == 2
