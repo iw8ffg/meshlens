@@ -1,6 +1,7 @@
 """Impostazioni persistenti (tabella settings, valori JSON)."""
 import copy
 import json
+import logging
 import re
 import sqlite3
 from datetime import datetime, timezone
@@ -9,7 +10,9 @@ from urllib.parse import urlsplit
 
 from . import __version__
 from .crypto import expand_psk
+from .secretbox import SECRET_KEYS, SecretError, get_protector
 
+log = logging.getLogger(__name__)
 MASK = "••••"
 EXPORT_FORMAT = 1
 
@@ -143,6 +146,12 @@ def load_settings(conn: sqlite3.Connection) -> dict:
         if row["key"] not in DEFAULTS:
             continue
         value = json.loads(row["value"])
+        if row["key"] in SECRET_KEYS and isinstance(value, str) and value:
+            try:
+                value = get_protector().unprotect(value)
+            except SecretError:
+                log.warning("Impossibile decifrare %s: reimpostalo", row["key"])
+                value = ""
         if row["key"] == "mqtt":
             result["mqtt"].update(value)
         else:
@@ -162,11 +171,31 @@ def save_settings(conn: sqlite3.Connection, changes: dict) -> dict:
         if key == "mqtt":
             current["mqtt"].update(value)
             value = current["mqtt"]
+        elif key in SECRET_KEYS and isinstance(value, str) and value:
+            value = get_protector().protect(value)
         conn.execute("INSERT INTO settings(key, value) VALUES(?, ?) "
                      "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
                      (key, json.dumps(value)))
     conn.commit()
     return load_settings(conn)
+
+
+def migrate_secrets(conn: sqlite3.Connection) -> int:
+    """Riscrive cifrati i segreti ancora salvati in chiaro (database delle versioni precedenti)."""
+    protector = get_protector()
+    n = 0
+    for key in SECRET_KEYS:
+        row = conn.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
+        if row is None:
+            continue
+        value = json.loads(row["value"])
+        if isinstance(value, str) and value and not protector.is_protected(value):
+            conn.execute("UPDATE settings SET value=? WHERE key=?",
+                         (json.dumps(protector.protect(value)), key))
+            n += 1
+    if n:
+        conn.commit()
+    return n
 
 
 def mask_secrets(s: dict) -> dict:

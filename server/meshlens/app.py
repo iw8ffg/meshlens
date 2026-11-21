@@ -30,7 +30,7 @@ from .mqtt_publish import MqttSender
 from .pubsub_hub import PubSubHub
 from .radio import RadioConnector
 from .radio_manager import RadioManager
-from .settings import load_settings
+from .settings import load_settings, migrate_secrets
 from .store import PURGE_CHUNK, Store
 from .updater import Updater
 
@@ -285,6 +285,9 @@ def build(data_dir: Path, connector_factory=MqttConnector,
         log.warning("Ripristino completato dal backup %s", restored)
     backups = BackupManager(db_path, Path(data_dir) / "backups")
     conn = connect(db_path, before_migrate=lambda c, old, new: backups.create_sync(c, "pre-migrazione"))
+    migrated = migrate_secrets(conn)
+    if migrated:
+        log.info("Segreti salvati in chiaro riscritti cifrati: %d", migrated)
     db_health = quick_check(conn)
     if db_health != "ok":
         log.error("Controllo d'integrità del database fallito: %s", db_health)

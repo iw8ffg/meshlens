@@ -48,6 +48,16 @@ async def test_check_error_in_status(tmp_path):
         assert r.status_code == 200 and "Repository privato" in r.json()["error"]
 
 
+async def test_get_settings_still_masks_token():
+    ctx = make_ctx()
+    async with logged(ctx) as c:
+        await c.put("/api/settings", json={"update_token": TOKEN})
+        r = await c.get("/api/settings")
+        assert r.json()["update_token"] == "••••" and TOKEN not in r.text
+        stored = ctx.conn.execute("SELECT value FROM settings WHERE key='update_token'").fetchone()[0]
+        assert TOKEN not in stored
+
+
 async def test_token_masked_in_settings():
     ctx = make_ctx()
     async with logged(ctx) as c:
