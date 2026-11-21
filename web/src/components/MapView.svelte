@@ -32,14 +32,18 @@
   import NodePopup from '../lib/map/NodePopup.svelte'
   import Icon from '../lib/ui/Icon.svelte'
   import Button from '../lib/ui/Button.svelte'
+  import ActiveFilters from './ActiveFilters.svelte'
 
   let {
     nodes,
+    total,
     now,
     track,
     focus,
   }: {
     nodes: Node[]
+    /** Numero di nodi in `app.nodes`, prima dei filtri. */
+    total: number
     now: number
     track: [number, number][] | null
     focus: { lat: number; lon: number; seq: number } | null
@@ -625,6 +629,12 @@
 {#if offlineBadge}
   <div class="badge" role="status"><Icon name="cloudoff" size={16} />Mappa offline</div>
 {/if}
+{#if nodes.length === 0 && total > 0}
+  <div class="nonodes" role="status">
+    <span>Nessun nodo con i filtri attivi</span>
+    <ActiveFilters compact />
+  </div>
+{/if}
 {#if notice}<div class="notice" role="status">{notice}</div>{/if}
 {#if coverage.detail}
   <div class="covbar">
@@ -701,6 +711,27 @@
     left: 50%;
     transform: translateX(-50%);
     max-width: calc(100% - var(--space-8));
+    text-align: center;
+  }
+  .nonodes {
+    position: absolute;
+    z-index: var(--z-map-ui);
+    bottom: calc(var(--space-8) + var(--space-12));
+    left: 50%;
+    transform: translateX(-50%);
+    max-width: calc(100% - var(--space-8));
+    padding: var(--space-3);
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--line);
+    background: var(--surface);
+    color: var(--ink);
+    box-shadow: var(--shadow-2);
+    font-size: 14px;
+    line-height: 20px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-2);
     text-align: center;
   }
   .badge {

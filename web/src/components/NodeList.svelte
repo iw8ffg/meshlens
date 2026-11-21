@@ -1,5 +1,7 @@
 <script lang="ts">
   import { app } from '../lib/stores.svelte'
+  import { activeFilters, clearAllFilters } from '../lib/filters'
+  import Button from '../lib/ui/Button.svelte'
   import { ago, compareLastHeard } from '../lib/format'
   import { hopsLabel, batteryView, contactMinutes, nodeName, sourceKind } from '../lib/nodes'
   import { contactClass } from '../lib/ui/logic'
@@ -12,11 +14,17 @@
   import type { Node } from '../lib/types'
 
   let { nodes, now, onpick }: { nodes: Node[]; now: number; onpick: (n: Node) => void } = $props()
+  const hasFilters = $derived(activeFilters(app.filter, (c) => c).length > 0)
   const sorted = $derived([...nodes].sort((a, b) => compareLastHeard(a.last_heard, b.last_heard)))
 </script>
 
 {#if sorted.length === 0}
-  <Empty icon="search" title="Nessun nodo con questi filtri">Allarga l'ultimo contatto o togli qualche nazione.</Empty>
+  <Empty icon="search" title="Nessun nodo con questi filtri">
+    Allarga l'ultimo contatto o togli qualche nazione.
+    {#snippet action()}
+      {#if hasFilters}<Button onclick={() => (app.filter = clearAllFilters(app.filter))}>Azzera filtri</Button>{/if}
+    {/snippet}
+  </Empty>
 {:else}
   <ul class="nl">
     {#each sorted as n (n.id)}

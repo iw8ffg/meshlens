@@ -5,6 +5,7 @@
   import NodeList from './components/NodeList.svelte'
   import NodeDetail from './components/NodeDetail.svelte'
   import Filters from './components/Filters.svelte'
+  import ActiveFilters from './components/ActiveFilters.svelte'
   import Chat from './components/Chat.svelte'
   import Radios from './components/Radios.svelte'
   import Settings from './components/Settings.svelte'
@@ -153,6 +154,7 @@
 {#snippet screens()}
   {#if activeTab === 'nodes'}
     <Filters />
+    <ActiveFilters />
     <NodeList nodes={visible} {now} onpick={pick} />
   {:else if activeTab === 'network'}
     <Network nodes={[...app.nodes.values()]} {now} onpick={pick} />
@@ -178,7 +180,7 @@
     <TopBar visible={visible.length} tab={activeTab} onselect={goTab} onupdate={() => goTab('settings')} onpickalert={pickId} />
     <ConnectionBar />
     <div class="main">
-      <div class="mapwrap"><MapView nodes={visible} {now} {track} {focus} /></div>
+      <div class="mapwrap"><MapView nodes={visible} total={app.nodes.size} {now} {track} {focus} /></div>
 
       {#if !viewport.phone}
         {#if isPageTab(activeTab)}
