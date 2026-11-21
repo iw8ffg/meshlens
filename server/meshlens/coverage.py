@@ -285,16 +285,19 @@ class CoverageRecorder:
     def _on_position(self, s: dict, ev: MeshEvent, now: float, mine: bool) -> None:
         p = ev.payload
         last = self._track[-1] if self._track else None
-        if (last and abs(last["lat"] - p.lat) < 1e-6 and abs(last["lon"] - p.lon) < 1e-6
-                and abs(last["time"] - now) <= 10):
-            return  # copia (MQTT + RF) o posizione ripetuta
+        duplicate = bool(last and abs(last["lat"] - p.lat) < 1e-6
+                         and abs(last["lon"] - p.lon) < 1e-6 and abs(last["time"] - now) <= 10)
+        # il punto dipende solo dalla ricezione RF della radio della sessione, non dal percorso
+        if s["mode"] == "position" and mine:
+            self._add_point(s, ev, None, now, (p.lat, p.lon, p.precision_bits))
+        if duplicate:
+            self.store.commit()
+            return  # copia (MQTT + RF) o posizione ripetuta: il percorso non cambia
         self.store.add_track(s["id"], now, p.lat, p.lon, p.precision_bits)
         tp = {"time": now, "lat": p.lat, "lon": p.lon, "precision_bits": p.precision_bits}
         self._track.append(tp)
         self._track.sort(key=lambda t: t["time"])
         self._publish(s, None, dict(tp))
-        if s["mode"] == "position" and mine:
-            self._add_point(s, ev, None, now, (p.lat, p.lon, p.precision_bits))
         # completa e affina i punti degli ultimi 120 s e li ripubblica
         updated = []
         for pt in self.store.points_since(s["id"], now - MAX_GAP_S):

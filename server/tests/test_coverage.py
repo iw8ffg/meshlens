@@ -177,6 +177,15 @@ def test_position_mode_records_positions_as_points(env):
     assert rec.detail(sid)["missing_points"] == []
 
 
+def test_position_mode_point_not_suppressed_by_track_dedup(env):
+    rec, store, *_ = env
+    sid = begin(rec, "position")["id"]
+    rec.handle(pos(T0, 45.0, 11.0, source="mqtt"))  # copia MQTT arrivata prima
+    rec.handle(pos(T0 + 5, 45.0, 11.0))  # ricezione RF della radio della sessione
+    assert len(store.track(sid)) == 1
+    assert len(store.points(sid)) == 1
+
+
 def test_session_auto_stops_after_8h(env):
     rec, store, _, _, clock = env
     sid = begin(rec)["id"]
