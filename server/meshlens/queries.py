@@ -1,7 +1,9 @@
 """Letture di serie storiche per le rotte dei dati: girano su una connessione a sola lettura
 propria (thread a parte), mai sulla connessione principale del loop."""
+import json
 import math
 import sqlite3
+from dataclasses import dataclass
 from pathlib import Path
 
 
@@ -81,4 +83,142 @@ def track(conn: sqlite3.Connection, num: int, since: float, max_points: int = 50
     out = rows[::k]
     if (n - 1) % k:
         out.append(rows[-1])
+    return out
+
+
+SNR_BINS = [-20 + 2.5 * i for i in range(15)]
+PACKET_LIMIT_MAX = 200
+HARDWARE_TOP = 12
+
+
+def _node_id(num: int | None) -> str | None:
+    return None if num is None else f"!{num:08x}"
+
+
+def _snr_bin(v: float) -> int:
+    return max(0, min(len(SNR_BINS) - 1, int((v - SNR_BINS[0]) // 2.5)))
+
+
+def network_stats(conn: sqlite3.Connection, now: float, hours: int) -> dict:
+    since = math.ceil((now - hours * 3600) / 3600) * 3600  # first whole hour inside the window
+    online = [{"time": r["time"], "nodes": r["n"]} for r in conn.execute(
+        "SELECT time, COUNT(DISTINCT node_num) AS n FROM node_hourly WHERE time>=? "
+        "GROUP BY time ORDER BY time", (since,))]
+    packets = [{"time": r["time"], "kind": r["kind"], "packets": r["p"], "receptions": r["r"]}
+               for r in conn.execute(
+                   "SELECT time, kind, SUM(packets) AS p, SUM(receptions) AS r FROM stats_hourly "
+                   "WHERE time>=? GROUP BY time, kind ORDER BY time, kind", (since,))]
+    snr = {"bins": list(SNR_BINS), "rf": [0] * len(SNR_BINS), "mqtt": [0] * len(SNR_BINS)}
+    for r in conn.execute(
+            "SELECT source, SUM(snr_sum) * 1.0 / SUM(snr_n) AS v FROM node_hourly "
+            "WHERE time>=? AND source IN ('rf','mqtt') GROUP BY node_num, source "
+            "HAVING SUM(snr_n) > 0", (since,)):
+        snr[r["source"]][_snr_bin(r["v"])] += 1
+    hop_counts: dict[int | None, int] = {i: 0 for i in range(8)}
+    hop_counts[None] = 0
+    for r in conn.execute("SELECT hops, COUNT(*) AS n FROM nodes WHERE last_heard>=? "
+                          "GROUP BY hops", (since,)):
+        hop_counts[r["hops"] if r["hops"] in hop_counts else None] += r["n"]
+    hops = [{"hops": h, "nodes": n} for h, n in hop_counts.items()]
+    hw = [(r["hw_model"], r["n"]) for r in conn.execute(
+        "SELECT hw_model, COUNT(*) AS n FROM nodes WHERE last_heard>=? AND hw_model IS NOT NULL "
+        "AND hw_model<>'' GROUP BY hw_model ORDER BY n DESC, hw_model", (since,))]
+    hardware = [{"value": v, "nodes": n} for v, n in hw[:HARDWARE_TOP]]
+    other_hardware = sum(n for _, n in hw[HARDWARE_TOP:])
+    roles = [{"value": r["role"], "nodes": r["n"]} for r in conn.execute(
+        "SELECT role, COUNT(*) AS n FROM nodes WHERE last_heard>=? AND role IS NOT NULL "
+        "AND role<>'' GROUP BY role ORDER BY n DESC, role", (since,))]
+    top = [{"id": _node_id(r["node_num"]), "name": r["long_name"] or _node_id(r["node_num"]),
+            "packets": r["p"], "per_hour": r["p"] / hours} for r in conn.execute(
+        "SELECT h.node_num, SUM(h.packets) AS p, n.long_name FROM node_hourly h "
+        "LEFT JOIN nodes n ON n.num=h.node_num WHERE h.time>=? "
+        "GROUP BY h.node_num ORDER BY p DESC, h.node_num LIMIT 10", (since,))]
+    total_nodes = conn.execute("SELECT COUNT(DISTINCT node_num) FROM node_hourly WHERE time>=?",
+                               (since,)).fetchone()[0]
+    total_packets = conn.execute("SELECT COALESCE(SUM(packets), 0) FROM stats_hourly "
+                                 "WHERE time>=?", (since,)).fetchone()[0]
+    return {"hours": hours, "since": since,
+            "totals": {"nodes": total_nodes, "packets": total_packets},
+            "online": online, "packets": packets, "snr": snr, "hops": hops, "top": top,
+            "hardware": hardware, "roles": roles, "other_hardware": other_hardware}
+
+
+@dataclass
+class PacketFilter:
+    node: int | None = None
+    kind: str | None = None
+    source: str | None = None
+    status: str | None = None
+    min_snr: float | None = None
+    since: float | None = None
+    until: float | None = None
+
+
+_PACKET_ROW_SQL = (
+    "SELECT p.id, p.time, p.from_num, n.long_name AS from_name, p.to_num, p.packet_id, p.source, "
+    "p.broker, p.radio_id, p.channel, p.portnum, p.kind, p.status, p.snr, p.rssi, p.hops, "
+    "p.hop_start, p.hop_limit, p.relay_node, p.gateway, p.copies, p.size")
+
+
+def _packet_row(r: sqlite3.Row) -> dict:
+    return {"id": r["id"], "time": r["time"], "from": _node_id(r["from_num"]),
+            "from_name": r["from_name"], "to": _node_id(r["to_num"]),
+            "packet_id": r["packet_id"], "source": r["source"], "broker": r["broker"],
+            "radio_id": r["radio_id"], "channel": r["channel"], "portnum": r["portnum"],
+            "kind": r["kind"], "status": r["status"], "snr": r["snr"], "rssi": r["rssi"],
+            "hops": r["hops"], "hop_start": r["hop_start"], "hop_limit": r["hop_limit"],
+            "relay_node": r["relay_node"], "gateway": r["gateway"], "copies": r["copies"],
+            "size": r["size"]}
+
+
+def packet_list(conn: sqlite3.Connection, f: PacketFilter, limit: int,
+                before_id: int | None) -> dict:
+    limit = max(1, min(limit, PACKET_LIMIT_MAX))
+    where, args = [], []
+    if f.node is not None:
+        where.append("(p.from_num=? OR p.to_num=?)")
+        args += [f.node, f.node]
+    for col, val in (("kind", f.kind), ("source", f.source), ("status", f.status)):
+        if val is not None:
+            where.append(f"p.{col}=?")
+            args.append(val)
+    if f.min_snr is not None:
+        where.append("p.snr>=?")
+        args.append(f.min_snr)
+    if f.since is not None:
+        where.append("p.time>=?")
+        args.append(f.since)
+    if f.until is not None:
+        where.append("p.time<=?")
+        args.append(f.until)
+    if before_id is not None:
+        where.append("p.id<?")
+        args.append(before_id)
+    sql = (_PACKET_ROW_SQL + " FROM packets p LEFT JOIN nodes n ON n.num=p.from_num"
+           + (" WHERE " + " AND ".join(where) if where else "")
+           + " ORDER BY p.id DESC LIMIT ?")
+    items = [_packet_row(r) for r in conn.execute(sql, (*args, limit))]
+    return {"items": items,
+            "next_before_id": items[-1]["id"] if len(items) == limit else None}
+
+
+def _loads(text: str | None):
+    if not text:
+        return None
+    try:
+        return json.loads(text)
+    except ValueError:
+        return None
+
+
+def packet_detail(conn: sqlite3.Connection, pid: int) -> dict | None:
+    r = conn.execute(
+        _PACKET_ROW_SQL + ", p.receptions, p.summary, p.raw FROM packets p "
+        "LEFT JOIN nodes n ON n.num=p.from_num WHERE p.id=?", (pid,)).fetchone()
+    if r is None:
+        return None
+    out = _packet_row(r)
+    out["receptions"] = _loads(r["receptions"]) or []
+    out["summary"] = _loads(r["summary"])
+    out["raw_hex"] = bytes(r["raw"]).hex() if r["raw"] is not None else ""
     return out

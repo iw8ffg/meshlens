@@ -622,6 +622,55 @@ async def test_data_routes_use_thread_with_db_path(tmp_path, monkeypatch):
         rt.conn.close()
 
 
+async def test_stats_route_cached(tmp_path, monkeypatch):
+    from meshlens import queries
+    from meshlens.app import build
+    app, rt = build(tmp_path, static_dir=None)
+    calls = []
+    real = queries.network_stats
+
+    def spy(conn, now, hours):
+        calls.append(hours)
+        return real(conn, now, hours)
+    monkeypatch.setattr(queries, "network_stats", spy)
+    try:
+        async with client_for_app(app) as c:
+            assert (await c.post("/api/auth/setup", json={"pin": "1234"})).status_code == 200
+            a = await c.get("/api/stats?hours=24")
+            b = await c.get("/api/stats?hours=24")
+            assert a.status_code == 200 and a.json() == b.json() and calls == [24]
+            await c.get("/api/stats?hours=48")
+            assert calls == [24, 48]
+    finally:
+        rt.conn.close()
+
+
+async def test_stats_hours_bounds(ctx):
+    async with logged(ctx) as c:
+        assert (await c.get("/api/stats?hours=0")).status_code == 422
+        assert (await c.get("/api/stats?hours=2161")).status_code == 422
+        assert (await c.get("/api/stats?hours=2160")).status_code == 200
+
+
+async def test_packets_routes(ctx):
+    ctx.conn.executemany(
+        "INSERT INTO packets(time, from_num, kind, source, status) VALUES(?,?,?,?,?)",
+        [(1000.0 + i, 1, "text", "rf", "ok") for i in range(300)])
+    ctx.conn.commit()
+    async with logged(ctx) as c:
+        body = (await c.get("/api/packets?limit=500")).json()
+        assert len(body["items"]) == 200 and body["next_before_id"] == body["items"][-1]["id"]
+        assert body["items"][0]["from"] == "!00000001"
+        assert len((await c.get("/api/packets")).json()["items"]) == 100
+        r = await c.get("/api/packets?node=!00000001&kind=text&source=rf")
+        assert len(r.json()["items"]) == 100
+        assert (await c.get("/api/packets?source=bogus")).status_code == 422
+        assert (await c.get("/api/packets?node=zz")).status_code == 422
+        d = await c.get("/api/packets/5")
+        assert d.status_code == 200 and d.json()["raw_hex"] == "" and d.json()["receptions"] == []
+        assert (await c.get("/api/packets/99999")).status_code == 404
+
+
 @pytest.mark.parametrize("path", ["telemetry", "positions", "metrics", "snr"])
 async def test_data_routes_reject_zero_hours(ctx, path):
     async with logged(ctx) as c:

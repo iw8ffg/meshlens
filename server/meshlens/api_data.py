@@ -9,6 +9,7 @@ from fastapi import Depends, FastAPI, HTTPException, Query
 from . import queries
 
 T = TypeVar("T")
+STATS_TTL_S = 60
 
 
 async def run_read(ctx, fn: Callable[[sqlite3.Connection], T]) -> T:
@@ -56,3 +57,43 @@ def register_data_routes(app: FastAPI, ctx, require_auth) -> None:
         num = _num_from_id(node_id)
         since = time.time() - hours * 3600
         return await run_read(ctx, lambda c: queries.snr_series(c, num, since))
+
+    stats_cache: dict[int, tuple[float, dict]] = {}
+    stats_lock = asyncio.Lock()
+
+    @app.get("/api/stats", dependencies=[Depends(require_auth)])
+    async def stats(hours: int = Query(24, ge=1, le=2160)):
+        async with stats_lock:
+            now = time.time()
+            hit = stats_cache.get(hours)
+            if hit and now - hit[0] < STATS_TTL_S:
+                return hit[1]
+            result = await run_read(ctx, lambda c: queries.network_stats(c, now, hours))
+            stats_cache[hours] = (now, result)
+            return result
+
+    @app.get("/api/packets", dependencies=[Depends(require_auth)])
+    async def packets(node: str | None = Query(None, max_length=16),
+                      kind: str | None = Query(None, max_length=32),
+                      source: str | None = Query(None, pattern="^(rf|mqtt)$"),
+                      status: str | None = Query(
+                          None, pattern="^(ok|encrypted|unsupported|undecodable|empty)$"),
+                      min_snr: float | None = None, since: float | None = None,
+                      until: float | None = None, before_id: int | None = Query(None, ge=0),
+                      limit: int = Query(100, ge=1)):
+        num = None
+        if node:
+            try:
+                num = _num_from_id(node)
+            except HTTPException:
+                raise HTTPException(422, "Nodo non valido")
+        f = queries.PacketFilter(num, kind, source, status, min_snr, since, until)
+        limit = min(limit, queries.PACKET_LIMIT_MAX)
+        return await run_read(ctx, lambda c: queries.packet_list(c, f, limit, before_id))
+
+    @app.get("/api/packets/{pid}", dependencies=[Depends(require_auth)])
+    async def packet(pid: int):
+        row = await run_read(ctx, lambda c: queries.packet_detail(c, pid))
+        if row is None:
+            raise HTTPException(404, "Pacchetto non trovato")
+        return row
