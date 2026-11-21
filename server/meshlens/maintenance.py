@@ -3,7 +3,7 @@ import sqlite3
 from pathlib import Path
 
 TABLES = ("nodes", "positions", "messages", "telemetry", "links", "traceroutes",
-          "coverage_points", "sessions")
+          "coverage_points", "sessions", "metrics", "packets")
 
 
 def _size(conn: sqlite3.Connection) -> int:

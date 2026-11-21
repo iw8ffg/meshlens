@@ -91,7 +91,8 @@ def test_purge_retention(store):
     store.add_message(msg("1:1", NOW - 91 * DAY))
     store.add_telemetry(1, NOW - 100 * DAY, TelemetryData())
     res = store.purge(NOW, DEFAULTS)
-    assert res == {"messages": 1, "positions": 1, "telemetry": 0, "nodes": 0}
+    assert res == {"messages": 1, "positions": 1, "telemetry": 0, "nodes": 0,
+                   "metrics": 0, "packets": 0}
     assert len(store.positions(1, 0)) == 1
 
 
@@ -100,9 +101,9 @@ def test_purge_storage_cap(store):
         store.add_position(1, NOW - i, 45.0, 9.0, 13, "mqtt")
         store.add_message(msg(f"1:{i}", NOW - i))
     store.commit()
-    assert store._used_bytes() > 300_000
-    res = store.purge(NOW, {**DEFAULTS, "storage_cap_mb": 0.25})
-    assert store._used_bytes() <= 0.25 * 1024 * 1024
+    assert store._used_bytes() > 0.3 * 1024 * 1024
+    res = store.purge(NOW, {**DEFAULTS, "storage_cap_mb": 0.3})
+    assert store._used_bytes() <= 0.3 * 1024 * 1024
     assert res["positions"] > 0 and res["messages"] > 0
 
 
@@ -390,3 +391,52 @@ def test_read_baseline_and_purge_reads(store):
     store.mark_read("new", NOW)
     store.purge_step(NOW, DEFAULTS)
     assert set(store.read_times()) == {"new"}
+
+
+def _pkt(time, **kw):
+    return {"time": time, "from_num": 1, "status": "ok", "kind": "text", **kw}
+
+
+def test_add_metrics_and_empty_noop(store):
+    store.add_metrics(1, 10.0, "environment", {"temperature": 21.5, "relative_humidity": 40.0})
+    assert store.conn.execute("SELECT COUNT(*) FROM metrics").fetchone()[0] == 2
+    store.add_metrics(1, 11.0, "environment", {})
+    assert store.conn.execute("SELECT COUNT(*) FROM metrics").fetchone()[0] == 2
+
+
+def test_upsert_hourly_sums_and_max(store):
+    store.upsert_node_hourly([(3600, 1, "mqtt", 2, -10.0, 2, -4.0)])
+    store.upsert_node_hourly([(3600, 1, "mqtt", 1, -2.0, 1, None)])
+    row = store.conn.execute("SELECT packets, snr_sum, snr_n, snr_max FROM node_hourly").fetchone()
+    assert tuple(row) == (3, -12.0, 3, -4.0)
+    store.upsert_stats_hourly([(3600, "rf", "text", 2, 5)])
+    store.upsert_stats_hourly([(3600, "rf", "text", 1, 2)])
+    row = store.conn.execute("SELECT packets, receptions FROM stats_hourly").fetchone()
+    assert tuple(row) == (3, 7)
+
+
+def test_trim_packets_respects_cap(store):
+    store.insert_packets([_pkt(float(i)) for i in range(25)])
+    assert store.trim_packets(10, 4) == 4
+    ids = [r[0] for r in store.conn.execute("SELECT id FROM packets ORDER BY id")]
+    assert ids == list(range(5, 26))
+    while store.trim_packets(10, 4):
+        pass
+    ids = [r[0] for r in store.conn.execute("SELECT id FROM packets ORDER BY id")]
+    assert ids == list(range(16, 26))
+
+
+def test_purge_covers_new_tables(store):
+    old_h = NOW - 49 * 3600
+    store.insert_packets([_pkt(old_h), _pkt(NOW - 3600)])
+    store.add_metrics(1, NOW - 366 * DAY, "environment", {"temperature": 1.0})
+    store.add_metrics(1, NOW - DAY, "environment", {"temperature": 2.0})
+    store.upsert_stats_hourly([(int(NOW - 366 * DAY), "rf", "text", 1, 1),
+                               (int(NOW - DAY), "rf", "text", 1, 1)])
+    store.upsert_node_hourly([(int(NOW - 91 * DAY), 1, "rf", 1, 0.0, 0, None),
+                              (int(NOW - DAY), 1, "rf", 1, 0.0, 0, None)])
+    res = store.purge(NOW, DEFAULTS)
+    assert res["metrics"] == 1 and res["packets"] == 1
+    assert "stats_hourly" not in res and "node_hourly" not in res
+    for table in ("metrics", "packets", "stats_hourly", "node_hourly"):
+        assert store.conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 1, table

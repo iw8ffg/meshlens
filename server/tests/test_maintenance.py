@@ -18,7 +18,7 @@ def test_read_db_stats_counts_rows(tmp_path):
     assert stats["size_bytes"] > 0 and stats["free_bytes"] >= 0
     assert stats["schema_version"] >= 2
     assert set(stats["rows"]) == {"nodes", "positions", "messages", "telemetry", "links",
-                                  "traceroutes", "coverage_points", "sessions"}
+                                  "traceroutes", "coverage_points", "sessions", "metrics", "packets"}
     conn.close()
 
 

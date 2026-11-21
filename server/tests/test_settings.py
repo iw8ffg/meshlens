@@ -126,3 +126,16 @@ def test_notify_settings_validation(conn):
                                                                  "notify_toast": False}})
     assert "telegram_token" not in changes and "telegram_token" in skipped
     assert changes["notify_toast"] is False
+
+
+def test_packet_log_settings_validation(conn):
+    assert DEFAULTS["packet_log_mode"] == "archived"
+    assert DEFAULTS["retention_packets_hours"] == 48
+    save_settings(conn, {"packet_log_mode": "all"})
+    assert load_settings(conn)["packet_log_mode"] == "all"
+    with pytest.raises(ValueError):
+        save_settings(conn, {"packet_log_mode": "tutto"})
+    for bad in (0, 169):
+        with pytest.raises(ValueError):
+            save_settings(conn, {"retention_packets_hours": bad})
+    save_settings(conn, {"retention_packets_hours": 168})

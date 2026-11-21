@@ -24,6 +24,8 @@ DEFAULTS: dict = {
     "retention_positions_days": 90,
     "retention_telemetry_days": 365,
     "storage_cap_mb": 2048,
+    "packet_log_mode": "archived",  # ispettore dei pacchetti: off | archived | all
+    "retention_packets_hours": 48,
     "battery_alert_pct": 20,
     "silent_alert_hours": 6,
     "lan_access": False,
@@ -111,7 +113,8 @@ def mqtt_view(brokers: list[dict]) -> dict:
 _INT_KEYS = ("retention_messages_days", "retention_positions_days",
              "retention_telemetry_days", "storage_cap_mb")
 # interi con intervallo ammesso (min, max)
-_RANGE_KEYS = {"battery_alert_pct": (1, 99), "silent_alert_hours": (1, 168)}
+_RANGE_KEYS = {"battery_alert_pct": (1, 99), "silent_alert_hours": (1, 168),
+               "retention_packets_hours": (1, 168)}
 _MQTT_STR = ("host", "username", "password")
 _BOOL_KEYS = ("lan_access", "lan_https", "notify_toast", "notify_telegram",
               "notify_mine_status", "notify_new_node")
@@ -339,6 +342,9 @@ def _validate(key: str, value) -> None:
     elif key == "map_mode":
         if value not in ("auto", "online", "offline"):
             raise ValueError("map_mode deve essere auto, online oppure offline")
+    elif key == "packet_log_mode":
+        if value not in ("off", "archived", "all"):
+            raise ValueError("packet_log_mode deve essere off, archived oppure all")
     elif key == "maps_source_url":
         if not isinstance(value, str):
             raise ValueError("maps_source_url deve essere una stringa")

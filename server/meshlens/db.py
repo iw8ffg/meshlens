@@ -5,7 +5,7 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS nodes(
@@ -160,7 +160,41 @@ def _migration_4(conn: sqlite3.Connection) -> None:
                  (str(time.time()),))
 
 
-_STEPS = {1: _migration_1, 2: _migration_2, 3: _migration_3, 4: _migration_4}
+_SCHEMA_V5 = """
+CREATE TABLE IF NOT EXISTS metrics(
+    node_num INTEGER NOT NULL, time REAL NOT NULL, variant TEXT NOT NULL,
+    metric TEXT NOT NULL, value REAL NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_metrics_node ON metrics(node_num, variant, metric, time);
+CREATE INDEX IF NOT EXISTS idx_metrics_time ON metrics(time);
+CREATE TABLE IF NOT EXISTS packets(
+    id INTEGER PRIMARY KEY AUTOINCREMENT, time REAL NOT NULL, from_num INTEGER,
+    to_num INTEGER, packet_id INTEGER, source TEXT, broker TEXT, radio_id TEXT,
+    channel TEXT, portnum TEXT, kind TEXT, status TEXT NOT NULL, snr REAL, rssi INTEGER,
+    hops INTEGER, hop_start INTEGER, hop_limit INTEGER, relay_node INTEGER, gateway TEXT,
+    copies INTEGER NOT NULL DEFAULT 1, receptions TEXT, summary TEXT, raw BLOB, size INTEGER);
+CREATE INDEX IF NOT EXISTS idx_packets_time ON packets(time);
+CREATE INDEX IF NOT EXISTS idx_packets_from_time ON packets(from_num, time);
+CREATE INDEX IF NOT EXISTS idx_packets_kind_time ON packets(kind, time);
+CREATE TABLE IF NOT EXISTS stats_hourly(
+    time INTEGER NOT NULL, source TEXT NOT NULL, kind TEXT NOT NULL,
+    packets INTEGER NOT NULL, receptions INTEGER NOT NULL, UNIQUE(time, source, kind));
+CREATE TABLE IF NOT EXISTS node_hourly(
+    time INTEGER NOT NULL, node_num INTEGER NOT NULL, source TEXT NOT NULL,
+    packets INTEGER NOT NULL, snr_sum REAL NOT NULL DEFAULT 0,
+    snr_n INTEGER NOT NULL DEFAULT 0, snr_max REAL, UNIQUE(time, node_num, source));
+CREATE INDEX IF NOT EXISTS idx_node_hourly_node ON node_hourly(node_num, time);
+"""
+
+
+def _migration_5(conn: sqlite3.Connection) -> None:
+    """Metriche generiche, ispettore dei pacchetti e aggregati orari: solo tabelle e indici
+    nuovi, i dati esistenti non si toccano. Niente executescript (farebbe commit)."""
+    for stmt in _SCHEMA_V5.split(";"):
+        if stmt.strip():
+            conn.execute(stmt)
+
+
+_STEPS = {1: _migration_1, 2: _migration_2, 3: _migration_3, 4: _migration_4, 5: _migration_5}
 
 
 log = logging.getLogger(__name__)

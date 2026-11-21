@@ -107,6 +107,59 @@ class Store:
             (num, time, t.battery_level, t.voltage, t.channel_utilization,
              t.air_util_tx, t.uptime_seconds))
 
+    def add_metrics(self, num: int, time: float, variant: str, metrics: dict[str, float]) -> None:
+        if not metrics:
+            return
+        self.conn.executemany(
+            "INSERT INTO metrics(node_num, time, variant, metric, value) VALUES(?,?,?,?,?)",
+            [(num, time, variant, name, value) for name, value in metrics.items()])
+
+    _PACKET_COLS = ("time", "from_num", "to_num", "packet_id", "source", "broker", "radio_id",
+                    "channel", "portnum", "kind", "status", "snr", "rssi", "hops", "hop_start",
+                    "hop_limit", "relay_node", "gateway", "copies", "receptions", "summary",
+                    "raw", "size")
+
+    def insert_packets(self, rows: list[dict]) -> None:
+        if not rows:
+            return
+        self.conn.executemany(
+            f"INSERT INTO packets({', '.join(self._PACKET_COLS)}) "
+            f"VALUES({', '.join('?' * len(self._PACKET_COLS))})",
+            [tuple(r.get(c, 1 if c == "copies" else None) for c in self._PACKET_COLS)
+             for r in rows])
+
+    def upsert_stats_hourly(self, rows: list[tuple[int, str, str, int, int]]) -> None:
+        if not rows:
+            return
+        self.conn.executemany(
+            "INSERT INTO stats_hourly(time, source, kind, packets, receptions) VALUES(?,?,?,?,?) "
+            "ON CONFLICT(time, source, kind) DO UPDATE SET "
+            "packets=packets+excluded.packets, receptions=receptions+excluded.receptions", rows)
+
+    def upsert_node_hourly(
+            self, rows: list[tuple[int, int, str, int, float, int, float | None]]) -> None:
+        if not rows:
+            return
+        self.conn.executemany(
+            "INSERT INTO node_hourly(time, node_num, source, packets, snr_sum, snr_n, snr_max) "
+            "VALUES(?,?,?,?,?,?,?) ON CONFLICT(time, node_num, source) DO UPDATE SET "
+            "packets=packets+excluded.packets, snr_sum=snr_sum+excluded.snr_sum, "
+            "snr_n=snr_n+excluded.snr_n, "
+            "snr_max=CASE WHEN snr_max IS NULL THEN excluded.snr_max "
+            "WHEN excluded.snr_max IS NULL THEN snr_max "
+            "ELSE MAX(snr_max, excluded.snr_max) END", rows)
+
+    def trim_packets(self, max_rows: int, limit: int) -> int:
+        """Cancella al massimo `limit` pacchetti piu' vecchi oltre i `max_rows` piu' recenti."""
+        row = self.conn.execute(
+            "SELECT id FROM packets ORDER BY id DESC LIMIT 1 OFFSET ?", (max_rows,)).fetchone()
+        if row is None:
+            return 0
+        return self.conn.execute(
+            "DELETE FROM packets WHERE id IN "
+            "(SELECT id FROM packets WHERE id <= ? ORDER BY id LIMIT ?)",
+            (row[0], limit)).rowcount
+
     @staticmethod
     def _node_from_row(row) -> dict:
         d = dict(row)
@@ -494,12 +547,16 @@ class Store:
         for table, cutoff in (("messages", now - settings["retention_messages_days"] * _DAY),
                               ("positions", pos_cutoff),
                               ("telemetry", now - settings["retention_telemetry_days"] * _DAY),
-                              ("links", pos_cutoff)):
+                              ("links", pos_cutoff),
+                              ("metrics", now - settings["retention_telemetry_days"] * _DAY),
+                              ("stats_hourly", now - settings["retention_telemetry_days"] * _DAY),
+                              ("node_hourly", pos_cutoff),
+                              ("packets", now - settings["retention_packets_hours"] * 3600)):
             n = self.conn.execute(
                 f"DELETE FROM {table} WHERE rowid IN "
                 f"(SELECT rowid FROM {table} WHERE time < ? LIMIT ?)", (cutoff, limit)).rowcount
             full = full or n >= limit
-            if table != "links":  # i collegamenti non entrano nel conteggio restituito
+            if table not in ("links", "stats_hourly", "node_hourly"):  # non nel conteggio
                 deleted[table] = n
         n = self.conn.execute(
             "DELETE FROM nodes WHERE rowid IN (SELECT rowid FROM nodes WHERE "
@@ -516,7 +573,7 @@ class Store:
             "WHERE read_time < ? LIMIT ?)",
             (now - settings["retention_messages_days"] * _DAY, limit))
         if not full and self._used_bytes() > settings["storage_cap_mb"] * 1024 * 1024:
-            for table in ("positions", "messages"):
+            for table in ("packets", "positions", "messages"):
                 removed = self.conn.execute(
                     f"DELETE FROM {table} WHERE rowid IN "
                     f"(SELECT rowid FROM {table} ORDER BY time LIMIT ?)", (limit,)).rowcount
@@ -526,11 +583,12 @@ class Store:
 
     def purge(self, now: float, settings: dict) -> dict[str, int]:
         """Applica la retention e il limite spazio, ripetendo `purge_step` fino a `done`."""
-        total = {"messages": 0, "positions": 0, "telemetry": 0, "nodes": 0}
+        total: dict[str, int] = {"messages": 0, "positions": 0, "telemetry": 0, "nodes": 0,
+                                 "metrics": 0, "packets": 0}
         while True:
             step = self.purge_step(now, settings)
             for k, v in step.deleted.items():
-                total[k] += v
+                total[k] = total.get(k, 0) + v
             if step.done:
                 break
         self.conn.commit()
