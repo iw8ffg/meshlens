@@ -529,7 +529,7 @@ def build(data_dir: Path, connector_factory=MqttConnector,
                      mqtt_channel_counts=ingestor.mqtt_channel_counts,
                      mqtt_channel_brokers=ingestor.mqtt_channel_brokers,
                      on_settings_changed=rt.on_settings_changed,
-                     static_dir=static_dir, radios=rt.radios, coverage=coverage,
+                     static_dir=static_dir, radios=rt.radios, coverage=coverage, storeforward=sf,
                      config=rt.config, maps=rt.maps, updater=rt.updater, data_dir=Path(data_dir),
                      db_path=rt.db_path, last_purge=lambda: rt.last_purge,
                      backups=backups, db_health=lambda: rt.db_health, log_dir=log_dir)

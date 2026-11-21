@@ -12,6 +12,7 @@
   import Segmented from '../lib/ui/Segmented.svelte'
   import Modal from '../lib/ui/Modal.svelte'
   import Icon from '../lib/ui/Icon.svelte'
+  import StoreForward from './StoreForward.svelte'
   import type { BleDevice, Port, Radio } from '../lib/types'
 
   let adding = $state(false)
@@ -26,6 +27,7 @@
   let acting = $state(false) // azione su una radio in corso (Connetti/Scollega/Rimuovi)
   let error = $state('')
   let confirmId = $state<string | null>(null)
+  let sfRadioId = $state<string | null>(null) // radio per cui e' aperto «Recupera messaggi persi»
 
   const sortedPorts = $derived(sortPorts(ports))
 
@@ -120,6 +122,7 @@
     }
   }
 
+  const sfRadio = $derived(app.radios.find((r) => r.id === sfRadioId && r.state === 'connected') ?? null)
   const removing = $derived(app.radios.find((r) => r.id === confirmId) ?? null)
   const stateKind = (r: Radio): 'ok' | 'danger' | 'neutral' | 'warn' =>
     r.state === 'connected' ? 'ok' : r.state === 'error' ? 'danger' : r.state === 'disconnected' ? 'neutral' : 'warn'
@@ -157,6 +160,9 @@
           {#if r.state === 'connected' && r.my_node_id}
             <Button icon="settings" onclick={() => openConfig(r.my_node_id!, r.id)}>Configura</Button>
             <Button icon="key" onclick={() => openConfig(r.my_node_id!, r.id, 'adminkey')}>Chiave admin</Button>
+          {/if}
+          {#if r.state === 'connected'}
+            <Button icon="refresh" onclick={() => (sfRadioId = r.id)}>Recupera messaggi persi</Button>
           {/if}
           <Button kind="ghost" icon="trash" disabled={acting} onclick={() => (confirmId = r.id)}>Rimuovi</Button>
         </div>
@@ -242,6 +248,10 @@
     </Card>
   {/if}
 </section>
+
+{#if sfRadio}
+  <StoreForward radio={sfRadio} onclose={() => (sfRadioId = null)} />
+{/if}
 
 <Modal open={removing !== null} title="Rimuovere la radio?" danger confirmLabel="Rimuovi" onconfirm={() => removing && remove(removing)} oncancel={() => (confirmId = null)}>
   <p>La radio "{removing?.name ?? ''}" verrà scollegata e rimossa dall'elenco. I dati già salvati restano.</p>

@@ -20,6 +20,18 @@ describe('dispatch', () => {
     dispatch({ type: 'status', mqtt }, h)
     expect(h.status).toHaveBeenCalledWith({ mqtt })
   })
+  it('sf_job e sf_routers chiamano i gestori', () => {
+    const sf_job = vi.fn()
+    const sf_routers = vi.fn()
+    const h = { ...handlers(), sf_job, sf_routers }
+    dispatch({ type: 'sf_job', job: { id: 'j' } }, h)
+    dispatch({ type: 'sf_routers', routers: [{ id: '!a' }] }, h)
+    expect(sf_job).toHaveBeenCalledWith({ id: 'j' })
+    expect(sf_routers).toHaveBeenCalledWith([{ id: '!a' }])
+  })
+  it('sf_job senza gestore: nessuna eccezione', () => {
+    expect(() => dispatch({ type: 'sf_job', job: {} }, handlers())).not.toThrow()
+  })
   it('tipo ignoto o null: nessuna chiamata, nessuna eccezione', () => {
     const h = handlers()
     expect(() => { dispatch({ type: 'boh' }, h); dispatch(null, h); dispatch('x', h) }).not.toThrow()
