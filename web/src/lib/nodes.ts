@@ -64,3 +64,15 @@ export function alertsByNode(alerts: Alert[]): Map<string, Alert[]> {
 export function fmtOpt(v: number | null | undefined, decimals = 1, unit = ''): string {
   return v === null || v === undefined ? '–' : `${num(v, decimals)}${unit}`
 }
+
+/** Salti per l'interfaccia: «0 (diretto)», numero, «≥ 1» (noto solo che non e' diretto) o «—». */
+export function hopsLabel(hops: number | null | undefined, hopsMin?: number | null): string {
+  if (typeof hops === 'number') return hops === 0 ? '0 (diretto)' : String(hops)
+  if (typeof hopsMin === 'number' && hopsMin >= 1) return `≥ ${hopsMin}`
+  return '—'
+}
+
+/** Nodi da mostrare in Rete: «solo miei» e «solo preferiti» si combinano in AND. */
+export function networkNodes<T extends Pick<Node, 'is_mine' | 'is_favorite'>>(nodes: T[], onlyMine: boolean, onlyFav: boolean): T[] {
+  return nodes.filter((n) => (!onlyMine || !!n.is_mine) && (!onlyFav || !!n.is_favorite))
+}

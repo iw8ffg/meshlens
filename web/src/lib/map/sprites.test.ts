@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ringColor, ringShapes, starPoints } from './sprites'
+import { housePoints, markerColors, ringColor, ringShapes, starPoints } from './sprites'
 import { FALLBACK_TOKENS as T } from './tokens'
 
 describe('anelli della fonte', () => {
@@ -26,5 +26,23 @@ describe('starPoints', () => {
     expect(p[0][0]).toBeCloseTo(10)
     expect(p[0][1]).toBeCloseTo(2)
     expect(Math.hypot(p[1][0] - 10, p[1][1] - 10)).toBeCloseTo(3)
+  })
+})
+
+describe('marcatori preferito / mio nodo', () => {
+  it('colori dai token e per tema', () => {
+    const c = markerColors(T)
+    expect(c.star).toEqual({ fill: T.amber, outline: T.outline })
+    expect(c.house).toEqual({ fill: T.accent, outline: T.outline })
+    expect(c.star.fill).not.toBe(c.house.fill)
+    expect(markerColors({ ...T, accent: '#0369a1', outline: '#fff' }).house).toEqual({ fill: '#0369a1', outline: '#fff' })
+  })
+  it('housePoints resta nel riquadro', () => {
+    for (const [x, y] of housePoints(20)) {
+      expect(x).toBeGreaterThanOrEqual(0)
+      expect(x).toBeLessThanOrEqual(20)
+      expect(y).toBeGreaterThanOrEqual(0)
+      expect(y).toBeLessThanOrEqual(20)
+    }
   })
 })

@@ -48,6 +48,7 @@ import IGlobe from '@lucide/svelte/icons/globe'
 import IFlag from '@lucide/svelte/icons/flag'
 import ILoader from '@lucide/svelte/icons/loader'
 import IPencil from '@lucide/svelte/icons/pencil'
+import IHouse from '@lucide/svelte/icons/house'
 import IArrowLeft from '@lucide/svelte/icons/arrow-left'
 
 export const ICONS = {
@@ -100,6 +101,7 @@ export const ICONS = {
   spinner: ILoader,
   edit: IPencil,
   back: IArrowLeft,
+  house: IHouse,
 } as const satisfies Record<string, Component<any>>
 
 export type IconName = keyof typeof ICONS

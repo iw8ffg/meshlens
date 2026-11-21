@@ -8,16 +8,18 @@
     subtitle?: string
     source?: SourceKind
     mine?: boolean
+    favorite?: boolean
     rows?: { label: string; value: string }[]
   }
-  let { title, subtitle, source, mine = false, rows = [] }: Props = $props()
+  let { title, subtitle, source, mine = false, favorite = false, rows = [] }: Props = $props()
 </script>
 
 <div class="np">
   <div class="head">
     {#if source}<SourceMark {source} size={18} />{/if}
     <b class="title">{title}</b>
-    {#if mine}<span class="mine" title="Mio nodo">★ Mio nodo</span>{/if}
+    {#if mine}<span class="flag mine" title="Mio nodo">⌂ Mio nodo</span>{/if}
+    {#if favorite}<span class="flag fav" title="Preferito">★ Preferito</span>{/if}
   </div>
   {#if subtitle}<div class="sub">{subtitle}</div>{/if}
   {#if rows.length > 0}
@@ -49,10 +51,18 @@
     font-weight: 600;
     overflow-wrap: anywhere;
   }
-  .mine {
-    color: var(--brand-amber);
+  .head {
+    flex-wrap: wrap;
+  }
+  .flag {
     font-size: 12px;
     white-space: nowrap;
+  }
+  .mine {
+    color: var(--accent-ink);
+  }
+  .fav {
+    color: var(--brand-amber);
   }
   .sub {
     color: var(--ink-muted);

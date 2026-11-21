@@ -43,6 +43,9 @@
       <button type="button" class="ui-chip" aria-pressed={app.filter.sources.includes(o.value)} onclick={() => (app.filter.sources = toggleIn(app.filter.sources, o.value))}>{o.label}</button>
     {/each}
   </div>
+  <div class="row" role="group" aria-label="Preferiti">
+    <button type="button" class="ui-chip" aria-pressed={!!app.filter.favorites} onclick={() => (app.filter.favorites = !app.filter.favorites)}>Preferiti</button>
+  </div>
   <Check bind:checked={app.filter.links} label="Collegamenti" />
   <details>
     <summary>Nazioni ({countryLabel})</summary>

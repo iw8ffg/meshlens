@@ -1,17 +1,19 @@
 // Immagini dello sprite disegnate a runtime con i colori dei token, rifatte a ogni cambio di tema:
-// anelli della fonte (pieno, tratteggiato, doppio), stella «Mio nodo», punto Range Test mancante.
+// anelli della fonte (pieno, tratteggiato, doppio), stella «Preferito», casetta «Mio nodo», punto Range Test mancante.
 import type { Map as MLMap } from 'maplibre-gl'
 import type { MapTokens } from './tokens'
 
 export type RingKind = 'radio' | 'mqtt' | 'both'
 
 export const RING_IMAGE: Record<RingKind, string> = { radio: 'ring-radio', mqtt: 'ring-mqtt', both: 'ring-both' }
-export const STAR_IMAGE = 'star-mine'
+export const STAR_IMAGE = 'star-fav'
+export const HOUSE_IMAGE = 'house-mine'
 export const MISSING_IMAGE = 'cov-missing'
 
 /** Lato logico delle immagini; sulla mappa sono a pixelRatio 2 (canvas di 2x). */
 export const RING_SIZE = 32
 export const STAR_SIZE = 20
+export const HOUSE_SIZE = 20
 export const MISSING_SIZE = 20
 
 export interface RingShape {
@@ -47,6 +49,28 @@ export function starPoints(cx: number, cy: number, outer: number, inner: number)
     pts.push([cx + r * Math.cos(a), cy + r * Math.sin(a)])
   }
   return pts
+}
+
+/** Colori dei marcatori sul nodo: stella = brand-amber, casetta = accent; contorno marker-outline (leggibile nei due temi). */
+export function markerColors(t: MapTokens): { star: { fill: string; outline: string }; house: { fill: string; outline: string } } {
+  return { star: { fill: t.amber, outline: t.outline }, house: { fill: t.accent, outline: t.outline } }
+}
+
+/** Vertici di una casetta (tetto + corpo) in un riquadro di lato `size`. */
+export function housePoints(size: number): [number, number][] {
+  const m = 2
+  const s = size - 2 * m
+  const x = (u: number) => m + u * s
+  const y = (u: number) => m + u * s
+  return [
+    [x(0.5), y(0)],
+    [x(1), y(0.45)],
+    [x(0.85), y(0.45)],
+    [x(0.85), y(1)],
+    [x(0.15), y(1)],
+    [x(0.15), y(0.45)],
+    [x(0), y(0.45)],
+  ]
 }
 
 type Draw = (ctx: CanvasRenderingContext2D, s: number) => void
@@ -90,6 +114,19 @@ export function drawStar(ctx: CanvasRenderingContext2D, fill: string, outline: s
   ctx.fill()
 }
 
+export function drawHouse(ctx: CanvasRenderingContext2D, fill: string, outline: string, size: number): void {
+  const pts = housePoints(size)
+  ctx.beginPath()
+  pts.forEach(([x, y], i) => (i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y)))
+  ctx.closePath()
+  ctx.lineJoin = 'round'
+  ctx.lineWidth = 2.5
+  ctx.strokeStyle = outline
+  ctx.stroke()
+  ctx.fillStyle = fill
+  ctx.fill()
+}
+
 export function drawMissing(ctx: CanvasRenderingContext2D, color: string, outline: string, size: number): void {
   const c = size / 2
   const r = size / 2 - 2
@@ -122,6 +159,8 @@ export function registerSprites(map: MLMap, t: MapTokens): void {
   for (const kind of ['radio', 'mqtt', 'both'] as RingKind[]) {
     put(map, RING_IMAGE[kind], render(RING_SIZE, (ctx, s) => drawRing(ctx, kind, ringColor(kind, t), s)))
   }
-  put(map, STAR_IMAGE, render(STAR_SIZE, (ctx, s) => drawStar(ctx, t.amber, t.outline, s)))
+  const mc = markerColors(t)
+  put(map, STAR_IMAGE, render(STAR_SIZE, (ctx, s) => drawStar(ctx, mc.star.fill, mc.star.outline, s)))
+  put(map, HOUSE_IMAGE, render(HOUSE_SIZE, (ctx, s) => drawHouse(ctx, mc.house.fill, mc.house.outline, s)))
   put(map, MISSING_IMAGE, render(MISSING_SIZE, (ctx, s) => drawMissing(ctx, t.inkMuted, t.outline, s)))
 }

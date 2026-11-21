@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ageMinutes, contactColorExpr, isMine, nodeFeatures, precisionData, ringKind, selectionData } from './NodeLayer'
+import { isFavorite, ageMinutes, contactColorExpr, isMine, nodeFeatures, precisionData, ringKind, selectionData } from './NodeLayer'
 import { snrColorExpr } from './LinkLayer'
 import { trackData } from './TrackLayer'
 import { FALLBACK_TOKENS as T } from './tokens'
@@ -52,5 +52,17 @@ describe('collegamenti e traccia', () => {
     expect(trackData(null)).toMatchObject({ type: 'FeatureCollection' })
     expect(trackData([[1, 2]])).toMatchObject({ type: 'FeatureCollection' })
     expect(trackData([[1, 2], [3, 4]])).toMatchObject({ type: 'Feature' })
+  })
+})
+
+describe('preferiti sulla mappa', () => {
+  it('nodeFeatures: fav e mine indipendenti', () => {
+    const f = nodeFeatures([node({ id: '!a', is_favorite: true }), node({ id: '!b', is_local_radio: true }), node({ id: '!c', is_mine: true, is_favorite: true })], 2000)
+    expect(f.map((x) => [x.properties?.fav, x.properties?.mine])).toEqual([
+      [true, false],
+      [false, true],
+      [true, true],
+    ])
+    expect(isFavorite({})).toBe(false)
   })
 })

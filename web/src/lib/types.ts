@@ -24,6 +24,9 @@ export interface Node {
   heard_by?: Record<string, { snr: number | null; rssi: number | null; hops: number | null; time: number }>
   is_local_radio?: boolean
   is_mine?: boolean
+  is_favorite?: boolean
+  /** Salti minimi noti quando `hops` e' nullo (1 = non diretto, distanza ignota). */
+  hops_min?: number | null
 }
 
 export type MessageStatus = 'sending' | 'sent' | 'acked' | 'failed'
@@ -93,7 +96,7 @@ export interface BleDevice {
 export interface Link {
   from_id: string
   to_id: string
-  source: 'neighborinfo' | 'traceroute' | 'rf_direct'
+  source: 'neighborinfo' | 'traceroute' | 'rf_direct' | 'mqtt_gateway'
   snr: number | null
   time: number
 }

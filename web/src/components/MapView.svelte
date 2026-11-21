@@ -11,6 +11,7 @@
   import { coverageSession, getJSON, links as fetchLinks, patchCoverage } from '../lib/api'
   import { coverageGeoJSON } from '../lib/coverage'
   import { formatDate, num, signed, timeAgo } from '../lib/format'
+  import { hopsLabel } from '../lib/nodes'
   import { linksToGeoJSON } from '../lib/links'
   import { canSwitch, chooseMode, offlineStyle, SWITCH_MIN_MS } from '../lib/mapstyle'
   import type { EffectiveMode, MapMode, StyleInfo } from '../lib/mapstyle'
@@ -22,7 +23,7 @@
   import { readDocumentTokens } from '../lib/map/tokens'
   import type { MapTokens } from '../lib/map/tokens'
   import { registerSprites } from '../lib/map/sprites'
-  import { addNodeLayers, EMPTY, isMine, nodeFeatures, precisionData, ringKind, selectionData } from '../lib/map/NodeLayer'
+  import { addNodeLayers, EMPTY, isFavorite, isMine, nodeFeatures, precisionData, ringKind, selectionData } from '../lib/map/NodeLayer'
   import { addLinkLayers } from '../lib/map/LinkLayer'
   import { addTrackLayer, trackData } from '../lib/map/TrackLayer'
   import { addCoverageLayers } from '../lib/map/CoverageLayer'
@@ -59,7 +60,7 @@
   let timer: ReturnType<typeof setTimeout> | null = null
   let linkList: Link[] = []
   let popup: maplibregl.Popup | null = null
-  const SOURCE_LABEL: Record<string, string> = { neighborinfo: 'NeighborInfo', traceroute: 'traceroute', rf_direct: 'ricezione diretta' }
+  const SOURCE_LABEL: Record<string, string> = { neighborinfo: 'NeighborInfo', traceroute: 'traceroute', rf_direct: 'ricezione diretta', mqtt_gateway: 'gateway MQTT (ricezione diretta)' }
 
   const src = (id: string) => map?.getSource(id) as maplibregl.GeoJSONSource | undefined
 
@@ -149,7 +150,7 @@
             if (!picking) m.getCanvas().style.cursor = ''
           })
         }
-        for (const l of ['points', 'points-mine']) {
+        for (const l of ['points', 'points-mine', 'points-fav']) {
           m.on('click', l, (e: maplibregl.MapLayerMouseEvent) => {
             if (picking) return
             const id = e.features?.[0]?.properties?.id
@@ -168,15 +169,15 @@
             // cluster scomparso nel frattempo: niente da fare
           }
         })
-        for (const l of ['links', 'links-trace']) {
+        for (const l of ['links', 'links-trace', 'links-gateway']) {
           m.on('click', l, (e: maplibregl.MapLayerMouseEvent) => {
             if (picking) return
-            if (m.queryRenderedFeatures(e.point, { layers: ['points', 'points-mine', 'clusters'] }).length > 0) return
+            if (m.queryRenderedFeatures(e.point, { layers: ['points', 'points-mine', 'points-fav', 'clusters'] }).length > 0) return
             const p = e.features?.[0]?.properties
             if (p) showLinkPopup(e.lngLat, p)
           })
         }
-        for (const l of ['points', 'points-mine', 'clusters', 'links', 'links-trace']) {
+        for (const l of ['points', 'points-mine', 'points-fav', 'clusters', 'links', 'links-trace', 'links-gateway']) {
           m.on('mouseenter', l, () => (m.getCanvas().style.cursor = 'pointer'))
           m.on('mouseleave', l, () => (m.getCanvas().style.cursor = ''))
         }
@@ -423,10 +424,11 @@
       subtitle: long ?? id,
       source: ringKind(n),
       mine: isMine(n),
+      favorite: isFavorite(n),
       rows: [
         { label: 'Ultimo contatto', value: timeAgo(n.last_heard, now) },
         { label: 'SNR', value: snrText(n.last_snr) },
-        { label: 'Salti', value: n.hops === null ? 'sconosciuto' : num(n.hops) },
+        { label: 'Salti', value: hopsLabel(n.hops, n.hops_min) },
       ],
     })
   }

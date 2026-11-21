@@ -31,9 +31,11 @@
         <div class="it"><i class="bar" style="background:var(--snr-mid)"></i>da −10 a 0 dB</div>
         <div class="it"><i class="bar" style="background:var(--snr-bad)"></i>sotto −10 dB</div>
         <div class="it"><i class="bar dashed" style="color:var(--snr-none)"></i>tratteggio: traceroute</div>
+        <div class="it"><i class="bar dotted" style="color:var(--snr-none)"></i>gateway MQTT (ricezione diretta)</div>
       </div>
       <div class="grp">
-        <div class="it"><span class="star">★</span>Mio nodo</div>
+        <div class="it"><span class="star">★</span>Preferito</div>
+        <div class="it"><span class="house">⌂</span>Mio nodo</div>
         <div class="it"><i class="dot dashed" style="color:var(--src-mqtt)"></i>Posizione approssimata</div>
       </div>
     </div>
@@ -114,6 +116,15 @@
   }
   .bar.dashed {
     background: repeating-linear-gradient(90deg, currentColor 0 5px, transparent 5px 8px);
+  }
+  .bar.dotted {
+    background: radial-gradient(circle, currentColor 0 1px, transparent 1.5px) 0 50% / 5px 3px repeat-x;
+  }
+  .house {
+    width: 18px;
+    text-align: center;
+    color: var(--accent);
+    font-size: 16px;
   }
   .star {
     width: 18px;
