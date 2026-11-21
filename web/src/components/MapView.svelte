@@ -4,13 +4,17 @@
   import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url'
   import type { Feature, FeatureCollection, Point } from 'geojson'
   import 'maplibre-gl/dist/maplibre-gl.css'
-  import { app, coverage } from '../lib/stores.svelte'
+  import { app, coverage, maps } from '../lib/stores.svelte'
   import { ageClass } from '../lib/filters'
+  import { bboxFromBounds } from '../lib/maps'
   import { circlePolygon, formatMeters, precisionRadiusM } from '../lib/geo'
-  import { coverageSession, links as fetchLinks, patchCoverage } from '../lib/api'
+  import { coverageSession, getJSON, links as fetchLinks, patchCoverage } from '../lib/api'
   import { coverageGeoJSON } from '../lib/coverage'
   import { formatDate } from '../lib/format'
   import { linksToGeoJSON } from '../lib/links'
+  import { canSwitch, chooseMode, offlineStyle, SWITCH_MIN_MS } from '../lib/mapstyle'
+  import type { EffectiveMode, MapMode, StyleInfo } from '../lib/mapstyle'
+  import type { AppSettings } from '../lib/settings'
   import type { Link, Node } from '../lib/types'
 
   let {
@@ -110,12 +114,41 @@
     )
   }
 
+  let notice = $state('')
+  // Connessione anticipata al server delle tessere online: solo se la modalita' puo' usare la rete
+  function addPreconnect() {
+    if (document.head.querySelector('link[data-meshlens-preconnect]')) return
+    const l = document.createElement('link')
+    l.rel = 'preconnect'
+    l.href = new URL(STYLE).origin
+    l.crossOrigin = 'anonymous'
+    l.dataset.meshlensPreconnect = '1'
+    document.head.append(l)
+  }
+  // Impostato da onMount: rilegge modalita' e stile-info e aggiorna la mappa viva
+  let reloadCfg: (() => void) | null = null
+  let seenVersion = maps.version
+  const NOTICE = 'Mappa non disponibile offline: scaricala da Impostazioni → Mappe offline'
+  const NOTICE_ONLINE = 'Mappa online non raggiungibile'
+  const BACKOFF_START_MS = 30_000
+  const BACKOFF_MAX_MS = 600_000
+  const ONLINE_TIMEOUT_MS = 8000
+
   onMount(() => {
     maplibregl.setWorkerUrl(workerUrl)
-    map = new maplibregl.Map({ container: el, style: navigator.onLine === false ? OFFLINE_STYLE : STYLE, center: [12.5, 42.5], zoom: 5, attributionControl: { compact: true } })
-    map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right')
-    let inFallback = navigator.onLine === false
+    let disposed = false
     let bound = false
+    let mode: MapMode = 'auto'
+    let info: StyleInfo = { has_offline: false, maxzoom: 14, bounds: null }
+    let current: EffectiveMode | null = null
+    let lastSwitch = 0 // 0: l'avvio non conta come cambio
+    let onlineOk = false // stile online precaricato con successo (usato solo con mappe offline presenti)
+    let onlineFailed = false // stile online non raggiungibile (usato senza mappe offline)
+    let styleJson: maplibregl.StyleSpecification | null = null
+    let verifying: AbortController | null = null
+    let retryTimer: ReturnType<typeof setTimeout> | null = null
+    let verifyTimer: ReturnType<typeof setTimeout> | null = null
+    let backoff = BACKOFF_START_MS
 
     const setup = (hasGlyphs: boolean) => {
       const m = map!
@@ -318,31 +351,156 @@
       pushCoverage()
     }
 
-    // Solo se lo stile non e' davvero raggiungibile: niente timeout, il primo caricamento puo' essere lento
-    const fallback = () => {
-      if (inFallback || ready || !map) return
-      inFallback = true
-      map.once('style.load', () => setup(false))
-      map.setStyle(OFFLINE_STYLE)
+    const styleFor = (m: EffectiveMode): string | maplibregl.StyleSpecification =>
+      m === 'online' ? (styleJson ?? STYLE) : m === 'offline' ? offlineStyle(info) : OFFLINE_STYLE
+
+    const noticeFor = (t: EffectiveMode): string => {
+      if (t !== 'fallback') return ''
+      if (mode === 'online') return NOTICE_ONLINE
+      return mode === 'offline' || !navigator.onLine ? NOTICE : ''
     }
 
-    const recover = () => {
-      if (!inFallback || !map) return
-      inFallback = false
+    const target = (): EffectiveMode => {
+      // modalita' forzate: senza risorse si ricade sullo stile di base (livelli MeshLens visibili)
+      if (mode === 'offline' && !info.has_offline) return 'fallback'
+      if (mode === 'online' && onlineFailed) return 'fallback'
+      // con mappe offline l'online si usa solo dopo averlo verificato; senza, si prova subito
+      const failed = mode === 'auto' && info.has_offline ? !onlineOk : onlineFailed
+      return chooseMode(mode, navigator.onLine, info.has_offline, failed)
+    }
+
+    // force: azione dell'utente (modalita', mappa scaricata o eliminata): niente attesa e, se
+    // gia' offline, lo stile viene ricreato per rileggere tessere e sorgente
+    const evaluate = (force = false) => {
+      if (disposed || !map) return
+      const t = target()
+      notice = noticeFor(t)
+      if (t === current && !(force && t === 'offline')) return
+      if (!force && current !== null && !canSwitch(lastSwitch, Date.now())) {
+        if (!retryTimer) {
+          retryTimer = setTimeout(() => {
+            retryTimer = null
+            evaluate()
+          }, Math.max(0, SWITCH_MIN_MS - (Date.now() - lastSwitch)) + 50)
+        }
+        return
+      }
+      if (current !== null) lastSwitch = Date.now()
+      current = t
       ready = false
-      map.once('style.load', () => setup(true))
-      map.setStyle(STYLE)
+      map.setStyle(styleFor(t), { diff: false }) // style.load ricrea i livelli MeshLens
+      notice = noticeFor(t)
     }
 
-    map.on('load', () => setup(!inFallback))
-    map.on('error', (e) => {
-      // errore di rete/HTTP sul JSON dello stile; i 404 di tile e glyph hanno altri URL
-      if ((e as { error?: { url?: string } }).error?.url === STYLE) fallback()
-    })
-    window.addEventListener('online', recover)
+    // Precarica lo stile online: si passa a online solo se si carica davvero entro 8 s
+    const verifyOnline = async () => {
+      if (disposed || verifying || onlineOk || mode !== 'auto' || !info.has_offline || !navigator.onLine) return
+      const ctl = new AbortController()
+      verifying = ctl
+      const to = setTimeout(() => ctl.abort(), ONLINE_TIMEOUT_MS)
+      try {
+        const res = await fetch(STYLE, { signal: ctl.signal, cache: 'no-store' })
+        if (!res.ok) throw new Error(String(res.status))
+        styleJson = (await res.json()) as maplibregl.StyleSpecification
+        onlineOk = true
+        backoff = BACKOFF_START_MS
+      } catch {
+        onlineOk = false
+        // ritenta con attesa crescente finche' il browser e' online e si mostra l'offline
+        if (!disposed && !verifyTimer) {
+          verifyTimer = setTimeout(() => {
+            verifyTimer = null
+            void verifyOnline()
+          }, backoff)
+          backoff = Math.min(backoff * 2, BACKOFF_MAX_MS)
+        }
+      } finally {
+        clearTimeout(to)
+        if (verifying === ctl) verifying = null
+      }
+      evaluate()
+    }
+
+    const onOnline = () => {
+      onlineFailed = false
+      backoff = BACKOFF_START_MS
+      if (verifyTimer) clearTimeout(verifyTimer)
+      verifyTimer = null
+      void verifyOnline()
+      evaluate()
+    }
+    const onOffline = () => {
+      onlineOk = false
+      evaluate()
+    }
+
+    const readCfg = async (): Promise<boolean> => {
+      const [st, inf] = await Promise.all([
+        getJSON<AppSettings>('/settings').catch(() => null),
+        getJSON<StyleInfo>('/maps/style-info').catch(() => null), // server senza mappe offline (404): niente offline
+      ])
+      if (disposed) return false
+      if (st?.map_mode === 'online' || st?.map_mode === 'offline' || st?.map_mode === 'auto') mode = st.map_mode
+      if (inf && typeof inf.has_offline === 'boolean') info = { has_offline: inf.has_offline, maxzoom: inf.maxzoom ?? 14, bounds: inf.bounds ?? null }
+      if (mode !== 'offline') addPreconnect()
+      return true
+    }
+
+    const reload = async () => {
+      const hadOffline = info.has_offline
+      if (!(await readCfg()) || !map) return
+      // se si stava gia' mostrando l'online, non si passa all'offline solo perche' ora ci sono mappe
+      if (!hadOffline && info.has_offline && current === 'online') onlineOk = true
+      evaluate(true)
+      void verifyOnline()
+    }
+    reloadCfg = () => void reload()
+
+    const publishBounds = () => {
+      if (!map) return
+      const b = map.getBounds()
+      maps.bounds = bboxFromBounds(b)
+    }
+    let boundsTimer: ReturnType<typeof setTimeout> | null = null
+    const onMoveEnd = () => {
+      if (boundsTimer) return
+      boundsTimer = setTimeout(() => {
+        boundsTimer = null
+        if (!disposed) publishBounds()
+      }, 250)
+    }
+
+    const start = async () => {
+      if (!(await readCfg())) return
+      current = target()
+      notice = noticeFor(current)
+      map = new maplibregl.Map({ container: el, style: styleFor(current), center: [12.5, 42.5], zoom: 5, attributionControl: { compact: true }, fadeDuration: 0 })
+      map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right')
+      map.on('style.load', () => setup(current !== 'fallback'))
+      map.on('moveend', onMoveEnd)
+      publishBounds()
+      map.on('error', (e) => {
+        // errore di rete/HTTP sul JSON dello stile online; i 404 di tile e glyph hanno altri URL
+        if ((e as { error?: { url?: string } }).error?.url === STYLE) {
+          onlineFailed = true
+          evaluate()
+        }
+      })
+      window.addEventListener('online', onOnline)
+      window.addEventListener('offline', onOffline)
+      void verifyOnline()
+    }
+    void start()
 
     return () => {
-      window.removeEventListener('online', recover)
+      disposed = true
+      window.removeEventListener('online', onOnline)
+      window.removeEventListener('offline', onOffline)
+      verifying?.abort()
+      reloadCfg = null
+      if (boundsTimer) clearTimeout(boundsTimer)
+      if (retryTimer) clearTimeout(retryTimer)
+      if (verifyTimer) clearTimeout(verifyTimer)
       if (timer) clearTimeout(timer)
       cancelPick()
       map?.remove()
@@ -530,12 +688,22 @@
       })
     }
   })
+  // Modalita' mappa, mappe scaricate o eliminate: si applica alla mappa viva senza rimontarla
+  $effect(() => {
+    const v = maps.version
+    untrack(() => {
+      if (v === seenVersion) return
+      seenVersion = v
+      reloadCfg?.()
+    })
+  })
   $effect(() => {
     if (focus && map) map.easeTo({ center: [focus.lon, focus.lat], zoom: Math.max(map.getZoom(), 10) })
   })
 </script>
 
 <div class="map" bind:this={el}></div>
+{#if notice}<div class="notice">{notice}</div>{/if}
 {#if coverage.detail}
   <div class="covbar">
     <div class="row">
@@ -594,6 +762,18 @@
   }
   .covbar .ghost {
     background: #374151;
+  }
+  .notice {
+    position: absolute;
+    bottom: 28px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 5;
+    padding: 6px 10px;
+    border-radius: 6px;
+    background: rgba(17, 24, 39, 0.92);
+    color: #f3f4f6;
+    font-size: 0.85em;
   }
   .map {
     position: absolute;

@@ -16,7 +16,7 @@
   import { matchNode } from './lib/filters'
   import { getJSON, alerts as fetchAlerts, coverageSessions, coverageSession, AUTH_REQUIRED } from './lib/api'
   import { connectWS } from './lib/ws'
-  import { app, upsertNodes, addMessage, addRadioHistory, setMessageStatus, setStatus, setRadios, setAlerts, setTraceroute, persistFilter, coverage, setCoverageSessions, applyCoverage, configUi, setConfigJob } from './lib/stores.svelte'
+  import { app, upsertNodes, addMessage, addRadioHistory, setMessageStatus, setStatus, setRadios, setAlerts, setTraceroute, persistFilter, coverage, setCoverageSessions, applyCoverage, configUi, setConfigJob, setMapJob } from './lib/stores.svelte'
   import type { AuthStatus, Message, Node, Radio } from './lib/types'
 
   let auth = $state<AuthStatus | null>(null)
@@ -135,6 +135,7 @@
       coverage: applyCoverage,
       messageStatus: setMessageStatus,
       configJob: setConfigJob,
+      mapJob: setMapJob,
     })
   })
 </script>

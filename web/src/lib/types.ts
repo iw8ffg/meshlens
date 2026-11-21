@@ -316,3 +316,46 @@ export interface CoverageLastPlan {
   steps: { node_id: string; role: 'mobile' | 'base'; backup_id?: number | null }[]
   jobs?: ConfigJob[]
 }
+
+export type MapKind = 'world' | 'italy' | 'area'
+export type Bbox = [number, number, number, number]
+
+export interface OfflineMap {
+  id: string
+  name: string
+  kind: MapKind
+  bbox: Bbox | null
+  maxzoom: number
+  size_bytes: number
+  created: number | string
+  source_date: string | null
+}
+
+export interface MapJob {
+  id: number | string
+  kind: 'tool' | MapKind
+  name: string
+  status: 'running' | 'done' | 'failed' | 'cancelled'
+  step: string
+  bytes_done: number
+  bytes_total: number | null
+  error: string | null
+  started: number | null
+  ended: number | null
+}
+
+export interface MapsState {
+  maps: OfflineMap[]
+  tool: { installed: boolean; version: string | null; size_bytes: number }
+  job: MapJob | null
+  disk_free_bytes: number
+  mode: 'auto' | 'online' | 'offline'
+}
+
+export interface MapEstimate {
+  estimate_bytes: number
+  source_url: string
+  source_date: string | null
+  needs_tool: boolean
+  tool_size_bytes: number
+}

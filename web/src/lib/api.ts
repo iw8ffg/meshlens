@@ -11,7 +11,12 @@ import type {
   ConfigPreview,
   ConfigSaved,
   ConfigSchema,
+  Bbox,
   Link,
+  MapEstimate,
+  MapJob,
+  MapKind,
+  MapsState,
   Node,
   TelemetryPoint,
   Traceroute,
@@ -124,3 +129,11 @@ export const applyPlan = (planId: number, confirmRisky = false) =>
   send<{ jobs: ConfigJob[] }>('POST', `/coverage/prepare/${planId}/apply`, { confirm_risky: confirmRisky })
 export const restorePlan = (planId: number) => send<CoveragePlan>('POST', '/coverage/restore', { plan_id: planId })
 export const lastPlan = () => getJSON<CoverageLastPlan | null>('/coverage/prepare/last')
+
+export const mapsState = () => getJSON<MapsState>('/maps')
+export const estimateMap = (kind: MapKind, bbox?: Bbox) =>
+  send<MapEstimate>('POST', '/maps/estimate', bbox ? { kind, bbox } : { kind })
+export const downloadMap = (kind: MapKind, bbox?: Bbox, name?: string) =>
+  send<MapJob>('POST', '/maps/download', { kind, ...(bbox ? { bbox } : {}), ...(name ? { name } : {}) })
+export const cancelMapJob = (id: number | string) => send<unknown>('POST', `/maps/jobs/${encodeURIComponent(String(id))}/cancel`, {})
+export const deleteMap = (id: string) => send<void>('DELETE', `/maps/${encodeURIComponent(id)}`)

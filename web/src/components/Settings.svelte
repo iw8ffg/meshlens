@@ -2,6 +2,7 @@
   import { onMount } from 'svelte'
   import { getJSON, send, ApiError } from '../lib/api'
   import { flag } from '../lib/format'
+  import OfflineMaps from './OfflineMaps.svelte'
   import { joinLines, parseLines, type AppSettings } from '../lib/settings'
 
   let { onlogout }: { onlogout: () => void } = $props()
@@ -170,6 +171,7 @@
     <button type="submit" class="primary" disabled={busy}>Salva</button>
   </form>
 {/if}
+{#if !loadError && loaded}<div class="maps"><OfflineMaps /></div>{/if}
 <div class="out"><button onclick={logout}>Esci</button></div>
 
 <style>
@@ -237,6 +239,9 @@
   button.primary {
     background: #2563eb;
     border-color: #2563eb;
+  }
+  .maps {
+    padding: 0 8px 8px;
   }
   .out {
     padding: 8px;
