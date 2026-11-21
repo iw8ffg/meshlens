@@ -22,6 +22,8 @@ from pathlib import Path
 from typing import Callable
 from urllib.parse import urlsplit
 
+from .tiles import TileStore
+
 GB = 1_000_000_000
 
 # Strumento ufficiale protomaps/go-pmtiles: versione, asset Windows x86_64 e SHA-256 fissati qui.
@@ -159,6 +161,7 @@ class MapsManager:
         self.tools_dir = self.data_dir / "tools"
         self.maps_dir.mkdir(parents=True, exist_ok=True)
         self.tools_dir.mkdir(parents=True, exist_ok=True)
+        self.tiles = TileStore(self.maps_dir)
         self.store_settings, self.bus = store_settings, bus
         self.runner = runner or default_runner
         self.downloader = downloader or default_downloader
@@ -350,12 +353,14 @@ class MapsManager:
 
     def _register(self, map_id, kind, name, bbox, tmp: Path, sdate) -> None:
         final = self.maps_dir / f"{map_id}.pmtiles"
+        self.tiles.release()  # Windows: niente replace con l'archivio aperto da un Reader
         os.replace(tmp, final)  # rinomina solo a fine riuscita
         entry = {"id": map_id, "name": name, "kind": kind, "bbox": bbox,
                  "maxzoom": MAXZOOM[kind], "size_bytes": final.stat().st_size,
                  "created": self.clock(), "source_date": sdate}
         items = [m for m in self._read_maps() if m["id"] != map_id] + [entry]
         self._write_maps(items)
+        self.tiles.reload()
         self.job["bytes_done"] = entry["size_bytes"]
 
     async def cancel(self, job_id: str) -> dict:
@@ -379,9 +384,13 @@ class MapsManager:
         items = self._read_maps()
         if not any(m["id"] == map_id for m in items):
             raise MapsError("Mappa non trovata", 404)
-        with contextlib.suppress(FileNotFoundError):
-            (self.maps_dir / f"{map_id}.pmtiles").unlink()
-        self._write_maps([m for m in items if m["id"] != map_id])
+        self.tiles.release()
+        try:
+            with contextlib.suppress(FileNotFoundError):
+                (self.maps_dir / f"{map_id}.pmtiles").unlink()
+            self._write_maps([m for m in items if m["id"] != map_id])
+        finally:
+            self.tiles.reload()
 
     def cleanup_tmp(self) -> None:
         """Cancella i file temporanei rimasti (da avvio o chiusura interrotti)."""

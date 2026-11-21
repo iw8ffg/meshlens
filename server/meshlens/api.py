@@ -754,6 +754,24 @@ def create_app(ctx: AppContext) -> FastAPI:
         await maps_call(ctx.maps.delete(map_id))
         return {"ok": True}
 
+    @app.get("/api/maps/style-info", dependencies=[Depends(require_auth)])
+    async def maps_style_info():
+        if ctx.maps is None:
+            return {"has_offline": False, "maxzoom": 0, "bounds": None}
+        return ctx.maps.tiles.info()
+
+    # def sincrona: gira nel threadpool, la lettura dal disco non blocca l'event loop
+    @app.get("/tiles/{z}/{x}/{y}.mvt", dependencies=[Depends(require_auth)])
+    def tiles(z: int, x: int, y: int):
+        if ctx.maps is None or not (0 <= z <= 22) or not (0 <= x < 2 ** z) or not (0 <= y < 2 ** z):
+            return Response(status_code=204)
+        found = ctx.maps.tiles.get(z, x, y)
+        if found is None:
+            return Response(status_code=204)
+        data, enc = found
+        headers = {"Content-Encoding": enc} if enc else {}
+        return Response(data, media_type="application/x-protobuf", headers=headers)
+
     # ---- websocket ----
     @app.websocket("/ws")
     async def ws_endpoint(ws: WebSocket):
