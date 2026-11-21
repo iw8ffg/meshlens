@@ -16,6 +16,7 @@ import time
 import urllib.error
 import urllib.request
 import uuid
+import logging
 import zipfile
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -24,6 +25,7 @@ from urllib.parse import urlsplit
 
 from .tiles import TileStore
 
+log = logging.getLogger(__name__)
 GB = 1_000_000_000
 
 # Strumento ufficiale protomaps/go-pmtiles: versione, asset Windows x86_64 e SHA-256 fissati qui.
@@ -110,7 +112,7 @@ def find_source(head: Callable[[str], int], today: date,
 def default_head(url: str) -> int:
     req = urllib.request.Request(url, method="HEAD")
     try:
-        with urllib.request.urlopen(req, timeout=15) as r:
+        with urllib.request.urlopen(req, timeout=5) as r:
             return r.status
     except urllib.error.HTTPError as e:
         return e.code
@@ -172,6 +174,7 @@ class MapsManager:
         self.progress_interval = progress_interval
         self.job: dict | None = None
         self._task: asyncio.Task | None = None
+        self._starting = False  # slot riservato prima di qualsiasi await in start()
         self._tool_cancel = threading.Event()
 
     # ---- stato ----
@@ -180,11 +183,22 @@ class MapsManager:
         return self.tools_dir / TOOL_EXE
 
     def _read_maps(self) -> list[dict]:
+        path = self.maps_dir / "maps.json"
         try:
-            data = json.loads((self.maps_dir / "maps.json").read_text("utf-8"))
-        except (OSError, ValueError):
+            data = json.loads(path.read_text("utf-8"))
+            items = data["maps"]
+            if not isinstance(items, list):
+                raise ValueError("maps non e' una lista")
+        except FileNotFoundError:
             return []
-        return [m for m in data.get("maps", []) if (self.maps_dir / f"{m['id']}.pmtiles").exists()]
+        except (OSError, ValueError, KeyError, TypeError):
+            # elenco corrotto: lo si conserva come .bad invece di sovrascriverlo in silenzio
+            log.warning("maps.json illeggibile: rinominato in maps.json.bad")
+            with contextlib.suppress(OSError):
+                os.replace(path, self.maps_dir / "maps.json.bad")
+            return []
+        return [m for m in items if isinstance(m, dict) and isinstance(m.get("id"), str)
+                and (self.maps_dir / f"{m['id']}.pmtiles").exists()]
 
     def _write_maps(self, items: list[dict]) -> None:
         path = self.maps_dir / "maps.json"
@@ -227,8 +241,15 @@ class MapsManager:
         return self.job is not None and self.job["status"] == "running"
 
     async def start(self, kind: str, bbox, name: str | None) -> dict:
-        if self._running():
+        if self._running() or self._starting:
             raise MapsError("C'è già un download in corso", 409)
+        self._starting = True  # prenota lo slot prima di ogni await
+        try:
+            return await self._start(kind, bbox, name)
+        finally:
+            self._starting = False
+
+    async def _start(self, kind: str, bbox, name: str | None) -> dict:
         need_tool = not self.tool_path.exists()
         if kind == "tool":
             if not need_tool:
@@ -366,20 +387,24 @@ class MapsManager:
     async def cancel(self, job_id: str) -> dict:
         if not self.job or self.job["id"] != job_id:
             raise MapsError("Lavoro non trovato", 404)
+        await self._cancel_running()
+        return dict(self.job)
+
+    async def _cancel_running(self) -> None:
         if self._running() and self._task is not None:
             self._task.cancel()
             await asyncio.wait({self._task})
-        return dict(self.job)
+            if self._running():
+                # annullato prima che _run partisse: nessun "running" bloccato
+                self._set(status="cancelled", step="Annullato", ended=self.clock())
 
     async def shutdown(self) -> None:
         """Chiusura del server: termina il lavoro in corso (uccide il figlio, cancella i .tmp)."""
-        if self._running() and self._task is not None:
-            self._task.cancel()
-            await asyncio.wait({self._task})
+        await self._cancel_running()
         self.cleanup_tmp()
 
     async def delete(self, map_id: str) -> None:
-        if self._running():
+        if self._running() or self._starting:
             raise MapsError("Attendi la fine del download in corso", 409)
         items = self._read_maps()
         if not any(m["id"] == map_id for m in items):

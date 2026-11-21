@@ -721,11 +721,12 @@ def create_app(ctx: AppContext) -> FastAPI:
         return ctx.coverage.detail(sid)
 
     # ---- mappe offline ----
-    async def maps_call(coro):
+    async def maps_call(fn):
+        # fn e' una funzione: la coroutine nasce solo se il gestore esiste (niente "never awaited")
         if ctx.maps is None:
             raise HTTPException(503, "Mappe offline non disponibili")
         try:
-            return await coro
+            return await fn()
         except MapsError as e:
             raise HTTPException(e.status, str(e))
 
@@ -734,24 +735,24 @@ def create_app(ctx: AppContext) -> FastAPI:
 
     @app.get("/api/maps", dependencies=[Depends(require_auth)])
     async def maps_status():
-        return await maps_call(_maps_status())
+        return await maps_call(_maps_status)
 
     @app.post("/api/maps/estimate", dependencies=[Depends(require_auth), Depends(require_json)])
     async def maps_estimate(body: MapsEstimateBody):
-        return await maps_call(ctx.maps.estimate(body.kind, body.bbox))
+        return await maps_call(lambda: ctx.maps.estimate(body.kind, body.bbox))
 
     @app.post("/api/maps/download", status_code=202,
               dependencies=[Depends(require_auth), Depends(require_json)])
     async def maps_download(body: MapsDownloadBody):
-        return await maps_call(ctx.maps.start(body.kind, body.bbox, body.name))
+        return await maps_call(lambda: ctx.maps.start(body.kind, body.bbox, body.name))
 
     @app.post("/api/maps/jobs/{job_id}/cancel", dependencies=[Depends(require_auth)])
     async def maps_cancel(job_id: str):
-        return await maps_call(ctx.maps.cancel(job_id))
+        return await maps_call(lambda: ctx.maps.cancel(job_id))
 
     @app.delete("/api/maps/{map_id}", dependencies=[Depends(require_auth)])
     async def maps_delete(map_id: str):
-        await maps_call(ctx.maps.delete(map_id))
+        await maps_call(lambda: ctx.maps.delete(map_id))
         return {"ok": True}
 
     @app.get("/api/maps/style-info", dependencies=[Depends(require_auth)])

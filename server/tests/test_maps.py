@@ -274,3 +274,80 @@ def test_settings_map_mode_and_source_validation():
                  ("maps_source_url", "https:///a.pmtiles")):
         with pytest.raises(ValueError):
             save_settings(conn, {k: v})
+
+
+async def test_concurrent_starts_only_one_wins(tmp_path):
+    runner = FakeRunner(hang=True)
+    slow = asyncio.Event()
+
+    def slow_head(url):
+        import time
+        time.sleep(0.2)  # lascia spazio alla seconda richiesta durante l'await della fonte
+        return 200
+
+    mgr = make_manager(tmp_path, runner=runner, head=slow_head, install_tool=True)
+    res = await asyncio.gather(mgr.start("world", None, None), mgr.start("italy", None, None),
+                               return_exceptions=True)
+    assert sum(isinstance(r, MapsError) and r.status == 409 for r in res) == 1
+    assert sum(isinstance(r, dict) for r in res) == 1
+    await runner.started.wait()
+    await mgr.shutdown()
+    del slow
+
+
+async def test_start_slot_released_on_failure(tmp_path):
+    mgr = make_manager(tmp_path, head=lambda u: 404, install_tool=True)
+    for _ in range(2):  # il secondo tentativo non deve trovare lo slot occupato
+        with pytest.raises(MapsError) as e:
+            await mgr.start("world", None, None)
+        assert e.value.status == 502
+
+
+async def test_cancel_before_run_starts_marks_cancelled(tmp_path):
+    mgr = make_manager(tmp_path, install_tool=True)
+    job = await mgr.start("world", None, None)
+    out = await mgr.cancel(job["id"])  # il task non ha ancora girato
+    assert out["status"] == "cancelled"
+    assert mgr.status()["job"]["status"] == "cancelled"
+
+
+async def test_default_runner_kills_real_process_on_cancel():
+    import sys
+    import time
+    pids = []
+    orig = asyncio.create_subprocess_exec
+
+    async def spy(*a, **k):
+        p = await orig(*a, **k)
+        pids.append(p)
+        return p
+
+    asyncio.create_subprocess_exec = spy
+    try:
+        t = asyncio.create_task(maps.default_runner(
+            [sys.executable, "-c", "import time; time.sleep(60)"], lambda line: None))
+        for _ in range(100):
+            if pids:
+                break
+            await asyncio.sleep(0.05)
+        assert pids
+        t0 = time.time()
+        t.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await t
+        assert time.time() - t0 < 5
+        assert pids[0].returncode is not None
+    finally:
+        asyncio.create_subprocess_exec = orig
+
+
+def test_read_maps_tolerates_malformed_and_keeps_corrupt_file(tmp_path):
+    mgr = make_manager(tmp_path)
+    (tmp_path / "maps" / "ok.pmtiles").write_bytes(b"1")
+    (tmp_path / "maps" / "maps.json").write_text(json.dumps(
+        {"maps": [{"id": "ok", "kind": "world"}, "x", {"kind": "world"}, {"id": 5}]}))
+    assert [m["id"] for m in mgr._read_maps()] == ["ok"]
+    (tmp_path / "maps" / "maps.json").write_text("{non json")
+    assert mgr._read_maps() == []
+    assert (tmp_path / "maps" / "maps.json.bad").read_text() == "{non json"
+    assert not (tmp_path / "maps" / "maps.json").exists()

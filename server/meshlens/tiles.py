@@ -4,6 +4,7 @@ Ogni archivio si apre una sola volta e si legge con piccole seek (nessun mmap, c
 puo rilasciare con close() prima di sostituirlo/cancellarlo su Windows).
 """
 import json
+import logging
 import math
 import threading
 from functools import lru_cache
@@ -12,6 +13,7 @@ from pathlib import Path
 from pmtiles.tile import (Compression, deserialize_directory, deserialize_header, find_tile,
                           zxy_to_tileid)
 
+log = logging.getLogger(__name__)
 WORLD_BOUNDS = [-180.0, -85.0, 180.0, 85.0]
 _PRIORITY = {"area": 0, "italy": 1, "world": 2}
 
@@ -94,15 +96,19 @@ class TileStore:
         """Rilegge maps.json e riapre gli archivi; quelli illeggibili vengono ignorati."""
         try:
             items = json.loads((self.maps_dir / "maps.json").read_text("utf-8")).get("maps", [])
-        except (OSError, ValueError):
+            if not isinstance(items, list):
+                items = []
+        except (OSError, ValueError, AttributeError):
             items = []
+        items = [m for m in items if isinstance(m, dict) and isinstance(m.get("id"), str)]
         # aree dalla piu recente, poi Italia, poi mondo
         items.sort(key=lambda m: (_PRIORITY.get(m.get("kind"), 3), -float(m.get("created") or 0)))
         opened: list[_Archive] = []
         for m in items:
             try:
                 opened.append(_Archive(m, self.maps_dir / f"{m['id']}.pmtiles"))
-            except Exception:
+            except Exception as e:
+                log.warning("Archivio %s ignorato: %s", m.get("id"), type(e).__name__)
                 continue  # archivio mancante o corrotto: non si usa
         with self._lock:
             self.release()

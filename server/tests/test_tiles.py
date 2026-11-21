@@ -150,3 +150,28 @@ async def test_tiles_require_auth(tmp_path):
     async with client(ctx) as c:
         assert (await c.get("/tiles/0/0/0.mvt")).status_code == 401
         assert (await c.get("/api/maps/style-info")).status_code == 401
+
+
+def test_concurrent_reads_return_correct_tiles(tmp_path):
+    import threading
+    d = tmp_path / "maps"
+    d.mkdir()
+    tiles = {(8, x, y): f"T{x}-{y}".encode() * 50 for x in range(8) for y in range(8)}
+    make_archive(d / "world.pmtiles", tiles, 8)
+    (d / "maps.json").write_text(json.dumps({"maps": [entry("world", "world", None, 8)]}))
+    store = TileStore(d)
+    errors = []
+
+    def work(seed):
+        for i in range(200):
+            x, y = (seed + i) % 8, (seed * 3 + i) % 8
+            got = store.get(8, x, y)
+            if got is None or got[0] != tiles[(8, x, y)]:
+                errors.append((x, y))
+            if i % 50 == 0 and seed == 0:
+                store.reload()  # sostituzione degli handle con letture in corso
+
+    ts = [threading.Thread(target=work, args=(s,)) for s in range(8)]
+    [t.start() for t in ts]
+    [t.join() for t in ts]
+    assert errors == []
