@@ -1,5 +1,5 @@
 import { test, expect } from 'vitest'
-import { timeAgo, flag, formatDate, compareLastHeard } from './format'
+import { timeAgo, flag, formatDate, compareLastHeard, num, signed, ago } from './format'
 
 const now = 1_000_000
 
@@ -18,4 +18,21 @@ test('last_heard null', () => {
   expect(formatDate(null)).toBe('mai')
   expect(formatDate(now)).not.toContain('NaN')
   expect([null, 5, 9, null].sort(compareLastHeard)).toEqual([9, 5, null, null])
+})
+
+test('num, signed, ago (formato del design)', () => {
+  expect(`${num(3.59, 2)} V`).toBe('3,59 V')
+  expect(num(3)).toBe('3')
+  expect(num(1234.5, 1)).toBe('1234,5')
+  expect(`${signed(-3.5, 1)} dB`).toBe('−3,5 dB')
+  expect(signed(6.5, 1)).toBe('+6,5')
+  expect(signed(0, 1)).toBe('0,0')
+  expect(signed(-0.04, 1)).toBe('0,0')
+  expect(ago(12)).toBe('12 min fa')
+  expect(ago(0.2)).toBe('ora')
+  expect(ago(59.9)).toBe('59 min fa')
+  expect(ago(60)).toBe('1 h fa')
+  expect(ago(1439)).toBe('23 h fa')
+  expect(ago(1440)).toBe('1 g fa')
+  expect(ago(null)).toBe('mai')
 })
