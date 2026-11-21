@@ -120,3 +120,20 @@ def test_rf_traceroute_falls_back_to_payload():
     ev = packet_to_event(_pkt({"portnum": "TRACEROUTE_APP", "payload": rd.SerializeToString()}),
                          "r", NOW)
     assert ev.payload.route == [2] and ev.payload.snr_towards == [1.0]
+
+
+def test_parse_seq():
+    from meshlens.rf_convert import parse_seq
+    assert parse_seq("seq 12") == 12
+    assert parse_seq(" seq 0 ") == 0
+    for bad in ("seq", "seq -1", "hello 3", "seq 1.5"):
+        assert parse_seq(bad) is None
+
+
+def test_rangetest_packet_converted():
+    ev = packet_to_event(_pkt({"portnum": "RANGE_TEST_APP", "text": "seq 7"}), "r", NOW)
+    assert ev.kind == "rangetest" and ev.payload.seq == 7
+    ev = packet_to_event(_pkt({"portnum": "RANGE_TEST_APP", "payload": b"seq 8"}), "r", NOW)
+    assert ev.payload.seq == 8
+    ev = packet_to_event(_pkt({"portnum": "RANGE_TEST_APP", "payload": b"\xff\xfe"}), "r", NOW)
+    assert ev.kind == "rangetest" and ev.payload.seq is None and ev.payload.text == ""

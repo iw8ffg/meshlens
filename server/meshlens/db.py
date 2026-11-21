@@ -32,6 +32,20 @@ CREATE TABLE IF NOT EXISTS links(
 CREATE TABLE IF NOT EXISTS traceroutes(
   id INTEGER PRIMARY KEY AUTOINCREMENT, radio_id TEXT, target_num INTEGER, time REAL,
   status TEXT, error TEXT, forward TEXT, back TEXT);
+CREATE TABLE IF NOT EXISTS coverage_sessions(
+  id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, radio_id TEXT, mobile_num INTEGER,
+  mode TEXT, channel_index INTEGER, interval_s INTEGER, started REAL, ended REAL,
+  end_reason TEXT, base_lat REAL, base_lon REAL, notes TEXT);
+CREATE TABLE IF NOT EXISTS coverage_points(
+  id INTEGER PRIMARY KEY AUTOINCREMENT, session_id INTEGER, segment INTEGER, seq INTEGER,
+  time REAL, snr REAL, rssi INTEGER, hops INTEGER, lat REAL, lon REAL, precision_bits INTEGER);
+CREATE TABLE IF NOT EXISTS coverage_track(
+  id INTEGER PRIMARY KEY AUTOINCREMENT, session_id INTEGER, time REAL, lat REAL, lon REAL,
+  precision_bits INTEGER);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_cov_points_seq
+  ON coverage_points(session_id, segment, seq) WHERE seq IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_cov_points_session ON coverage_points(session_id);
+CREATE INDEX IF NOT EXISTS idx_cov_track_session ON coverage_track(session_id);
 CREATE INDEX IF NOT EXISTS idx_links_time ON links(time);
 CREATE INDEX IF NOT EXISTS idx_positions_node_time ON positions(node_num, time);
 CREATE INDEX IF NOT EXISTS idx_messages_time ON messages(time);

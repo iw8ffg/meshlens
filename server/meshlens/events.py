@@ -68,6 +68,12 @@ class RouteData:
     snr_back: list[float | None]
 
 
+@dataclass
+class RangeTestData:
+    seq: int | None  # None se il testo non e' "seq N"
+    text: str
+
+
 def scale_snr(v: int) -> float | None:
     """SNR dei protobuf di traceroute: quarti di dB, -128 = sconosciuto."""
     return None if v == -128 else v / 4
@@ -88,5 +94,5 @@ class MeshEvent:
     radio_id: str | None
     kind: str
     payload: (PositionData | NodeInfoData | TextData | TelemetryData | MapReportData
-               | NeighborData | RouteData)
+               | NeighborData | RouteData | RangeTestData)
     via_mqtt: bool = False  # pacchetto RF arrivato alla radio tramite un gateway MQTT

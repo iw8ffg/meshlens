@@ -120,6 +120,90 @@ class Store:
         return [{"from_id": _num_to_id(r["from_num"]), "to_id": _num_to_id(r["to_num"]),
                  "source": r["source"], "snr": r["snr"], "time": r["time"]} for r in rows]
 
+    # --- prove di copertura (non scadono: purge non le tocca) ---
+    _SESSION_FIELDS = ("name", "radio_id", "mobile_num", "mode", "channel_index", "interval_s",
+                       "started", "ended", "end_reason", "base_lat", "base_lon", "notes")
+
+    def _check_fields(self, fields: dict) -> None:
+        bad = set(fields) - set(self._SESSION_FIELDS)
+        if bad:
+            raise ValueError(f"campi sessione sconosciuti: {sorted(bad)}")
+
+    def create_session(self, **fields) -> int:
+        self._check_fields(fields)
+        cols = ", ".join(fields)
+        cur = self.conn.execute(
+            f"INSERT INTO coverage_sessions({cols}) VALUES({', '.join('?' * len(fields))})",
+            tuple(fields.values()))
+        return cur.lastrowid
+
+    def update_session(self, sid: int, **fields) -> None:
+        self._check_fields(fields)
+        if fields:
+            self.conn.execute(
+                f"UPDATE coverage_sessions SET {', '.join(k + '=?' for k in fields)} WHERE id=?",
+                (*fields.values(), sid))
+
+    def get_session(self, sid: int) -> dict | None:
+        row = self.conn.execute("SELECT * FROM coverage_sessions WHERE id=?", (sid,)).fetchone()
+        return dict(row) if row else None
+
+    def sessions(self) -> list[dict]:
+        rows = self.conn.execute("SELECT * FROM coverage_sessions ORDER BY started DESC, id DESC")
+        return [dict(r) for r in rows]
+
+    def active_session(self) -> dict | None:
+        row = self.conn.execute(
+            "SELECT * FROM coverage_sessions WHERE ended IS NULL ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        return dict(row) if row else None
+
+    def delete_session(self, sid: int) -> None:
+        for table in ("coverage_points", "coverage_track"):
+            self.conn.execute(f"DELETE FROM {table} WHERE session_id=?", (sid,))
+        self.conn.execute("DELETE FROM coverage_sessions WHERE id=?", (sid,))
+
+    def add_point(self, session_id: int, segment: int, seq: int | None, time: float,
+                  snr: float | None, rssi: int | None, hops: int | None, lat: float | None,
+                  lon: float | None, precision_bits: int | None) -> bool:
+        """Registra un punto; stesso (sessione, tratto, seq): tiene l'SNR migliore, False."""
+        if seq is not None:
+            row = self.conn.execute(
+                "SELECT id, snr FROM coverage_points WHERE session_id=? AND segment=? AND seq=?",
+                (session_id, segment, seq)).fetchone()
+            if row is not None:
+                if snr is not None and (row["snr"] is None or snr > row["snr"]):
+                    self.conn.execute("UPDATE coverage_points SET snr=?, rssi=?, hops=? "
+                                      "WHERE id=?", (snr, rssi, hops, row["id"]))
+                return False
+        self.conn.execute(
+            "INSERT INTO coverage_points(session_id, segment, seq, time, snr, rssi, hops, lat, "
+            "lon, precision_bits) VALUES(?,?,?,?,?,?,?,?,?,?)",
+            (session_id, segment, seq, time, snr, rssi, hops, lat, lon, precision_bits))
+        return True
+
+    def points(self, session_id: int) -> list[dict]:
+        rows = self.conn.execute(
+            "SELECT * FROM coverage_points WHERE session_id=? ORDER BY time, id", (session_id,))
+        return [dict(r) for r in rows]
+
+    def add_track(self, session_id: int, time: float, lat: float, lon: float,
+                  precision_bits: int | None) -> None:
+        self.conn.execute(
+            "INSERT INTO coverage_track(session_id, time, lat, lon, precision_bits) "
+            "VALUES(?,?,?,?,?)", (session_id, time, lat, lon, precision_bits))
+
+    def track(self, session_id: int) -> list[dict]:
+        rows = self.conn.execute(
+            "SELECT * FROM coverage_track WHERE session_id=? ORDER BY time, id", (session_id,))
+        return [dict(r) for r in rows]
+
+    def update_point_position(self, point_id: int, lat: float, lon: float,
+                              precision_bits: int | None) -> None:
+        self.conn.execute(
+            "UPDATE coverage_points SET lat=?, lon=?, precision_bits=? WHERE id=?",
+            (lat, lon, precision_bits, point_id))
+
     def add_traceroute(self, radio_id: str, target_num: int, time: float) -> int:
         cur = self.conn.execute(
             "INSERT INTO traceroutes(radio_id, target_num, time, status, forward, back) "

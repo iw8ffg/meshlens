@@ -4,8 +4,8 @@ import base64
 from meshtastic.protobuf import mesh_pb2
 
 from .events import (
-    MeshEvent, NeighborData, NodeInfoData, PositionData, RouteData, TelemetryData,
-    TextData, scale_snr,
+    MeshEvent, NeighborData, NodeInfoData, PositionData, RangeTestData, RouteData,
+    TelemetryData, TextData, scale_snr,
 )
 
 
@@ -94,6 +94,24 @@ def _route(decoded: dict, packet: dict) -> RouteData | None:
     )
 
 
+def parse_seq(text: str) -> int | None:
+    """Numero di sequenza di un pacchetto Range Test: accetta solo "seq N" con N intero >= 0."""
+    parts = (text or "").split()
+    if len(parts) == 2 and parts[0] == "seq" and parts[1].isascii() and parts[1].isdigit():
+        return int(parts[1])
+    return None
+
+
+def _rangetest(decoded: dict) -> RangeTestData:
+    text = decoded.get("text")
+    if text is None:
+        try:
+            text = bytes(decoded.get("payload") or b"").decode("utf-8")
+        except UnicodeDecodeError:
+            text = ""  # UTF-8 rotto: il pacchetto prova comunque che il modulo e' attivo
+    return RangeTestData(seq=parse_seq(text), text=text)
+
+
 def _event(kind, payload, *, from_node, to_node, packet_id, channel, rx_time,
            snr, rssi, hops, radio_id, via_mqtt=False) -> MeshEvent:
     return MeshEvent(
@@ -122,6 +140,8 @@ def packet_to_event(packet: dict, radio_id: str, now: float) -> MeshEvent | None
         kind, payload = "neighbors", _neighbors(decoded.get("neighborinfo"))
     elif port == "TRACEROUTE_APP":
         kind, payload = "traceroute", _route(decoded, packet)
+    elif port == "RANGE_TEST_APP":
+        kind, payload = "rangetest", _rangetest(decoded)
     else:
         return None
     if payload is None:

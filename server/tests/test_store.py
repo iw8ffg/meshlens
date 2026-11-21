@@ -90,8 +90,8 @@ def test_purge_storage_cap(store):
         store.add_message(msg(f"1:{i}", NOW - i))
     store.commit()
     assert store._used_bytes() > 100_000
-    res = store.purge(NOW, {**DEFAULTS, "storage_cap_mb": 0.1})
-    assert store._used_bytes() <= 0.1 * 1024 * 1024
+    res = store.purge(NOW, {**DEFAULTS, "storage_cap_mb": 0.15})
+    assert store._used_bytes() <= 0.15 * 1024 * 1024
     assert res["positions"] > 0 and res["messages"] > 0
 
 
@@ -180,3 +180,48 @@ def test_traceroute_roundtrip(store):
     assert t == {"id": tid, "radio_id": "r1", "target_id": "!0000000a", "time": 100.0,
                  "status": "ok", "error": None, "forward": fwd, "back": []}
     assert store.traceroutes(11) == []
+
+
+def _pt(store, sid, seq, snr, seg=0):
+    return store.add_point(sid, seg, seq, NOW, snr, -100, 0, 45.0, 9.0, 32)
+
+
+def test_add_point_dedup_keeps_best_snr(store):
+    sid = store.create_session(name="p", radio_id="r", mobile_num=1, mode="rangetest",
+                               started=NOW)
+    assert _pt(store, sid, 5, -5.0) is True
+    assert _pt(store, sid, 5, -2.0) is False
+    pts = store.points(sid)
+    assert len(pts) == 1 and pts[0]["snr"] == -2.0
+    assert _pt(store, sid, 5, -9.0) is False and store.points(sid)[0]["snr"] == -2.0
+    assert _pt(store, sid, 5, -1.0, seg=1) is True  # altro tratto
+    assert store.add_point(sid, 0, None, NOW, 1.0, -90, 0, None, None, None) is True
+    assert store.add_point(sid, 0, None, NOW, 1.0, -90, 0, None, None, None) is True
+
+
+def test_session_crud_and_active(store):
+    sid = store.create_session(name="p", radio_id="r", mobile_num=1, mode="rangetest",
+                               channel_index=1, interval_s=30, started=NOW)
+    assert store.active_session()["id"] == sid
+    assert store.get_session(sid)["name"] == "p" and store.get_session(99) is None
+    store.add_track(sid, NOW, 45.0, 9.0, 32)
+    _pt(store, sid, 1, 0.0)
+    store.update_point_position(store.points(sid)[0]["id"], 46.0, 10.0, 13)
+    p = store.points(sid)[0]
+    assert (p["lat"], p["lon"], p["precision_bits"]) == (46.0, 10.0, 13)
+    assert len(store.track(sid)) == 1
+    store.update_session(sid, ended=NOW + 5, end_reason="manual")
+    assert store.active_session() is None
+    assert [s["id"] for s in store.sessions()] == [sid]
+    store.delete_session(sid)
+    assert store.get_session(sid) is None and store.points(sid) == [] and store.track(sid) == []
+
+
+def test_purge_keeps_coverage(store):
+    sid = store.create_session(name="p", radio_id="r", mobile_num=1, mode="rangetest",
+                               started=NOW - 365 * DAY)
+    _pt(store, sid, 1, 0.0)
+    store.add_track(sid, NOW - 365 * DAY, 45.0, 9.0, 32)
+    store.purge(NOW, {**DEFAULTS, "storage_cap_mb": 0.0001})
+    assert len(store.sessions()) == 1 and len(store.points(sid)) == 1
+    assert len(store.track(sid)) == 1

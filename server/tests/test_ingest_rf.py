@@ -166,3 +166,14 @@ def test_rf_direct_link_skips_mqtt_relayed_and_own_node(env):
     ing.handle(rf("text", TextData("a"), "rA", num=1, pid=1, hops=0, via_mqtt=True))
     ing.handle(rf("text", TextData("b"), "rA", num=99, pid=2, hops=0))
     assert store.links(0) == []
+
+
+def test_rangetest_updates_only_last_heard(env):
+    from meshlens.events import RangeTestData
+    ing, live, store, conn, got = env
+    ing.handle(rf("rangetest", RangeTestData(3, "seq 3"), "rA", hops=0))
+    n = live.nodes[1]
+    assert n["last_heard"] == NOW and "rf" in n["sources"] and n["heard_by"]["rA"]["snr"] == -7.5
+    assert n["lat"] is None and n["battery"] is None and not got
+    assert count(conn, "positions") == 0 and count(conn, "messages") == 0
+    assert count(conn, "telemetry") == 0
