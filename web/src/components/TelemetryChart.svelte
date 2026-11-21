@@ -1,6 +1,6 @@
 <script lang="ts">
   import { getJSON, telemetry } from '../lib/api'
-  import { batterySeries, linePath, niceRange, voltageSeries } from '../lib/chart'
+  import { batterySeries, isolatedPoints, linePath, niceRange, voltageSeries } from '../lib/chart'
   import type { AppSettings } from '../lib/settings'
   import type { TelemetryPoint } from '../lib/types'
 
@@ -33,6 +33,7 @@
   $effect(() => {
     const id = nodeId
     const h = hours
+    points = []
     loading = true
     error = ''
     telemetry(id, h)
@@ -59,6 +60,8 @@
   const vRange = $derived(niceRange(vVals, 0.1))
   const batPath = $derived(linePath(bat, x0, x1, 0, 100, W, H))
   const voltPath = $derived(linePath(volt, x0, x1, vRange[0], vRange[1], W, H))
+  const batDots = $derived(isolatedPoints(bat, x0, x1, 0, 100, W, H))
+  const voltDots = $derived(isolatedPoints(volt, x0, x1, vRange[0], vRange[1], W, H))
   const thY = $derived(H - (threshold / 100) * H)
   const fmtV = (v: number) => v.toFixed(1).replace('.', ',')
 </script>
@@ -84,6 +87,8 @@
       <line x1="0" x2={W} y1={thY} y2={thY} class="thr" />
       {#if voltPath}<path d={voltPath} class="volt" />{/if}
       {#if batPath}<path d={batPath} class="bat" />{/if}
+      {#each voltDots as d, i (i)}<circle cx={d.x} cy={d.y} r="2.5" class="dot volt" />{/each}
+      {#each batDots as d, i (i)}<circle cx={d.x} cy={d.y} r="2.5" class="dot bat" />{/each}
     </svg>
     <div class="axis left"><span>100%</span><span>0%</span></div>
     <div class="axis right"><span>{fmtV(vRange[1])} V</span><span>{fmtV(vRange[0])} V</span></div>
@@ -140,6 +145,12 @@
   }
   path.volt {
     stroke: #60a5fa;
+  }
+  circle.dot.bat {
+    fill: #34d399;
+  }
+  circle.dot.volt {
+    fill: #60a5fa;
   }
   line.thr {
     stroke: #f87171;

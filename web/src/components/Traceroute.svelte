@@ -14,6 +14,12 @@
 
   const current = $derived(app.traceroutes.get(node.id) ?? null)
 
+  // Un esito finale arrivato dallo store entra in cima allo storico (se non c'e' gia')
+  $effect(() => {
+    const c = app.traceroutes.get(node.id)
+    if (c && c.status !== 'pending' && !history.some((h) => h.id === c.id)) history = [c, ...history]
+  })
+
   // Una radio scelta che si scollega torna ad "automatica"
   $effect(() => {
     if (radioId && !connected.some((r) => r.id === radioId)) radioId = ''
@@ -63,6 +69,7 @@
 
   /** `Base → Rip1 (6 dB) → Nodo (−1 dB)`: SNR con cui ogni salto e' stato ricevuto. */
   function path(hops: TracerouteHop[]): string {
+    if (hops.length === 0) return '–'
     return hops.map((h, i) => (i === 0 ? name(h.id) : `${name(h.id)} (${snr(h.snr)})`)).join(' → ')
   }
 

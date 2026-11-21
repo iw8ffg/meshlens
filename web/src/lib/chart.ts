@@ -44,3 +44,16 @@ export function niceRange(values: number[], pad: number): [number, number] {
   }
   return [Math.floor((lo - pad) * 10) / 10, Math.ceil((hi + pad) * 10) / 10]
 }
+
+/** Punti validi senza vicini validi: linePath non li disegna, quindi si mostrano come cerchietti. */
+export function isolatedPoints(points: Pt[], x0: number, x1: number, y0: number, y1: number, w: number, h: number): { x: number; y: number }[] {
+  const dx = x1 === x0 ? 1 : x1 - x0
+  const dy = y1 === y0 ? 1 : y1 - y0
+  const out: { x: number; y: number }[] = []
+  points.forEach((p, i) => {
+    if (p.v === null) return
+    if (points[i - 1]?.v != null || points[i + 1]?.v != null) return
+    out.push({ x: r(((p.t - x0) / dx) * w), y: r(h - ((p.v - y0) / dy) * h) })
+  })
+  return out
+}
