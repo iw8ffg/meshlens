@@ -50,6 +50,7 @@ class Runtime:
     settings: dict = field(default_factory=dict)  # copia in cache: evita SQL a ogni pacchetto
     radios: RadioManager | None = None
     connector: object = None
+    ctx: object = None  # AppContext
     tasks: list = field(default_factory=list)
 
     def start_connector(self) -> None:
@@ -116,6 +117,7 @@ class Runtime:
             asyncio.create_task(self._every(PURGE_INTERVAL_S, self._purge, first_now=True)),
             asyncio.create_task(self._every(60, lambda: self.dedup.prune(time.time()))),
             asyncio.create_task(self._every(5, self._check_traceroutes)),
+            asyncio.create_task(self._every(60, lambda: self.ctx.alerts())),
         ]
 
     async def stop(self) -> None:
@@ -155,6 +157,7 @@ def build(data_dir: Path, connector_factory=MqttConnector,
     ctx = AppContext(live=live, store=store, auth=auth, bus=bus, locator=locator, conn=conn,
                      mqtt_status=rt.mqtt_status, on_settings_changed=rt.on_settings_changed,
                      static_dir=static_dir, radios=rt.radios)
+    rt.ctx = ctx
     app = create_app(ctx)
 
     @contextlib.asynccontextmanager

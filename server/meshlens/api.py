@@ -5,7 +5,7 @@ import ipaddress
 import mimetypes
 import sqlite3
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Awaitable, Callable
 from urllib.parse import urlsplit
@@ -17,6 +17,7 @@ from pydantic import BaseModel
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.websockets import WebSocketDisconnect
 
+from .alerts import compute_alerts
 from .auth import Auth, LockedError
 from .bus import Bus
 from .geo import CountryLocator
@@ -44,6 +45,21 @@ class AppContext:
     on_settings_changed: Callable[[dict], Awaitable[None]]
     static_dir: Path | None = None
     radios: object | None = None  # RadioManager
+    _alerts: list = field(default_factory=list)
+
+    def alerts(self) -> list[dict]:
+        """Ricalcola gli avvisi; pubblica sul WS solo se key o value cambiano."""
+        old = self._alerts
+        new = compute_alerts(self.live.nodes.values(), load_settings(self.conn), time.time(),
+                             {a["key"]: a for a in old})
+        self._alerts = new
+        if [(a["key"], a["value"]) for a in new] != [(a["key"], a["value"]) for a in old]:
+            self.bus.publish({"type": "alerts", "alerts": new})
+        return new
+
+
+class MineBody(BaseModel):
+    mine: bool
 
 
 class PinBody(BaseModel):
@@ -227,6 +243,37 @@ def create_app(ctx: AppContext) -> FastAPI:
     async def node_positions(node_id: str, hours: float = 24):
         num = _num_from_id(node_id)
         return ctx.store.positions(num, time.time() - hours * 3600)
+
+    @app.get("/api/nodes/{node_id}/telemetry", dependencies=[Depends(require_auth)])
+    async def node_telemetry(node_id: str, hours: float = 168):
+        num = _num_from_id(node_id)
+        if num not in ctx.live.nodes:
+            raise HTTPException(404, "Nodo non trovato")
+        keys = ("time", "battery", "voltage", "channel_util", "air_util_tx")
+        return [{k: p[k] for k in keys}
+                for p in ctx.store.telemetry(num, time.time() - hours * 3600)]
+
+    @app.put("/api/nodes/{node_id}/mine",
+             dependencies=[Depends(require_auth), Depends(require_json)])
+    async def set_mine(node_id: str, body: MineBody):
+        num = _num_from_id(node_id)
+        node = ctx.live.nodes.get(num)
+        if node is None:
+            raise HTTPException(404, "Nodo non trovato")
+        node["is_mine"] = body.mine
+        ctx.store.upsert_node(node, is_mine=body.mine)  # inserisce se manca nel database
+        ctx.store.commit()
+        ctx.live.mark_changed(num)
+        ctx.alerts()
+        return _public(node)
+
+    @app.get("/api/links", dependencies=[Depends(require_auth)])
+    async def list_links(hours: float = 24):
+        return ctx.store.links(time.time() - hours * 3600)
+
+    @app.get("/api/alerts", dependencies=[Depends(require_auth)])
+    async def list_alerts():
+        return ctx.alerts()
 
     # ---- messaggi ----
     @app.get("/api/messages", dependencies=[Depends(require_auth)])

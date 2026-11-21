@@ -11,6 +11,7 @@ from meshlens.api import AppContext, create_app
 from meshlens.auth import Auth
 from meshlens.bus import Bus
 from meshlens.db import connect
+from meshlens.events import TelemetryData
 from meshlens.geo import CountryLocator
 from meshlens.live import LiveState
 from meshlens.store import Store
@@ -301,3 +302,45 @@ def test_ws_rejects_foreign_origin(ctx):
         with tc.websocket_connect("/ws", headers={"host": "127.0.0.1:8686", "origin": "http://127.0.0.1:8686"}) as ws:
             ctx.bus.publish({"type": "x"})
             assert ws.receive_json() == {"type": "x"}
+
+
+async def test_put_mine_and_get_alerts(ctx):
+    ctx.live.nodes[3]["battery"] = 10
+    async with logged(ctx) as c:
+        r = await c.put("/api/nodes/!00000003/mine", json={"mine": True})
+        assert r.status_code == 200 and r.json()["is_mine"] is True
+        alerts = (await c.get("/api/alerts")).json()
+        assert [(a["key"], a["value"]) for a in alerts] == [("battery:!00000003", 10)]
+        assert ctx.store.load_nodes()  # nodo persistito anche se non c'era nel database
+        assert (await c.put("/api/nodes/!000000ff/mine", json={"mine": True})).status_code == 404
+
+
+async def test_alerts_publish_only_on_change(ctx):
+    ctx.live.nodes[1]["battery"] = 10
+    q = ctx.bus.subscribe()
+    ctx.alerts()
+    ctx.alerts()
+    assert q.qsize() == 1 and q.get_nowait()["type"] == "alerts"
+    ctx.live.nodes[1]["battery"] = 9
+    ctx.alerts()
+    assert q.qsize() == 1
+
+
+async def test_telemetry_route(ctx):
+    now = time.time()
+    ctx.store.add_telemetry(1, now - 60, TelemetryData(50, 3.9, 1.0, 0.5, 5))
+    async with logged(ctx) as c:
+        r = await c.get("/api/nodes/!00000001/telemetry")
+        assert r.json() == [{"time": r.json()[0]["time"], "battery": 50, "voltage": 3.9,
+                             "channel_util": 1.0, "air_util_tx": 0.5}]
+        assert (await c.get("/api/nodes/!000000ff/telemetry")).status_code == 404
+
+
+async def test_links_route(ctx):
+    ctx.store.upsert_link(1, 2, "rf_direct", 4.5, time.time())
+    async with logged(ctx) as c:
+        r = await c.get("/api/links")
+        assert r.json()[0]["from_id"] == "!00000001" and r.json()[0]["snr"] == 4.5
+        ctx.store.upsert_link(2, 3, "rf_direct", None, time.time() - 48 * 3600)
+        assert len((await c.get("/api/links")).json()) == 1
+        assert len((await c.get("/api/links?hours=72")).json()) == 2
