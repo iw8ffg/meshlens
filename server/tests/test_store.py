@@ -89,9 +89,9 @@ def test_purge_storage_cap(store):
         store.add_position(1, NOW - i, 45.0, 9.0, 13, "mqtt")
         store.add_message(msg(f"1:{i}", NOW - i))
     store.commit()
-    assert store._used_bytes() > 100_000
-    res = store.purge(NOW, {**DEFAULTS, "storage_cap_mb": 0.15})
-    assert store._used_bytes() <= 0.15 * 1024 * 1024
+    assert store._used_bytes() > 300_000
+    res = store.purge(NOW, {**DEFAULTS, "storage_cap_mb": 0.25})
+    assert store._used_bytes() <= 0.25 * 1024 * 1024
     assert res["positions"] > 0 and res["messages"] > 0
 
 
@@ -306,6 +306,7 @@ def test_migration_clears_stale_mqtt_only_hops(tmp_path):
     st.upsert_node(node(2, sources=["rf"], hops=2))
     st.upsert_node(node(3, sources=["mqtt", "rf"], hops=1))
     conn.execute("DELETE FROM settings WHERE key='migr_hops_mqtt_v120'")  # come un DB 1.1.0
+    conn.execute("PRAGMA user_version=0")
     conn.commit()
     conn.close()
     conn = connect(path)

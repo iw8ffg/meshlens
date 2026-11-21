@@ -1,6 +1,9 @@
 """Connessione SQLite e schema."""
 import sqlite3
+from collections.abc import Callable
 from pathlib import Path
+
+SCHEMA_VERSION = 2
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS nodes(
@@ -26,7 +29,7 @@ CREATE TABLE IF NOT EXISTS radios(
 CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT);
 CREATE TABLE IF NOT EXISTS auth(key TEXT PRIMARY KEY, value TEXT);
 CREATE TABLE IF NOT EXISTS sessions(
-  token_hash TEXT PRIMARY KEY, created REAL, last_seen REAL, user_agent TEXT);
+  token_hash TEXT PRIMARY KEY, created REAL, last_seen REAL, user_agent TEXT, ip TEXT);
 CREATE TABLE IF NOT EXISTS links(
   from_num INTEGER, to_num INTEGER, source TEXT, snr REAL, time REAL,
   PRIMARY KEY(from_num, to_num, source));
@@ -53,6 +56,9 @@ CREATE TABLE IF NOT EXISTS config_jobs(
   id INTEGER PRIMARY KEY AUTOINCREMENT, node_num INTEGER, radio_id TEXT, kind TEXT,
   status TEXT, step TEXT, done INTEGER, total INTEGER, error TEXT, result_id INTEGER,
   verify TEXT, started REAL, ended REAL);
+CREATE TABLE IF NOT EXISTS auth_failures(
+  ip TEXT PRIMARY KEY, failures INTEGER NOT NULL, locked_until REAL, last_failure REAL);
+CREATE TABLE IF NOT EXISTS auth_attempts(time REAL, ip TEXT);
 CREATE TABLE IF NOT EXISTS coverage_prepare(
   id INTEGER PRIMARY KEY AUTOINCREMENT, radio_id TEXT, mobile_num INTEGER, created REAL,
   applied REAL, restored REAL, steps TEXT);
@@ -60,13 +66,27 @@ CREATE INDEX IF NOT EXISTS idx_config_reads_node ON config_reads(node_num, time)
 CREATE INDEX IF NOT EXISTS idx_config_backups_node ON config_backups(node_num, time);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_cov_points_seq
   ON coverage_points(session_id, segment, seq) WHERE seq IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_cov_points_session ON coverage_points(session_id);
 CREATE INDEX IF NOT EXISTS idx_cov_track_session ON coverage_track(session_id);
 CREATE INDEX IF NOT EXISTS idx_links_time ON links(time);
 CREATE INDEX IF NOT EXISTS idx_positions_node_time ON positions(node_num, time);
 CREATE INDEX IF NOT EXISTS idx_messages_time ON messages(time);
 CREATE INDEX IF NOT EXISTS idx_telemetry_node_time ON telemetry(node_num, time);
+CREATE INDEX IF NOT EXISTS idx_auth_attempts_time ON auth_attempts(time);
 """
+
+# indici della migrazione 2: alcuni poggiano su colonne create dalla migrazione 1
+# (messages.radio_id), quindi si applicano solo dopo di essa
+_INDEXES_V2 = (
+    "CREATE INDEX IF NOT EXISTS idx_messages_country_time ON messages(country, time)",
+    "CREATE INDEX IF NOT EXISTS idx_messages_radio_time ON messages(radio_id, time)"
+    " WHERE radio_id IS NOT NULL",
+    "CREATE INDEX IF NOT EXISTS idx_nodes_last_heard ON nodes(last_heard)",
+    "CREATE INDEX IF NOT EXISTS idx_traceroutes_target_time ON traceroutes(target_num, time)",
+    "CREATE INDEX IF NOT EXISTS idx_cov_points_session_time ON coverage_points(session_id, time)",
+    "DROP INDEX IF EXISTS idx_cov_points_session",
+    "CREATE INDEX IF NOT EXISTS idx_positions_time ON positions(time)",
+    "CREATE INDEX IF NOT EXISTS idx_telemetry_time ON telemetry(time)",
+)
 
 # colonne aggiunte dopo la fase 1: (tabella, colonna, definizione)
 _MIGRATIONS = (
@@ -82,11 +102,16 @@ _MIGRATIONS = (
 )
 
 
-def _migrate(conn: sqlite3.Connection) -> None:
-    for table, column, definition in _MIGRATIONS:
+def _add_missing_columns(conn: sqlite3.Connection, columns) -> None:
+    for table, column, definition in columns:
         existing = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
         if column not in existing:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+
+
+def _migration_1(conn: sqlite3.Connection) -> None:
+    """Colonne aggiunte dopo la fase 1 e correzione una tantum (idempotenti)."""
+    _add_missing_columns(conn, _MIGRATIONS)
     # 1.2.0: i salti dei nodi solo-MQTT erano calcolati da hop_start (privi di senso): si azzerano
     done = conn.execute("SELECT 1 FROM settings WHERE key='migr_hops_mqtt_v120'").fetchone()
     if not done:
@@ -94,14 +119,57 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.execute("INSERT INTO settings(key, value) VALUES('migr_hops_mqtt_v120', '1')")
 
 
-def connect(path: Path | str) -> sqlite3.Connection:
-    """Apre il database (WAL, righe come Row) creando lo schema se assente."""
+def _migration_2(conn: sqlite3.Connection) -> None:
+    """sessions.ip e indici nuovi (le tabelle auth_* arrivano da SCHEMA)."""
+    _add_missing_columns(conn, (("sessions", "ip", "TEXT"),))
+    for stmt in _INDEXES_V2:
+        conn.execute(stmt)
+
+
+_STEPS = {1: _migration_1, 2: _migration_2}
+
+
+def schema_version(conn: sqlite3.Connection) -> int:
+    return conn.execute("PRAGMA user_version").fetchone()[0]
+
+
+def _run_migrations(conn: sqlite3.Connection, old_version: int) -> None:
+    """Porta lo schema da old_version a SCHEMA_VERSION: una transazione per passo."""
+    conn.commit()
+    for version in range(old_version + 1, SCHEMA_VERSION + 1):
+        conn.execute("BEGIN")
+        try:
+            _STEPS[version](conn)
+            conn.execute(f"PRAGMA user_version={version}")
+            conn.commit()
+        except BaseException:
+            conn.rollback()
+            raise
+
+
+def connect(
+    path: Path | str,
+    before_migrate: Callable[[sqlite3.Connection, int, int], None] | None = None,
+) -> sqlite3.Connection:
+    """Apre il database (WAL, righe come Row), creando o migrando lo schema.
+
+    before_migrate(conn, old, new) e' chiamata solo per un database gia' esistente
+    da migrare, prima di qualsiasi modifica dello schema.
+    """
     if str(path) != ":memory:":
         Path(path).parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(path), check_same_thread=False)
     conn.row_factory = sqlite3.Row
+    old = schema_version(conn)
+    existing = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='nodes'"
+    ).fetchone() is not None
+    if not existing:
+        # va impostato prima di journal_mode=WAL (che scrive l'intestazione) e delle tabelle
+        conn.execute("PRAGMA auto_vacuum=INCREMENTAL")
     conn.execute("PRAGMA journal_mode=WAL")
+    if existing and old < SCHEMA_VERSION and before_migrate is not None:
+        before_migrate(conn, old, SCHEMA_VERSION)
     conn.executescript(SCHEMA)
-    _migrate(conn)
-    conn.commit()
+    _run_migrations(conn, old)
     return conn
