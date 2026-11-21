@@ -9,6 +9,9 @@ export function shouldStore(stored: Traceroute | undefined, incoming: Traceroute
 export function mergeHistory(history: Traceroute[], t: Traceroute): Traceroute[] {
   const i = history.findIndex((h) => h.id === t.id)
   if (i < 0) return [t, ...history]
-  if (history[i] === t) return history
+  // confronto per valore: lo storico e' un proxy $state, l'identita' non coincide mai
+  const h = history[i]
+  if (h.status === t.status && h.error === t.error && h.forward.length === t.forward.length
+      && h.back.length === t.back.length) return history
   return history.map((h, j) => (j === i ? t : h))
 }

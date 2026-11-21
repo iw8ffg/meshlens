@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte'
   import { ApiError, traceroute, traceroutes } from '../lib/api'
   import { formatDate } from '../lib/format'
   import { app, setTraceroute } from '../lib/stores.svelte'
@@ -18,7 +19,11 @@
   // Un esito finale arrivato dallo store entra nello storico (sostituisce la voce con lo stesso id)
   $effect(() => {
     const c = app.traceroutes.get(node.id)
-    if (c && c.status !== 'pending') history = mergeHistory(history, c)
+    if (!c || c.status === 'pending') return
+    // lettura senza dipendenza: l'effetto scrive history e non deve riattivarsi da solo
+    const current = untrack(() => history)
+    const next = mergeHistory(current, c)
+    if (next !== current) history = next
   })
 
   // Una radio scelta che si scollega torna ad "automatica"

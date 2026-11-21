@@ -20,3 +20,9 @@ test('mergeHistory sostituisce per id o antepone', () => {
   expect(mergeHistory([old], done)).toEqual([done])
   expect(mergeHistory([old], tr({ id: 2 }))[0].id).toBe(2)
 })
+
+test('mergeHistory restituisce lo stesso array se la voce è già uguale (niente cicli negli effetti)', () => {
+  const list = [tr({ status: 'ok' })]
+  expect(mergeHistory(list, tr({ status: 'ok' }))).toBe(list)
+  expect(mergeHistory(list, tr({ status: 'failed', error: 'x' }))).not.toBe(list)
+})
