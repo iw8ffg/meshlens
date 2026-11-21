@@ -363,3 +363,14 @@ def test_cleanup_removes_old_installers(tmp_path):
         (d / n).write_bytes(b"x")
     u.cleanup_tmp()
     assert sorted(p.name for p in d.iterdir()) == sorted(new)
+
+
+def test_wait_then_run_command_waits_for_pid_and_quotes():
+    from meshlens.updater import wait_then_run_command
+    cmd = wait_then_run_command(1234, [r"C:\Users\O'Brien\updates\MeshLens-Setup-1.0.2.exe", "/VERYSILENT", "/NORESTART"])
+    assert cmd[0] == "powershell.exe" and "-Command" in cmd
+    script = cmd[-1]
+    assert script.startswith("Wait-Process -Id 1234 ")
+    assert r"'C:\Users\O''Brien\updates\MeshLens-Setup-1.0.2.exe'" in script
+    assert "-ArgumentList '/VERYSILENT','/NORESTART'" in script
+    assert script.index("Wait-Process") < script.index("Start-Process")

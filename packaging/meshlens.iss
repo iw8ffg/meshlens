@@ -15,7 +15,8 @@ DefaultGroupName=MeshLens
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
 CloseApplications=yes
-AppMutex=MeshLensAppMutex
+; niente AppMutex: in modalita' silenziosa farebbe rinunciare subito all'installazione se
+; MeshLens non si e' ancora chiuso. Si aspetta invece in InitializeSetup (vedi [Code]).
 RestartApplications=no
 SetupIconFile=..\server\meshlens\assets\meshlens.ico
 UninstallDisplayIcon={app}\MeshLens.exe
@@ -66,6 +67,53 @@ Filename: "{app}\MeshLens.exe"; Flags: nowait skipifnotsilent runasoriginaluser
 Type: filesandordirs; Name: "{localappdata}\MeshLens\updates"
 
 [Code]
+const
+  AppMutexName = 'MeshLensAppMutex';
+
+// Aspetta (fino a TimeoutSec) che MeshLens si chiuda. Vero se e' chiuso.
+function WaitAppClosed(TimeoutSec: Integer): Boolean;
+var
+  I: Integer;
+begin
+  for I := 1 to TimeoutSec * 2 do
+  begin
+    if not CheckForMutexes(AppMutexName) then
+    begin
+      Result := True;
+      Exit;
+    end;
+    Sleep(500);
+  end;
+  Result := not CheckForMutexes(AppMutexName);
+end;
+
+function InitializeSetup(): Boolean;
+begin
+  // aggiornamento dall'app: MeshLens si chiude da solo pochi secondi dopo aver avviato l'installer
+  Result := WaitAppClosed(30);
+  if not Result then
+  begin
+    if WizardSilent then Exit;  // silenzioso: meglio non installare che sovrascrivere file in uso
+    Result := MsgBox('MeshLens e'' ancora aperto: chiudilo dall''icona vicino all''orologio (Esci) e premi OK.' + #13#10 +
+                     'MeshLens is still running: close it from the tray icon (Exit) and press OK.',
+                     mbInformation, MB_OKCANCEL) = IDOK;
+    if Result then Result := WaitAppClosed(15);
+  end;
+end;
+
+function InitializeUninstall(): Boolean;
+begin
+  Result := WaitAppClosed(1);
+  if not Result then
+  begin
+    if UninstallSilent then Exit;
+    Result := MsgBox('Chiudi MeshLens dall''icona vicino all''orologio (Esci) e premi OK.' + #13#10 +
+                     'Close MeshLens from the tray icon (Exit) and press OK.',
+                     mbInformation, MB_OKCANCEL) = IDOK;
+    if Result then Result := WaitAppClosed(15);
+  end;
+end;
+
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
   DataDir: String;

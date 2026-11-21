@@ -3,6 +3,18 @@
 Il formato segue [Keep a Changelog](https://keepachangelog.com/it-IT/1.1.0/) e il progetto usa il [versionamento semantico](https://semver.org/lang/it/).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [1.0.2] - 2026-11-21
+
+### Italiano
+
+#### Corretto
+- **Aggiornamento dall'app:** dopo "Installa e riavvia" non succedeva nulla, perché l'installer partiva mentre MeshLens era ancora aperto e in modalità silenziosa rinunciava. Ora l'installer parte solo dopo la chiusura di MeshLens, e l'installer stesso aspetta fino a 30 secondi che MeshLens si chiuda, così l'aggiornamento funziona anche dalle versioni precedenti.
+
+### English
+
+#### Fixed
+- **In-app update:** after "Install and restart" nothing happened, because the installer started while MeshLens was still running and gave up in silent mode. The installer now starts only after MeshLens exits, and it also waits up to 30 seconds for MeshLens to close, so updating works from earlier versions too.
+
 ## [1.0.1] - 2026-11-21
 
 ### Italiano
@@ -47,3 +59,4 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 [1.0.1]: https://github.com/iw8ffg/meshlens/releases/tag/v1.0.1
 [1.0.0]: https://github.com/iw8ffg/meshlens/releases/tag/v1.0.0
+[1.0.2]: https://github.com/iw8ffg/meshlens/releases/tag/v1.0.2

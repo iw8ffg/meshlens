@@ -4,6 +4,7 @@ import contextlib
 import hashlib
 import json
 import logging
+import os
 import re
 import subprocess
 import time
@@ -135,11 +136,38 @@ class UrllibHttp:
             r.close()
 
 
+def _ps_quote(s: str) -> str:
+    """Stringa PowerShell tra apici singoli (l'apice si raddoppia)."""
+    return "'" + s.replace("'", "''") + "'"
+
+
+def wait_then_run_command(pid: int, argv: list[str], timeout_s: int = 60) -> list[str]:
+    """Comando che aspetta la fine del processo `pid` e poi avvia l'installer.
+
+    L'installer controlla subito se MeshLens e' aperto (AppMutex): in modalita' silenziosa,
+    se lo trova, rinuncia senza dire nulla. Per questo parte solo dopo la nostra uscita.
+    """
+    exe, args = argv[0], argv[1:]
+    arglist = ",".join(_ps_quote(a) for a in args) if args else "@()"
+    script = (f"Wait-Process -Id {int(pid)} -Timeout {int(timeout_s)} -ErrorAction SilentlyContinue; "
+              f"Start-Process -FilePath {_ps_quote(exe)} -ArgumentList {arglist}")
+    return ["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+            "-WindowStyle", "Hidden", "-Command", script]
+
+
 def default_launcher(argv: list[str]) -> None:
-    """Avvia l'installer staccato dal processo corrente (sopravvive alla nostra uscita)."""
-    flags = (getattr(subprocess, "DETACHED_PROCESS", 0)
-             | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
-    subprocess.Popen(argv, creationflags=flags, close_fds=True)
+    """Avvia l'installer, staccato, solo dopo l'uscita di questo processo."""
+    # niente DETACHED_PROCESS: PowerShell senza console non esegue nulla (provato).
+    # CREATE_NO_WINDOW nasconde la finestra; BREAKAWAY_FROM_JOB evita che un job lo chiuda con noi.
+    base = (getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
+    cmd = wait_then_run_command(os.getpid(), argv)
+    io = dict(stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+              close_fds=True)
+    try:
+        subprocess.Popen(cmd, creationflags=base | 0x01000000, **io)  # CREATE_BREAKAWAY_FROM_JOB
+    except OSError:  # job che non consente l'uscita: si avvia senza
+        subprocess.Popen(cmd, creationflags=base, **io)
 
 
 class Updater:
