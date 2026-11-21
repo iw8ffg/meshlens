@@ -74,6 +74,15 @@ def test_positions_and_telemetry_since(store):
     assert t[0]["battery"] == 80 and t[0]["uptime"] == 5
 
 
+def test_channel_util_stats(store):
+    store.add_telemetry(1, NOW - 10, TelemetryData(channel_utilization=10.0))
+    store.add_telemetry(1, NOW - 20, TelemetryData(channel_utilization=20.0))
+    store.add_telemetry(1, NOW - 30, TelemetryData(battery_level=50))  # channel_util NULL
+    store.add_telemetry(1, NOW - 5000, TelemetryData(channel_utilization=90.0))  # fuori finestra
+    assert store.channel_util_stats([1], NOW - 1800) == {1: (15.0, 2)}
+    assert store.channel_util_stats([], NOW - 1800) == {}
+
+
 def test_purge_retention(store):
     store.add_position(1, NOW - 91 * DAY, 45.0, 9.0, 13, "mqtt")
     store.add_position(1, NOW - 89 * DAY, 45.0, 9.0, 13, "mqtt")

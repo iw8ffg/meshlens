@@ -408,6 +408,17 @@ class Store:
             "WHERE node_num=? AND time>=? ORDER BY time", (num, since))
         return [dict(r) for r in rows]
 
+    def channel_util_stats(self, nums: list[int], since: float) -> dict[int, tuple[float, int]]:
+        """Media e numero di campioni di channel_util per nodo dopo `since` (una sola query)."""
+        if not nums:
+            return {}
+        marks = ",".join("?" * len(nums))
+        rows = self.conn.execute(
+            "SELECT node_num, AVG(channel_util), COUNT(channel_util) FROM telemetry "
+            f"WHERE node_num IN ({marks}) AND time>=? AND channel_util IS NOT NULL "
+            "GROUP BY node_num", (*nums, since))
+        return {r[0]: (r[1], r[2]) for r in rows}
+
     def _used_bytes(self) -> int:
         pages = self.conn.execute("PRAGMA page_count").fetchone()[0]
         free = self.conn.execute("PRAGMA freelist_count").fetchone()[0]

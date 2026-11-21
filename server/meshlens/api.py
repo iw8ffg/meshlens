@@ -20,7 +20,7 @@ from pydantic import BaseModel, Field
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.websockets import WebSocketDisconnect
 
-from .alerts import compute_alerts
+from .alerts import CHUTIL_MIN_SAMPLES, CHUTIL_WINDOW_S, compute_alerts
 from .auth import LOOPBACK, MIN_PIN, MIN_PIN_LAN, Auth, LockedError
 from .bus import Bus
 from .ingest import revive_node
@@ -110,8 +110,13 @@ class AppContext:
     def alerts(self) -> list[dict]:
         """Ricalcola gli avvisi; pubblica sul WS solo se key o value cambiano."""
         old = self._alerts
-        new = compute_alerts(self.live.nodes.values(), load_settings(self.conn), time.time(),
-                             {a["key"]: a for a in old})
+        now = time.time()
+        mine = [n for n in self.live.nodes.values() if n.get("is_mine")]
+        stats = self.store.channel_util_stats([n["num"] for n in mine], now - CHUTIL_WINDOW_S)
+        chutil = {n["id"]: stats[n["num"]][0] for n in mine
+                  if n["num"] in stats and stats[n["num"]][1] >= CHUTIL_MIN_SAMPLES}
+        new = compute_alerts(self.live.nodes.values(), load_settings(self.conn), now,
+                             {a["key"]: a for a in old}, chutil)
         self._alerts = new
         if [(a["key"], a["value"]) for a in new] != [(a["key"], a["value"]) for a in old]:
             self.bus.publish({"type": "alerts", "alerts": new})
