@@ -12,7 +12,7 @@ dependencies = [
     "paho-mqtt>=2.1",
     "meshtastic==2.7.11",
     "cryptography>=42",
-    "shapely>=2.0",
+    "shapely>=2.0",  # porta con sé numpy, usato da elevation/prediction
     "argon2-cffi",
     "pmtiles>=3.8.1",
 ]
