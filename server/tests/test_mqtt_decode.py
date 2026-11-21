@@ -1,5 +1,5 @@
 import pytest
-from meshtastic.protobuf import mesh_pb2, mqtt_pb2, telemetry_pb2
+from meshtastic.protobuf import mesh_pb2, mqtt_pb2, portnums_pb2, telemetry_pb2
 
 from helpers import make_envelope
 from meshlens.crypto import DEFAULT_KEY
@@ -198,3 +198,29 @@ def test_mqtt_traceroute_decoded_snr_scaled():
     ev = EnvelopeDecoder([DEFAULT_KEY]).decode(T, make_envelope(70, rd), now=1.0)
     assert ev.kind == "traceroute" and ev.payload.snr_towards == [6.0, None]
     assert ev.payload.request_id is None
+
+
+def test_custom_channel_key_decodes_and_preloads():
+    k = bytes(range(32))
+    dec = EnvelopeDecoder([DEFAULT_KEY, k], channel_keys={"Squadra": k})
+    assert dec.channel_keys["Squadra"] == k
+    raw = make_envelope(portnums_pb2.TEXT_MESSAGE_APP, b"ciao", channel_id="Squadra", key=k)
+    ev = dec.decode("msh/EU_868/2/e/Squadra/!00000001", raw, 1.0)
+    assert ev is not None and ev.kind == "text" and ev.payload.text == "ciao"
+    assert dec.channel_keys["Squadra"] == k
+
+
+def test_decoded_packet_has_broker():
+    dec = EnvelopeDecoder([DEFAULT_KEY], broker="b1")
+    raw = make_envelope(portnums_pb2.TEXT_MESSAGE_APP, b"ciao", encrypted=False)
+    ev = dec.decode(T, raw, 1.0)
+    assert ev is not None and ev.broker == "b1"
+
+
+def test_set_keys_keeps_learned_and_custom_wins():
+    dec = EnvelopeDecoder([DEFAULT_KEY])
+    dec.channel_keys = {"A": b"a" * 16, "B": b"b" * 16}
+    k2 = b"c" * 16
+    dec.set_keys([DEFAULT_KEY, k2], {"A": k2})
+    assert dec.channel_keys == {"A": k2, "B": b"b" * 16}
+    assert dec.keys == [DEFAULT_KEY, k2]

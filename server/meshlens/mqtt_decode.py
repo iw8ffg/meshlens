@@ -150,11 +150,20 @@ def _parse_payload(data: mesh_pb2.Data):
 
 
 class EnvelopeDecoder:
-    def __init__(self, keys: list[bytes]):
+    def __init__(self, keys: list[bytes], channel_keys: dict[str, bytes] | None = None,
+                 broker: str | None = None):
         self.keys = list(keys)
+        self.broker = broker
         self.stats: collections.Counter = collections.Counter()
-        # nome canale -> ultima chiave che ha decifrato un pacchetto (serve all'invio)
-        self.channel_keys: dict[str, bytes] = {}
+        # nome canale -> chiave: quelle date (canali personalizzati) piu' l'ultima che ha
+        # decifrato un pacchetto (serve all'invio)
+        self.channel_keys: dict[str, bytes] = dict(channel_keys or {})
+
+    def set_keys(self, keys: list[bytes], custom: dict[str, bytes]) -> None:
+        """Sostituisce le chiavi a caldo: assegnazioni singole, il thread paho legge
+        la versione vecchia o la nuova, mai una a meta'. Le personalizzate vincono."""
+        self.keys = list(keys)
+        self.channel_keys = {**self.channel_keys, **custom}
 
     def decode(self, topic: str, payload: bytes, now: float) -> MeshEvent | None:
         """Non solleva mai: ogni scarto viene contato in `stats`."""
@@ -211,6 +220,7 @@ class EnvelopeDecoder:
             payload=body,
             relay_node=relay,
             hops_min=hops_min,
+            broker=self.broker,
         )
 
     def _extract_data(self, packet: mesh_pb2.MeshPacket, from_node: int,
@@ -219,11 +229,15 @@ class EnvelopeDecoder:
             return packet.decoded if packet.decoded.portnum != 0 else None
         if not packet.encrypted:
             return None
-        for key in self.keys:
+        keys = self.keys  # un solo riferimento: set_keys puo' sostituirlo in parallelo
+        first = self.channel_keys.get(channel_name) if channel_name else None
+        candidates = ([first] if first else []) + [k for k in keys if k != first]
+        for key in candidates:
             if not key:  # b"" = nessuna cifratura: niente da provare
                 continue
             # packet.channel == 0: hash sconosciuto, si prova comunque
-            if packet.channel and channel_name is not None and                     packet.channel != channel_hash(channel_name, key):
+            if (packet.channel and channel_name is not None
+                    and packet.channel != channel_hash(channel_name, key)):
                 continue
             try:
                 plain = decrypt(key, packet.id, from_node, packet.encrypted)

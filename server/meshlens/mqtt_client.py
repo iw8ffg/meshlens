@@ -6,6 +6,7 @@ import asyncio
 import collections
 import logging
 import secrets
+import ssl
 import threading
 import time
 from typing import Callable
@@ -31,6 +32,7 @@ class MqttConnector:
     def __init__(self, cfg: dict, decoder: EnvelopeDecoder, loop: asyncio.AbstractEventLoop,
                  on_event: Callable[[MeshEvent], None], client_factory=None):
         self.cfg = cfg
+        self.label = cfg.get("name") or cfg.get("host")
         self.decoder = decoder
         self.loop = loop
         self.on_event = on_event
@@ -62,13 +64,16 @@ class MqttConnector:
         client.on_connect = self._on_connect
         client.on_disconnect = self._on_disconnect
         client.on_message = self._on_message
+        client.on_connect_fail = self._on_connect_fail
         try:
+            if self.cfg.get("tls"):
+                client.tls_set_context(ssl.create_default_context())
             client.connect_async(self.cfg["host"], int(self.cfg["port"]), keepalive=60)
             client.loop_start()
-        except OSError as e:
+        except (OSError, ssl.SSLError) as e:
             self._connected = False
             self.set_error(f"Broker non raggiungibile: {e}")
-            log.info("MQTT: avvio della connessione a %s non riuscito (%s)", self.cfg.get("host"), e)
+            log.info("MQTT %s: avvio della connessione non riuscito (%s)", self.label, self._scrub(str(e)))
 
     def stop(self) -> None:
         client, self._client = self._client, None
@@ -121,19 +126,23 @@ class MqttConnector:
                 self.set_error("Utente o password MQTT rifiutati")
             else:
                 self.set_error(f"Connessione rifiutata dal broker: {text}")
-            log.info("MQTT: connessione rifiutata da %s (motivo: %s)", self.cfg.get("host"), rc)
+            log.info("MQTT %s: connessione rifiutata (motivo: %s)", self.label, rc)
             return
         self._connected = True
         self._connected_since = time.time()
         self._connects += 1
-        log.info("MQTT: connesso a %s:%s", self.cfg.get("host"), self.cfg.get("port"))
+        log.info("MQTT %s: connesso a %s:%s", self.label, self.cfg.get("host"), self.cfg.get("port"))
         for topic in self.cfg["topics"]:
             client.subscribe(topic, 0)
+
+    def _on_connect_fail(self, client, userdata):
+        self._connected = False
+        self.set_error("Connessione non riuscita: controlla host, porta e TLS")
 
     def _on_disconnect(self, client, userdata, *args):
         if self._connected:
             reason = args[1] if len(args) > 1 else (args[0] if args else "sconosciuto")
-            log.info("MQTT: disconnesso da %s (motivo: %s)", self.cfg.get("host"), reason)
+            log.info("MQTT %s: disconnesso (motivo: %s)", self.label, reason)
             lost = reason.is_failure if hasattr(reason, "is_failure") else bool(reason)
             if lost:
                 self.set_error(f"Connessione persa: {reason}")
