@@ -55,6 +55,15 @@ export interface AppSettings {
   /** Broker (id) con la conferma di pubblicazione già data. */
   mqtt_send_confirmed_brokers?: string[]
   mqtt_brokers?: Broker[]
+  /** Notifiche di Windows (toast) per i messaggi e gli eventi. */
+  notify_toast?: boolean
+  notify_telegram?: boolean
+  /** Mascherato: "••••" se impostato, "" altrimenti. */
+  telegram_token?: string
+  telegram_chat_id?: string
+  notify_mine_status?: boolean
+  notify_new_node?: boolean
+  notify_keywords?: string[]
 }
 
 // Una voce per riga: spazi tolti, righe vuote scartate
@@ -89,6 +98,22 @@ export function channelOptions(seen: MqttChannel[], selected: string[]): { name:
   return [...counts.entries()]
     .map(([name, count]) => ({ name, count }))
     .sort((a, b) => b.count - a.count || order.get(a.name)! - order.get(b.name)!)
+}
+
+/** Parole chiave per le notifiche: separate da virgola o a capo, senza doppioni (maiuscole ignorate), al massimo 20. */
+export function parseKeywords(text: string): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const raw of text.split(/[,\r\n]+/)) {
+    const w = raw.trim()
+    if (w.length < 2) continue
+    const k = w.toLowerCase()
+    if (seen.has(k)) continue
+    seen.add(k)
+    out.push(w)
+    if (out.length === 20) break
+  }
+  return out
 }
 
 export type NodeIdCheck = { ok: true; value: string } | { ok: false; error: string }

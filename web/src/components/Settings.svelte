@@ -20,6 +20,7 @@
   import Diagnostics from './settings/Diagnostics.svelte'
   import Devices from './settings/Devices.svelte'
   import Brokers from './settings/Brokers.svelte'
+  import Notifications from './settings/Notifications.svelte'
   import { channelOptions, checkMqttNodeId, httpsNote, type AppSettings, type Broker, type MqttChannel, type TlsInfo } from '../lib/settings'
   import { channelNameError, fromServer, pskError } from '../lib/brokers'
   import { formatDate } from '../lib/format'
@@ -234,6 +235,8 @@
           </div>
         </section>
       </Card>
+
+      <Notifications />
 
       <Card>
         <section class="sec">

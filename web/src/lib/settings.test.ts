@@ -83,3 +83,19 @@ test('httpsNote: testo con la porta HTTPS, 8687 se non nota', () => {
   )
   expect(httpsNote(9000)).toContain('https://<IP del PC>:9000.')
 })
+
+import { parseKeywords } from './settings'
+
+describe('parseKeywords', () => {
+  it('divide su virgole e a capo, toglie spazi, scarta le voci corte e i doppioni', () => {
+    expect(parseKeywords(' Ciao, ciao,\nx, soccorso ')).toEqual(['Ciao', 'soccorso'])
+  })
+  it('al massimo 20 voci', () => {
+    const text = Array.from({ length: 25 }, (_, i) => `parola${i}`).join(',')
+    expect(parseKeywords(text)).toHaveLength(20)
+    expect(parseKeywords(text)[0]).toBe('parola0')
+  })
+  it('testo vuoto -> lista vuota', () => {
+    expect(parseKeywords('  \n , ')).toEqual([])
+  })
+})

@@ -198,3 +198,12 @@ export const importChannelsFromRadio = (brokerId: string, radioId: string) =>
   send<ChannelImport>('POST', `${brokerPath(brokerId)}/channels/import-radio`, { radio_id: radioId })
 export const revealChannelPsk = (brokerId: string, index: number) =>
   send<{ psk: string }>('POST', `${brokerPath(brokerId)}/channels/${index}/reveal`, {})
+
+export interface NotifyStatus {
+  toast_available: boolean
+  telegram_last_ok: string | null
+  telegram_last_error: string | null
+}
+export const notifyStatus = () => getJSON<NotifyStatus>('/notify/status')
+export const notifyTest = (channel: 'toast' | 'telegram') => send<{ ok: boolean }>('POST', '/notify/test', { channel })
+export const telegramFindChat = () => send<{ chat_id: string; title: string }>('POST', '/notify/telegram/chat')
