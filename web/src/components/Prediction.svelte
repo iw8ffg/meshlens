@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte'
   import { ApiError } from '../lib/api'
   import { formatDate, signed } from '../lib/format'
   import { readDocumentTokens } from '../lib/map/tokens'
@@ -7,7 +8,8 @@
     eirpDbm, estimatePrediction, getPrediction, gridToRgba, imageCoordinates, overLegalLimit, startPrediction,
     validateParams, type PredictionCompare, type PredictionEstimate, type PredictionMeta,
   } from '../lib/prediction'
-  import { prediction, reloadPredictions } from '../lib/prediction.svelte'
+  import { claimJobResult, prediction, reloadPredictions } from '../lib/prediction.svelte'
+  import { getTheme } from '../lib/theme'
   import { app, coverage } from '../lib/stores.svelte'
   import Banner from '../lib/ui/Banner.svelte'
   import Button from '../lib/ui/Button.svelte'
@@ -33,7 +35,6 @@
   let sessionSel = $state('')
   let compare = $state<PredictionCompare | null>(null)
   let compareFor = $state<string | null>(null)
-  let handledJob: string | null = null
 
   const job = $derived(prediction.job)
   const running = $derived(job !== null && job.status === 'running')
@@ -63,8 +64,7 @@
   // A calcolo concluso la previsione nuova si mostra da sola (una volta per lavoro)
   $effect(() => {
     const j = prediction.job
-    if (j && j.status === 'done' && j.result_id && handledJob !== j.id) {
-      handledJob = j.id
+    if (j && j.status === 'done' && j.result_id && claimJobResult(j.id)) {
       void show(j.result_id)
     }
   })
@@ -102,6 +102,18 @@
     }
   }
 
+  // Il raster usa i colori dei token: va ridisegnato quando cambia il tema (anche mentre il pannello era chiuso)
+  $effect(() => {
+    const ctl = getTheme()
+    const redraw = () => {
+      const s = prediction.shown
+      if (!s || s.theme === ctl.theme()) return
+      prediction.shown = { ...s, url: drawUrl(s.values, s.width, s.height), theme: ctl.theme() }
+    }
+    untrack(redraw)
+    return ctl.subscribe(redraw)
+  })
+
   function drawUrl(values: Int8Array, w: number, h: number): string {
     const c = document.createElement('canvas')
     c.width = w
@@ -115,7 +127,11 @@
     error = ''
     try {
       const g = await getPrediction(id)
-      prediction.shown = { id, url: drawUrl(decodeValues(g.values), g.width, g.height), coords: imageCoordinates(g.bbox) }
+      const values = decodeValues(g.values)
+      prediction.shown = {
+        id, url: drawUrl(values, g.width, g.height), coords: imageCoordinates(g.bbox),
+        values, width: g.width, height: g.height, theme: getTheme().theme(),
+      }
     } catch (e) {
       error = msg(e)
     }

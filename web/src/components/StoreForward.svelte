@@ -3,10 +3,10 @@
   import { ApiError } from '../lib/api'
   import { timeAgo } from '../lib/format'
   import {
-    DEFAULT_WINDOW_MIN, WINDOW_OPTIONS, defaultChannel, isLikelyPublic, jobText, sfProbe, sfRequest, sfRouters,
+    DEFAULT_WINDOW_MIN, WINDOW_OPTIONS, defaultChannel, isLikelyPublic, jobText, sfJobs, sfProbe, sfRequest, sfRouters,
     type SfRouter,
   } from '../lib/storeforward'
-  import { sf, setSfRouters } from '../lib/storeforward.svelte'
+  import { adoptSfJobs, sf, setSfRouters } from '../lib/storeforward.svelte'
   import Banner from '../lib/ui/Banner.svelte'
   import Button from '../lib/ui/Button.svelte'
   import Field from '../lib/ui/Field.svelte'
@@ -14,7 +14,6 @@
   import Progress from '../lib/ui/Progress.svelte'
   import Segmented from '../lib/ui/Segmented.svelte'
   import Select from '../lib/ui/Select.svelte'
-  import Toast from '../lib/ui/Toast.svelte'
   import type { Radio } from '../lib/types'
 
   interface Props {
@@ -25,6 +24,7 @@
 
   const OTHER = '__other'
   const NODE_ID = /^![0-9a-fA-F]{8}$/
+  const BAD_ID = "Id del router non valido: usa il formato !xxxxxxxx"
 
   const routers = $derived(sf.routers.filter((r) => r.radio_id === radio.id))
   let routerSel = $state('')
@@ -35,8 +35,6 @@
   let error = $state('')
   let info = $state('')
   let jobId = $state<string | null>(null)
-  let notice = $state('')
-  let notifiedFor: string | null = null
 
   const routerId = $derived((routerSel === OTHER ? otherId.trim() : routerSel).toLowerCase())
   const idValid = $derived(NODE_ID.test(routerId))
@@ -57,12 +55,14 @@
     sfRouters().then(setSfRouters).catch(() => {})
   })
 
-  // Toast a lavoro concluso (una volta per lavoro).
+  // Riaperta la finestra, riprende il recupero ancora in corso per questa radio (se c'e').
   $effect(() => {
-    if (job && job.status === 'done' && notifiedFor !== job.id) {
-      notifiedFor = job.id
-      notice = jobText(job)
-    }
+    sfJobs()
+      .then((list) => {
+        const id = adoptSfJobs(list, untrack(() => radio.id))
+        if (id && jobId === null) jobId = id
+      })
+      .catch(() => {})
   })
 
   function routerLabel(r: SfRouter): string {
@@ -78,7 +78,11 @@
   }
 
   async function probe() {
-    if (busy || !idValid) return
+    if (busy) return
+    if (!idValid) {
+      error = BAD_ID
+      return
+    }
     busy = true
     error = ''
     info = ''
@@ -93,7 +97,12 @@
   }
 
   async function start() {
-    if (busy || active || !idValid) return
+    if (busy || active) return
+    if (!idValid) {
+      error = BAD_ID
+      info = ''
+      return
+    }
     busy = true
     error = ''
     info = ''
@@ -176,10 +185,6 @@
   </div>
 </Modal>
 
-{#if notice}
-  <div class="sf-toast"><Toast kind="ok" onclose={() => (notice = '')}>{notice}</Toast></div>
-{/if}
-
 <style>
   .sf { display: flex; flex-direction: column; gap: var(--space-3); color: var(--ink); }
   .note { margin: 0; color: var(--ink-muted); font: 400 13px/18px var(--font-sans); }
@@ -187,7 +192,6 @@
   .fail { color: var(--danger); }
   .indet { overflow: hidden; }
   .indet i { display: block; width: 40%; animation: sf-slide 1.4s ease-in-out infinite; }
-  .sf-toast { position: fixed; bottom: var(--space-4); left: 50%; transform: translateX(-50%); z-index: 1000; }
   :global(.vp-phone) .note { font-size: 14px; line-height: 20px; }
   @keyframes sf-slide { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
   @media (prefers-reduced-motion: reduce) { .indet i { animation: none; width: 100%; } }

@@ -13,6 +13,8 @@
   import Modal from '../lib/ui/Modal.svelte'
   import Icon from '../lib/ui/Icon.svelte'
   import StoreForward from './StoreForward.svelte'
+  import Toast from '../lib/ui/Toast.svelte'
+  import { clearSfNotice, sf } from '../lib/storeforward.svelte'
   import type { BleDevice, Port, Radio } from '../lib/types'
 
   let adding = $state(false)
@@ -253,11 +255,16 @@
   <StoreForward radio={sfRadio} onclose={() => (sfRadioId = null)} />
 {/if}
 
+{#if sf.notice}
+  <div class="sf-toast"><Toast kind="ok" onclose={clearSfNotice}>{sf.notice}</Toast></div>
+{/if}
+
 <Modal open={removing !== null} title="Rimuovere la radio?" danger confirmLabel="Rimuovi" onconfirm={() => removing && remove(removing)} oncancel={() => (confirmId = null)}>
   <p>La radio "{removing?.name ?? ''}" verrà scollegata e rimossa dall'elenco. I dati già salvati restano.</p>
 </Modal>
 
 <style>
+  .sf-toast { position: fixed; bottom: var(--space-4); left: 50%; transform: translateX(-50%); z-index: 1000; }
   section { padding: var(--space-4); display: flex; flex-direction: column; gap: var(--space-3); color: var(--ink); }
   header { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; }
   h2 { margin: 0; font: 600 18px/24px var(--font-sans); }

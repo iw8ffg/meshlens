@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { adoptSfJobs, applySfJob, clearSfNotice, sf } from './storeforward.svelte'
 import { defaultChannel, isLikelyPublic, jobText, WINDOW_OPTIONS, type SfJob } from './storeforward'
 
 const job = (o: Partial<SfJob>): SfJob => ({
@@ -43,4 +44,28 @@ describe('jobText', () => {
 
 describe('WINDOW_OPTIONS', () => {
   it('quattro finestre', () => expect(WINDOW_OPTIONS.map((o) => o.min)).toEqual([60, 240, 720, 1440]))
+})
+
+describe('stato S&F oltre la finestra', () => {
+  it('avviso a lavoro concluso, una volta sola', () => {
+    clearSfNotice()
+    applySfJob(job({ id: 'n1', status: 'receiving', received: 1 }))
+    expect(sf.notice).toBe('')
+    applySfJob(job({ id: 'n1', status: 'done', received: 4 }))
+    expect(sf.notice).toBe('Completato: 4 messaggi recuperati')
+    clearSfNotice()
+    applySfJob(job({ id: 'n1', status: 'done', received: 4 }))
+    expect(sf.notice).toBe('')
+  })
+
+  it('riprende il lavoro attivo piu recente della radio', () => {
+    const list = [
+      job({ id: 'a', radio_id: 'r2', status: 'receiving' }),
+      job({ id: 'b', radio_id: 'r1', status: 'waiting' }),
+      job({ id: 'c', radio_id: 'r1', status: 'done' }),
+    ]
+    expect(adoptSfJobs(list, 'r1')).toBe('b')
+    expect(sf.jobs.b.status).toBe('waiting')
+    expect(adoptSfJobs([job({ id: 'd', radio_id: 'r1', status: 'failed' })], 'r1')).toBeNull()
+  })
 })
