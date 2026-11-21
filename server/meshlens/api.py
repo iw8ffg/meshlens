@@ -45,6 +45,7 @@ class AppContext:
     on_settings_changed: Callable[[dict], Awaitable[None]]
     static_dir: Path | None = None
     radios: object | None = None  # RadioManager
+    coverage: object | None = None  # CoverageRecorder
     _alerts: list = field(default_factory=list)
 
     def alerts(self) -> list[dict]:

@@ -128,3 +128,15 @@ async def test_auto_radio_connected_at_start_and_stopped_at_shutdown(tmp_path):
     async with app.router.lifespan_context(app):
         assert radio.starts == 1 and radio.state()["state"] == "connected"
     assert radio.stops == 1
+
+
+async def test_events_reach_coverage_recorder_from_mqtt_connector(tmp_path):
+    from meshlens.events import MeshEvent, RangeTestData
+    FakeConnector.instances.clear()
+    _, rt = build(tmp_path, connector_factory=FakeConnector, static_dir=None)
+    rt.start_connector()
+    assert rt.ctx.coverage is rt.coverage
+    ev = MeshEvent("rf", 5, 0, 1, "", 1.0, None, None, None, None, "r1", "rangetest",
+                   RangeTestData(0, "seq 0"))
+    rt.on_event(ev)
+    assert rt.coverage.rangetest_age("r1", 5) is not None

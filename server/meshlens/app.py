@@ -11,6 +11,7 @@ from fastapi import FastAPI
 from .api import AppContext, create_app
 from .auth import Auth
 from .bus import Bus
+from .coverage import CoverageRecorder
 from .crypto import DEFAULT_KEY, expand_psk
 from .db import connect
 from .dedup import Deduplicator
@@ -46,6 +47,8 @@ class Runtime:
     dedup: Deduplicator
     ingestor: Ingestor
     connector_factory: object
+    coverage: CoverageRecorder | None = None
+    on_event: object = None  # ingestor, poi registratore copertura
     loop: asyncio.AbstractEventLoop | None = None
     settings: dict = field(default_factory=dict)  # copia in cache: evita SQL a ogni pacchetto
     radios: RadioManager | None = None
@@ -56,7 +59,7 @@ class Runtime:
     def start_connector(self) -> None:
         cfg = self.settings["mqtt"]
         self.connector = self.connector_factory(
-            cfg, _make_decoder(cfg), self.loop, self.ingestor.handle)
+            cfg, _make_decoder(cfg), self.loop, self.on_event or self.ingestor.handle)
         self.connector.start()
 
     def mqtt_status(self) -> dict:
@@ -96,6 +99,10 @@ class Runtime:
         if self.radios is not None:
             self.radios.check_traceroutes()
 
+    def _coverage_tick(self) -> None:
+        if self.coverage is not None:
+            self.coverage.tick()
+
     def _publish_status(self) -> None:
         self.bus.publish({"type": "status", "mqtt": self.mqtt_status()})
 
@@ -107,6 +114,8 @@ class Runtime:
 
     async def start(self) -> None:
         self.loop = asyncio.get_running_loop()
+        if self.coverage is not None:
+            self.coverage.start()
         self.start_connector()
         if self.radios is not None:
             await self.radios.start()
@@ -118,6 +127,7 @@ class Runtime:
             asyncio.create_task(self._every(60, lambda: self.dedup.prune(time.time()))),
             asyncio.create_task(self._every(5, self._check_traceroutes)),
             asyncio.create_task(self._every(60, lambda: self.ctx.alerts())),
+            asyncio.create_task(self._every(60, self._coverage_tick)),
         ]
 
     async def stop(self) -> None:
@@ -152,11 +162,20 @@ def build(data_dir: Path, connector_factory=MqttConnector,
                             {"type": "message_status", "key": key, "status": status}))
     rt = Runtime(conn, store, live, auth, bus, dedup, ingestor, connector_factory,
                  settings=load_settings(conn))
+    coverage = CoverageRecorder(store, live, bus,
+                                radio_node=lambda rid: ingestor._radio_nodes.get(rid))
+
+    def on_event(ev) -> None:
+        # prima l'ingestor (aggiorna i nodi), poi il registratore delle prove di copertura
+        ingestor.handle(ev)
+        coverage.handle(ev)
+
+    rt.coverage, rt.on_event = coverage, on_event
     rt.radios = RadioManager(store, ingestor, bus, None, PubSubHub(None),
-                              connector_factory=radio_connector_factory)
+                              connector_factory=radio_connector_factory, on_event=on_event)
     ctx = AppContext(live=live, store=store, auth=auth, bus=bus, locator=locator, conn=conn,
                      mqtt_status=rt.mqtt_status, on_settings_changed=rt.on_settings_changed,
-                     static_dir=static_dir, radios=rt.radios)
+                     static_dir=static_dir, radios=rt.radios, coverage=coverage)
     rt.ctx = ctx
     app = create_app(ctx)
 

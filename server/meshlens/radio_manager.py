@@ -80,9 +80,10 @@ def _is_node_id(value: str) -> bool:
 class RadioManager:
     def __init__(self, store, ingestor, bus, loop, hub, connector_factory=RadioConnector,
                  iface_factory=default_iface_factory, list_ports_fn=default_list_ports,
-                 ble_scan_fn=default_ble_scan, clock=time.time):
+                 ble_scan_fn=default_ble_scan, clock=time.time, on_event=None):
         self.store = store
         self.ingestor = ingestor
+        self.on_event = on_event or ingestor.handle
         self.bus = bus
         self.loop = loop
         self.hub = hub
@@ -139,7 +140,7 @@ class RadioManager:
         self._cfgs[cfg["id"]] = cfg
         self._connectors[cfg["id"]] = self._connector_factory(
             {"id": cfg["id"], "kind": cfg["kind"], "address": cfg["address"]}, self.hub,
-            self.ingestor.handle, self._on_state, self._on_ack, self._iface_factory,
+            self.on_event, self._on_state, self._on_ack, self._iface_factory,
             on_traceroute=self._on_traceroute)
 
     # ---- callback dei connettori (thread del loop) --------------------
