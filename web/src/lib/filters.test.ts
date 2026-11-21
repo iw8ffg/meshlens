@@ -133,3 +133,45 @@ test('favorites filter and tolerant load of old saved data', () => {
   saveFilter(s, { ...loadFilter(s), favorites: true })
   expect(loadFilter(s).favorites).toBe(true)
 })
+
+// ---- filtri attivi, azzera, nodi miei sempre visibili ----
+import { activeFilters, clearFilter, clearAllFilters, type NodeFilter } from './filters'
+
+test('mine and local radio ignore the country filter', () => {
+  const f: NodeFilter = { countries: ['IT'], maxAgeH: null, sources: [], text: '', links: false }
+  expect(matchNode({ ...n, country: 'FR', is_mine: true } as Node, f, now)).toBe(true)
+  expect(matchNode({ ...n, country: 'FR', is_local_radio: true } as Node, f, now)).toBe(true)
+  expect(matchNode({ ...n, country: 'FR', is_mine: true } as Node, { ...f, maxAgeH: 0.5 }, now)).toBe(false)
+  expect(matchNode({ ...n, country: 'FR' } as Node, f, now)).toBe(false)
+})
+
+test('text matches model and role', () => {
+  const m = { ...n, hw_model: 'HELTEC_V3', role: 'ROUTER' } as Node
+  const f: NodeFilter = { countries: [], maxAgeH: null, sources: [], text: 'heltec', links: false }
+  expect(matchNode(m, f, now)).toBe(true)
+  expect(matchNode(m, { ...f, text: 'router' }, now)).toBe(true)
+})
+
+test('activeFilters labels', () => {
+  const name = (c: string) => (c === 'IT' ? 'Italia' : c)
+  const f: NodeFilter = { countries: ['IT'], maxAgeH: 24, sources: ['rf'], text: 'abc', links: true, favorites: true }
+  expect(activeFilters(f, name).map((a) => a.label)).toEqual(['Italia', 'Ultimo contatto: 24 h', 'Fonte: Radio', 'Ricerca: “abc”', 'Solo preferiti'])
+  expect(activeFilters({ ...f, countries: ['IT', 'FR'] }, name)[0].label).toBe('2 nazioni')
+  expect(activeFilters({ ...f, countries: ['none'] }, name)[0].label).toBe('Nazione sconosciuta')
+  expect(activeFilters({ ...f, maxAgeH: 2, sources: ['rf', 'mqtt'] }, name).map((a) => a.label)).toContain('Ultimo contatto: 2 h')
+  expect(activeFilters({ ...f, maxAgeH: 168, sources: ['rf', 'mqtt'] }, name).map((a) => a.label)).toEqual(['Italia', 'Ultimo contatto: 7 g', 'Fonte: Radio, MQTT', 'Ricerca: “abc”', 'Solo preferiti'])
+  expect(activeFilters({ countries: [], maxAgeH: null, sources: [], text: '', links: false, favorites: false }, name)).toEqual([])
+})
+
+test('clearAllFilters keeps links', () => {
+  const f: NodeFilter = { countries: ['IT'], maxAgeH: 24, sources: ['rf'], text: 'abc', links: true, favorites: true }
+  expect(clearAllFilters(f)).toEqual({ countries: [], maxAgeH: null, sources: [], text: '', links: true, favorites: false })
+})
+
+test('clearFilter removes one', () => {
+  const f: NodeFilter = { countries: ['IT'], maxAgeH: 24, sources: ['rf'], text: 'abc', links: true, favorites: true }
+  const r = clearFilter(f, 'age')
+  expect(r.maxAgeH).toBeNull()
+  expect(r).toEqual({ ...f, maxAgeH: null })
+  expect(clearFilter(f, 'countries').countries).toEqual([])
+})

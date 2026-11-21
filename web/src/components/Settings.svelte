@@ -10,7 +10,7 @@
   import Switch from '../lib/ui/Switch.svelte'
   import MeshtasticBadge from '../lib/shell/MeshtasticBadge.svelte'
   import { getTheme, THEME_LABELS, type ThemePref } from '../lib/theme'
-  import { getJSON, send, ApiError } from '../lib/api'
+  import { getJSON, getCountries, send, ApiError } from '../lib/api'
   import Flag from '../lib/ui/Flag.svelte'
   import OfflineMaps from './OfflineMaps.svelte'
   import Updates from './Updates.svelte'
@@ -110,7 +110,7 @@
       /* restano i preset standard */
     }
     try {
-      countries = (await getJSON<Country[]>('/countries'))
+      countries = (await getCountries())
         .filter((c) => c.code !== 'none')
         .sort((a, b) => b.nodes - a.nodes)
     } catch {

@@ -1,20 +1,22 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { getJSON } from '../lib/api'
+  import { getCountries } from '../lib/api'
   import { app } from '../lib/stores.svelte'
   import { AGE_OPTIONS, SOURCE_OPTIONS, toggleIn } from '../lib/nodes'
   import Flag from '../lib/ui/Flag.svelte'
   import Icon from '../lib/ui/Icon.svelte'
   import Check from '../lib/ui/Check.svelte'
+  import Button from '../lib/ui/Button.svelte'
 
   type Country = { code: string; name: string; nodes: number }
 
   let countries = $state<Country[]>([])
   let error = $state('')
 
-  onMount(async () => {
+  async function loadCountries() {
+    error = ''
     try {
-      const list = await getJSON<Country[]>('/countries')
+      const list = await getCountries()
       countries = [...list].sort((a, b) => {
         if (a.code === 'none') return 1
         if (b.code === 'none') return -1
@@ -23,7 +25,9 @@
     } catch {
       error = 'Elenco nazioni non disponibile'
     }
-  })
+  }
+
+  onMount(loadCountries)
 
   const countryLabel = $derived(app.filter.countries.length === 0 ? 'tutte' : String(app.filter.countries.length))
 </script>
@@ -31,7 +35,7 @@
 <div class="filters">
   <div class="search">
     <Icon name="search" size={18} />
-    <input class="ui-input" type="search" placeholder="Cerca nome o id…" aria-label="Cerca nodi" bind:value={app.filter.text} />
+    <input class="ui-input" type="search" placeholder="Cerca nome, id, modello o ruolo…" aria-label="Cerca nodi" bind:value={app.filter.text} />
   </div>
   <div class="row" role="group" aria-label="Ultimo contatto">
     {#each AGE_OPTIONS as o (o.label)}
@@ -49,7 +53,7 @@
   <Check bind:checked={app.filter.links} label="Collegamenti" />
   <details>
     <summary>Nazioni ({countryLabel})</summary>
-    {#if error}<p class="err">{error}</p>{/if}
+    {#if error}<p class="err">{error} <Button onclick={loadCountries}>Riprova</Button></p>{/if}
     <div class="row wrap">
       <button type="button" class="ui-chip" aria-pressed={app.filter.countries.length === 0} onclick={() => (app.filter.countries = [])}>Tutte</button>
       {#each countries as c (c.code)}

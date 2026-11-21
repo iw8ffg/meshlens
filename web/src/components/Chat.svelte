@@ -21,12 +21,13 @@
     type MqttSendBody,
   } from '../lib/send'
   import { keepAboveKeyboard } from '../lib/keyboard'
-  import { app, addMessage, addRadioHistory, attachChat } from '../lib/stores.svelte'
+  import { app, addMessage, addRadioHistory, attachChat, rememberConv } from '../lib/stores.svelte'
   import Badge from '../lib/ui/Badge.svelte'
   import BrokerBadge from '../lib/ui/BrokerBadge.svelte'
   import Banner from '../lib/ui/Banner.svelte'
   import Button from '../lib/ui/Button.svelte'
   import Empty from '../lib/ui/Empty.svelte'
+  import { emptyRadioHint, navigate } from '../lib/shell/navigate'
   import Field from '../lib/ui/Field.svelte'
   import Modal from '../lib/ui/Modal.svelte'
   import Select from '../lib/ui/Select.svelte'
@@ -95,6 +96,7 @@
       chat.detach()
     }
   })
+  $effect(() => rememberConv(conv))
 
   const localIds = $derived(localNodeIds(app.radios))
   const groups = $derived(groupMessages(app.radioMessages, localIds))
@@ -310,7 +312,17 @@
         </li>
       {/if}
       {#if olderError}<li role="alert"><Banner kind="danger" title={olderError} /></li>{/if}
-      {#if msgs.length === 0}<li><Empty icon="chat" title="Nessun messaggio" /></li>{/if}
+      {#if msgs.length === 0}
+        {@const hint = emptyRadioHint(app.radios.filter((r) => r.state === 'connected').length)}
+        <li>
+          <Empty icon="chat" title={hint.title}>
+            {hint.text}
+            {#snippet action()}
+              {#if hint.action}{@const a = hint.action}<Button onclick={() => navigate(a.tab)}>{a.label}</Button>{/if}
+            {/snippet}
+          </Empty>
+        </li>
+      {/if}
       {#each msgs as m (m.key)}
         {@const out = m.direction === 'out'}
         <li class="msg" class:out>

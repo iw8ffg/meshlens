@@ -5,8 +5,14 @@
   import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url'
   import type { Point } from 'geojson'
   import 'maplibre-gl/dist/maplibre-gl.css'
-  import { app, coverage, maps } from '../lib/stores.svelte'
+  import { app, coverage, maps, openChat } from '../lib/stores.svelte'
+  import { viewport } from '../lib/viewport.svelte'
+  import { navigate } from '../lib/shell/navigate'
+  import { haversineM, myOrigin } from '../lib/distance'
+  import { copyText } from '../lib/clipboard'
+  import { geopos } from '../lib/geopos.svelte'
   import { bboxFromBounds } from '../lib/maps'
+  import { loadView, saveView } from '../lib/viewstate'
   import { formatMeters } from '../lib/geo'
   import { coverageSession, getJSON, links as fetchLinks, patchCoverage } from '../lib/api'
   import { coverageGeoJSON } from '../lib/coverage'
@@ -23,26 +29,40 @@
   import { readDocumentTokens } from '../lib/map/tokens'
   import type { MapTokens } from '../lib/map/tokens'
   import { registerSprites } from '../lib/map/sprites'
-  import { addNodeLayers, EMPTY, isFavorite, isMine, nodeFeatures, precisionData, ringKind, selectionData } from '../lib/map/NodeLayer'
+  import { addNodeLayers, CLUSTER_OPTS, EMPTY, isFavorite, isMine, nodeFeatures, precisionData, ringKind, selectionData } from '../lib/map/NodeLayer'
   import { addLinkLayers } from '../lib/map/LinkLayer'
+  import { addMeLayers, meData } from '../lib/map/MeLayer'
+  import { locate } from '../lib/map/geolocate'
   import { addTrackLayer, trackData } from '../lib/map/TrackLayer'
   import { addCoverageLayers } from '../lib/map/CoverageLayer'
+  import { addRulerLayers } from '../lib/map/RulerLayer'
+  import { addRulerPoint, rulerGeoJSON, rulerText } from '../lib/map/ruler'
+  import type { RulerPoint } from '../lib/map/ruler'
   import Legend from '../lib/map/Legend.svelte'
   import MapControls from '../lib/map/MapControls.svelte'
+  import MapSearch from '../lib/map/MapSearch.svelte'
+  import RulerBar from '../lib/map/RulerBar.svelte'
   import NodePopup from '../lib/map/NodePopup.svelte'
   import Icon from '../lib/ui/Icon.svelte'
   import Button from '../lib/ui/Button.svelte'
+  import ActiveFilters from './ActiveFilters.svelte'
 
   let {
     nodes,
+    total,
     now,
     track,
     focus,
+    onpick,
   }: {
     nodes: Node[]
+    /** Numero di nodi in `app.nodes`, prima dei filtri. */
+    total: number
     now: number
     track: [number, number][] | null
     focus: { lat: number; lon: number; seq: number } | null
+    /** Apre i dettagli di un nodo (pickId di App). */
+    onpick: (id: string) => void
   } = $props()
 
   const STYLE = 'https://tiles.openfreemap.org/styles/liberty'
@@ -55,6 +75,8 @@
 
   let el: HTMLDivElement
   let map: maplibregl.Map | null = null
+  let jumpFocus = false
+  let mapReady = $state(false) // la mappa non e' reattiva: l'effetto del focus dipende da questo flag
   let ready = false
   let lastPush = 0
   let timer: ReturnType<typeof setTimeout> | null = null
@@ -133,26 +155,28 @@
       // ordine dal basso: collegamenti e traccia, nodi, prova di copertura
       addLinkLayers(m, tk)
       addTrackLayer(m, tk)
-      addNodeLayers(m, tk, hasGlyphs)
+      addNodeLayers(m, tk, hasGlyphs, untrack(() => cluster))
       addCoverageLayers(m, tk)
+      addMeLayers(m, tk) // sotto il righello, sopra i nodi
+      addRulerLayers(m, tk)
       if (!bound) {
         bound = true
         for (const l of ['cov-points', 'cov-missing']) {
           m.on('click', l, (e: maplibregl.MapLayerMouseEvent) => {
-            if (picking) return
+            if (picking || tool !== 'none') return
             const p = e.features?.[0]?.properties
             if (p) showCoveragePopup(e.lngLat, p, l === 'cov-missing')
           })
           m.on('mouseenter', l, () => {
-            if (!picking) m.getCanvas().style.cursor = 'pointer'
+            if (!picking && tool === 'none') m.getCanvas().style.cursor = 'pointer'
           })
           m.on('mouseleave', l, () => {
-            if (!picking) m.getCanvas().style.cursor = ''
+            m.getCanvas().style.cursor = restCursor()
           })
         }
         for (const l of ['points', 'points-mine', 'points-fav']) {
           m.on('click', l, (e: maplibregl.MapLayerMouseEvent) => {
-            if (picking) return
+            if (picking || tool !== 'none') return
             const id = e.features?.[0]?.properties?.id
             if (typeof id !== 'string') return
             app.selectedId = id
@@ -160,6 +184,7 @@
           })
         }
         m.on('click', 'clusters', async (e: maplibregl.MapLayerMouseEvent) => {
+          if (picking || tool !== 'none') return
           const f = e.features?.[0]
           if (!f) return
           try {
@@ -171,15 +196,17 @@
         })
         for (const l of ['links', 'links-trace', 'links-gateway']) {
           m.on('click', l, (e: maplibregl.MapLayerMouseEvent) => {
-            if (picking) return
+            if (picking || tool !== 'none') return
             if (m.queryRenderedFeatures(e.point, { layers: ['points', 'points-mine', 'points-fav', 'clusters'] }).length > 0) return
             const p = e.features?.[0]?.properties
             if (p) showLinkPopup(e.lngLat, p)
           })
         }
         for (const l of ['points', 'points-mine', 'points-fav', 'clusters', 'links', 'links-trace', 'links-gateway']) {
-          m.on('mouseenter', l, () => (m.getCanvas().style.cursor = 'pointer'))
-          m.on('mouseleave', l, () => (m.getCanvas().style.cursor = ''))
+          m.on('mouseenter', l, () => {
+            if (!picking && tool === 'none') m.getCanvas().style.cursor = 'pointer'
+          })
+          m.on('mouseleave', l, () => (m.getCanvas().style.cursor = restCursor()))
         }
       }
       ready = true
@@ -188,6 +215,8 @@
       pushTrack()
       pushLinks()
       pushCoverage()
+      pushRuler()
+      pushMe()
     }
 
     const styleFor = (m: EffectiveMode): maplibregl.StyleSpecification => {
@@ -336,12 +365,21 @@
       const b = map.getBounds()
       maps.bounds = bboxFromBounds(b)
     }
+    // vista ricordata: centro con 5 decimali, zoom con 2
+    const saveCamera = () => {
+      if (!map) return
+      const c = map.getCenter().wrap()
+      const round = (x: number, d: number) => Number(x.toFixed(d))
+      saveView(localStorage, { map: { lon: round(c.lng, 5), lat: round(c.lat, 5), zoom: round(map.getZoom(), 2) } })
+    }
     let boundsTimer: ReturnType<typeof setTimeout> | null = null
     const onMoveEnd = () => {
       if (boundsTimer) return
       boundsTimer = setTimeout(() => {
         boundsTimer = null
-        if (!disposed) publishBounds()
+        if (disposed) return
+        publishBounds()
+        saveCamera()
       }, 250)
     }
 
@@ -363,8 +401,11 @@
       boot = needsStyle
       notice = noticeFor(needsStyle ? wanted : current)
       offlineBadge = current === 'offline'
-      map = new maplibregl.Map({ container: el, style: styleFor(current), center: [12.5, 42.5], zoom: 5, attributionControl: { compact: true }, fadeDuration: 0 })
+      const cam = loadView(localStorage).map ?? { lon: 12.5, lat: 42.5, zoom: 5 }
+      map = new maplibregl.Map({ container: el, style: styleFor(current), center: [cam.lon, cam.lat], zoom: cam.zoom, attributionControl: { compact: true }, fadeDuration: 0 })
       map.on('style.load', () => setup(current !== 'fallback'))
+      jumpFocus = focus !== null // link diretto: si apre sul nodo, non sulla vista salvata
+      mapReady = true
       map.on('moveend', onMoveEnd)
       publishBounds()
       window.addEventListener('online', onOnline)
@@ -386,10 +427,13 @@
       if (verifyTimer) clearTimeout(verifyTimer)
       if (timer) clearTimeout(timer)
       cancelPick()
+      closeRuler()
+      if (noticeTimer) clearTimeout(noticeTimer)
       popup?.remove()
       map?.remove()
       map = null
       ready = false
+      mapReady = false
     }
   })
 
@@ -419,31 +463,63 @@
     const n = app.nodes.get(id)
     if (!n) return
     const long = n.long_name && n.long_name !== (n.short_name || '') ? n.long_name : undefined
+    const rows = [
+      { label: 'Ultimo contatto', value: timeAgo(n.last_heard, now) },
+      { label: 'SNR', value: snrText(n.last_snr) },
+      { label: 'Salti', value: hopsLabel(n.hops, n.hops_min) },
+    ]
+    const pos = n.lat !== null && n.lon !== null ? { lat: n.lat, lon: n.lon } : null
+    const origin = myOrigin(app.nodes, app.radios, geopos.pos)
+    const isOrigin = origin !== null && origin.label !== 'dalla tua posizione' && (n.is_local_radio === true || app.radios.some((r) => r.state === 'connected' && r.my_node_id === id))
+    if (origin && pos && !isOrigin) rows.push({ label: 'Distanza', value: `${formatMeters(haversineM(origin, pos))} ${origin.label}` })
+    const radio = app.radios.find((r) => r.state === 'connected')
+    const actions: NonNullable<PopupProps['actions']> = []
+    if (radio) {
+      actions.push({
+        label: 'Messaggio diretto',
+        icon: 'send',
+        onclick: () => {
+          openChat(`dm:${radio.id}:${id}`)
+          navigate('chat')
+          popup?.remove()
+        },
+      })
+    }
+    actions.push({
+      label: 'Dettagli',
+      icon: 'info',
+      onclick: () => {
+        onpick(id)
+        popup?.remove()
+      },
+    })
+    actions.push({ label: 'Copia id', icon: 'copy', onclick: () => copyText(id) })
+    if (pos) actions.push({ label: 'Copia coordinate', icon: 'pin', onclick: () => copyText(`${pos.lat.toFixed(5)}, ${pos.lon.toFixed(5)}`) })
     openPopup(at, {
       title: nodeName(id),
       subtitle: long ?? id,
       source: ringKind(n),
       mine: isMine(n),
       favorite: isFavorite(n),
-      rows: [
-        { label: 'Ultimo contatto', value: timeAgo(n.last_heard, now) },
-        { label: 'SNR', value: snrText(n.last_snr) },
-        { label: 'Salti', value: hopsLabel(n.hops, n.hops_min) },
-      ],
+      rows,
+      actions,
     })
   }
 
   function showLinkPopup(at: maplibregl.LngLat, p: Record<string, unknown>) {
     const age = Number(p.age_h)
     const eta = age < 1 ? 'meno di 1 h fa' : `${num(Math.round(age))} h fa`
-    openPopup(at, {
-      title: `${nodeName(String(p.from_id))} ↔ ${nodeName(String(p.to_id))}`,
-      rows: [
-        { label: 'SNR', value: snrText(p.snr) },
-        { label: 'Fonte', value: SOURCE_LABEL[String(p.source)] ?? String(p.source) },
-        { label: 'Visto', value: eta },
-      ],
-    })
+    const a = app.nodes.get(String(p.from_id))
+    const b = app.nodes.get(String(p.to_id))
+    const rows = [
+      { label: 'SNR', value: snrText(p.snr) },
+      { label: 'Fonte', value: SOURCE_LABEL[String(p.source)] ?? String(p.source) },
+      { label: 'Visto', value: eta },
+    ]
+    if (a && b && a.lat !== null && a.lon !== null && b.lat !== null && b.lon !== null) {
+      rows.push({ label: 'Lunghezza', value: formatMeters(haversineM({ lat: a.lat, lon: a.lon }, { lat: b.lat, lon: b.lon })) })
+    }
+    openPopup(at, { title: `${nodeName(String(p.from_id))} ↔ ${nodeName(String(p.to_id))}`, rows })
   }
 
   function showCoveragePopup(at: maplibregl.LngLat, p: Record<string, unknown>, missing: boolean) {
@@ -485,6 +561,113 @@
     map?.fitBounds(b, { padding: 60, maxZoom: 16, duration: 0 })
   }
 
+  // Strumenti: righello a due punti (i clic su nodi, collegamenti e copertura restano disattivati)
+  let tool = $state<'none' | 'ruler'>('none')
+  let rulerPts = $state<RulerPoint[]>([])
+  let cluster = $state(loadView(localStorage).cluster)
+  let rulerHandler: ((e: maplibregl.MapMouseEvent) => void) | null = null
+
+  const restCursor = () => (picking || tool === 'ruler' ? 'crosshair' : '')
+
+  function pushRuler() {
+    const pts = rulerPts // letto prima della guardia: l'effetto dipende sempre da rulerPts
+    if (!ready) return
+    src('ruler')?.setData(rulerGeoJSON(pts))
+  }
+
+  function closeRuler() {
+    if (rulerHandler) map?.off('click', rulerHandler)
+    rulerHandler = null
+    tool = 'none'
+    rulerPts = []
+    if (map) map.getCanvas().style.cursor = restCursor()
+  }
+
+  function startRuler() {
+    if (!map || tool === 'ruler') return
+    cancelPick()
+    popup?.remove()
+    tool = 'ruler'
+    map.getCanvas().style.cursor = 'crosshair'
+    const m = map
+    rulerHandler = (e) => {
+      const layers = ['points', 'points-mine', 'points-fav'].filter((l) => m.getLayer(l))
+      const f = layers.length ? m.queryRenderedFeatures(e.point, { layers })[0] : undefined
+      const id = f?.properties?.id
+      const snap = f && typeof id === 'string' && f.geometry.type === 'Point'
+      const [lon, lat] = snap ? (f.geometry as Point).coordinates : [e.lngLat.lng, e.lngLat.lat]
+      rulerPts = addRulerPoint(rulerPts, { lon, lat, nodeId: snap ? (id as string) : null })
+    }
+    m.on('click', rulerHandler)
+  }
+
+  function toggleRuler() {
+    if (tool === 'ruler') closeRuler()
+    else startRuler()
+  }
+
+  // Ricerca di un nodo e «Dove sono»
+  let searchOpen = $state(false)
+  let locating = $state(false)
+  let noticeTimer: ReturnType<typeof setTimeout> | null = null
+
+  function pushMe() {
+    if (!ready) return
+    src('me')?.setData(meData(geopos.pos))
+  }
+
+  function pickFromSearch(id: string) {
+    closeRuler()
+    cancelPick()
+    onpick(id)
+    searchOpen = false
+    const n = app.nodes.get(id)
+    if (n && n.lat !== null && n.lon !== null) showNodePopup(new maplibregl.LngLat(n.lon, n.lat), id)
+  }
+
+  function showNotice(text: string) {
+    notice = text
+    if (noticeTimer) clearTimeout(noticeTimer)
+    noticeTimer = setTimeout(() => {
+      noticeTimer = null
+      if (notice === text) notice = ''
+    }, 6000)
+  }
+
+  async function whereAmI() {
+    if (locating) return
+    locating = true
+    try {
+      const p = await locate(navigator.geolocation, window.isSecureContext)
+      geopos.pos = p
+      pushMe()
+      map?.easeTo({ center: [p.lon, p.lat], zoom: Math.max(map.getZoom(), 13) })
+    } catch (err) {
+      showNotice(err instanceof Error ? err.message : 'Posizione non disponibile')
+    } finally {
+      locating = false
+    }
+  }
+
+  function toggleCluster() {
+    cluster = !cluster
+    void src('nodes')?.setClusterOptions({ cluster, ...CLUSTER_OPTS })
+    saveView(localStorage, { cluster })
+  }
+
+  // Escape chiude il righello (listener attivo solo mentre il righello e' acceso)
+  $effect(() => {
+    if (tool !== 'ruler') return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !e.defaultPrevented) closeRuler()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  })
+  $effect(() => {
+    pushRuler()
+  })
+
   // Scelta della posizione della base: un solo tocco sulla mappa
   let picking = $state(false)
   let pickError = $state('')
@@ -494,11 +677,12 @@
     if (pickHandler) map?.off('click', pickHandler)
     pickHandler = null
     picking = false
-    if (map) map.getCanvas().style.cursor = ''
+    if (map) map.getCanvas().style.cursor = restCursor()
   }
 
   function startPick() {
     if (!map || picking) return
+    closeRuler()
     pickError = ''
     picking = true
     map.getCanvas().style.cursor = 'crosshair'
@@ -614,36 +798,73 @@
     })
   })
   $effect(() => {
-    if (focus && map) map.easeTo({ center: [focus.lon, focus.lat], zoom: Math.max(map.getZoom(), 10) })
+    const f = focus
+    const mr = mapReady
+    if (!f || !mr || !map) return
+    const view = { center: [f.lon, f.lat] as [number, number], zoom: Math.max(map.getZoom(), 10) }
+    if (jumpFocus) map.jumpTo(view)
+    else map.easeTo(view)
+    jumpFocus = false
   })
 
 </script>
 
 <div class="map" bind:this={el}></div>
-<MapControls onzoomin={() => map?.zoomIn({ duration: 0 })} onzoomout={() => map?.zoomOut({ duration: 0 })} onfit={fitAll} />
-<Legend />
+<MapControls
+  onzoomin={() => map?.zoomIn({ duration: 0 })}
+  onzoomout={() => map?.zoomOut({ duration: 0 })}
+  onfit={fitAll}
+  ruler={tool === 'ruler'}
+  {cluster}
+  onruler={toggleRuler}
+  oncluster={toggleCluster}
+  onsearch={() => (searchOpen = !searchOpen)}
+  onlocate={whereAmI}
+  {locating}
+/>
+<Legend collapse={searchOpen || tool === 'ruler'} />
 {#if offlineBadge}
   <div class="badge" role="status"><Icon name="cloudoff" size={16} />Mappa offline</div>
 {/if}
-{#if notice}<div class="notice" role="status">{notice}</div>{/if}
-{#if coverage.detail}
-  <div class="covbar">
-    <div class="row">
-      <b>{coverage.detail.name}</b>
-      <Button onclick={closeTest}>Chiudi prova</Button>
-    </div>
-    {#if coverage.detail.base_lat === null}
-      <p>Posizione della base sconosciuta: tocca la mappa per impostarla</p>
-    {/if}
-    {#if picking}
-      <p>Tocca la mappa nel punto in cui si trova la base.</p>
-      <Button kind="ghost" onclick={cancelPick}>Annulla</Button>
-    {:else}
-      <Button onclick={startPick}>Imposta posizione base</Button>
-    {/if}
-    {#if pickError}<p class="err">{pickError}</p>{/if}
+{#snippet noNodesCard()}
+  <div class="nonodes" role="status">
+    <span>Nessun nodo con i filtri attivi</span>
+    <ActiveFilters compact />
   </div>
+{/snippet}
+{#if nodes.length === 0 && total > 0 && !viewport.phone}
+  {@render noNodesCard()}
 {/if}
+{#if notice}<div class="notice" role="status">{notice}</div>{/if}
+<div class="topleft">
+  {#if nodes.length === 0 && total > 0 && viewport.phone}
+    {@render noNodesCard()}
+  {/if}
+  {#if searchOpen}
+    <MapSearch onpick={pickFromSearch} onclose={() => (searchOpen = false)} />
+  {/if}
+  {#if coverage.detail}
+    <div class="covbar">
+      <div class="row">
+        <b>{coverage.detail.name}</b>
+        <Button onclick={closeTest}>Chiudi prova</Button>
+      </div>
+      {#if coverage.detail.base_lat === null}
+        <p>Posizione della base sconosciuta: tocca la mappa per impostarla</p>
+      {/if}
+      {#if picking}
+        <p>Tocca la mappa nel punto in cui si trova la base.</p>
+        <Button kind="ghost" onclick={cancelPick}>Annulla</Button>
+      {:else}
+        <Button onclick={startPick}>Imposta posizione base</Button>
+      {/if}
+      {#if pickError}<p class="err">{pickError}</p>{/if}
+    </div>
+  {/if}
+  {#if tool === 'ruler'}
+    <RulerBar text={rulerText(rulerPts, nodeName)} onclear={() => (rulerPts = [])} onclose={closeRuler} />
+  {/if}
+</div>
 
 <style>
   .map {
@@ -651,11 +872,22 @@
     inset: 0;
     background: var(--map-land);
   }
-  .covbar {
+  .topleft {
     position: absolute;
     top: var(--space-3);
     left: var(--space-3);
     z-index: var(--z-map-ui);
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-2);
+    pointer-events: none;
+  }
+  :global(.vp-phone) .topleft {
+    top: calc(var(--touch-min) + var(--space-3) * 2);
+  }
+  .covbar {
+    pointer-events: auto;
     max-width: 280px;
     padding: var(--space-3);
     border-radius: var(--radius-lg);
@@ -667,9 +899,6 @@
     display: flex;
     flex-direction: column;
     gap: var(--space-2);
-  }
-  :global(.vp-phone) .covbar {
-    top: calc(var(--touch-min) + var(--space-3) * 2);
   }
   .covbar p {
     margin: 0;
@@ -702,6 +931,37 @@
     transform: translateX(-50%);
     max-width: calc(100% - var(--space-8));
     text-align: center;
+  }
+  .nonodes {
+    position: absolute;
+    z-index: var(--z-map-ui);
+    bottom: calc(var(--space-8) + var(--space-12));
+    left: 50%;
+    transform: translateX(-50%);
+    max-width: calc(100% - var(--space-8));
+    padding: var(--space-3);
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--line);
+    background: var(--surface);
+    color: var(--ink);
+    box-shadow: var(--shadow-2);
+    font-size: 14px;
+    line-height: 20px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-2);
+    text-align: center;
+  }
+  :global(.vp-phone) .nonodes {
+    box-sizing: border-box;
+    /* su telefono sta in cima, nella colonna di .topleft, lontano dal pannello in basso */
+    position: static;
+    transform: none;
+    align-items: flex-start;
+    text-align: left;
+    pointer-events: auto;
+    max-width: calc(100vw - var(--space-3) * 2 - var(--touch-min) - var(--space-2));
   }
   .badge {
     top: var(--space-3);

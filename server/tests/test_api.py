@@ -550,6 +550,15 @@ async def test_alerts_publish_only_on_change(ctx):
     assert q.qsize() == 1
 
 
+async def test_alerts_include_chutil_for_mine(ctx):
+    now = time.time()
+    ctx.store.add_telemetry(1, now - 300, TelemetryData(channel_utilization=30.0))
+    ctx.store.add_telemetry(1, now - 600, TelemetryData(channel_utilization=34.0))
+    async with logged(ctx) as c:
+        alerts = (await c.get("/api/alerts")).json()
+        assert [(a["kind"], a["value"]) for a in alerts if a["kind"] == "chutil_high"]             == [("chutil_high", 32.0)]
+
+
 async def test_telemetry_route(ctx):
     now = time.time()
     ctx.store.add_telemetry(1, now - 60, TelemetryData(50, 3.9, 1.0, 0.5, 5))

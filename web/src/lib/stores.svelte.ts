@@ -6,6 +6,7 @@ import { shouldStore } from './traceroute'
 import { appendTrackPoint, upsertPoint } from './coverage'
 import { updateStatus } from './api'
 import { shouldReloadStatus } from './update'
+import { saveView } from './viewstate'
 import type { Bbox, ConfigJob, MapJob, UpdateJob, UpdateStatus, Alert, CoverageDetail, CoveragePoint, CoverageSession, CoverageTrackPoint, Message, MessageStatus, Node, Radio, Status, Traceroute } from './types'
 
 const MAX_MESSAGES = 500
@@ -188,4 +189,9 @@ export function setUpdateJob(j: UpdateJob): void {
       .then(setUpdateStatus)
       .catch(() => {})
   }
+}
+
+/** Ultima conversazione aperta in Messaggi: si riapre al prossimo avvio. */
+export function rememberConv(key: string): void {
+  saveView(localStorage, { conv: key })
 }

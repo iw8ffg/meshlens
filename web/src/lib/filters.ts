@@ -11,7 +11,8 @@ export type NodeFilter = {
 }
 
 export function matchNode(n: Node, f: NodeFilter, now: number): boolean {
-  if (f.countries.length > 0) {
+  // I miei nodi e la radio locale restano sempre in vista, qualunque nazione sia scelta.
+  if (f.countries.length > 0 && !n.is_mine && !n.is_local_radio) {
     const key = n.country ?? 'none'
     if (!f.countries.includes(key)) return false
   }
@@ -20,10 +21,49 @@ export function matchNode(n: Node, f: NodeFilter, now: number): boolean {
   if (f.sources.length > 0 && !n.sources.some((s) => f.sources.includes(s))) return false
   const t = f.text.trim().toLowerCase()
   if (t) {
-    const hay = [n.long_name, n.short_name, n.id].map((s) => (s ?? '').toLowerCase())
+    const hay = [n.long_name, n.short_name, n.id, n.hw_model, n.role].map((s) => (s ?? '').toLowerCase())
     if (!hay.some((s) => s.includes(t))) return false
   }
   return true
+}
+
+export type ActiveFilter = { key: 'countries' | 'age' | 'sources' | 'text' | 'favorites'; label: string }
+
+const AGE_LABEL: Record<number, string> = { 2: '2 h', 24: '24 h', 168: '7 g' }
+const SOURCE_LABEL: Record<string, string> = { rf: 'Radio', mqtt: 'MQTT' }
+
+/** Elenco dei filtri che nascondono qualcosa, con l'etichetta da mostrare. `links` non è un filtro. */
+export function activeFilters(f: NodeFilter, countryName: (code: string) => string): ActiveFilter[] {
+  const out: ActiveFilter[] = []
+  if (f.countries.length === 1) {
+    out.push({ key: 'countries', label: f.countries[0] === 'none' ? 'Nazione sconosciuta' : countryName(f.countries[0]) })
+  } else if (f.countries.length > 1) {
+    out.push({ key: 'countries', label: `${f.countries.length} nazioni` })
+  }
+  if (f.maxAgeH !== null) out.push({ key: 'age', label: `Ultimo contatto: ${AGE_LABEL[f.maxAgeH] ?? `${f.maxAgeH} h`}` })
+  if (f.sources.length > 0) out.push({ key: 'sources', label: `Fonte: ${f.sources.map((s) => SOURCE_LABEL[s] ?? s).join(', ')}` })
+  if (f.text.trim()) out.push({ key: 'text', label: `Ricerca: “${f.text.trim()}”` })
+  if (f.favorites) out.push({ key: 'favorites', label: 'Solo preferiti' })
+  return out
+}
+
+export function clearFilter(f: NodeFilter, key: ActiveFilter['key']): NodeFilter {
+  switch (key) {
+    case 'countries':
+      return { ...f, countries: [] }
+    case 'age':
+      return { ...f, maxAgeH: null }
+    case 'sources':
+      return { ...f, sources: [] }
+    case 'text':
+      return { ...f, text: '' }
+    case 'favorites':
+      return { ...f, favorites: false }
+  }
+}
+
+export function clearAllFilters(f: NodeFilter): NodeFilter {
+  return { countries: [], maxAgeH: null, sources: [], text: '', links: f.links, favorites: false }
 }
 
 export function ageClass(lastHeard: number | null, now: number): 'fresh' | 'recent' | 'old' {
