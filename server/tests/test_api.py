@@ -360,3 +360,18 @@ async def test_put_settings_republishes_alerts(ctx):
         r = await c.put("/api/settings", json={"battery_alert_pct": 50})
         assert r.status_code == 200
     assert q.qsize() == 1 and q.get_nowait()["type"] == "alerts"
+
+
+async def test_mqtt_channels_endpoint(ctx):
+    ctx.mqtt_channel_counts = lambda: {"LongFast": 5, "MediumFast": 9, "Zed": 1}
+    async with client(ctx) as c:
+        assert (await c.get("/api/mqtt/channels")).status_code == 401
+    async with logged(ctx) as c:
+        allon = (await c.get("/api/mqtt/channels")).json()
+        assert [x["enabled"] for x in allon] == [True, True, True]  # lista vuota = tutti
+        r = await c.put("/api/settings", json={"mqtt_channels": ["LongFast", "Gone"]})
+        assert r.status_code == 200 and r.json()["mqtt_channels"] == ["LongFast", "Gone"]
+        got = (await c.get("/api/mqtt/channels")).json()
+        assert got == [{"name": "MediumFast", "count_1h": 9, "enabled": False},
+                       {"name": "LongFast", "count_1h": 5, "enabled": True},
+                       {"name": "Zed", "count_1h": 1, "enabled": False}]

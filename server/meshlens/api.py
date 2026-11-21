@@ -56,6 +56,7 @@ class AppContext:
     config: object | None = None  # ConfigService
     maps: object | None = None  # MapsManager
     updater: object | None = None  # Updater
+    mqtt_channel_counts: Callable[[], dict] = lambda: {}  # canali MQTT visti nell'ultima ora
     exit_callback: Callable[[], None] | None = None  # impostata dal lanciatore
     _alerts: list = field(default_factory=list)
 
@@ -478,6 +479,15 @@ def create_app(ctx: AppContext) -> FastAPI:
         await ctx.on_settings_changed(saved)
         ctx.alerts()  # soglie cambiate: pubblica subito gli avvisi aggiornati
         return _mask_settings(saved)
+
+    @app.get("/api/mqtt/channels", dependencies=[Depends(require_auth)])
+    async def mqtt_channels():
+        wanted = load_settings(ctx.conn)["mqtt_channels"]
+        counts = ctx.mqtt_channel_counts()
+        rows = [{"name": n, "count_1h": c, "enabled": not wanted or n in wanted}
+                for n, c in counts.items()]
+        rows.sort(key=lambda r: (-r["count_1h"], r["name"]))
+        return rows
 
     @app.get("/api/status", dependencies=[Depends(require_auth)])
     async def status():

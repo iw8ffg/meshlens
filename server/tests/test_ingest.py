@@ -209,3 +209,44 @@ def test_traceroute_request_without_id_makes_no_links(env):
     live.nodes[1]["is_mine"] = True
     ing.handle(ev("traceroute", RouteData(None, [], [], [], []), num=3, to_node=1))
     assert store.links(0) == []
+
+
+# ---- filtro canali MQTT ----
+def make_env(locator, settings):
+    conn = connect(":memory:")
+    live = LiveState()
+    got = []
+    ing = Ingestor(live, Store(conn), Deduplicator(), locator, lambda: settings, got.append)
+    return ing, live, got
+
+
+def test_mqtt_channels_empty_accepts_all(locator):
+    ing, live, got = make_env(locator, {"saved_countries": ["IT"], "mqtt_channels": []})
+    ing.handle(ev("text", TextData("a"), num=1, pid=1, channel="MediumFast"))
+    assert 1 in live.nodes and len(got) == 1
+
+
+def test_mqtt_channels_filter_ignores_other_mqtt_but_counts(locator):
+    ing, live, got = make_env(locator, {"saved_countries": ["IT"], "mqtt_channels": ["LongFast"]})
+    ing.handle(ev("text", TextData("a"), num=1, pid=1, channel="MediumFast"))
+    ing.handle(ev("text", TextData("b"), num=2, pid=2, channel="LongFast"))
+    assert 1 not in live.nodes and got and [m["text"] for m in got] == ["b"]
+    assert 2 in live.nodes
+    counts = ing.mqtt_channel_counts(now=NOW + 10)
+    assert counts == {"MediumFast": 1, "LongFast": 1}
+
+
+def test_mqtt_channels_filter_never_applies_to_rf(locator):
+    ing, live, got = make_env(locator, {"saved_countries": ["IT"], "mqtt_channels": ["LongFast"]})
+    ing.handle(ev("text", TextData("a"), num=1, pid=1, source="rf", channel="0", radio_id="r"))
+    assert 1 in live.nodes and len(got) == 1
+    assert ing.mqtt_channel_counts(now=NOW) == {}
+
+
+def test_mqtt_channel_counts_window_one_hour(locator):
+    ing, _, _ = make_env(locator, {"saved_countries": ["IT"]})
+    ing.handle(ev("text", TextData("a"), num=1, pid=1, t=NOW, channel="LongFast"))
+    ing.handle(ev("text", TextData("b"), num=1, pid=2, t=NOW + 3000, channel="LongFast"))
+    assert ing.mqtt_channel_counts(now=NOW + 3100) == {"LongFast": 2}
+    assert ing.mqtt_channel_counts(now=NOW + 3700) == {"LongFast": 1}
+    assert ing.mqtt_channel_counts(now=NOW + 7000) == {}

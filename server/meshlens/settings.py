@@ -22,6 +22,7 @@ DEFAULTS: dict = {
     "update_repo": "iw8ffg/meshlens",
     "update_token": "",
     "update_auto_check": True,
+    "mqtt_channels": [],
     "mqtt": {
         "host": "mqtt.meshtastic.org",
         "port": 1883,
@@ -102,6 +103,11 @@ def _validate(key: str, value) -> None:
     elif key == "update_auto_check":
         if not isinstance(value, bool):
             raise ValueError("update_auto_check deve essere vero o falso")
+    elif key == "mqtt_channels":
+        if not (isinstance(value, list) and len(value) <= 20 and all(
+                isinstance(c, str) and 0 < len(c) <= 32 for c in value)):
+            raise ValueError("mqtt_channels deve essere una lista di al massimo 20 nomi "
+                             "(da 1 a 32 caratteri)")
     elif key == "mqtt":
         _validate_mqtt(value)
 

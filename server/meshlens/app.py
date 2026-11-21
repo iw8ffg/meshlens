@@ -204,7 +204,9 @@ def build(data_dir: Path, connector_factory=MqttConnector,
                          launcher_exit=lambda d: rt.ctx.request_exit(d))
     rt.auto_update = auto_update
     ctx = AppContext(live=live, store=store, auth=auth, bus=bus, locator=locator, conn=conn,
-                     mqtt_status=rt.mqtt_status, on_settings_changed=rt.on_settings_changed,
+                     mqtt_status=rt.mqtt_status,
+                     mqtt_channel_counts=ingestor.mqtt_channel_counts,
+                     on_settings_changed=rt.on_settings_changed,
                      static_dir=static_dir, radios=rt.radios, coverage=coverage,
                      config=rt.config, maps=rt.maps, updater=rt.updater, data_dir=Path(data_dir))
     rt.ctx = ctx

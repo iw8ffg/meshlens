@@ -65,8 +65,34 @@ class Ingestor:
         self._radio_nodes: dict[str, int] = {}  # radio_id -> numero del nodo della radio
         # (nodo, packet id) gia' visti da MQTT: serve a contare i gateway anche se l'RF e' arrivato prima
         self._mqtt_seen: OrderedDict[tuple[int, int], None] = OrderedDict()
+        # canali visti da MQTT (anche se scartati): canale -> {minuto: conteggio}
+        self._channel_buckets: dict[str, dict[int, int]] = {}
+
+    def _note_mqtt_channel(self, name: str, t: float) -> None:
+        buckets = self._channel_buckets.setdefault(name, {})
+        minute = int(t // 60)
+        buckets[minute] = buckets.get(minute, 0) + 1
+        for m in [m for m in buckets if m < minute - 61]:
+            del buckets[m]
+
+    def mqtt_channel_counts(self, now: float | None = None) -> dict[str, int]:
+        """Eventi MQTT per canale nell'ultima ora (compresi quelli scartati dal filtro)."""
+        minute = int((time.time() if now is None else now) // 60)
+        out: dict[str, int] = {}
+        for name, buckets in list(self._channel_buckets.items()):
+            total = sum(c for m, c in buckets.items() if minute - 60 < m <= minute)
+            if total:
+                out[name] = total
+            elif all(m <= minute - 60 for m in buckets):
+                del self._channel_buckets[name]
+        return out
 
     def handle(self, ev: MeshEvent) -> None:
+        if ev.source == "mqtt" and ev.channel:
+            self._note_mqtt_channel(ev.channel, ev.rx_time)
+            wanted = self.get_settings().get("mqtt_channels") or []
+            if wanted and ev.channel not in wanted:
+                return  # canale non ascoltato: ignorato del tutto
         num = ev.from_node
         node = self.live.nodes.get(num)
         if node is None:

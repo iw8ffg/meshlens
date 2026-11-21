@@ -62,3 +62,13 @@ def test_alert_settings_defaults_and_validation(conn):
                 {"battery_alert_pct": "20"}):
         with pytest.raises(ValueError):
             save_settings(conn, bad)
+
+
+def test_mqtt_channels_default_and_validation(conn):
+    assert load_settings(conn)["mqtt_channels"] == []
+    assert save_settings(conn, {"mqtt_channels": ["LongFast", "Custom"]})["mqtt_channels"] == [
+        "LongFast", "Custom"]
+    for bad in ("LongFast", [""], ["a" * 33], [1], [f"c{i}" for i in range(21)], None):
+        with pytest.raises(ValueError):
+            save_settings(conn, {"mqtt_channels": bad})
+    save_settings(conn, {"mqtt_channels": ["x" * 32] * 1})
