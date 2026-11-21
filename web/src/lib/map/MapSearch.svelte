@@ -16,10 +16,22 @@
   let q = $state('')
   let active = $state(0)
   let input: HTMLInputElement
-  const now = Math.floor(Date.now() / 1000)
+  let root: HTMLDivElement
+  let now = $state(Math.floor(Date.now() / 1000))
   const results = $derived(searchNodes(app.nodes.values(), q))
 
-  onMount(() => input.focus())
+  onMount(() => {
+    input.focus()
+    const t = setInterval(() => (now = Math.floor(Date.now() / 1000)), 30_000)
+    return () => clearInterval(t)
+  })
+
+  // Focus altrove con la ricerca vuota: si chiude (i controlli mappa gestiscono da soli il proprio pulsante)
+  function onfocusout(e: FocusEvent) {
+    const next = e.relatedTarget as HTMLElement | null
+    if (q.trim() || root.contains(next) || next?.closest('.stack')) return
+    onclose()
+  }
 
   $effect(() => {
     void q
@@ -43,7 +55,8 @@
   }
 </script>
 
-<div class="search">
+<div class="search" bind:this={root} onfocusout={onfocusout}>
+  <div class="top">
   <input
     bind:this={input}
     bind:value={q}
@@ -55,6 +68,8 @@
     autocomplete="off"
     onkeydown={onkey}
   />
+  <button type="button" class="close" aria-label="Chiudi ricerca" title="Chiudi ricerca" onclick={onclose}><Icon name="x" size={18} /></button>
+  </div>
   {#if q.trim()}
     {#if results.length}
       <ul id="map-search-list" role="listbox" aria-label="Risultati">
@@ -91,11 +106,31 @@
     gap: var(--space-2);
   }
   :global(.vp-phone) .search {
-    width: calc(100vw - var(--space-3) * 2);
+    /* lascia libera la colonna dei controlli mappa a destra */
+    width: calc(100vw - var(--space-3) * 2 - var(--touch-min) - var(--space-2));
+  }
+  .top {
+    display: flex;
+    gap: var(--space-2);
+    align-items: center;
+  }
+  .top input {
+    flex: 1;
+    min-width: 0;
+  }
+  button.close {
+    flex: none;
+    width: var(--control-h-desktop);
+    min-height: var(--control-h-desktop);
+    justify-content: center;
+    padding: 0;
+  }
+  :global(.vp-phone) button.close {
+    width: var(--touch-min);
+    min-height: var(--touch-min);
   }
   input {
     box-sizing: border-box;
-    width: 100%;
     height: var(--control-h-desktop);
     padding: 0 var(--space-3);
     border: 1px solid var(--line);
