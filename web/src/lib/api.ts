@@ -25,6 +25,7 @@ import type {
   UpdateStatus,
 } from './types'
 import type { MqttSendBody } from './send'
+import type { AppSettings } from './settings'
 
 export class ApiError extends Error {
   status: number
@@ -150,3 +151,16 @@ export const installUpdate = () => send<{ ok: boolean }>('POST', '/update/instal
 
 export const mqttSend = (body: MqttSendBody) => send<{ message: Message }>('POST', '/mqtt/send', body)
 export const mqttChannels = () => getJSON<{ name: string; count_1h: number; enabled: boolean }[]>('/mqtt/channels')
+
+const brokerPath = (id: string) => `/mqtt/brokers/${encodeURIComponent(id)}`
+export interface ChannelImport {
+  settings: AppSettings
+  added: string[]
+  skipped: { name: string; reason: string }[]
+}
+export const importChannelLink = (brokerId: string, url: string) =>
+  send<ChannelImport>('POST', `${brokerPath(brokerId)}/channels/import-link`, { url })
+export const importChannelsFromRadio = (brokerId: string, radioId: string) =>
+  send<ChannelImport>('POST', `${brokerPath(brokerId)}/channels/import-radio`, { radio_id: radioId })
+export const revealChannelPsk = (brokerId: string, index: number) =>
+  send<{ psk: string }>('POST', `${brokerPath(brokerId)}/channels/${index}/reveal`, {})

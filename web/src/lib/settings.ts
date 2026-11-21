@@ -7,6 +7,27 @@ export interface MqttSettings {
   extra_keys: string[]
 }
 
+export interface BrokerChannel {
+  name: string
+  psk: string
+}
+
+export interface Broker {
+  /** Assente nei broker non ancora salvati: lo assegna il server. */
+  id?: string
+  name: string
+  enabled: boolean
+  host: string
+  port: number
+  tls: boolean
+  encryption: boolean
+  username: string
+  password: string
+  topics: string[]
+  channels: BrokerChannel[]
+  extra_keys: string[]
+}
+
 export interface AppSettings {
   saved_countries: string[]
   retention_messages_days: number
@@ -31,6 +52,9 @@ export interface AppSettings {
   mqtt_node_id?: string
   /** Conferma di pubblicazione già data: la gestisce il server, non va riscritta da qui. */
   mqtt_send_confirmed?: boolean
+  /** Broker (id) con la conferma di pubblicazione già data. */
+  mqtt_send_confirmed_brokers?: string[]
+  mqtt_brokers?: Broker[]
 }
 
 // Una voce per riga: spazi tolti, righe vuote scartate

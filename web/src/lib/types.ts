@@ -49,6 +49,8 @@ export interface Message {
   replaces?: string | null
   /** Canale di invio dei messaggi in uscita. */
   via?: 'radio' | 'mqtt'
+  /** Id del broker MQTT che ha consegnato il messaggio. */
+  broker?: string | null
 }
 
 /** Stato del connettore MQTT. I campi oltre i primi tre sono facoltativi: il client regge un server vecchio. */
@@ -67,6 +69,17 @@ export interface MqttStatus {
   filtered_channel?: number
   queue_dropped?: number
   queue_size?: number
+  brokers?: BrokerStatus[]
+}
+
+/** Stato di un singolo broker (anche disattivato). */
+export interface BrokerStatus extends MqttStatus {
+  id: string
+  name: string
+  enabled: boolean
+  host: string
+  tls: boolean
+  encryption: boolean
 }
 
 export interface Status {
