@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 220" width="900" height="220" role="img" aria-label="MeshLens">
+  <title>MeshLens</title>
+  <rect width="900" height="220" rx="16" fill="#0f2a33"/>
+  <g transform="translate(36 18) scale(0.72)">
+  <g stroke="#14b8a6" stroke-width="5" stroke-linecap="round" fill="none">
+    <path d="M48 70 L110 44 L176 70 L208 128 M48 70 L66 138 L110 44 M66 138 L128 168 L176 70 M128 168 L208 128 M66 138 L48 200"/>
+  </g>
+  <g fill="#0ea5e9">
+    <circle cx="48" cy="70" r="10"/><circle cx="110" cy="44" r="10"/><circle cx="176" cy="70" r="10"/>
+    <circle cx="66" cy="138" r="10"/><circle cx="208" cy="128" r="10"/><circle cx="48" cy="200" r="10"/>
+  </g>
+  <circle cx="128" cy="124" r="52" fill="#14b8a6" fill-opacity="0.18" stroke="#0f766e" stroke-width="12"/>
+  <path d="M166 162 L222 218" stroke="#0f766e" stroke-width="18" stroke-linecap="round"/>
+  <circle cx="128" cy="168" r="11" fill="#f59e0b"/>
+  </g>
+  <text x="250" y="108" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="64" font-weight="700" fill="#ffffff">Mesh<tspan fill="#2dd4bf">Lens</tspan></text>
+  <text x="252" y="150" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="24" fill="#a7c4cc">Meshtastic map, network and radios, all local</text>
+</svg>
