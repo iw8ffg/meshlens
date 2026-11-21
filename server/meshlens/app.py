@@ -5,6 +5,7 @@ import logging
 import sqlite3
 import sys
 import time
+import traceback
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Awaitable, Callable
@@ -54,7 +55,8 @@ log = logging.getLogger(__name__)
 def broker_keys(broker: dict) -> tuple[list[bytes], dict[str, bytes]]:
     """Chiavi del decoder di un broker: [DEFAULT_KEY] + PSK dei canali + extra_keys (senza
     vuoti ne' doppioni) e {nome: chiave} dei canali personalizzati."""
-    custom = {ch["name"]: expand_psk(ch["psk"]) for ch in broker.get("channels", [])}
+    custom = {ch["name"]: expand_psk(ch["psk"]) for ch in broker.get("channels", [])
+              if ch.get("psk") != ""}  # "" = chiave persa: nessuna chiave da usare
     keys = [DEFAULT_KEY]
     extra = [expand_psk(k) for k in broker.get("extra_keys", []) if k.strip()]
     for k in [*custom.values(), *extra]:
@@ -134,10 +136,14 @@ class Runtime:
         try:
             self.start_connector(broker)
         except Exception as e:
-            log.exception("%s del connettore MQTT %s fallito", what, broker.get("name") or broker["id"])
             self.connectors.pop(broker["id"], None)
             # senza connettore l'errore va comunque mostrato su quel broker (senza credenziali)
             text = scrub_text(f"Avvio non riuscito: {e}", broker.get("password"), broker.get("username"))
+            log.error("%s del connettore MQTT %s fallito: %s", what,
+                      broker.get("name") or broker["id"], text)
+            if log.isEnabledFor(logging.DEBUG):  # il traceback puo' contenere credenziali
+                log.debug("Traceback dell'avvio MQTT %s: %s", broker["id"], scrub_text(
+                    traceback.format_exc(), broker.get("password"), broker.get("username")))
             self._start_errors[broker["id"]] = (text, time.time())
             return False
         return True
@@ -260,6 +266,8 @@ class Runtime:
             await self._on_settings_changed(saved)
 
     async def _on_settings_changed(self, saved: dict) -> None:
+        if self._stopping:  # in chiusura: nessun connettore va (ri)avviato
+            return
         self.settings = saved
         brokers = {b["id"]: b for b in saved.get("mqtt_brokers", [])}
         for bid in list(self.connectors):
@@ -445,6 +453,7 @@ class Runtime:
             for (bid, _), r in zip(items, results):
                 if isinstance(r, BaseException):
                     log.error("Arresto del connettore MQTT %s fallito", bid, exc_info=r)
+            self.connectors.clear()
         with contextlib.suppress(Exception):
             self.store.commit()
             self.conn.close()

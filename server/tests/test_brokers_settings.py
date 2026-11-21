@@ -314,3 +314,11 @@ def test_build_migrates_legacy_mqtt(tmp_path, caplog):
         assert "segreta" not in raw(rt.conn, "mqtt_brokers")
     finally:
         rt.conn.close()
+
+
+def test_validate_channels_trims_and_normalizes_empty_psk(conn):
+    b = {"id": "default", "name": "X", "host": "h", "topics": ["msh/#"],
+         "channels": [{"name": " Priv ", "psk": " AQ== "}, {"name": "Aperto", "psk": ""}]}
+    out = save_settings(conn, {"mqtt_brokers": [b]})
+    assert out["mqtt_brokers"][0]["channels"] == [
+        {"name": "Priv", "psk": "AQ=="}, {"name": "Aperto", "psk": "AA=="}]

@@ -495,3 +495,11 @@ def test_root_from_selected_broker_topics():
                                 "mqtt_send_confirmed_brokers": ["b1"]}).send(
         "x", "LongFast", None, False, broker="b1")
     assert conn.published[0][0].startswith("msh/US/2/e/")
+
+
+def test_send_with_lost_channel_psk_refused_never_clear():
+    conn = FakeConnector()
+    b = {**default_broker(DEFAULTS["mqtt"]), "channels": [{"name": "Privato", "psk": ""}]}
+    s = make_sender(conn, settings={"mqtt_brokers": [b]})
+    e = expect(400, "unknown_channel_key", lambda: s.send("x", "Privato", None, False))
+    assert "non leggibile" in e.message and conn.published == []

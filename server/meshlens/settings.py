@@ -148,6 +148,9 @@ def _validate_mqtt(m) -> None:
             raise ValueError(f"Chiave PSK non valida ({key}): {e}") from e
 
 
+NO_CRYPTO_PSK = "AA=="  # nessuna cifratura; "" resta solo "chiave persa dopo un errore di decifratura"
+
+
 def strict_psk(psk) -> bytes:
     """Chiave effettiva di una PSK base64 rigorosa (niente caratteri estranei ignorati)."""
     if not isinstance(psk, str):
@@ -172,6 +175,10 @@ def _validate_channels(name: str, channels) -> None:
         if unknown:
             raise ValueError(f"Broker {name}: impostazione del canale sconosciuta: "
                              f"{sorted(unknown)[0]}")
+        if isinstance(ch.get("name"), str):
+            ch["name"] = ch["name"].strip()
+        if isinstance(ch.get("psk"), str):
+            ch["psk"] = ch["psk"].strip() or NO_CRYPTO_PSK  # "" vuoto = chiave persa
         cname = ch.get("name")
         if not (isinstance(cname, str)
                 and 1 <= len(cname.encode("utf-8")) <= MAX_CHANNEL_NAME_BYTES):
@@ -199,6 +206,10 @@ def merge_channels(broker: dict, entries: list[dict]) -> tuple[list[str], list[d
     skipped: list[dict] = []
     for e in entries:
         name, psk = e.get("name"), e.get("psk")
+        if isinstance(name, str):
+            name = name.strip()
+        if isinstance(psk, str):
+            psk = psk.strip() or NO_CRYPTO_PSK
         reason = None
         key = None
         if (not isinstance(name, str) or not 1 <= len(name.encode("utf-8")) <= MAX_CHANNEL_NAME_BYTES

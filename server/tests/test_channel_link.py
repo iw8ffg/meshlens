@@ -83,3 +83,10 @@ def test_merge_channels_limit_16():
     assert added == ["c15"]
     assert skipped == [{"name": "c16", "reason": "limite di 16 canali"}]
     assert len(broker["channels"]) == 16
+
+
+def test_merge_channels_no_crypto_psk_stored_as_single_zero_byte():
+    broker = {"channels": []}
+    added, _ = merge_channels(broker, [{"name": "Aperto", "psk": ""}, {"name": " Sp ", "psk": " AA== "}])
+    assert added == ["Aperto", "Sp"]
+    assert [c["psk"] for c in broker["channels"]] == ["AA==", "AA=="]

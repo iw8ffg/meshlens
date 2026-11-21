@@ -142,6 +142,10 @@ class MqttSender:
     def _channel_key(self, broker: dict, channel: str) -> bytes:
         for ch in broker.get("channels", []):
             if ch.get("name") == channel:
+                if ch.get("psk") == "":  # chiave persa dopo un errore di decifratura
+                    raise MqttSendError(400, "unknown_channel_key",
+                                        f"Chiave del canale {channel} non leggibile su questo PC: "
+                                        "reinseriscila")
                 return expand_psk(ch["psk"])
         key = self.key_for(broker["id"], channel)  # imparata dal traffico di quel broker
         if key is not None:

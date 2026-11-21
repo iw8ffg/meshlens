@@ -84,7 +84,7 @@ class AppContext:
     maps: object | None = None  # MapsManager
     updater: object | None = None  # Updater
     # canali MQTT visti nell'ultima ora (broker=id per uno solo) e broker che li hanno visti
-    mqtt_channel_counts: Callable[..., dict] = lambda: {}
+    mqtt_channel_counts: Callable[..., dict] = lambda **_: {}
     mqtt_channel_brokers: Callable[[], dict] = lambda: {}
     mqtt_sender: object | None = None  # MqttSender
     db_path: Path | None = None
