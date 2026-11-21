@@ -139,6 +139,28 @@ def _validate(key: str, value) -> None:
         _validate_mqtt(value)
 
 
+_DECRYPT_CACHE: dict = {}  # (protector, valore salvato) -> chiaro, oppure None se non decifrabile
+_DECRYPT_CACHE_MAX = 16
+
+
+def _decrypt_cached(key: str, stored: str) -> str:
+    """Ogni valore salvato si decifra una volta sola: un valore non decifrabile avvisa una volta."""
+    protector = get_protector()
+    ck = (id(protector), stored)
+    if ck in _DECRYPT_CACHE:
+        plain = _DECRYPT_CACHE[ck]
+    else:
+        try:
+            plain = protector.unprotect(stored)
+        except SecretError:
+            log.warning("Impossibile decifrare %s: reimpostalo", key)
+            plain = None
+        if len(_DECRYPT_CACHE) >= _DECRYPT_CACHE_MAX:
+            _DECRYPT_CACHE.pop(next(iter(_DECRYPT_CACHE)))
+        _DECRYPT_CACHE[ck] = plain
+    return "" if plain is None else plain
+
+
 def load_settings(conn: sqlite3.Connection) -> dict:
     """Default sovrascritti dai valori salvati."""
     result = copy.deepcopy(DEFAULTS)
@@ -147,11 +169,7 @@ def load_settings(conn: sqlite3.Connection) -> dict:
             continue
         value = json.loads(row["value"])
         if row["key"] in SECRET_KEYS and isinstance(value, str) and value:
-            try:
-                value = get_protector().unprotect(value)
-            except SecretError:
-                log.warning("Impossibile decifrare %s: reimpostalo", row["key"])
-                value = ""
+            value = _decrypt_cached(row["key"], value)
         if row["key"] == "mqtt":
             result["mqtt"].update(value)
         else:
@@ -172,7 +190,10 @@ def save_settings(conn: sqlite3.Connection, changes: dict) -> dict:
             current["mqtt"].update(value)
             value = current["mqtt"]
         elif key in SECRET_KEYS and isinstance(value, str) and value:
-            value = get_protector().protect(value)
+            try:
+                value = get_protector().protect(value)
+            except SecretError as e:
+                raise ValueError(f"Impossibile cifrare {key}: {e}") from e
         conn.execute("INSERT INTO settings(key, value) VALUES(?, ?) "
                      "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
                      (key, json.dumps(value)))
@@ -190,8 +211,12 @@ def migrate_secrets(conn: sqlite3.Connection) -> int:
             continue
         value = json.loads(row["value"])
         if isinstance(value, str) and value and not protector.is_protected(value):
-            conn.execute("UPDATE settings SET value=? WHERE key=?",
-                         (json.dumps(protector.protect(value)), key))
+            try:
+                stored = protector.protect(value)
+            except SecretError as e:
+                log.warning("Impossibile cifrare %s, resta in chiaro: %s", key, e)
+                continue
+            conn.execute("UPDATE settings SET value=? WHERE key=?", (json.dumps(stored), key))
             n += 1
     if n:
         conn.commit()
@@ -206,8 +231,9 @@ def mask_secrets(s: dict) -> dict:
         if mqtt.get("password"):
             mqtt["password"] = MASK
         mqtt["extra_keys"] = [MASK for _ in mqtt.get("extra_keys", [])]
-    if out.get("update_token"):
-        out["update_token"] = MASK
+    for key in SECRET_KEYS:
+        if out.get(key):
+            out[key] = MASK
     return out
 
 

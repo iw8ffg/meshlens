@@ -125,3 +125,53 @@ def test_export_with_secrets_is_clear_and_import_reencrypts():
     other = connect(":memory:")
     save_settings(other, {"update_token": doc["settings"]["update_token"]})
     assert "ghp_move" not in raw(other) and load_settings(other)["update_token"] == "ghp_move"
+
+
+class CountingBroken(BrokenProtector):
+    calls = 0
+
+    def unprotect(self, stored):
+        CountingBroken.calls += 1
+        return super().unprotect(stored)
+
+
+def test_decrypt_is_cached_and_warns_once(caplog):
+    secretbox.set_protector(RotProtector())
+    conn = connect(":memory:")
+    save_settings(conn, {"update_token": "ghp_x"})
+    p = CountingBroken()
+    secretbox.set_protector(p)
+    CountingBroken.calls = 0
+    with caplog.at_level(logging.WARNING, logger="meshlens.settings"):
+        assert load_settings(conn)["update_token"] == ""
+        assert load_settings(conn)["update_token"] == ""
+    assert CountingBroken.calls == 1
+    assert caplog.text.count("Impossibile decifrare") == 1
+
+
+class FailingProtect(RotProtector):
+    def protect(self, plain):
+        raise SecretError("DPAPI ko")
+
+
+def test_migrate_keeps_plaintext_when_protect_fails(tmp_path, caplog):
+    secretbox.set_protector(FailingProtect())
+    conn = connect(":memory:")
+    conn.execute("INSERT INTO settings(key, value) VALUES('update_token', ?)", (json.dumps("ghp_old"),))
+    with caplog.at_level(logging.WARNING, logger="meshlens.settings"):
+        assert migrate_secrets(conn) == 0
+    assert json.loads(raw(conn)) == "ghp_old" and "Impossibile cifrare" in caplog.text
+    db = connect(tmp_path / "meshlens.db")
+    db.execute("INSERT INTO settings(key, value) VALUES('update_token', ?)", (json.dumps("ghp_old"),))
+    db.commit()
+    db.close()
+    app, rt = build(tmp_path, static_dir=None)  # parte lo stesso
+    assert rt.settings["update_token"] == "ghp_old"
+
+
+def test_save_protect_failure_is_valueerror():
+    secretbox.set_protector(FailingProtect())
+    conn = connect(":memory:")
+    with pytest.raises(ValueError, match="Impossibile cifrare update_token"):
+        save_settings(conn, {"update_token": "ghp_x"})
+    assert load_settings(conn)["update_token"] == ""
