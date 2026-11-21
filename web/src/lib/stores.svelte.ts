@@ -4,7 +4,7 @@ import type { NodeFilter } from './filters'
 import { MAX_REPLACED, insertMessage, removeByKey, mergeRadioMessages, pruneSet } from './chat'
 import { shouldStore } from './traceroute'
 import { appendTrackPoint, upsertPoint } from './coverage'
-import type { Bbox, ConfigJob, MapJob, Alert, CoverageDetail, CoveragePoint, CoverageSession, CoverageTrackPoint, Message, MessageStatus, Node, Radio, Status, Traceroute } from './types'
+import type { Bbox, ConfigJob, MapJob, UpdateJob, UpdateStatus, Alert, CoverageDetail, CoveragePoint, CoverageSession, CoverageTrackPoint, Message, MessageStatus, Node, Radio, Status, Traceroute } from './types'
 
 const MAX_MESSAGES = 500
 
@@ -137,4 +137,19 @@ export function setMapJob(j: MapJob): void {
   maps.job = j
   const finished = j.status === 'done' && !(prev && prev.id === j.id && prev.status === 'done')
   if (finished) maps.version++
+}
+
+/** Aggiornamenti: ultimo stato noto (banner e impostazioni) e lavoro di download (WebSocket). */
+export const updates = $state({
+  status: null as UpdateStatus | null,
+  job: null as UpdateJob | null,
+})
+
+export function setUpdateStatus(s: UpdateStatus): void {
+  updates.status = s
+  updates.job = s.job
+}
+
+export function setUpdateJob(j: UpdateJob): void {
+  updates.job = j
 }

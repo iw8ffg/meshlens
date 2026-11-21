@@ -3,6 +3,7 @@
   import { getJSON, send, ApiError } from '../lib/api'
   import { flag } from '../lib/format'
   import OfflineMaps from './OfflineMaps.svelte'
+  import Updates from './Updates.svelte'
   import { joinLines, parseLines, type AppSettings } from '../lib/settings'
 
   let { onlogout }: { onlogout: () => void } = $props()
@@ -172,6 +173,7 @@
   </form>
 {/if}
 {#if !loadError && loaded}<div class="maps"><OfflineMaps /></div>{/if}
+{#if !loadError && loaded}<div class="maps"><Updates /></div>{/if}
 <div class="out"><button onclick={logout}>Esci</button></div>
 
 <style>

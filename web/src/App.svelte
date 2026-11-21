@@ -14,9 +14,9 @@
   import Alerts from './components/Alerts.svelte'
   import ConfigPanel from './components/ConfigPanel.svelte'
   import { matchNode } from './lib/filters'
-  import { getJSON, alerts as fetchAlerts, coverageSessions, coverageSession, AUTH_REQUIRED } from './lib/api'
+  import { getJSON, alerts as fetchAlerts, coverageSessions, coverageSession, updateStatus, AUTH_REQUIRED } from './lib/api'
   import { connectWS } from './lib/ws'
-  import { app, upsertNodes, addMessage, addRadioHistory, setMessageStatus, setStatus, setRadios, setAlerts, setTraceroute, persistFilter, coverage, setCoverageSessions, applyCoverage, configUi, setConfigJob, setMapJob } from './lib/stores.svelte'
+  import { app, upsertNodes, addMessage, addRadioHistory, setMessageStatus, setStatus, setRadios, setAlerts, setTraceroute, persistFilter, coverage, setCoverageSessions, applyCoverage, configUi, setConfigJob, setMapJob, setUpdateStatus, setUpdateJob } from './lib/stores.svelte'
   import type { AuthStatus, Message, Node, Radio } from './lib/types'
 
   let auth = $state<AuthStatus | null>(null)
@@ -121,6 +121,9 @@
       coverageSessions()
         .then(setCoverageSessions)
         .catch(() => {})
+      updateStatus()
+        .then(setUpdateStatus)
+        .catch(() => {})
       const openId = untrack(() => coverage.openId)
       if (openId !== null) {
         const id = openId
@@ -147,6 +150,7 @@
       messageStatus: setMessageStatus,
       configJob: setConfigJob,
       mapJob: setMapJob,
+      updateJob: setUpdateJob,
     })
   })
 </script>
@@ -159,7 +163,7 @@
   <Login status={auth} onsuccess={refresh} />
 {:else}
   <div class="app" class:mobile>
-    <StatusBar visible={visible.length} />
+    <StatusBar visible={visible.length} onupdate={() => (tab = 'settings')} />
     <Alerts onpick={pickId} />
     <div class="main">
       <div class="mapwrap"><MapView nodes={visible} {now} {track} {focus} /></div>
