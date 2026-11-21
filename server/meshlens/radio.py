@@ -498,6 +498,15 @@ class RadioConnector:
                 self._admin_abort.set()
                 return
 
+    async def _admin_drain(self) -> None:
+        """Attende la fine del thread admin rimasto dopo un abort (mai oltre ADMIN_TIMEOUT)."""
+        task = self._admin_task
+        if task is None or task.done():
+            return
+        await asyncio.wait({task}, timeout=ADMIN_TIMEOUT)
+        if not task.done():
+            raise AdminError("busy", MSG_ADMIN_BUSY)
+
     def _admin_reset_state(self) -> None:
         self._admin_ids = set()
         self._admin_errors = {}
@@ -541,6 +550,8 @@ class RadioConnector:
             ack = iface._acknowledgment
             deadline = time.time() + iface._timeout.expireTimeout
             while time.time() < deadline:
+                if self._admin_reason is not None:
+                    return  # errore ROUTING gia' noto: l'attesa non serve piu'
                 if getattr(ack, "receivedNak", False):
                     self._admin_nak = True
                     ack.reset()
@@ -816,7 +827,11 @@ class RadioConnector:
                 except AdminError as err:
                     if not (remote and err.reason in BAD_SESSION_REASONS):
                         raise
-                    # chiave di sessione scaduta: una sola ripetizione con chiave nuova
+                    # chiave di sessione scaduta: una sola ripetizione con chiave nuova.
+                    # L'abort puo' scattare mentre il thread della chiamata fallita e' ancora
+                    # in corso (puo' ancora impostare un NAK): lo attendo prima di azzerare,
+                    # altrimenti un NAK in ritardo avvelena il secondo tentativo.
+                    await self._admin_drain()
                     iface._acknowledgment.reset()
                     self._admin_reset_state()
                     self._drop_session(node_num)
