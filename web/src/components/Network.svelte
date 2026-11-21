@@ -3,6 +3,7 @@
   import { ago } from '../lib/format'
   import { sortNodes, type SortKey } from '../lib/network'
   import { loadView, saveView } from '../lib/viewstate'
+  import { alertTone } from '../lib/alerts'
   import { alertText, alertsByNode, batteryView, contactMinutes, fmtOpt, hopsLabel, networkNodes, nodeName } from '../lib/nodes'
   import Banner from '../lib/ui/Banner.svelte'
   import BatteryBadge from '../lib/ui/BatteryBadge.svelte'
@@ -64,7 +65,7 @@
     <div class="alerts">
       {#each alertRows as n (n.id)}
         {#each alerts.get(n.id) ?? [] as a (a.key)}
-          <Banner kind="warn" title={nodeName(n)}>{alertText(a)}</Banner>
+          <Banner kind={alertTone(a.kind)} title={nodeName(n)}>{alertText(a)}</Banner>
         {/each}
       {/each}
     </div>

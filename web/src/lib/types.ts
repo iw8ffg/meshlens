@@ -135,12 +135,14 @@ export interface Link {
 
 export interface Alert {
   key: string
-  kind: 'battery_low' | 'silent'
+  kind: 'battery_low' | 'silent' | 'chutil_high' | 'back_online' | 'firmware_old'
   node_id: string
   node_name: string
-  /** Percentuale per battery_low, ore di silenzio per silent. */
+  /** Percentuale per battery_low, ore di silenzio per silent, media canale per chutil_high. */
   value: number
   since: number
+  /** Versione firmware letta, solo per firmware_old. */
+  detail?: string
 }
 
 export interface TelemetryPoint {

@@ -10,7 +10,8 @@
   import { getTheme, THEME_LABELS, type ThemePref } from '../theme'
   import { num } from '../format'
   import { DESKTOP_TABS, type Tab } from './nav'
-  import type { Alert } from '../types'
+  import AlertsList from './AlertsList.svelte'
+  import { alertTone } from '../alerts'
 
   interface Props {
     visible: number
@@ -24,6 +25,7 @@
   const mqtt = $derived(app.status?.mqtt ?? null)
   const mqttSum = $derived(mqttSummary(mqtt, Date.now() / 1000))
   const upd = $derived(updates.status?.available ? updates.status.latest : null)
+  const hasWarnAlert = $derived(app.alerts.some((a) => alertTone(a.kind) === 'warn'))
   const radiosOn = $derived(app.radios.filter((r) => r.state === 'connected').length)
 
   let open = $state<'alerts' | 'menu' | 'mqtt' | null>(null)
@@ -45,9 +47,6 @@
   }
   function esc(e: KeyboardEvent) {
     if (e.key === 'Escape' && open) open = null
-  }
-  function alertText(a: Alert): string {
-    return a.kind === 'battery_low' ? `Batteria ${num(Math.round(a.value))}% — ${a.node_name}` : `Silenzioso da ${num(Math.round(a.value))} h — ${a.node_name}`
   }
 </script>
 
@@ -101,23 +100,17 @@
     {/if}
     {#if app.alerts.length > 0}
       <div class="pop-wrap">
-        <button type="button" class="ib warn" aria-haspopup="dialog" aria-expanded={open === 'alerts'} aria-label="{app.alerts.length} {app.alerts.length === 1 ? 'avviso' : 'avvisi'}" onclick={() => toggle('alerts')}>
+        <button type="button" class:warn={hasWarnAlert} class="ib" aria-haspopup="dialog" aria-expanded={open === 'alerts'} aria-label="{app.alerts.length} {app.alerts.length === 1 ? 'avviso' : 'avvisi'}" onclick={() => toggle('alerts')}>
           <Icon name="alert" size={18} /><span class="n">{num(app.alerts.length)}</span>
         </button>
         {#if open === 'alerts'}
           <div class="pop alerts" role="dialog" aria-label="Avvisi">
-            <ul>
-              {#each app.alerts as a (a.key)}
-                <li>
-                  <button
-                    type="button"
-                    onclick={() => {
-                      open = null
-                      onpickalert(a.node_id)
-                    }}>{alertText(a)}</button>
-                </li>
-              {/each}
-            </ul>
+            <AlertsList
+              alerts={app.alerts}
+              onpick={(id) => {
+                open = null
+                onpickalert(id)
+              }} />
           </div>
         {/if}
       </div>
@@ -163,9 +156,6 @@
   .pop { position: absolute; top: calc(100% + 4px); right: 0; width: 300px; max-width: calc(100vw - 16px); max-height: 60dvh; overflow: auto; background: var(--surface-raised); border: 1px solid var(--line-strong); border-radius: var(--radius-lg); box-shadow: var(--shadow-2); z-index: var(--z-modal); padding: var(--space-3); box-sizing: border-box; }
   .pop .lbl { font: 600 13px/16px var(--font-sans); color: var(--ink-muted); margin-bottom: var(--space-2); }
   .alerts { padding: var(--space-1); }
-  .alerts ul { list-style: none; margin: 0; padding: 0; }
-  .alerts li button { display: block; width: 100%; min-height: var(--touch-min); text-align: left; padding: var(--space-2) var(--space-3); background: none; border: 0; border-radius: var(--radius-md); color: var(--ink); font: 400 14px/20px var(--font-sans); cursor: pointer; }
-  .alerts li button:hover { background: var(--accent-soft); }
   :global(.vp-phone) .tb { gap: var(--space-2); padding: env(safe-area-inset-top) var(--space-2) 0; height: calc(var(--topbar-h) + env(safe-area-inset-top)); }
   :global(.vp-phone) .status { gap: var(--space-3); overflow: hidden; }
   :global(.vp-phone) .upd { height: var(--touch-min); }

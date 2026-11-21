@@ -2,6 +2,7 @@
 import { num } from './format'
 import type { SourceKind } from './ui/logic'
 import type { Alert, Node } from './types'
+import { alertLabel } from './alerts'
 
 export const nodeName = (n: Pick<Node, 'long_name' | 'short_name' | 'id'>): string => n.long_name || n.short_name || n.id
 
@@ -45,8 +46,8 @@ export function toggleIn<T>(list: T[], v: T): T[] {
 }
 
 /** Avviso in italiano per una riga della Rete: «Batteria al 12%» / «Silenzioso da 30 h». */
-export function alertText(a: Pick<Alert, 'kind' | 'value'>): string {
-  return a.kind === 'battery_low' ? `Batteria al ${num(a.value)}%` : `Silenzioso da ${num(a.value)} h`
+export function alertText(a: Pick<Alert, 'kind' | 'value' | 'detail'>): string {
+  return alertLabel(a)
 }
 
 /** Avvisi per nodo: id -> elenco. */
