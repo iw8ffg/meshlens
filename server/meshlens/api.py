@@ -37,8 +37,7 @@ from .mqtt_publish import MqttSendError
 from .radio_manager import NoRadioConnected, TracerouteThrottled
 from .backup import NAME_RE, BackupUnusable
 from .settings import (MASK, export_settings, load_settings, mask_secrets, prepare_import,
-                       resolve_extra_keys,
-                       save_settings)
+                       resolve_broker_secrets, resolve_extra_keys, save_settings)
 from .serving import tls_status
 from .store import Store
 
@@ -606,6 +605,13 @@ def create_app(ctx: AppContext) -> FastAPI:
     @app.put("/api/settings", dependencies=[Depends(require_auth)])
     async def put_settings(changes: dict):
         changes = dict(changes)
+        if "mqtt_brokers" in changes:
+            changes.pop("mqtt", None)  # vista di compatibilita': vale la lista dei broker
+            try:
+                changes["mqtt_brokers"] = resolve_broker_secrets(
+                    changes["mqtt_brokers"], load_settings(ctx.conn)["mqtt_brokers"])
+            except ValueError as e:
+                raise HTTPException(400, str(e))
         mqtt = changes.get("mqtt")
         if isinstance(mqtt, dict) and mqtt.get("password") == MASK:
             changes["mqtt"] = {k: v for k, v in mqtt.items() if k != "password"}
@@ -637,7 +643,7 @@ def create_app(ctx: AppContext) -> FastAPI:
     @app.post("/api/settings/import", dependencies=[Depends(require_auth), Depends(require_json)])
     async def import_settings(body: dict):
         try:
-            changes, skipped = prepare_import(body)
+            changes, skipped = prepare_import(body, load_settings(ctx.conn))
             saved = save_settings(ctx.conn, changes)
         except ValueError as e:
             raise HTTPException(400, str(e))

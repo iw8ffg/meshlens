@@ -670,8 +670,9 @@ async def test_settings_import_skips_masked(ctx):
         r = await c.post("/api/settings/import", json=doc)
         assert r.status_code == 200, r.text
         body = r.json()
-        assert set(body["skipped"]) == {"update_token", "mqtt.password", "mqtt.extra_keys",
-                                        "mqtt_send_confirmed"}
+        # i segreti mascherati dei broker si risolvono con quelli salvati (stesso id)
+        assert set(body["skipped"]) == {"update_token", "mqtt_send_confirmed",
+                                        "mqtt_send_confirmed_brokers"}
         assert "hunter2pw" not in r.text and "AQ==" not in r.text
         assert body["settings"]["retention_messages_days"] == 30
         from meshlens.settings import load_settings
@@ -856,3 +857,44 @@ async def test_tls_route(ctx):
         assert (await c.get("/api/tls")).json() == {
             "enabled": True, "port": 8687, "fingerprint_sha256": "AB:CD",
             "not_after": 1.5, "error": "HTTPS non avviato sulla porta 8687"}
+
+
+async def test_put_settings_brokers_masked_roundtrip(ctx):
+    from meshlens.settings import load_settings
+    async with logged(ctx) as c:
+        s = (await c.get("/api/settings")).json()
+        s["mqtt_brokers"][0]["password"] = "pw-default"
+        s["mqtt_brokers"].append({"id": "casa", "name": "Casa", "host": "casa.example",
+                                  "topics": ["msh/#"], "password": "pw-casa",
+                                  "channels": [{"name": "A", "psk": "AAECAwQFBgcICQoLDA0ODw=="},
+                                               {"name": "B", "psk": "Ag=="}],
+                                  "extra_keys": ["Aw=="]})
+        r = await c.put("/api/settings", json=s)
+        assert r.status_code == 200, r.text
+        saved = load_settings(ctx.conn)["mqtt_brokers"]
+        body = (await c.get("/api/settings")).json()
+        for secret in ("pw-default", "pw-casa", "AAECAwQFBgcICQoLDA0ODw==", "Ag==", "Aw=="):
+            assert secret not in r.text
+        r = await c.put("/api/settings", json=body)
+        assert r.status_code == 200, r.text
+        assert load_settings(ctx.conn)["mqtt_brokers"] == saved
+        casa = r.json()["mqtt_brokers"][1]
+        assert casa["password"] == "••••" and [ch["psk"] for ch in casa["channels"]] == ["••••"] * 2
+        assert r.json()["mqtt"]["password"] == "••••"
+
+
+async def test_put_settings_bad_mask_400_and_nothing_saved(ctx):
+    from meshlens.settings import load_settings
+    async with logged(ctx) as c:
+        s = (await c.get("/api/settings")).json()
+        before = load_settings(ctx.conn)
+        s["retention_messages_days"] = 33
+        s["mqtt_brokers"][0]["channels"] = [{"name": "A", "psk": "••••#3"}]
+        r = await c.put("/api/settings", json=s)
+        assert r.status_code == 400 and "senza corrispondenza" in r.json()["detail"]
+        s["mqtt_brokers"][0]["channels"] = []
+        s["mqtt_brokers"].append({"name": "Nuovo", "host": "n.example", "topics": ["msh/#"],
+                                  "password": "••••"})
+        r = await c.put("/api/settings", json=s)
+        assert r.status_code == 400
+        assert load_settings(ctx.conn) == before

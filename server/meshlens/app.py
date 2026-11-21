@@ -29,7 +29,7 @@ from .mqtt_publish import MqttSender
 from .pubsub_hub import PubSubHub
 from .radio import RadioConnector
 from .radio_manager import RadioManager
-from .settings import load_settings, migrate_secrets
+from .settings import load_settings, migrate_brokers, migrate_secrets
 from .store import PURGE_CHUNK, Store
 from .updater import Updater
 
@@ -330,6 +330,8 @@ def build(data_dir: Path, connector_factory=MqttConnector,
     migrated = migrate_secrets(conn)
     if migrated:
         log.info("Segreti salvati in chiaro riscritti cifrati: %d", migrated)
+    if migrate_brokers(conn):
+        log.info("Impostazioni MQTT migrate a più broker")
     store = Store(conn)
     live = LiveState()
     live.load(store.load_nodes())

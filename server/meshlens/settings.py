@@ -3,6 +3,7 @@ import copy
 import json
 import logging
 import re
+import secrets
 import sqlite3
 from datetime import datetime, timezone
 
@@ -42,7 +43,61 @@ DEFAULTS: dict = {
         "topics": ["msh/EU_868/#"],
         "extra_keys": [],
     },
+    "mqtt_send_confirmed_brokers": [],  # broker per cui la conferma e' gia' data
 }
+
+DEFAULT_BROKER_ID = "default"
+DEFAULT_BROKER_NAME = "mqtt.meshtastic.org (predefinito)"
+MAX_BROKERS = 8
+MAX_BROKER_CHANNELS = 16
+MAX_CHANNEL_NAME_BYTES = 11
+MAX_BROKER_NAME = 40
+BROKER_KEYS = ("id", "name", "enabled", "host", "port", "tls", "encryption", "username",
+               "password", "topics", "channels", "extra_keys")
+# parametri che richiedono di ricollegarsi al broker
+CONNECT_KEYS = ("host", "port", "tls", "username", "password", "topics")
+_BROKER_DEFAULTS = {"enabled": True, "tls": False, "encryption": False, "port": 1883,
+                    "username": "", "password": "", "channels": [], "extra_keys": []}
+_BROKER_ID_RE = re.compile(r"[a-z0-9-]{1,24}")
+_CHANNEL_KEYS = ("name", "psk")
+
+
+def _clean_topics(topics) -> list[str]:
+    return [t for t in (normalize_topic(x) for x in topics) if t]
+
+
+def default_broker(mqtt: dict | None = None) -> dict:
+    """Il broker predefinito ricavato dal vecchio oggetto mqtt (fuso con i valori predefiniti)."""
+    m = {**DEFAULTS["mqtt"], **{k: v for k, v in (mqtt or {}).items() if k in DEFAULTS["mqtt"]}}
+    return {
+        "id": DEFAULT_BROKER_ID,
+        "name": DEFAULT_BROKER_NAME,
+        "enabled": True,
+        "host": m["host"],
+        "port": m["port"],
+        "tls": False,
+        "encryption": True,
+        "username": m["username"],
+        "password": m["password"],
+        # argomenti salvati da versioni precedenti senza "/#" (non ricevevano nulla)
+        "topics": _clean_topics(m["topics"]) or list(DEFAULTS["mqtt"]["topics"]),
+        "channels": [],
+        "extra_keys": list(m["extra_keys"]),
+    }
+
+
+def find_broker(settings: dict, broker_id: str) -> dict | None:
+    return next((b for b in settings.get("mqtt_brokers", []) if b.get("id") == broker_id), None)
+
+
+def enabled_brokers(settings: dict) -> list[dict]:
+    return [b for b in settings.get("mqtt_brokers", []) if b.get("enabled")]
+
+
+def mqtt_view(brokers: list[dict]) -> dict:
+    """Vista di compatibilita' (vecchia chiave mqtt): i parametri del broker predefinito."""
+    d = next((b for b in brokers if b.get("id") == DEFAULT_BROKER_ID), None) or default_broker()
+    return {k: copy.deepcopy(d[k]) for k in DEFAULTS["mqtt"]}
 
 _INT_KEYS = ("retention_messages_days", "retention_positions_days",
              "retention_telemetry_days", "storage_cap_mb")
@@ -58,6 +113,9 @@ def normalize_topic(topic: str) -> str:
     if not t or t.endswith("#") or "+" in t:
         return t
     return t.rstrip("/") + "/#"
+
+
+DEFAULTS["mqtt_brokers"] = [default_broker()]
 
 
 def _is_int(v) -> bool:
@@ -87,6 +145,106 @@ def _validate_mqtt(m) -> None:
             expand_psk(key)
         except ValueError as e:
             raise ValueError(f"Chiave PSK non valida ({key}): {e}") from e
+
+
+def _validate_channels(name: str, channels) -> None:
+    if not isinstance(channels, list):
+        raise ValueError(f"Broker {name}: channels deve essere una lista")
+    if len(channels) > MAX_BROKER_CHANNELS:
+        raise ValueError(f"Broker {name}: al massimo {MAX_BROKER_CHANNELS} canali")
+    seen = set()
+    for ch in channels:
+        if not isinstance(ch, dict):
+            raise ValueError(f"Broker {name}: ogni canale deve essere un oggetto")
+        unknown = set(ch) - set(_CHANNEL_KEYS)
+        if unknown:
+            raise ValueError(f"Broker {name}: impostazione del canale sconosciuta: "
+                             f"{sorted(unknown)[0]}")
+        cname = ch.get("name")
+        if not (isinstance(cname, str)
+                and 1 <= len(cname.encode("utf-8")) <= MAX_CHANNEL_NAME_BYTES):
+            raise ValueError(f"Canale {cname}: il nome deve avere da 1 a "
+                             f"{MAX_CHANNEL_NAME_BYTES} caratteri")
+        if any(c in cname for c in "/#+"):
+            raise ValueError(f"Canale {cname}: il nome non può contenere / # +")
+        if cname in seen:
+            raise ValueError(f"Canale {cname}: nome già usato in questo broker")
+        seen.add(cname)
+        psk = ch.get("psk")
+        try:
+            if not isinstance(psk, str):
+                raise ValueError("deve essere una stringa base64")
+            expand_psk(psk)
+        except ValueError as e:
+            raise ValueError(f"Canale {cname}: chiave PSK non valida ({e})") from e
+
+
+def _validate_broker(b) -> None:
+    if not isinstance(b, dict):
+        raise ValueError("Ogni broker deve essere un oggetto")
+    unknown = set(b) - set(BROKER_KEYS)
+    if unknown:
+        raise ValueError(f"Impostazione del broker sconosciuta: {sorted(unknown)[0]}")
+    name = b.get("name")
+    if not (isinstance(name, str) and 1 <= len(name.strip()) <= MAX_BROKER_NAME):
+        raise ValueError(f"Il nome del broker deve avere da 1 a {MAX_BROKER_NAME} caratteri")
+    b["name"] = name = name.strip()
+    for k, v in _BROKER_DEFAULTS.items():
+        if b.get(k) is None:
+            b[k] = copy.deepcopy(v)
+    for k in ("enabled", "tls", "encryption"):
+        if not isinstance(b[k], bool):
+            raise ValueError(f"Broker {name}: {k} deve essere vero o falso")
+    for k in ("username", "password"):
+        if not isinstance(b[k], str):
+            raise ValueError(f"Broker {name}: {k} deve essere una stringa")
+    host = b.get("host")
+    if not isinstance(host, str) or not host.strip():
+        raise ValueError(f"Broker {name}: host vuoto")
+    b["host"] = host.strip()
+    if not (_is_int(b["port"]) and 1 <= b["port"] <= 65535):
+        raise ValueError(f"Broker {name}: porta non valida")
+    topics = b.get("topics")
+    if isinstance(topics, list) and all(isinstance(t, str) for t in topics):
+        b["topics"] = _clean_topics(topics)
+    if not (isinstance(b.get("topics"), list) and b["topics"]):
+        raise ValueError(f"Broker {name}: indica almeno un topic")
+    _validate_channels(name, b["channels"])
+    keys = b["extra_keys"]
+    if not (isinstance(keys, list) and all(isinstance(k, str) for k in keys)):
+        raise ValueError(f"Broker {name}: extra_keys deve essere una lista di stringhe")
+    for key in keys:
+        try:
+            expand_psk(key)
+        except ValueError as e:
+            raise ValueError(f"Broker {name}: chiave PSK non valida ({e})") from e
+
+
+def _validate_brokers(value) -> None:
+    """Valida la lista dei broker completandone le voci (modifica la lista sul posto)."""
+    if not isinstance(value, list):
+        raise ValueError("mqtt_brokers deve essere una lista")
+    if len(value) > MAX_BROKERS:
+        raise ValueError(f"Al massimo {MAX_BROKERS} broker")
+    for b in value:
+        _validate_broker(b)
+    ids: set[str] = set()
+    for b in value:
+        bid = b.get("id")
+        if bid in (None, ""):
+            bid = "b" + secrets.token_hex(3)
+            while bid in ids or any(x.get("id") == bid for x in value):
+                bid = "b" + secrets.token_hex(3)
+            b["id"] = bid
+        if not (isinstance(bid, str) and _BROKER_ID_RE.fullmatch(bid)):
+            raise ValueError(f"Broker {b['name']}: id non valido")
+        if bid in ids:
+            raise ValueError(f"Broker {b['name']}: id già usato da un altro broker")
+        ids.add(bid)
+    if DEFAULT_BROKER_ID not in ids:
+        raise ValueError("Il broker predefinito non si può eliminare: puoi disattivarlo")
+    for i, b in enumerate(value):
+        value[i] = {k: b[k] for k in BROKER_KEYS}
 
 
 def _validate(key: str, value) -> None:
@@ -138,10 +296,16 @@ def _validate(key: str, value) -> None:
             raise ValueError("mqtt_send_confirmed deve essere vero o falso")
     elif key == "mqtt":
         _validate_mqtt(value)
+    elif key == "mqtt_brokers":
+        _validate_brokers(value)
+    elif key == "mqtt_send_confirmed_brokers":
+        if not (isinstance(value, list) and all(
+                isinstance(x, str) and _BROKER_ID_RE.fullmatch(x) for x in value)):
+            raise ValueError("mqtt_send_confirmed_brokers deve essere una lista di id di broker")
 
 
 _DECRYPT_CACHE: dict = {}  # (protector, valore salvato) -> chiaro, oppure None se non decifrabile
-_DECRYPT_CACHE_MAX = 16
+_DECRYPT_CACHE_MAX = 256
 
 
 def _decrypt_cached(key: str, stored: str) -> str:
@@ -162,9 +326,37 @@ def _decrypt_cached(key: str, stored: str) -> str:
     return "" if plain is None else plain
 
 
+def _map_broker_secrets(brokers: list, fn) -> list:
+    """Copia dei broker con fn(etichetta, valore) applicata a password, PSK e chiavi extra
+    non vuote."""
+    out = copy.deepcopy(brokers)
+    for b in out:
+        if not isinstance(b, dict):
+            continue
+        label = f"mqtt_brokers.{b.get('id')}"
+        if isinstance(b.get("password"), str) and b["password"]:
+            b["password"] = fn(f"{label}.password", b["password"])
+        for ch in b.get("channels") or []:
+            if isinstance(ch, dict) and isinstance(ch.get("psk"), str) and ch["psk"]:
+                ch["psk"] = fn(f"{label}.channels.{ch.get('name')}", ch["psk"])
+        b["extra_keys"] = [fn(f"{label}.extra_keys", k) if isinstance(k, str) and k else k
+                           for k in b.get("extra_keys") or []]
+    return out
+
+
+def _protect_brokers(brokers: list) -> list:
+    protector = get_protector()
+    try:
+        return _map_broker_secrets(brokers, lambda _label, v: protector.protect(v))
+    except SecretError as e:
+        raise ValueError(f"Impossibile cifrare mqtt_brokers: {e}") from e
+
+
 def load_settings(conn: sqlite3.Connection) -> dict:
     """Default sovrascritti dai valori salvati."""
     result = copy.deepcopy(DEFAULTS)
+    legacy_mqtt = None
+    brokers = None
     for row in conn.execute("SELECT key, value FROM settings"):
         if row["key"] not in DEFAULTS:
             continue
@@ -172,40 +364,97 @@ def load_settings(conn: sqlite3.Connection) -> dict:
         if row["key"] in SECRET_KEYS and isinstance(value, str) and value:
             value = _decrypt_cached(row["key"], value)
         if row["key"] == "mqtt":
-            result["mqtt"].update(value)
+            legacy_mqtt = value
+        elif row["key"] == "mqtt_brokers":
+            brokers = _map_broker_secrets(value, _decrypt_cached)
         else:
             result[row["key"]] = value
-    # argomenti salvati da versioni precedenti senza "/#" (non ricevevano nulla)
-    result["mqtt"]["topics"] = [t for t in (normalize_topic(x) for x in result["mqtt"].get("topics", []))
-                                if t] or list(DEFAULTS["mqtt"]["topics"])
+    if brokers is None:  # database di una versione con un solo broker, non ancora migrato
+        brokers = [default_broker(legacy_mqtt)]
+    result["mqtt_brokers"] = brokers
+    result["mqtt"] = mqtt_view(brokers)
     return result
 
 
 def save_settings(conn: sqlite3.Connection, changes: dict) -> dict:
-    """Valida e salva le modifiche (mqtt e' fuso con i valori esistenti)."""
+    """Valida e salva le modifiche. Con mqtt_brokers la vecchia chiave mqtt e' ignorata;
+    con la sola mqtt si aggiorna il broker predefinito."""
+    changes = dict(changes)
+    if "mqtt_brokers" in changes:
+        changes.pop("mqtt", None)
     for key, value in changes.items():
         _validate(key, value)
     current = load_settings(conn)
-    for key, value in changes.items():
-        if key == "mqtt":
-            current["mqtt"].update(value)
-            value = current["mqtt"]
+    if "mqtt" in changes:
+        brokers = copy.deepcopy(current["mqtt_brokers"])
+        d = next(b for b in brokers if b["id"] == DEFAULT_BROKER_ID)
+        d.update(changes.pop("mqtt"))
+        # come le versioni con un solo broker: senza argomenti valgono quelli predefiniti
+        d["topics"] = _clean_topics(d["topics"]) or list(DEFAULTS["mqtt"]["topics"])
+        _validate_brokers(brokers)
+        changes["mqtt_brokers"] = brokers
+    stored = {}
+    for key, value in changes.items():  # prima si cifra tutto: un errore non salva nulla
+        if key == "mqtt_brokers":
+            value = _protect_brokers(value)
         elif key in SECRET_KEYS and isinstance(value, str) and value:
             try:
                 value = get_protector().protect(value)
             except SecretError as e:
                 raise ValueError(f"Impossibile cifrare {key}: {e}") from e
+        stored[key] = value
+    for key, value in stored.items():
         conn.execute("INSERT INTO settings(key, value) VALUES(?, ?) "
                      "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
                      (key, json.dumps(value)))
+    if "mqtt_brokers" in stored:
+        conn.execute("DELETE FROM settings WHERE key='mqtt'")
     conn.commit()
     return load_settings(conn)
+
+
+def migrate_brokers(conn: sqlite3.Connection) -> bool:
+    """Database di una versione con un solo broker: scrive mqtt_brokers dal vecchio mqtt
+    (il broker predefinito, con Crittografia accesa) e toglie la vecchia riga."""
+    if conn.execute("SELECT 1 FROM settings WHERE key='mqtt_brokers'").fetchone():
+        return False
+    row = conn.execute("SELECT value FROM settings WHERE key='mqtt'").fetchone()
+    if row is None:
+        return False  # installazione nuova: valgono i predefiniti
+    try:
+        brokers = _protect_brokers([default_broker(json.loads(row["value"]))])
+    except ValueError as e:
+        log.warning("Migrazione dei broker MQTT rimandata: %s", e)
+        return False
+    conn.execute("INSERT INTO settings(key, value) VALUES('mqtt_brokers', ?)",
+                 (json.dumps(brokers),))
+    conn.execute("DELETE FROM settings WHERE key='mqtt'")
+    conn.commit()
+    return True
 
 
 def migrate_secrets(conn: sqlite3.Connection) -> int:
     """Riscrive cifrati i segreti ancora salvati in chiaro (database delle versioni precedenti)."""
     protector = get_protector()
     n = 0
+    row = conn.execute("SELECT value FROM settings WHERE key='mqtt_brokers'").fetchone()
+    if row is not None:
+        plain = []
+
+        def protect_plain(label, v):
+            if protector.is_protected(v):
+                return v
+            plain.append(label)
+            return protector.protect(v)
+        try:
+            brokers = _map_broker_secrets(json.loads(row["value"]), protect_plain)
+        except SecretError as e:
+            log.warning("Impossibile cifrare mqtt_brokers, resta in chiaro: %s", e)
+        else:
+            if plain:
+                conn.execute("UPDATE settings SET value=? WHERE key='mqtt_brokers'",
+                             (json.dumps(brokers),))
+                n += 1
     for key in SECRET_KEYS:
         row = conn.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
         if row is None:
@@ -225,13 +474,16 @@ def migrate_secrets(conn: sqlite3.Connection) -> int:
 
 
 def mask_secrets(s: dict) -> dict:
-    """Copia senza segreti in chiaro: password MQTT, token di aggiornamento, chiavi PSK extra."""
+    """Copia senza segreti in chiaro: password MQTT, token di aggiornamento, chiavi PSK extra,
+    PSK dei canali dei broker."""
     out = copy.deepcopy(s)
     mqtt = out.get("mqtt")
     if isinstance(mqtt, dict):
         if mqtt.get("password"):
             mqtt["password"] = MASK
         mqtt["extra_keys"] = [MASK for _ in mqtt.get("extra_keys", [])]
+    if isinstance(out.get("mqtt_brokers"), list):
+        out["mqtt_brokers"] = _map_broker_secrets(out["mqtt_brokers"], lambda _label, _v: MASK)
     for key in SECRET_KEYS:
         if out.get(key):
             out[key] = MASK
@@ -249,8 +501,9 @@ def export_settings(s: dict, include_secrets: bool) -> dict:
     }
 
 
-def prepare_import(data: dict) -> tuple[dict, list[str]]:
-    """Da un documento esportato ricava le modifiche da salvare e le chiavi scartate."""
+def prepare_import(data: dict, current: dict | None = None) -> tuple[dict, list[str]]:
+    """Da un documento esportato ricava le modifiche da salvare e le chiavi scartate.
+    I segreti mascherati dei broker si risolvono contro le impostazioni attuali (current)."""
     if not isinstance(data, dict) or data.get("format") != EXPORT_FORMAT:
         raise ValueError("Formato del file di impostazioni non supportato")
     settings = data.get("settings")
@@ -261,9 +514,18 @@ def prepare_import(data: dict) -> tuple[dict, list[str]]:
     if "mqtt_send_confirmed" in changes:
         del changes["mqtt_send_confirmed"]  # la conferma resta una scelta di questo PC
         skipped.append("mqtt_send_confirmed")
+    if "mqtt_send_confirmed_brokers" in changes:
+        del changes["mqtt_send_confirmed_brokers"]
+        skipped.append("mqtt_send_confirmed_brokers")
     if changes.get("update_token") == MASK:
         del changes["update_token"]
         skipped.append("update_token")
+    if "mqtt_brokers" in changes:
+        changes.pop("mqtt", None)  # vista di compatibilita': vale la lista dei broker
+        if isinstance(changes["mqtt_brokers"], list):
+            existing = (current or {}).get("mqtt_brokers") or []
+            changes["mqtt_brokers"] = _resolve_brokers(changes["mqtt_brokers"], existing,
+                                                       skipped)
     mqtt = changes.get("mqtt")
     if isinstance(mqtt, dict):
         if mqtt.get("password") == MASK:
@@ -296,8 +558,87 @@ def resolve_extra_keys(entries, existing: list[str]):
         elif ref < len(existing):
             out.append(existing[ref])
         else:
-            raise ValueError("Chiave mascherata senza corrispondenza: reinseriscila")
+            raise ValueError(_NO_MATCH)
     return out
+
+
+_NO_MATCH = "Chiave mascherata senza corrispondenza: reinseriscila"
+
+
+def _mask_ref(value, position: int) -> int | None:
+    """Indice della voce salvata a cui rimanda un valore mascherato ("••••" = stessa
+    posizione, "••••#n" = n-esima); None se il valore non e' mascherato."""
+    if value == MASK:
+        return position
+    if isinstance(value, str) and (m := _MASK_REF.match(value)):
+        return int(m.group(1))
+    return None
+
+
+def _resolve_brokers(new, existing: list, skipped: list[str] | None) -> list:
+    """Sostituisce i segreti mascherati con quelli salvati del broker con lo stesso id.
+    skipped None: un valore senza corrispondenza solleva ValueError; altrimenti la password
+    diventa "", il canale e la chiave extra si scartano e finiscono in skipped."""
+    out = copy.deepcopy(new)
+    by_id = {b.get("id"): b for b in existing if isinstance(b, dict)}
+    for nb in out:
+        if not isinstance(nb, dict):
+            continue
+        bid = nb.get("id")
+        ob = by_id.get(bid) if isinstance(bid, str) and bid else None
+
+        def missing(what: str) -> None:
+            if skipped is None:
+                raise ValueError(_NO_MATCH)
+            skipped.append(f"mqtt_brokers.{bid}.{what}")
+
+        if _mask_ref(nb.get("password"), 0) is not None:
+            if ob is not None:
+                nb["password"] = ob.get("password", "")
+            else:
+                missing("password")
+                nb["password"] = ""
+        if isinstance(nb.get("channels"), list):
+            saved = (ob or {}).get("channels") or []
+            channels = []
+            for ch in nb["channels"]:
+                if isinstance(ch, dict) and ch.get("psk") == MASK:
+                    match = next((c for c in saved if c.get("name") == ch.get("name")), None)
+                    psk = None if match is None else match.get("psk")
+                elif isinstance(ch, dict) and (ref := _mask_ref(ch.get("psk"), -1)) is not None:
+                    psk = saved[ref].get("psk") if ref < len(saved) else None
+                else:
+                    channels.append(ch)
+                    continue
+                if psk is None:
+                    missing(f"channels.{ch.get('name')}")
+                else:
+                    channels.append({**ch, "psk": psk})
+            nb["channels"] = channels
+        if isinstance(nb.get("extra_keys"), list):
+            saved_keys = (ob or {}).get("extra_keys") or []
+            keys, lost = [], False
+            for i, k in enumerate(nb["extra_keys"]):
+                ref = _mask_ref(k, i)
+                if ref is None:
+                    keys.append(k)
+                elif ref < len(saved_keys):
+                    keys.append(saved_keys[ref])
+                else:
+                    lost = True
+            if lost:
+                missing("extra_keys")
+            nb["extra_keys"] = keys
+    return out
+
+
+def resolve_broker_secrets(new: list, existing: list) -> list:
+    """Per PUT /api/settings: i segreti mascherati tornano quelli salvati (stesso id di broker;
+    PSK per nome del canale con "••••" o per posizione con "••••#n"). Un valore mascherato
+    senza corrispondenza solleva ValueError."""
+    if not isinstance(new, list):
+        return new
+    return _resolve_brokers(new, existing, None)
 
 
 def scrub_text(text: str, *secrets) -> str:
