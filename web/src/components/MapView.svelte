@@ -954,6 +954,7 @@
     text-align: center;
   }
   :global(.vp-phone) .nonodes {
+    box-sizing: border-box;
     /* su telefono sta in cima, nella colonna di .topleft, lontano dal pannello in basso */
     position: static;
     transform: none;
