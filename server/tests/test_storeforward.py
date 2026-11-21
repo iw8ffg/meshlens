@@ -361,3 +361,33 @@ async def test_replay_skips_own_outgoing(env):
     msg = StoreAndForward(rr=RR.Value("ROUTER_TEXT_BROADCAST"), text=b"mio")
     sf.handle(sf_event(msg, clock, frm=0x99, pid=7, rx_time=NOW - 60))
     assert events == []
+
+
+async def test_replay_keeps_reply_and_emoji(env):
+    sf, *_, clock, radios, calls, events = env
+    pkt = sf_packet(StoreAndForward(rr=RR.Value("ROUTER_TEXT_BROADCAST"), text="\U0001F44D".encode()),
+                    frm=0x10, pid=77, rx_time=NOW - 60)
+    pkt["decoded"].update({"replyId": 9, "emoji": 1})
+    ev = packet_to_event(pkt, "r1", clock())
+    sf.handle(ev)
+    assert events[0].payload == TextData("\U0001F44D", reply_id=9, emoji=True)
+    # senza replyId/emoji restano i valori predefiniti
+    sf.handle(sf_event(StoreAndForward(rr=RR.Value("ROUTER_TEXT_BROADCAST"), text=b"x"),
+                       clock, frm=0x11, pid=78, rx_time=NOW - 60))
+    assert events[1].payload == TextData("x") and events[1].payload.reply_id is None
+
+
+async def test_old_replay_does_not_notify(env):
+    from meshlens.notify import Notifier
+    sf, *_, clock, radios, calls, events = env
+    toasts = []
+    n = Notifier(lambda: {"notify_toast": True, "notify_keywords": ["aiuto"]},
+                 lambda: (lambda t, b: toasts.append((t, b))), lambda: [], clock,
+                 send_telegram=lambda *a: None, run_bg=lambda f: f())
+    sf.handle(sf_event(StoreAndForward(rr=RR.Value("ROUTER_TEXT_BROADCAST"), text=b"aiuto"),
+                       clock, frm=0x10, pid=90, rx_time=NOW - 3600))
+    e = events[0]
+    assert e.replayed and e.rx_time == NOW - 3600
+    m = {"key": f"{e.from_node}:{e.packet_id}", "from": "!00000010", "text": e.payload.text,
+         "direction": "in", "emoji": False, "time": int(e.rx_time)}
+    assert n.on_message(m) is None and toasts == []

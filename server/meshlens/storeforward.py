@@ -49,6 +49,8 @@ class SfPacket:
     heartbeat: dict | None
     text: bytes | None
     rx_time: float | None
+    reply_id: int | None = None  # replyId / emoji del pacchetto RF: risposta o reazione
+    emoji: bool = False
 
 
 class SfError(Exception):
@@ -91,6 +93,8 @@ def parse_sf(packet: dict) -> SfPacket | None:
         heartbeat=_fields(msg.heartbeat) if variant == "heartbeat" else None,
         text=bytes(msg.text) if variant == "text" else None,
         rx_time=packet.get("rxTime") or None,
+        reply_id=(packet.get("decoded") or {}).get("replyId") or None,
+        emoji=bool((packet.get("decoded") or {}).get("emoji")),
     )
 
 
@@ -173,7 +177,8 @@ class StoreForwardService:
                 packet_id=ev.packet_id, channel=ev.channel,
                 rx_time=sfp.rx_time or self.clock(), snr=None, rssi=None, hops=None,
                 gateway_id=None, radio_id=ev.radio_id, kind="text",
-                payload=TextData(sfp.text.decode("utf-8", "replace")), replayed=True))
+                payload=TextData(sfp.text.decode("utf-8", "replace"),
+                                 reply_id=sfp.reply_id, emoji=sfp.emoji), replayed=True))
             if job is not None:
                 job["received"] += 1
         if job is not None:
