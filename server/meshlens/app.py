@@ -82,6 +82,7 @@ class Runtime:
     backups: BackupManager | None = None
     db_health: str = "non controllata"
     watchdog_restarts: int = 0
+    _connector_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
     def start_connector(self) -> None:
         cfg = self.settings["mqtt"]
@@ -102,6 +103,10 @@ class Runtime:
                 "watchdog_restarts": self.watchdog_restarts}
 
     async def restart_connector(self, reason: str) -> None:
+        async with self._connector_lock:
+            await self._restart_connector(reason)
+
+    async def _restart_connector(self, reason: str) -> None:
         old, self.connector = self.connector, None
         if old is not None:
             self.learned_keys.update(getattr(getattr(old, "decoder", None), "channel_keys", {}))
@@ -132,6 +137,10 @@ class Runtime:
             await self.restart_connector(f"Nessun messaggio da {MQTT_SILENT_S} s: ricollegamento")
 
     async def on_settings_changed(self, saved: dict) -> None:
+        async with self._connector_lock:
+            await self._on_settings_changed(saved)
+
+    async def _on_settings_changed(self, saved: dict) -> None:
         self.settings = saved
         if self.connector is not None and getattr(self.connector, "cfg", None) == saved["mqtt"]:
             return

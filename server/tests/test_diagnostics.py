@@ -82,3 +82,10 @@ def test_bundle_scrubs_mqtt_credentials_from_last_error():
     data = build_bundle(info, {"mqtt": {"username": "mario", "password": "s3gr3t0"}}, None)
     out = json.loads(zipfile.ZipFile(io.BytesIO(data)).read("info.json"))
     assert "s3gr3t0" not in out["mqtt"]["last_error"] and "mario" not in out["mqtt"]["last_error"]
+
+
+def test_scrub_text_handles_symbol_edged_and_short_secrets():
+    from meshlens.settings import scrub_text
+    assert "x!pw" not in scrub_text("errore con x!pw dentro", "x!pw")
+    assert scrub_text("errore xpw!y", "pw!") == "errore xpw!y"  # corto: solo parola intera
+    assert scrub_text("persa", "p") == "persa"

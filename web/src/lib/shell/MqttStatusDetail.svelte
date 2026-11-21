@@ -30,7 +30,7 @@
 </div>
 
 <style>
-  .md { font: 400 14px/20px var(--font-sans); color: var(--ink); }
+  .md { white-space: normal; font: 400 14px/20px var(--font-sans); color: var(--ink); }
   .head { display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-2); }
   .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--ink-muted); flex: none; }
   .dot.ok { background: var(--ok); }

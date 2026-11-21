@@ -245,9 +245,13 @@ def resolve_extra_keys(entries, existing: list[str]):
 
 
 def scrub_text(text: str, *secrets) -> str:
-    """Sostituisce con MASK le occorrenze (come parola intera) dei segreti dati."""
-    import re
+    """Sostituisce con MASK i segreti dati. Sotto i 4 caratteri solo come parola intera
+    (evita di rovinare il testo); da 4 in su come sottostringa."""
     for secret in secrets:
-        if secret and isinstance(secret, str):
+        if not secret or not isinstance(secret, str):
+            continue
+        if len(secret) >= 4:
+            text = text.replace(secret, MASK)
+        else:
             text = re.sub(rf"(?<!\w){re.escape(secret)}(?!\w)", MASK, text)
     return text

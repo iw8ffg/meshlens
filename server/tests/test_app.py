@@ -228,3 +228,22 @@ async def test_mqtt_status_route_has_new_fields(tmp_path):
             body = (await c.get("/api/mqtt/status")).json()
     assert body["filtered_channel"] == 0 and body["watchdog_restarts"] == 0
     assert body["connected"] is True
+
+
+async def test_settings_change_during_watchdog_restart_leaves_one_connector(tmp_path):
+    import asyncio
+
+    class Slow(FakeConnector):
+        def stop(self):
+            import time
+            time.sleep(0.1)
+            super().stop()
+
+    _, rt = build(tmp_path, connector_factory=Slow, static_dir=None)
+    rt.loop = asyncio.get_running_loop()
+    rt.start_connector()
+    FakeConnector.instances.clear()
+    await asyncio.gather(rt.restart_connector("test"),
+                         rt.on_settings_changed({**rt.settings, "mqtt": {**rt.settings["mqtt"], "host": "nuovo"}}))
+    live = [c for c in FakeConnector.instances if c.started and not c.stopped]
+    assert live == [rt.connector]

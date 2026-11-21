@@ -4,6 +4,7 @@
   import Segmented from '../ui/Segmented.svelte'
   import Logo from './Logo.svelte'
   import MqttStatusDetail from './MqttStatusDetail.svelte'
+  import { mqttSummary } from '../mqttstatus'
   import { app, updates } from '../stores.svelte'
   import { viewport } from '../viewport.svelte'
   import { getTheme, THEME_LABELS, type ThemePref } from '../theme'
@@ -21,6 +22,7 @@
   let { visible, tab, onselect, onupdate, onpickalert }: Props = $props()
 
   const mqtt = $derived(app.status?.mqtt ?? null)
+  const mqttSum = $derived(mqttSummary(mqtt, Date.now() / 1000))
   const upd = $derived(updates.status?.available ? updates.status.latest : null)
   const radiosOn = $derived(app.radios.filter((r) => r.state === 'connected').length)
 
@@ -69,8 +71,8 @@
 
   <div class="status">
     <div class="pop-wrap">
-      <button type="button" class="it mq" aria-expanded={open === 'mqtt'} title={mqtt ? (mqtt.connected ? 'MQTT connesso' : 'MQTT non connesso') : 'MQTT: in attesa'} onclick={() => toggle('mqtt')}>
-        <span class="dot" class:ok={mqtt?.connected} class:ko={mqtt && !mqtt.connected}></span>
+      <button type="button" class="it mq" aria-haspopup="dialog" aria-expanded={open === 'mqtt'} title={mqttSum.title} onclick={() => toggle('mqtt')}>
+        <span class="dot" class:ok={mqttSum.tone === 'ok'} class:warn={mqttSum.tone === 'warn'} class:ko={mqttSum.tone === 'ko'}></span>
         {#if viewport.phone}MQTT{:else}MQTT {mqtt ? (mqtt.connected ? 'connesso' : 'non connesso') : '…'}{/if}
       </button>
       {#if open === 'mqtt'}
@@ -99,7 +101,7 @@
     {/if}
     {#if app.alerts.length > 0}
       <div class="pop-wrap">
-        <button type="button" class="ib warn" aria-expanded={open === 'alerts'} aria-label="{app.alerts.length} {app.alerts.length === 1 ? 'avviso' : 'avvisi'}" onclick={() => toggle('alerts')}>
+        <button type="button" class="ib warn" aria-haspopup="dialog" aria-expanded={open === 'alerts'} aria-label="{app.alerts.length} {app.alerts.length === 1 ? 'avviso' : 'avvisi'}" onclick={() => toggle('alerts')}>
           <Icon name="alert" size={18} /><span class="n">{num(app.alerts.length)}</span>
         </button>
         {#if open === 'alerts'}
@@ -121,7 +123,7 @@
       </div>
     {/if}
     <div class="pop-wrap">
-      <button type="button" class="ib" aria-expanded={open === 'menu'} aria-label="Menu e tema" onclick={() => toggle('menu')}>
+      <button type="button" class="ib" aria-haspopup="dialog" aria-expanded={open === 'menu'} aria-label="Menu e tema" onclick={() => toggle('menu')}>
         <Icon name="more" size={18} />
       </button>
       {#if open === 'menu'}
@@ -146,9 +148,10 @@
   .it { display: inline-flex; align-items: center; gap: 6px; }
   .mq { min-height: 32px; padding: 0 var(--space-2); border: 0; border-radius: var(--radius-md); background: none; color: inherit; font: inherit; cursor: pointer; }
   .mq:hover { background: var(--surface-sunken); }
-  .pop.mqtt { right: auto; left: 0; }
+  .pop.mqtt { right: auto; left: 0; white-space: normal; }
   .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--ink-muted); flex: none; }
   .dot.ok { background: var(--ok); }
+  .dot.warn { background: var(--warn); }
   .dot.ko { background: var(--danger); }
   .acts { display: flex; align-items: center; gap: var(--space-2); flex: none; }
   .ib { display: inline-flex; align-items: center; justify-content: center; gap: 4px; min-width: var(--touch-min); height: var(--touch-min); padding: 0 var(--space-2); border: 0; border-radius: var(--radius-md); background: none; color: var(--ink); cursor: pointer; font: 600 14px/20px var(--font-sans); }
