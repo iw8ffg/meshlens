@@ -9,7 +9,7 @@
   import Flag from '../lib/ui/Flag.svelte'
   import SnrBadge from '../lib/ui/SnrBadge.svelte'
   import SourceMark from '../lib/ui/SourceMark.svelte'
-  import { app, upsertNodes, openConfig } from '../lib/stores.svelte'
+  import { app, upsertNodes, openChat, openConfig } from '../lib/stores.svelte'
   import TelemetryChart from './TelemetryChart.svelte'
   import Traceroute from './Traceroute.svelte'
   import { formatPrecision } from '../lib/geo'
@@ -40,7 +40,7 @@
 
   function directMessage() {
     if (!firstRadio) return
-    app.chatConv = `dm:${firstRadio.id}:${node.id}`
+    openChat(`dm:${firstRadio.id}:${node.id}`)
     onchat()
   }
 

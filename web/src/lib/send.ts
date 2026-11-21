@@ -35,6 +35,10 @@ export interface ViaInput {
   mqttNodeId: string
   /** Il server ha risposto unknown_node. */
   unknownNode: boolean
+  /** Nome del canale con cui la radio invierebbe (mostrato tra parentesi). */
+  radioChannelName?: (r: Radio) => string | undefined
+  /** Canale MQTT scelto (predefinito LongFast). */
+  mqttChannel?: string
 }
 
 const NODE_ID = /^![0-9a-f]{8}$/i
@@ -47,13 +51,14 @@ export function viaOptions(i: ViaInput): ViaOption[] {
   }
   for (const r of i.radios) {
     const ok = r.state === 'connected'
-    out.push({ value: radioVia(r.id), label: `Radio «${r.name}»`, disabled: !ok, reason: ok ? null : NO_RADIO_REASON })
+    const ch = i.radioChannelName?.(r)
+    out.push({ value: radioVia(r.id), label: ch ? `Radio «${r.name}» (${ch})` : `Radio «${r.name}»`, disabled: !ok, reason: ok ? null : NO_RADIO_REASON })
   }
   const identity = NODE_ID.test(i.mqttNodeId) || i.radios.some((r) => r.state === 'connected' && !!r.my_node_id)
   let reason: string | null = null
   if (!i.mqttConnected) reason = MQTT_DOWN_REASON
   else if (!identity || i.unknownNode) reason = MQTT_NODE_REASON
-  out.push({ value: MQTT_VIA, label: 'MQTT (canale)', disabled: reason !== null, reason })
+  out.push({ value: MQTT_VIA, label: `MQTT (${i.mqttChannel || DEFAULT_MQTT_CHANNEL})`, disabled: reason !== null, reason })
   return out
 }
 

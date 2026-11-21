@@ -32,6 +32,19 @@ test('viaOptions: radio e MQTT disponibili', () => {
   const o = viaOptions({ radios: [rad('a', 'connected', '!aabbccdd')], mqttConnected: true, mqttNodeId: '', unknownNode: false })
   expect(o.map((x) => [x.value, x.disabled])).toEqual([['radio:a', false], ['mqtt', false]])
   expect(o[0].label).toBe('Radio «R-a»')
+  expect(o[1].label).toBe('MQTT (LongFast)')
+})
+
+test('viaOptions: etichette coi nomi dei canali', () => {
+  const o = viaOptions({
+    radios: [rad('a', 'connected', '!aabbccdd', [[0, 'LongFast'], [1, 'Amici']])],
+    mqttConnected: true,
+    mqttNodeId: '',
+    unknownNode: false,
+    radioChannelName: (r) => r.channels.find((c) => c.index === 1)?.name,
+    mqttChannel: 'Medium',
+  })
+  expect(o.map((x) => x.label)).toEqual(['Radio «R-a» (Amici)', 'MQTT (Medium)'])
 })
 
 test('viaOptions: nessuna radio -> radio disattivata col motivo', () => {

@@ -20,7 +20,7 @@
     type MqttSendBody,
   } from '../lib/send'
   import { keepAboveKeyboard } from '../lib/keyboard'
-  import { app, addMessage, addRadioHistory } from '../lib/stores.svelte'
+  import { app, addMessage, addRadioHistory, attachChat } from '../lib/stores.svelte'
   import Badge from '../lib/ui/Badge.svelte'
   import Banner from '../lib/ui/Banner.svelte'
   import Button from '../lib/ui/Button.svelte'
@@ -30,7 +30,7 @@
   import Select from '../lib/ui/Select.svelte'
   import Toast from '../lib/ui/Toast.svelte'
   import MessageFeed from './MessageFeed.svelte'
-  import type { Message } from '../lib/types'
+  import type { Message, Radio } from '../lib/types'
 
   let { now, onpick }: { now: number; onpick: (id: string) => void } = $props()
 
@@ -85,16 +85,14 @@
         if (alive && typeof s.mqtt_node_id === 'string') mqttNodeId = s.mqtt_node_id
       })
       .catch(() => {})
+    // Apertura da fuori (es. "Messaggio diretto" nel dettaglio nodo): callback, nessun effetto
+    const chat = attachChat((key) => {
+      conv = key
+    })
+    if (chat.pending) conv = chat.pending
     return () => {
       alive = false
-    }
-  })
-
-  // Apertura da fuori (es. "Messaggio diretto" nel dettaglio nodo)
-  $effect(() => {
-    if (app.chatConv) {
-      conv = app.chatConv
-      app.chatConv = null
+      chat.detach()
     }
   })
 
@@ -129,6 +127,14 @@
   // --- Invia via ---
   const mqttConnected = $derived(app.status?.mqtt.connected ?? false)
   const options = $derived(viaOptions({ radios: app.radios, mqttConnected, mqttNodeId, unknownNode }))
+  // Etichette con i nomi dei canali (solo visualizzazione: la scelta usa `options`, senza dipendere dal canale)
+  const chanName = (r: Radio): string | undefined => {
+    const idx = r.id === radioId ? (dmTo ? 0 : Number(radioChan)) : pickRadioChannel(conv, app.radios, r.id, 0, true)
+    return r.channels.find((c) => c.index === idx)?.name || undefined
+  }
+  const shownOptions = $derived(
+    viaOptions({ radios: app.radios, mqttConnected, mqttNodeId, unknownNode, radioChannelName: chanName, mqttChannel: mqttChan }),
+  )
   const radioId = $derived(viaRadioId(via))
   const viaRadio = $derived(app.radios.find((r) => r.id === radioId) ?? null)
   const hasChoice = $derived(options.some((o) => !o.disabled))
@@ -169,6 +175,12 @@
     forceScroll = true
     addMessage(m)
     text = ''
+    // il messaggio non compare nella conversazione aperta: lo si conferma con un avviso
+    const inConv = dmTo ? splitKey(conv)[1] === radioId : conv === `ch:${radioId}:${radioChan}`
+    if (!inConv) {
+      const ch = viaRadio?.channels.find((c) => String(c.index) === radioChan)
+      notice = `Inviato via radio · ${dmTo ? `DM ${nodeName(dmTo)}` : ch?.name || `Canale ${radioChan}`}`
+    }
   }
 
   async function sendMqtt(body: MqttSendBody) {
@@ -300,7 +312,7 @@
     {#if notice}<Toast kind="ok" onclose={() => (notice = '')}>{notice}</Toast>{/if}
     <fieldset class="via">
       <legend>Invia via</legend>
-      {#each options as o (o.value)}
+      {#each shownOptions as o (o.value)}
         <label class="opt" class:dis={o.disabled}>
           <input type="radio" name="{uid}-via" value={o.value} bind:group={via} disabled={o.disabled} aria-describedby={o.reason ? `${uid}-why-${o.value}` : undefined} />
           <span class="lbl">{o.label}</span>
