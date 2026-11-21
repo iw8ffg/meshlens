@@ -1,5 +1,5 @@
 """Eventi di rete normalizzati (contratto MeshEvent)."""
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 def node_id(num: int) -> str:
@@ -50,6 +50,8 @@ class TelemetryData:
     channel_utilization: float | None = None
     air_util_tx: float | None = None
     uptime_seconds: int | None = None
+    variant: str = "device"
+    metrics: dict[str, float] = field(default_factory=dict)
 
 
 @dataclass

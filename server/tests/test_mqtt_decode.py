@@ -46,6 +46,21 @@ def test_telemetry_decoded():
     assert ev.payload.air_util_tx is None
 
 
+def test_environment_telemetry_decoded():
+    tel = telemetry_pb2.Telemetry(
+        environment_metrics=telemetry_pb2.EnvironmentMetrics(temperature=21.5))
+    ev = EnvelopeDecoder([DEFAULT_KEY]).decode(T, make_envelope(67, tel), now=1.0)
+    assert ev.kind == "telemetry" and ev.payload.variant == "environment"
+    assert ev.payload.metrics == {"temperature": 21.5}
+
+
+def test_host_metrics_counted_unsupported():
+    tel = telemetry_pb2.Telemetry(host_metrics=telemetry_pb2.HostMetrics(uptime_seconds=5))
+    d = EnvelopeDecoder([DEFAULT_KEY])
+    assert d.decode(T, make_envelope(67, tel), now=1.0) is None
+    assert d.stats["unsupported_port"] == 1
+
+
 def test_mapreport_decoded_from_plain_packet():
     mr = mqtt_pb2.MapReport(long_name="Mappa", short_name="MP", firmware_version="2.5.0",
                             latitude_i=454642000, longitude_i=91900000, position_precision=14,

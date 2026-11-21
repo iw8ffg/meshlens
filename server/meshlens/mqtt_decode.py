@@ -2,9 +2,10 @@
 import collections
 import collections.abc
 
-from meshtastic.protobuf import config_pb2, mesh_pb2, mqtt_pb2, portnums_pb2, telemetry_pb2
+from meshtastic.protobuf import config_pb2, mesh_pb2, mqtt_pb2, portnums_pb2
 
 from .crypto import decrypt
+from .telemetry_decode import EmptyTelemetry, UnsupportedTelemetry, parse_telemetry
 from .events import (
     MapReportData, MeshEvent, NeighborData, NodeInfoData, PositionData, RouteData,
     TelemetryData, TextData, WaypointData, scale_snr,
@@ -80,18 +81,12 @@ def _parse_nodeinfo(payload: bytes) -> NodeInfoData:
 
 
 def _parse_telemetry(payload: bytes) -> TelemetryData:
-    tel = telemetry_pb2.Telemetry()
-    tel.ParseFromString(payload)
-    if not tel.HasField("device_metrics"):
-        raise _Unsupported
-    dm = tel.device_metrics
-    return TelemetryData(
-        battery_level=_opt(dm, "battery_level"),
-        voltage=_opt(dm, "voltage"),
-        channel_utilization=_opt(dm, "channel_utilization"),
-        air_util_tx=_opt(dm, "air_util_tx"),
-        uptime_seconds=_opt(dm, "uptime_seconds"),
-    )
+    try:
+        return parse_telemetry(payload)
+    except UnsupportedTelemetry:
+        raise _Unsupported from None
+    except EmptyTelemetry:
+        raise _Empty from None
 
 
 def _parse_mapreport(payload: bytes) -> MapReportData:

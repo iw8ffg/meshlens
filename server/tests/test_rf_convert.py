@@ -1,3 +1,5 @@
+import pytest
+
 from meshlens.events import NodeInfoData, PositionData, TelemetryData, TextData
 from meshlens.rf_convert import nodedb_to_events, packet_to_event
 
@@ -54,12 +56,26 @@ def test_telemetry():
     ev = packet_to_event(_pkt({"portnum": "TELEMETRY_APP", "telemetry": {
         "deviceMetrics": {"batteryLevel": 80, "voltage": 4.1, "uptimeSeconds": 60}}}),
         "r", NOW)
+    assert ev.payload.voltage == pytest.approx(4.1)  # float32 del protobuf
+    ev.payload.voltage = 4.1
     assert ev.payload == TelemetryData(battery_level=80, voltage=4.1, uptime_seconds=60)
 
 
 def test_telemetry_without_device_metrics():
-    assert packet_to_event(_pkt({"portnum": "TELEMETRY_APP", "telemetry": {
-        "environmentMetrics": {"temperature": 20}}}), "r", NOW) is None
+    ev = packet_to_event(_pkt({"portnum": "TELEMETRY_APP", "telemetry": {
+        "environmentMetrics": {"temperature": 20}}}), "r", NOW)
+    assert ev.payload.variant == "environment" and ev.payload.metrics == {"temperature": 20.0}
+    assert packet_to_event(_pkt({"portnum": "TELEMETRY_APP", "telemetry": {}}), "r", NOW) is None
+
+
+def test_telemetry_from_payload_bytes():
+    from meshtastic.protobuf import telemetry_pb2
+    raw = telemetry_pb2.Telemetry(
+        environment_metrics=telemetry_pb2.EnvironmentMetrics(temperature=18.5)).SerializeToString()
+    ev = packet_to_event(_pkt({"portnum": "TELEMETRY_APP", "payload": raw}), "r", NOW)
+    assert ev.payload.variant == "environment" and ev.payload.metrics == {"temperature": 18.5}
+    assert packet_to_event(_pkt({"portnum": "TELEMETRY_APP", "payload": bytes([255, 255])}),
+                           "r", NOW) is None
 
 
 def test_no_decoded_and_other_port():

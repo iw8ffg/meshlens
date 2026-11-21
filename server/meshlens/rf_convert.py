@@ -8,6 +8,7 @@ from .events import (
     TelemetryData, TextData, WaypointData, scale_snr,
 )
 from .storeforward import parse_sf
+from .telemetry_decode import parse_telemetry, telemetry_from_dict
 
 
 def _coord(d: dict, name: str):
@@ -155,7 +156,14 @@ def packet_to_event(packet: dict, radio_id: str, now: float) -> MeshEvent | None
         kind, payload = "nodeinfo", _nodeinfo(decoded.get("user"))
     elif port == "TELEMETRY_APP":
         kind = "telemetry"
-        payload = _telemetry((decoded.get("telemetry") or {}).get("deviceMetrics"))
+        try:
+            raw = decoded.get("payload")
+            if isinstance(raw, (bytes, bytearray)):
+                payload = parse_telemetry(bytes(raw))
+            else:
+                payload = telemetry_from_dict(decoded.get("telemetry") or {})
+        except Exception:  # UnsupportedTelemetry, EmptyTelemetry, dict o bytes malformati
+            payload = None
     elif port == "NEIGHBORINFO_APP":
         kind, payload = "neighbors", _neighbors(decoded.get("neighborinfo"))
     elif port == "TRACEROUTE_APP":

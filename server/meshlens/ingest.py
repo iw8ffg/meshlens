@@ -79,7 +79,7 @@ class Ingestor:
         self.on_message = on_message
         self.on_status = on_status
         self.on_waypoint = on_waypoint
-        self._telemetry_time: dict[int, float] = {}
+        self._telemetry_time: dict[tuple[int, str], float] = {}
         self._rf_hops_time: dict[int, float] = {}  # nodo -> istante dell'ultimo hops da RF
         self._radio_nodes: dict[str, int] = {}  # radio_id -> numero del nodo della radio
         # canali visti da MQTT (anche se scartati): (broker, canale) -> {minuto: conteggio}
@@ -188,10 +188,11 @@ class Ingestor:
                                    or (no_time and node["lat"] is not None)):
             pass  # senza orario la posizione della radio riempie solo i vuoti
         elif kind == "telemetry" and no_time:
-            if all(node[f] is None for f in ("battery", "voltage", "channel_util", "air_util_tx")):
+            if p.variant == "device" and all(
+                    node[f] is None for f in ("battery", "voltage", "channel_util", "air_util_tx")):
                 self._update_telemetry(node, p)
             kind = "stale"
-        elif kind == "telemetry" and self._older(ev, self._telemetry_time.get(num)):
+        elif kind == "telemetry" and self._older(ev, self._telemetry_time.get((num, p.variant))):
             kind = "stale"
         elif kind == "position":
             ev_pos = (p.lat, p.lon, p.precision_bits, ev.source)
@@ -208,8 +209,9 @@ class Ingestor:
                 ev_pos = (p.lat, p.lon, p.precision_bits, "mqtt_map")
                 self._update_position(node, ev, *ev_pos)
         elif kind == "telemetry":
-            self._telemetry_time[num] = ev.rx_time
-            self._update_telemetry(node, p)
+            self._telemetry_time[(num, p.variant)] = ev.rx_time
+            if p.variant == "device":
+                self._update_telemetry(node, p)
         elif kind == "waypoint":
             self._handle_waypoint(node, ev)
 
@@ -226,7 +228,10 @@ class Ingestor:
             if ev_pos is not None and not no_time:
                 self.store.add_position(num, ev.rx_time, *ev_pos[:3], ev_pos[3])
             if kind == "telemetry":
-                self.store.add_telemetry(num, ev.rx_time, p)
+                if p.variant == "device":
+                    self.store.add_telemetry(num, ev.rx_time, p)
+                else:
+                    self.store.add_metrics(num, ev.rx_time, p.variant, p.metrics)
             if message is not None:
                 self.store.add_message(message)
 

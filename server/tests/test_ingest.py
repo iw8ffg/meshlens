@@ -127,6 +127,26 @@ def test_telemetry_updates_and_persists(env):
     assert count(conn, "telemetry") == 1
 
 
+def test_environment_telemetry_stored_as_metrics(env):
+    ing, live, _, conn, _ = env
+    ing.handle(ev("position", pos(MILAN), pid=1))
+    ing.handle(ev("telemetry", TelemetryData(87, 4.01), pid=2))
+    ing.handle(ev("telemetry", TelemetryData(variant="environment", metrics={
+        "temperature": 21.5, "relative_humidity": 40.0}), pid=3, t=NOW + 10))
+    assert count(conn, "telemetry") == 1 and count(conn, "metrics") == 2
+    assert (live.nodes[1]["battery"], live.nodes[1]["voltage"]) == (87, 4.01)
+
+
+def test_device_after_environment_not_stale(env):
+    ing, live, _, conn, _ = env
+    ing.handle(ev("position", pos(MILAN), pid=1))
+    ing.handle(ev("telemetry", TelemetryData(variant="environment",
+                                             metrics={"temperature": 20.0}), pid=2, t=NOW + 10))
+    ing.handle(ev("telemetry", TelemetryData(55, 3.8), pid=3, t=NOW + 5))
+    assert live.nodes[1]["battery"] == 55
+    assert count(conn, "telemetry") == 1
+
+
 def test_mine_node_outside_saved_countries_is_persisted(env):
     ing, live, store, conn, _ = env
     live.nodes[1] = {**_new_node(1), "is_mine": True}
