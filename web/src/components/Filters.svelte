@@ -116,4 +116,27 @@
   .err {
     color: #f87171;
   }
+  @media (max-width: 767px) {
+    input[type='search'] {
+      min-height: 40px;
+      box-sizing: border-box;
+      font-size: 16px;
+    }
+    .chip {
+      min-height: 40px;
+      padding: 6px 14px;
+    }
+    label {
+      min-height: 40px;
+      padding: 0;
+    }
+    summary {
+      min-height: 40px;
+      display: flex;
+      align-items: center;
+    }
+    .n {
+      font-size: 13px;
+    }
+  }
 </style>

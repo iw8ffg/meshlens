@@ -92,6 +92,17 @@
 
   $effect(persistFilter)
 
+  let navEl = $state<HTMLElement>()
+  // Su telefono la barra delle schede scorre: porta la scheda attiva in vista
+  $effect(() => {
+    void activeTab
+    const nav = navEl
+    if (!nav) return
+    const on = nav.querySelector<HTMLElement>('button.on')
+    if (!on) return
+    nav.scrollTo({ left: on.offsetLeft - (nav.clientWidth - on.offsetWidth) / 2, behavior: 'smooth' })
+  })
+
   $effect(() => {
     if (!auth?.authenticated) return
     const load = () => {
@@ -153,7 +164,7 @@
     <div class="main">
       <div class="mapwrap"><MapView nodes={visible} {now} {track} {focus} /></div>
       <aside class="panel" class:open={panelOpen || !!selected}>
-        <nav class="tabs" aria-label="Sezioni">
+        <nav class="tabs" aria-label="Sezioni" bind:this={navEl}>
           {#each TABS as [id, label] (id)}
             {#if mobile || id !== 'map'}
               <button class:on={activeTab === id} onclick={() => (tab = id)}>{label}</button>
@@ -265,6 +276,20 @@
   }
   .mobile .panel.open .content {
     display: block;
+  }
+  .mobile .panel .tabs {
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+  }
+  .mobile .panel .tabs::-webkit-scrollbar {
+    display: none;
+  }
+  .mobile .panel .tabs button {
+    flex: 0 0 auto;
+    min-height: 44px;
+    padding: 10px 12px;
+    white-space: nowrap;
   }
   .center {
     text-align: center;

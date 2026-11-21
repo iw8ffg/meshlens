@@ -156,4 +156,16 @@
     color: #9ca3af;
     margin: 0;
   }
+  @media (max-width: 767px) {
+    table {
+      font-size: 13px;
+    }
+    th button {
+      min-height: 40px;
+      padding: 0 4px;
+    }
+    .inline {
+      min-height: 40px;
+    }
+  }
 </style>

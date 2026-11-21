@@ -260,4 +260,22 @@
     color: #34d399;
     margin: 0;
   }
+  @media (max-width: 767px) {
+    .muted {
+      font-size: 13px;
+    }
+    label.inline,
+    .countries label {
+      min-height: 40px;
+    }
+    input[type='text'],
+    input[type='number'],
+    input[type='password'] {
+      min-height: 40px;
+      box-sizing: border-box;
+    }
+    button {
+      min-height: 40px;
+    }
+  }
 </style>

@@ -60,4 +60,9 @@
     padding: 16px;
     color: #9ca3af;
   }
+  @media (max-width: 767px) {
+    .dim {
+      font-size: 13px;
+    }
+  }
 </style>

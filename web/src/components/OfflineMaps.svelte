@@ -365,6 +365,11 @@
     margin: 0;
     font-size: 12px;
   }
+  @media (max-width: 767px) {
+    .muted {
+      font-size: 13px;
+    }
+  }
   .err {
     color: #f87171;
     margin: 0;
