@@ -669,6 +669,15 @@ async def test_read_local_returns_masked_dict():
     await h.conn.stop()
 
 
+async def test_current_protos_local_is_unmasked_copy():
+    h, iface = await admin_connected()
+    protos = await h.conn.current_protos(None)
+    assert protos["config"] is not iface.localNode.localConfig
+    assert protos["config"].security.private_key  # in chiaro: serve a copie e scritture
+    assert protos["owner"]["long_name"] == "Heltec base" and len(protos["channels"]) == 3
+    await h.conn.stop()
+
+
 async def test_read_remote_unauthorized_fails_fast():
     h, iface = await admin_connected()
 

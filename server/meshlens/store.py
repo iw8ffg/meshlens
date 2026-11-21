@@ -283,7 +283,7 @@ class Store:
         return self._backup_row(row, True) if row else None
 
     _JOB_FIELDS = ("node_num", "radio_id", "kind", "status", "step", "done", "total", "error",
-                   "result_id", "verify", "started", "ended")
+                   "result_id", "verify", "started", "ended", "error_code")
 
     def _check_job(self, fields: dict) -> None:
         bad = set(fields) - set(self._JOB_FIELDS)
@@ -303,6 +303,12 @@ class Store:
             self.conn.execute(
                 f"UPDATE config_jobs SET {', '.join(k + '=?' for k in fields)} WHERE id=?",
                 (*fields.values(), job_id))
+
+    def fail_running_jobs(self, error: str, ended: float) -> None:
+        """Lavori rimasti "running" da un avvio precedente: non finiranno piu'."""
+        self.conn.execute(
+            "UPDATE config_jobs SET status='failed', error=?, ended=? WHERE status='running'",
+            (error, ended))
 
     def get_job(self, job_id: int) -> dict | None:
         row = self.conn.execute("SELECT * FROM config_jobs WHERE id=?", (job_id,)).fetchone()

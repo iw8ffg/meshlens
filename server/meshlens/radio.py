@@ -653,6 +653,19 @@ class RadioConnector:
             return node_to_dict(n.localConfig, n.moduleConfig, n.channels or [],
                                 self._owner_of(None))
 
+    async def current_protos(self, node_num: int | None) -> dict:
+        """Copia dei protobuf attuali (segreti in chiaro): locale, o remoto gia' letto.
+
+        Serve a costruire le copie di sicurezza e i protobuf da scrivere. Non esce mai
+        dal server senza maschera.
+        """
+        async with self._admin_op(node_num, light=True) as iface:
+            node = self._node_for(node_num, need_read=True)
+            return {"config": copy.deepcopy(node.localConfig),
+                    "module_config": copy.deepcopy(node.moduleConfig),
+                    "channels": [copy.deepcopy(c) for c in (node.channels or [])],
+                    "owner": self._owner_of(node_num)}
+
     @staticmethod
     def _step(on_step, text: str, done: int, total: int) -> None:
         if on_step is not None:

@@ -11,6 +11,7 @@ from fastapi import FastAPI
 from .api import AppContext, create_app
 from .auth import Auth
 from .bus import Bus
+from .config_service import ConfigService
 from .coverage import CoverageRecorder
 from .crypto import DEFAULT_KEY, expand_psk
 from .db import connect
@@ -52,6 +53,7 @@ class Runtime:
     loop: asyncio.AbstractEventLoop | None = None
     settings: dict = field(default_factory=dict)  # copia in cache: evita SQL a ogni pacchetto
     radios: RadioManager | None = None
+    config: ConfigService | None = None
     connector: object = None
     ctx: object = None  # AppContext
     tasks: list = field(default_factory=list)
@@ -131,6 +133,8 @@ class Runtime:
         ]
 
     async def stop(self) -> None:
+        if self.config is not None:
+            await self.config.stop()
         if self.radios is not None:
             await self.radios.stop()
         if self.connector is not None:
@@ -173,9 +177,11 @@ def build(data_dir: Path, connector_factory=MqttConnector,
     rt.coverage, rt.on_event = coverage, on_event
     rt.radios = RadioManager(store, ingestor, bus, None, PubSubHub(None),
                               connector_factory=radio_connector_factory, on_event=on_event)
+    rt.config = ConfigService(store, rt.radios, live, bus)
     ctx = AppContext(live=live, store=store, auth=auth, bus=bus, locator=locator, conn=conn,
                      mqtt_status=rt.mqtt_status, on_settings_changed=rt.on_settings_changed,
-                     static_dir=static_dir, radios=rt.radios, coverage=coverage)
+                     static_dir=static_dir, radios=rt.radios, coverage=coverage,
+                     config=rt.config)
     rt.ctx = ctx
     app = create_app(ctx)
 

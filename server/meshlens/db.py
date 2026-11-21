@@ -72,6 +72,7 @@ _MIGRATIONS = (
     ("messages", "channel_index", "INTEGER"),
     ("messages", "packet_id", "INTEGER"),
     ("messages", "status", "TEXT"),
+    ("config_jobs", "error_code", "TEXT"),
 )
 
 

@@ -360,6 +360,28 @@ class RadioManager:
         if early is not None:
             self.ingestor.set_status(f"out:{message['radio_id']}:{packet_id}", early)
 
+    # ---- accesso per la configurazione ---------------------------------
+    def connector(self, radio_id: str):
+        """Connettore della radio (KeyError se sconosciuta)."""
+        self._get(radio_id)
+        return self._connectors[radio_id]
+
+    def radio_kind(self, radio_id: str) -> str:
+        return self._get(radio_id)["kind"]
+
+    def local_radio_for(self, num: int) -> str | None:
+        """Radio collegata il cui nodo e' `num`, se c'e'."""
+        mine = node_id(num)
+        for rid in self._cfgs:
+            st = self._connectors[rid].state()
+            if st["state"] == "connected" and st.get("my_node_id") == mine:
+                return rid
+        return None
+
+    def pick_radio(self, num: int) -> str:
+        """Radio collegata che sente il nodo con meno hop (come il traceroute)."""
+        return self._pick_radio(num)
+
     # ---- traceroute ---------------------------------------------------
     def _pick_radio(self, num: int) -> str:
         connected = [rid for rid in self._cfgs

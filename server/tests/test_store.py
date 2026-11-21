@@ -253,3 +253,14 @@ def test_store_config_tables_roundtrip(store):
     with pytest.raises(ValueError):
         store.update_job(jid, bogus=1)
     assert store.get_job(999) is None
+
+
+def test_purge_never_touches_config_tables(store):
+    # letture, copie e lavori di configurazione non scadono mai, nemmeno se vecchissimi
+    store.add_read(1, "r1", 1.0, ["lora"], {"a": 1})
+    store.add_backup(1, 1.0, "before_apply", None, ["config.lora"], {"a": 1})
+    jid = store.add_job(node_num=1, radio_id="r1", kind="read", status="done", started=1.0)
+    store.commit()
+    store.purge(NOW, {**DEFAULTS, "storage_cap_mb": 0})
+    assert store.last_read(1) is not None and len(store.backups(1)) == 1
+    assert store.get_job(jid) is not None

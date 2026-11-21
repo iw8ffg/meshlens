@@ -20,6 +20,8 @@ from starlette.websockets import WebSocketDisconnect
 from .alerts import compute_alerts
 from .auth import Auth, LockedError
 from .bus import Bus
+from .config_model import schema as config_schema
+from .config_service import ConfigError
 from .coverage import SessionActive, precision_m
 from .geo import CountryLocator
 from .live import LiveState
@@ -47,6 +49,7 @@ class AppContext:
     static_dir: Path | None = None
     radios: object | None = None  # RadioManager
     coverage: object | None = None  # CoverageRecorder
+    config: object | None = None  # ConfigService
     _alerts: list = field(default_factory=list)
 
     def alerts(self) -> list[dict]:
@@ -100,6 +103,34 @@ class CoveragePatchBody(BaseModel):
     notes: str | None = None
     base_lat: float | None = None
     base_lon: float | None = None
+
+
+class ConfigReadBody(BaseModel):
+    radio_id: str | None = None
+    sections: list[str] | None = None
+
+
+class ConfigPreviewBody(BaseModel):
+    changes: dict
+
+
+class ConfigApplyBody(BaseModel):
+    preview_id: str
+    confirm_risky: bool = False
+
+
+class ConfigRebootBody(BaseModel):
+    radio_id: str | None = None
+    confirm: bool = False
+
+
+class ConfigFixedPositionBody(BaseModel):
+    radio_id: str | None = None
+    lat: float | None = None
+    lon: float | None = None
+    alt: int = 0
+    remove: bool = False
+    confirm: bool = False
 
 
 GPS_MAX_AGE_S = 600
@@ -447,6 +478,82 @@ def create_app(ctx: AppContext) -> FastAPI:
     @app.get("/api/nodes/{node_id}/traceroutes", dependencies=[Depends(require_auth)])
     async def node_traceroutes(node_id: str):
         return ctx.store.traceroutes(_num_from_id(node_id), 10)
+
+    # ---- configurazione dei nodi ----
+    async def config_call(result):
+        """Esegue (anche in await) una chiamata al servizio: ConfigError -> HTTP."""
+        try:
+            if asyncio.iscoroutine(result):
+                return await result
+            return result
+        except ConfigError as e:
+            raise HTTPException(e.status, e.message)
+
+    def cfg(fn, *args, **kw):
+        try:
+            return fn(*args, **kw)
+        except ConfigError as e:
+            raise HTTPException(e.status, e.message)
+
+    @app.get("/api/config/schema", dependencies=[Depends(require_auth)])
+    async def config_schema_route():
+        return config_schema()
+
+    @app.get("/api/radios/{radio_id}/admin-key", dependencies=[Depends(require_auth)])
+    async def radio_admin_key(radio_id: str):
+        return await config_call(ctx.config.admin_key(radio_id))
+
+    @app.get("/api/config/jobs/{job_id}", dependencies=[Depends(require_auth)])
+    async def config_job(job_id: int):
+        return cfg(ctx.config.job, job_id)
+
+    @app.get("/api/config/backups/{backup_id}", dependencies=[Depends(require_auth)])
+    async def config_backup(backup_id: int):
+        return cfg(ctx.config.backup, backup_id)
+
+    @app.post("/api/config/backups/{backup_id}/preview-restore",
+              dependencies=[Depends(require_auth), Depends(require_json)])
+    async def config_preview_restore(backup_id: int):
+        return cfg(ctx.config.preview_restore, backup_id)
+
+    @app.get("/api/config/{node_id}", dependencies=[Depends(require_auth)])
+    async def config_last(node_id: str):
+        return cfg(ctx.config.last_read, node_id)
+
+    @app.post("/api/config/{node_id}/read", status_code=202,
+              dependencies=[Depends(require_auth), Depends(require_json)])
+    async def config_read(node_id: str, body: ConfigReadBody):
+        return cfg(ctx.config.start_read, node_id, body.radio_id, body.sections)
+
+    @app.post("/api/config/{node_id}/preview",
+              dependencies=[Depends(require_auth), Depends(require_json)])
+    async def config_preview(node_id: str, body: ConfigPreviewBody):
+        return cfg(ctx.config.preview, node_id, body.changes)
+
+    @app.post("/api/config/{node_id}/apply", status_code=202,
+              dependencies=[Depends(require_auth), Depends(require_json)])
+    async def config_apply(node_id: str, body: ConfigApplyBody):
+        return cfg(ctx.config.apply, node_id, body.preview_id, body.confirm_risky)
+
+    @app.post("/api/config/{node_id}/reboot", status_code=202,
+              dependencies=[Depends(require_auth), Depends(require_json)])
+    async def config_reboot(node_id: str, body: ConfigRebootBody):
+        return cfg(ctx.config.reboot, node_id, body.radio_id, body.confirm)
+
+    @app.post("/api/config/{node_id}/fixed-position", status_code=202,
+              dependencies=[Depends(require_auth), Depends(require_json)])
+    async def config_fixed_position(node_id: str, body: ConfigFixedPositionBody):
+        return cfg(ctx.config.fixed_position, node_id, body.radio_id, body.confirm,
+                   body.lat, body.lon, body.alt, body.remove)
+
+    @app.get("/api/config/{node_id}/backups", dependencies=[Depends(require_auth)])
+    async def config_backups(node_id: str):
+        return cfg(ctx.config.backups, node_id)
+
+    @app.post("/api/config/{node_id}/channels/{index}/reveal-psk",
+              dependencies=[Depends(require_auth), Depends(require_json)])
+    async def config_reveal_psk(node_id: str, index: int):
+        return await config_call(ctx.config.reveal_psk(node_id, index))
 
     # ---- copertura ----
     def coverage_session(sid: int) -> dict:
