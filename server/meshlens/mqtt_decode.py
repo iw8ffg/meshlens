@@ -1,5 +1,6 @@
 """Decodifica dei ServiceEnvelope MQTT di Meshtastic in MeshEvent."""
 import collections
+import collections.abc
 
 from meshtastic.protobuf import config_pb2, mesh_pb2, mqtt_pb2, portnums_pb2, telemetry_pb2
 
@@ -149,6 +150,30 @@ def _parse_payload(data: mesh_pb2.Data):
     raise _Unsupported
 
 
+class _KeyView(collections.abc.MutableMapping):
+    """Vista delle chiavi per canale: in lettura le personalizzate battono le imparate;
+    le scritture vanno solo tra le imparate (e non toccano mai una personalizzata)."""
+
+    def __init__(self, custom: dict, learned: dict):
+        self._custom, self._learned = custom, learned
+
+    def __getitem__(self, k):
+        return self._custom[k] if k in self._custom else self._learned[k]
+
+    def __setitem__(self, k, v):
+        if k not in self._custom:
+            self._learned[k] = v
+
+    def __delitem__(self, k):
+        del self._learned[k]
+
+    def __iter__(self):
+        return iter({**self._learned, **self._custom})
+
+    def __len__(self):
+        return len({**self._learned, **self._custom})
+
+
 class EnvelopeDecoder:
     def __init__(self, keys: list[bytes], channel_keys: dict[str, bytes] | None = None,
                  broker: str | None = None):
@@ -157,13 +182,19 @@ class EnvelopeDecoder:
         self.stats: collections.Counter = collections.Counter()
         # nome canale -> chiave: quelle date (canali personalizzati) piu' l'ultima che ha
         # decifrato un pacchetto (serve all'invio)
-        self.channel_keys: dict[str, bytes] = dict(channel_keys or {})
+        self._custom: dict[str, bytes] = dict(channel_keys or {})
+        self._learned: dict[str, bytes] = {}
+
+    @property
+    def channel_keys(self) -> _KeyView:
+        return _KeyView(self._custom, self._learned)
 
     def set_keys(self, keys: list[bytes], custom: dict[str, bytes]) -> None:
         """Sostituisce le chiavi a caldo: assegnazioni singole, il thread paho legge
-        la versione vecchia o la nuova, mai una a meta'. Le personalizzate vincono."""
+        la versione vecchia o la nuova, mai una a meta'. Le personalizzate sostituiscono
+        l'insieme precedente (un canale tolto smette subito); le imparate restano."""
         self.keys = list(keys)
-        self.channel_keys = {**self.channel_keys, **custom}
+        self._custom = dict(custom)
 
     def decode(self, topic: str, payload: bytes, now: float) -> MeshEvent | None:
         """Non solleva mai: ogni scarto viene contato in `stats`."""
@@ -230,7 +261,7 @@ class EnvelopeDecoder:
         if not packet.encrypted:
             return None
         keys = self.keys  # un solo riferimento: set_keys puo' sostituirlo in parallelo
-        first = self.channel_keys.get(channel_name) if channel_name else None
+        first = self.channel_keys.get(channel_name) if channel_name else None  # personalizzata o imparata
         candidates = ([first] if first else []) + [k for k in keys if k != first]
         for key in candidates:
             if not key:  # b"" = nessuna cifratura: niente da provare
@@ -247,6 +278,7 @@ class EnvelopeDecoder:
                 continue
             if data.portnum != 0:
                 if channel_name:
-                    self.channel_keys[channel_name] = key
+                    if channel_name not in self._custom:
+                        self._learned[channel_name] = key
                 return data
         return None
