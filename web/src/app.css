@@ -26,3 +26,10 @@
     scroll-behavior: auto !important;
   }
 }
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  background: var(--bg);
+  color: var(--ink);
+}
