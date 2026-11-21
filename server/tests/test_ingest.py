@@ -250,3 +250,81 @@ def test_mqtt_channel_counts_window_one_hour(locator):
     assert ing.mqtt_channel_counts(now=NOW + 3100) == {"LongFast": 2}
     assert ing.mqtt_channel_counts(now=NOW + 3700) == {"LongFast": 1}
     assert ing.mqtt_channel_counts(now=NOW + 7000) == {}
+
+
+def test_new_node_has_favorite_false_and_hops_min_none(env):
+    ing, live, _, _, _ = env
+    ing.handle(ev("position", pos(MILAN)))
+    assert live.nodes[1]["is_favorite"] is False and live.nodes[1]["hops_min"] is None
+
+
+def test_favorite_node_outside_saved_countries_is_persisted(env):
+    ing, live, store, conn, _ = env
+    live.nodes[1] = {**_new_node(1), "is_favorite": True}
+    ing.handle(ev("telemetry", TelemetryData(50, 3.9, 5.0, 1.0), pid=2))
+    assert count(conn, "telemetry") == 1
+
+
+def _links(store):
+    return [(l["from_id"], l["to_id"], l["source"], l["snr"]) for l in store.links(0)]
+
+
+def test_mqtt_gateway_link_on_direct_reception(env):
+    ing, live, store, conn, _ = env
+    ing.handle(ev("position", pos(MILAN), num=0x1234abcd, pid=90))  # il nodo e' gia' localizzato
+    ing.handle(ev("position", pos(MILAN), num=0x1234abcd, gateway_id="!00000077",
+                  relay_node=0xcd, hops=0))
+    assert _links(store) == [("!1234abcd", "!00000077", "mqtt_gateway", -7.5)]
+
+
+def test_mqtt_gateway_link_skipped_cases(env):
+    ing, live, store, conn, _ = env
+    ing.handle(ev("position", pos(MILAN), num=0x1234abcd, gateway_id="!00000077",
+                  relay_node=0x11, pid=1))  # ritrasmesso
+    ing.handle(ev("position", pos(MILAN), num=0x1234abcd, gateway_id="!00000077",
+                  relay_node=0, pid=2))  # sconosciuto
+    ing.handle(ev("position", pos(MILAN), num=0x1234abcd, gateway_id="!1234abcd",
+                  relay_node=0xcd, pid=3))  # gateway == mittente
+    ing.handle(ev("position", pos(MILAN), num=0x1234abcd, gateway_id="!gw",
+                  relay_node=0xcd, pid=4))  # gateway non valido
+    assert _links(store) == []
+
+
+def test_mqtt_gateway_link_not_persisted_outside_saved_countries(env):
+    ing, live, store, conn, _ = env
+    ing.handle(ev("position", pos(BERLIN), num=0x1234abcd, gateway_id="!00000077", relay_node=0xcd))
+    assert _links(store) == []
+
+
+def test_mqtt_gateway_link_persisted_for_favorite(env):
+    ing, live, store, conn, _ = env
+    live.nodes[0x1234abcd] = {**_new_node(0x1234abcd), "is_favorite": True}
+    ing.handle(ev("position", pos(BERLIN), num=0x1234abcd, gateway_id="!00000077", relay_node=0xcd))
+    assert len(_links(store)) == 1
+
+
+def test_mqtt_gateway_links_one_per_gateway_even_for_duplicates(env):
+    ing, live, store, conn, _ = env
+    ing.handle(ev("position", pos(MILAN), num=0x1234abcd, pid=90))
+    for gw in ("!00000077", "!00000088"):
+        ing.handle(ev("position", pos(MILAN), num=0x1234abcd, pid=5, gateway_id=gw,
+                      relay_node=0xcd))
+    assert sorted(l[1] for l in _links(store)) == ["!00000077", "!00000088"]
+
+
+def test_hops_min_set_from_relayed_mqtt(env):
+    ing, live, _, _, _ = env
+    ing.handle(ev("position", pos(MILAN), hops=None, hops_min=1, relay_node=0x11))
+    n = live.nodes[1]
+    assert n["hops"] is None and n["hops_min"] == 1
+    ing.handle(ev("position", pos(MILAN), pid=2, hops=0, relay_node=1))
+    assert n["hops"] == 0 and n["hops_min"] is None
+
+
+def test_mqtt_hops_do_not_overwrite_recent_rf_hops(env):
+    ing, live, _, _, _ = env
+    ing.handle(ev("position", pos(MILAN), source="rf", radio_id="rA", pid=1, hops=3, t=NOW))
+    ing.handle(ev("position", pos(MILAN), pid=2, hops=0, relay_node=1, t=NOW + 10))
+    assert live.nodes[1]["hops"] == 3
+    ing.handle(ev("position", pos(MILAN), source="rf", radio_id="rA", pid=3, hops=2, t=NOW + 20))
+    assert live.nodes[1]["hops"] == 2

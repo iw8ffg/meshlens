@@ -112,6 +112,10 @@ class MineBody(BaseModel):
     mine: bool
 
 
+class FavoriteBody(BaseModel):
+    favorite: bool
+
+
 class PinBody(BaseModel):
     pin: str
 
@@ -418,6 +422,19 @@ def create_app(ctx: AppContext) -> FastAPI:
         ctx.store.commit()
         ctx.live.mark_changed(num)
         ctx.alerts()
+        return _public(node)
+
+    @app.put("/api/nodes/{node_id}/favorite",
+             dependencies=[Depends(require_auth), Depends(require_json)])
+    async def set_favorite(node_id: str, body: FavoriteBody):
+        num = _num_from_id(node_id)
+        node = ctx.live.nodes.get(num)
+        if node is None:
+            raise HTTPException(404, "Nodo non trovato")
+        node["is_favorite"] = body.favorite
+        ctx.store.upsert_node(node, is_favorite=body.favorite)  # inserisce se manca nel database
+        ctx.store.commit()
+        ctx.live.mark_changed(num)  # pubblicato ai client dal ciclo _publish_changed
         return _public(node)
 
     @app.get("/api/links", dependencies=[Depends(require_auth)])

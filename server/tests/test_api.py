@@ -318,6 +318,20 @@ async def test_put_mine_and_get_alerts(ctx):
         assert (await c.put("/api/nodes/!000000ff/mine", json={"mine": True})).status_code == 404
 
 
+async def test_put_favorite_no_alerts_and_persists(ctx):
+    ctx.live.nodes[3]["battery"] = 10
+    async with logged(ctx) as c:
+        r = await c.put("/api/nodes/!00000003/favorite", json={"favorite": True})
+        assert r.status_code == 200
+        assert r.json()["is_favorite"] is True and not r.json().get("is_mine")
+        assert (await c.get("/api/alerts")).json() == []  # nessun avviso per i preferiti
+        assert [n for n in ctx.store.load_nodes() if n["num"] == 3][0]["is_favorite"] is True
+        assert (await c.put("/api/nodes/!000000ff/favorite",
+                            json={"favorite": True})).status_code == 404
+        r = await c.put("/api/nodes/!00000003/favorite", json={"favorite": False})
+        assert r.json()["is_favorite"] is False
+
+
 async def test_alerts_publish_only_on_change(ctx):
     ctx.live.nodes[1]["battery"] = 10
     q = ctx.bus.subscribe()

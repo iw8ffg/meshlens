@@ -8,7 +8,8 @@ CREATE TABLE IF NOT EXISTS nodes(
   firmware TEXT, lat REAL, lon REAL, precision_bits INTEGER, position_source TEXT,
   position_time INTEGER, country TEXT, last_heard REAL, sources TEXT, battery INTEGER,
   voltage REAL, channel_util REAL, air_util_tx REAL, mqtt_gateways INTEGER, last_snr REAL,
-  hops INTEGER, is_mine INTEGER DEFAULT 0, heard_by TEXT);
+  hops INTEGER, is_mine INTEGER DEFAULT 0, heard_by TEXT, is_favorite INTEGER DEFAULT 0,
+  hops_min INTEGER);
 CREATE TABLE IF NOT EXISTS positions(
   id INTEGER PRIMARY KEY AUTOINCREMENT, node_num INTEGER, time REAL, lat REAL, lon REAL,
   precision_bits INTEGER, source TEXT);
@@ -76,6 +77,8 @@ _MIGRATIONS = (
     ("messages", "packet_id", "INTEGER"),
     ("messages", "status", "TEXT"),
     ("config_jobs", "error_code", "TEXT"),
+    ("nodes", "is_favorite", "INTEGER DEFAULT 0"),
+    ("nodes", "hops_min", "INTEGER"),
 )
 
 

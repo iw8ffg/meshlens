@@ -189,6 +189,12 @@ class EnvelopeDecoder:
             return None
         kind, body = _parse_payload(data)
         self.stats["ok"] += 1
+        # il broker pubblico azzera hop_limit: i salti si deducono da relay_node
+        relay = packet.relay_node
+        if relay and relay == (from_node & 0xFF):
+            hops, hops_min = 0, None  # ricezione diretta dal mittente
+        else:
+            hops, hops_min = None, (1 if relay else None)  # ritrasmesso / sconosciuto
         return MeshEvent(
             source="mqtt",
             from_node=from_node,
@@ -198,11 +204,13 @@ class EnvelopeDecoder:
             rx_time=now,
             snr=packet.rx_snr or None,
             rssi=packet.rx_rssi or None,
-            hops=max(0, packet.hop_start - packet.hop_limit) if packet.hop_start > 0 else None,
+            hops=hops,
             gateway_id=env.gateway_id or None,
             radio_id=None,
             kind=kind,
             payload=body,
+            relay_node=relay,
+            hops_min=hops_min,
         )
 
     def _extract_data(self, packet: mesh_pb2.MeshPacket, from_node: int,

@@ -14,7 +14,7 @@ def test_position_decoded():
     ev = EnvelopeDecoder([DEFAULT_KEY]).decode(T, make_envelope(3, pos), now=1000.0)
     assert ev.kind == "position" and ev.source == "mqtt"
     assert ev.payload.lat == pytest.approx(45.4642) and ev.payload.lon == pytest.approx(9.19)
-    assert ev.payload.precision_bits == 13 and ev.hops == 2 and ev.gateway_id == "!00000001"
+    assert ev.payload.precision_bits == 13 and ev.gateway_id == "!00000001"
     assert node_id(ev.from_node) == "!a1b2c3d4"
     assert ev.rx_time == 1000.0 and ev.channel == "LongFast" and ev.snr == -5.0
 
@@ -153,10 +153,28 @@ def test_invalid_utf8_text_is_undecodable():
     assert d.stats["undecodable"] == 1
 
 
-def test_hops_never_negative():
-    ev = EnvelopeDecoder([DEFAULT_KEY]).decode(
-        T, make_envelope(1, b"x", hop_start=1, hop_limit=3), now=1.0)
-    assert ev.hops == 0
+def _hops_ev(relay_node, from_node=0xa1b2c3d4):
+    env = mqtt_pb2.ServiceEnvelope()
+    env.ParseFromString(make_envelope(1, b"x", from_node=from_node))
+    env.packet.relay_node = relay_node
+    return EnvelopeDecoder([DEFAULT_KEY]).decode(T, env.SerializeToString(), now=1.0)
+
+
+def test_mqtt_hops_direct_when_relay_is_sender_byte():
+    # hop_start/hop_limit si ignorano: il broker azzera hop_limit
+    ev = _hops_ev(0xd4)
+    assert ev.hops == 0 and ev.hops_min is None and ev.relay_node == 0xd4
+    assert ev.gateway_num == 1
+
+
+def test_mqtt_hops_relayed_gives_lower_bound():
+    ev = _hops_ev(0x11)
+    assert ev.hops is None and ev.hops_min == 1
+
+
+def test_mqtt_hops_unknown_relay():
+    ev = _hops_ev(0)
+    assert ev.hops is None and ev.hops_min is None and ev.relay_node == 0
 
 
 def test_mqtt_neighborinfo_decoded():

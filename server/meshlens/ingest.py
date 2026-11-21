@@ -11,6 +11,7 @@ from .store import Store
 
 _DAY = 86400
 _RF_BITS = 32
+_RF_HOPS_TTL = 3600  # s: per quanto un hops RF non viene scavalcato da uno MQTT
 
 
 def _bits(precision_bits: int | None) -> int:
@@ -46,7 +47,8 @@ def _new_node(num: int) -> dict:
             "precision_bits": None, "position_source": None, "position_time": None,
             "country": None, "last_heard": None, "sources": [], "battery": None,
             "voltage": None, "channel_util": None, "air_util_tx": None, "mqtt_gateways": 0,
-            "last_snr": None, "hops": None, "heard_by": {}, "is_local_radio": False, "is_mine": False}
+            "last_snr": None, "hops": None, "heard_by": {}, "is_local_radio": False, "is_mine": False,
+            "is_favorite": False, "hops_min": None}
 
 
 class Ingestor:
@@ -62,6 +64,7 @@ class Ingestor:
         self.on_message = on_message
         self.on_status = on_status
         self._telemetry_time: dict[int, float] = {}
+        self._rf_hops_time: dict[int, float] = {}  # nodo -> istante dell'ultimo hops da RF
         self._radio_nodes: dict[str, int] = {}  # radio_id -> numero del nodo della radio
         # (nodo, packet id) gia' visti da MQTT: serve a contare i gateway anche se l'RF e' arrivato prima
         self._mqtt_seen: OrderedDict[tuple[int, int], None] = OrderedDict()
@@ -123,7 +126,19 @@ class Ingestor:
             node["last_snr"] = ev.snr if not is_dup or prev is None else max(prev, ev.snr)
         if ev.hops is not None and not stale and not no_time:
             prev = node["hops"]
-            node["hops"] = ev.hops if not is_dup or prev is None else min(prev, ev.hops)
+            if ev.source == "rf":
+                self._rf_hops_time[num] = ev.rx_time
+            rf_time = self._rf_hops_time.get(num)
+            if (ev.source == "mqtt" and prev is not None and rf_time is not None
+                    and ev.rx_time - rf_time < _RF_HOPS_TTL):
+                pass  # un hops recente da RF e' piu' affidabile di quello dedotto da MQTT
+            else:
+                node["hops"] = ev.hops if not is_dup or prev is None else min(prev, ev.hops)
+                node["hops_min"] = None  # salti esatti: il minimo non serve piu'
+        elif ev.hops_min is not None and not stale and not no_time:
+            prev = node.get("hops_min")
+            node["hops_min"] = (ev.hops_min if not is_dup or prev is None
+                                else min(prev, ev.hops_min))
 
         self._record_links(ev)  # anche per i duplicati: l'upsert tiene l'ultima copia ricevuta
 
@@ -174,7 +189,8 @@ class Ingestor:
             self._update_telemetry(node, p)
 
         persist = (node["country"] in self.get_settings()["saved_countries"]
-                   or ev.source == "rf" or bool(node.get("is_mine")))
+                   or ev.source == "rf" or bool(node.get("is_mine"))
+                   or bool(node.get("is_favorite")))
 
         message = self._build_message(node, ev) if kind == "text" else None
         if message is not None:
@@ -193,10 +209,11 @@ class Ingestor:
             self.on_message(message)
 
     def _persisted(self, num: int) -> bool:
-        """Nodo che si archivia: in una nazione salvata o "mio". Se e' sconosciuto, no."""
+        """Nodo che si archivia: in una nazione salvata, "mio" o preferito. Sconosciuto: no."""
         node = self.live.nodes.get(num)
         return node is not None and (node["country"] in self.get_settings()["saved_countries"]
-                                     or bool(node.get("is_mine")))
+                                     or bool(node.get("is_mine"))
+                                     or bool(node.get("is_favorite")))
 
     def _link(self, ev: MeshEvent, a: int, b: int, source: str, snr) -> None:
         # MQTT: si archivia solo se almeno un estremo e' archiviato; l'RF sempre
@@ -212,6 +229,11 @@ class Ingestor:
             for chain in traceroute_chains(ev):
                 for (a, _), (b, snr) in zip(chain, chain[1:]):
                     self._link(ev, a, b, "traceroute", snr)
+        gw = ev.gateway_num
+        if (ev.source == "mqtt" and gw is not None and gw != ev.from_node
+                and ev.relay_node and ev.relay_node == (ev.from_node & 0xFF)):
+            # ricezione diretta dal mittente: il gateway ha sentito il nodo via radio
+            self._link(ev, ev.from_node, gw, "mqtt_gateway", ev.snr)
         if ev.source == "rf" and ev.hops == 0 and ev.rx_time > 0 and not ev.via_mqtt:
             radio_num = self._radio_nodes.get(ev.radio_id)
             # niente link via MQTT (non e' un collegamento radio) ne' verso se stessi

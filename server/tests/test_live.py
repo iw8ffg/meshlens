@@ -16,3 +16,10 @@ def test_evict_null_last_heard_non_mine_only():
     live.load([{"num": 1, "last_heard": None}, {"num": 2, "last_heard": None, "is_mine": True}])
     assert live.evict_older_than(50) == 1
     assert sorted(live.nodes) == [2]
+
+
+def test_evict_keeps_favorites():
+    live = LiveState()
+    live.load([{"num": 1, "last_heard": 10}, {"num": 2, "last_heard": 10, "is_favorite": True}])
+    assert live.evict_older_than(50) == 1
+    assert sorted(live.nodes) == [2]

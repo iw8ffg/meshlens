@@ -96,3 +96,17 @@ class MeshEvent:
     payload: (PositionData | NodeInfoData | TextData | TelemetryData | MapReportData
                | NeighborData | RouteData | RangeTestData)
     via_mqtt: bool = False  # pacchetto RF arrivato alla radio tramite un gateway MQTT
+    # MQTT: ultimo byte dell'ultimo ritrasmettitore (0 = sconosciuto) e minimo dei salti noto
+    relay_node: int | None = None
+    hops_min: int | None = None
+
+    @property
+    def gateway_num(self) -> int | None:
+        """Numero del nodo gateway ricavato da gateway_id ("!hex"); None se non valido."""
+        g = self.gateway_id
+        if not g or not g.startswith("!"):
+            return None
+        try:
+            return int(g[1:], 16)
+        except ValueError:
+            return None

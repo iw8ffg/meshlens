@@ -8,7 +8,7 @@ from .events import TelemetryData
 _NODE_FIELDS = ("id", "long_name", "short_name", "hw_model", "role", "firmware", "lat", "lon",
                 "precision_bits", "position_source", "position_time", "country", "last_heard",
                 "battery", "voltage", "channel_util", "air_util_tx", "mqtt_gateways",
-                "last_snr", "hops")
+                "last_snr", "hops", "hops_min")
 _DAY = 86400
 
 
@@ -27,7 +27,8 @@ class Store:
     def commit(self) -> None:
         self.conn.commit()
 
-    def upsert_node(self, node: dict, is_mine: bool | None = None) -> None:
+    def upsert_node(self, node: dict, is_mine: bool | None = None,
+                    is_favorite: bool | None = None) -> None:
         cols = ["num", "sources", "heard_by", *_NODE_FIELDS]
         values = [node["num"], json.dumps(node.get("sources") or []),
                   json.dumps(node.get("heard_by") or {})]
@@ -37,6 +38,9 @@ class Store:
         if is_mine is not None:
             cols.append("is_mine")
             values.append(1 if is_mine else 0)
+        if is_favorite is not None:
+            cols.append("is_favorite")
+            values.append(1 if is_favorite else 0)
         updates = ", ".join(f"{c}=excluded.{c}" for c in cols[1:])
         self.conn.execute(
             f"INSERT INTO nodes({', '.join(cols)}) VALUES({', '.join('?' * len(cols))}) "
@@ -98,11 +102,15 @@ class Store:
             d["sources"] = json.loads(d["sources"]) if d["sources"] else []
             d["heard_by"] = json.loads(d["heard_by"]) if d["heard_by"] else {}
             d["is_mine"] = bool(d["is_mine"])
+            d["is_favorite"] = bool(d["is_favorite"])
             out.append(d)
         return out
 
     def set_mine(self, num: int, mine: bool) -> None:
         self.conn.execute("UPDATE nodes SET is_mine=? WHERE num=?", (1 if mine else 0, num))
+
+    def set_favorite(self, num: int, favorite: bool) -> None:
+        self.conn.execute("UPDATE nodes SET is_favorite=? WHERE num=?", (1 if favorite else 0, num))
 
     def upsert_link(self, from_num: int, to_num: int, source: str, snr: float | None,
                     time: float) -> None:
@@ -406,7 +414,7 @@ class Store:
         self.conn.execute("DELETE FROM links WHERE time < ?",
                           (now - settings["retention_positions_days"] * _DAY,))
         deleted["nodes"] = self.conn.execute(
-            "DELETE FROM nodes WHERE (last_heard < ? OR last_heard IS NULL) AND is_mine = 0",
+            "DELETE FROM nodes WHERE (last_heard < ? OR last_heard IS NULL) AND is_mine = 0 AND is_favorite = 0",
             (now - settings["retention_positions_days"] * _DAY,)).rowcount
         cap = settings["storage_cap_mb"] * 1024 * 1024
         while self._used_bytes() > cap:

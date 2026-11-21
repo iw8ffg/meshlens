@@ -272,3 +272,26 @@ def test_fail_running_jobs_sets_error_code(store):
     st.fail_running_jobs("Interrotto", 2.0)
     job = st.get_job(jid)
     assert job["status"] == "failed" and job["error_code"] == "error"
+
+
+def test_favorite_roundtrip_and_preserved_by_upsert(store):
+    store.upsert_node(node(), is_favorite=True)
+    store.upsert_node(node(long_name="Altro"))  # is_favorite preservato
+    n = store.load_nodes()[0]
+    assert n["is_favorite"] is True and n["is_mine"] is False
+    store.set_favorite(0xA1B2C3D4, False)
+    assert store.load_nodes()[0]["is_favorite"] is False
+
+
+def test_hops_min_persisted(store):
+    store.upsert_node(node(hops=None, hops_min=1))
+    assert store.load_nodes()[0]["hops_min"] == 1
+
+
+def test_purge_keeps_favorites(store):
+    old = NOW - 91 * DAY
+    store.upsert_node(node(1, last_heard=old))
+    store.upsert_node(node(2, last_heard=old), is_favorite=True)
+    store.upsert_node(node(3, last_heard=None), is_favorite=True)
+    assert store.purge(NOW, DEFAULTS)["nodes"] == 1
+    assert sorted(n["num"] for n in store.load_nodes()) == [2, 3]
