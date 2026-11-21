@@ -27,11 +27,16 @@ function mins(seconds: number): string {
 export function mqttSummary(s: MqttStatus | null, now: number): MqttSummary {
   if (!s) return { tone: 'wait', title: 'In attesa dello stato MQTT', rows: [] }
   const age = s.last_msg_age_s ?? null
+  const active = (s.brokers ?? []).filter((b) => b.enabled)
+  const up = active.filter((b) => b.connected).length
   let tone: MqttTone
   let title: string
-  if (!s.connected) {
+  if (!s.connected || (active.length >= 2 && up === 0)) {
     tone = 'ko'
     title = 'Non connesso'
+  } else if (active.length >= 2 && up < active.length) {
+    tone = 'warn'
+    title = `Connesso a ${up} broker su ${active.length}`
   } else if (age !== null && age >= QUIET_WARN_S) {
     tone = 'warn'
     title = `Connesso, nessun messaggio da ${mins(age)}`
@@ -57,4 +62,28 @@ export function mqttSummary(s: MqttStatus | null, now: number): MqttSummary {
   if (s.filtered_channel) rows.push({ label: 'Scartati: canale non ascoltato', value: num(s.filtered_channel) })
   if (s.queue_dropped) rows.push({ label: 'Persi per sovraccarico', value: num(s.queue_dropped) })
   return { tone, title, rows }
+}
+
+export interface BrokerRow {
+  id: string
+  name: string
+  tone: MqttTone
+  detail: string
+}
+
+/** Una riga per broker: prima gli attivi, poi i disattivati. Vuoto con un server che non invia `brokers`. */
+export function brokerRows(s: MqttStatus | null, _now: number): BrokerRow[] {
+  const list = s?.brokers ?? []
+  const active: BrokerRow[] = list
+    .filter((b) => b.enabled)
+    .map((b) => ({
+      id: b.id,
+      name: b.name,
+      tone: b.connected ? 'ok' : 'ko',
+      detail: b.connected ? `${num(b.msgs_per_s, 1)} msg/s` : (b.last_error || 'Non connesso'),
+    }))
+  const off: BrokerRow[] = list
+    .filter((b) => !b.enabled)
+    .map((b) => ({ id: b.id, name: b.name, tone: 'wait', detail: 'Disattivato' }))
+  return [...active, ...off]
 }

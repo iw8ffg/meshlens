@@ -23,6 +23,7 @@
   import { keepAboveKeyboard } from '../lib/keyboard'
   import { app, addMessage, addRadioHistory, attachChat } from '../lib/stores.svelte'
   import Badge from '../lib/ui/Badge.svelte'
+  import BrokerBadge from '../lib/ui/BrokerBadge.svelte'
   import Banner from '../lib/ui/Banner.svelte'
   import Button from '../lib/ui/Button.svelte'
   import Empty from '../lib/ui/Empty.svelte'
@@ -318,6 +319,7 @@
             <div class="meta">
               <span>{ago((now - m.time) / 60)}</span>
               {#if m.via === 'mqtt'}<Badge kind="info">via MQTT</Badge>{/if}
+              <BrokerBadge id={m.broker} />
               {#if out && m.status}
                 <span class="st" class:bad={m.status === 'failed'} role="img" title={statusAria(m.status, m.via)} aria-label={statusAria(m.status, m.via)}>
                   {statusIcon(m.status)}
