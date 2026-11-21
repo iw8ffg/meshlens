@@ -1,6 +1,7 @@
 <script lang="ts">
-  import { app } from '../lib/stores.svelte'
-  let { visible }: { visible: number } = $props()
+  import { app, updates } from '../lib/stores.svelte'
+  let { visible, onupdate }: { visible: number; onupdate?: () => void } = $props()
+  const upd = $derived(updates.status?.available ? updates.status.latest : null)
   const mqtt = $derived(app.status?.mqtt ?? null)
 </script>
 
@@ -11,6 +12,9 @@
   </span>
   <span>{mqtt ? mqtt.msgs_per_s.toFixed(1).replace('.', ',') : '–'} msg/s</span>
   <span>{visible} nodi visibili</span>
+  {#if upd}
+    <button type="button" class="upd" onclick={() => onupdate?.()}>Disponibile MeshLens {upd}</button>
+  {/if}
 </div>
 
 <style>
@@ -22,6 +26,21 @@
     background: #0b1220;
     font-size: 13px;
     border-bottom: 1px solid #1f2937;
+  }
+  .upd {
+    margin-left: auto;
+    padding: 2px 10px;
+    background: #2563eb;
+    color: inherit;
+    border: 0;
+    border-radius: 12px;
+    font: inherit;
+    cursor: pointer;
+  }
+  @media (max-width: 767px) {
+    .upd {
+      min-height: 32px;
+    }
   }
   .item {
     display: inline-flex;

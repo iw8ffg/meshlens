@@ -20,6 +20,8 @@ import type {
   Node,
   TelemetryPoint,
   Traceroute,
+  UpdateJob,
+  UpdateStatus,
 } from './types'
 
 export class ApiError extends Error {
@@ -137,3 +139,8 @@ export const downloadMap = (kind: MapKind, bbox?: Bbox, name?: string) =>
   send<MapJob>('POST', '/maps/download', { kind, ...(bbox ? { bbox } : {}), ...(name ? { name } : {}) })
 export const cancelMapJob = (id: number | string) => send<unknown>('POST', `/maps/jobs/${encodeURIComponent(String(id))}/cancel`, {})
 export const deleteMap = (id: string) => send<void>('DELETE', `/maps/${encodeURIComponent(id)}`)
+
+export const updateStatus = () => getJSON<UpdateStatus>('/update/status')
+export const checkUpdate = () => send<UpdateStatus>('POST', '/update/check', {})
+export const downloadUpdate = () => send<UpdateJob>('POST', '/update/download', {})
+export const installUpdate = () => send<{ ok: boolean }>('POST', '/update/install', { confirm: true })

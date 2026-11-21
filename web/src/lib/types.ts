@@ -359,3 +359,23 @@ export interface MapEstimate {
   needs_tool: boolean
   tool_size_bytes: number
 }
+
+export interface UpdateJob {
+  id: number | string
+  status: 'running' | 'done' | 'failed'
+  bytes_done: number
+  bytes_total: number | null
+  error: string | null
+}
+
+export interface UpdateStatus {
+  current: string
+  latest: string | null
+  available: boolean
+  notes: string | null
+  published_at: string | number | null
+  checked_at: string | number | null
+  error: string | null
+  job: UpdateJob | null
+  can_install: boolean
+}

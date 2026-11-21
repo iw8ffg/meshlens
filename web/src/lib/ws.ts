@@ -1,5 +1,5 @@
 import { emitAuthRequired } from './api'
-import type { ConfigJob, MapJob, Alert, CoveragePoint, CoverageSession, CoverageTrackPoint, Message, MessageStatus, Node, Radio, Status, Traceroute } from './types'
+import type { ConfigJob, MapJob, UpdateJob, Alert, CoveragePoint, CoverageSession, CoverageTrackPoint, Message, MessageStatus, Node, Radio, Status, Traceroute } from './types'
 
 export interface WSHandlers {
   nodes(n: Node[]): void
@@ -12,6 +12,7 @@ export interface WSHandlers {
   messageStatus(key: string, status: MessageStatus): void
   configJob?(job: ConfigJob): void
   mapJob?(job: MapJob): void
+  updateJob?(job: UpdateJob): void
   /** Chiamato a ogni riapertura dopo la prima: lo stato puo' essere vecchio (telefono in standby). */
   reconnected?(): void
 }
@@ -44,6 +45,7 @@ export function connectWS(handlers: WSHandlers): () => void {
         else if (msg.type === 'message_status') handlers.messageStatus(msg.key, msg.status)
         else if (msg.type === 'config_job') handlers.configJob?.(msg.job)
         else if (msg.type === 'map_job') handlers.mapJob?.(msg.job)
+        else if (msg.type === 'update_job') handlers.updateJob?.(msg.job)
         else if (msg.type === 'status') handlers.status({ mqtt: msg.mqtt })
       } catch {
         /* messaggio malformato: ignorato */

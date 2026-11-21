@@ -19,6 +19,10 @@ export interface AppSettings {
   mqtt: MqttSettings
   map_mode?: 'auto' | 'online' | 'offline'
   maps_source_url?: string
+  update_repo?: string
+  /** Mascherato: "••••" se impostato, "" altrimenti. */
+  update_token?: string
+  update_auto_check?: boolean
 }
 
 // Una voce per riga: spazi tolti, righe vuote scartate
