@@ -6,22 +6,37 @@
     onzoomin: () => void
     onzoomout: () => void
     onfit: () => void
+    ruler: boolean
+    cluster: boolean
+    onruler: () => void
+    oncluster: () => void
   }
-  let { onzoomin, onzoomout, onfit }: Props = $props()
+  let { onzoomin, onzoomout, onfit, ruler, cluster, onruler, oncluster }: Props = $props()
 </script>
 
+<div class="stack">
 <div class="controls" role="group" aria-label="Controlli mappa">
   <button type="button" aria-label="Ingrandisci" title="Ingrandisci" onclick={onzoomin}><Icon name="plus" size={18} /></button>
   <button type="button" aria-label="Riduci" title="Riduci" onclick={onzoomout}><Icon name="minus" size={18} /></button>
   <button type="button" aria-label="Mostra tutti i nodi" title="Mostra tutti i nodi" onclick={onfit}><Icon name="globe" size={18} /></button>
 </div>
+<div class="controls" role="group" aria-label="Strumenti mappa">
+  <button type="button" class:on={ruler} aria-pressed={ruler} aria-label="Righello" title="Righello" onclick={onruler}><Icon name="ruler" size={18} /></button>
+  <button type="button" class:on={cluster} aria-pressed={cluster} aria-label="Raggruppa nodi" title="Raggruppa nodi" onclick={oncluster}><Icon name="cluster" size={18} /></button>
+</div>
+</div>
 
 <style>
-  .controls {
+  .stack {
     position: absolute;
     top: var(--space-3);
     right: var(--space-3);
     z-index: var(--z-map-ui);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+  .controls {
     display: flex;
     flex-direction: column;
     background: var(--surface);
@@ -46,6 +61,10 @@
   }
   button:hover {
     background: var(--surface-sunken);
+  }
+  button.on {
+    background: var(--accent-soft);
+    color: var(--accent-ink);
   }
   :global(.vp-phone) button {
     width: var(--touch-min);

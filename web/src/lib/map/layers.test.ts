@@ -1,5 +1,7 @@
-import { describe, expect, it } from 'vitest'
-import { isFavorite, ageMinutes, contactColorExpr, isMine, nodeFeatures, precisionData, ringKind, selectionData } from './NodeLayer'
+import { describe, expect, it, vi } from 'vitest'
+import type { Map as MLMap } from 'maplibre-gl'
+import { addNodeLayers, isFavorite, ageMinutes, contactColorExpr, isMine, nodeFeatures, precisionData, ringKind, selectionData } from './NodeLayer'
+import { addRulerLayers } from './RulerLayer'
 import { snrColorExpr } from './LinkLayer'
 import { trackData } from './TrackLayer'
 import { FALLBACK_TOKENS as T } from './tokens'
@@ -64,5 +66,27 @@ describe('preferiti sulla mappa', () => {
       [true, true],
     ])
     expect(isFavorite({})).toBe(false)
+  })
+})
+
+const fakeMap = () => {
+  const m = { addSource: vi.fn(), addLayer: vi.fn() }
+  return { m, map: m as unknown as MLMap }
+}
+
+describe('raggruppamento e righello', () => {
+  it('addNodeLayers: cluster spento o predefinito acceso', () => {
+    const off = fakeMap()
+    addNodeLayers(off.map, T, true, false)
+    expect(off.m.addSource.mock.calls[0]).toEqual(['nodes', expect.objectContaining({ cluster: false })])
+    const on = fakeMap()
+    addNodeLayers(on.map, T, true)
+    expect(on.m.addSource.mock.calls[0]).toEqual(['nodes', expect.objectContaining({ cluster: true, clusterMaxZoom: 7, clusterRadius: 40 })])
+  })
+  it('addRulerLayers: sorgente e layer del righello', () => {
+    const { m, map } = fakeMap()
+    addRulerLayers(map, T)
+    expect(m.addSource.mock.calls[0][0]).toBe('ruler')
+    expect(m.addLayer.mock.calls.map((c) => c[0].id)).toEqual(['ruler-line', 'ruler-pts'])
   })
 })

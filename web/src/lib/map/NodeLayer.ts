@@ -75,8 +75,11 @@ export function contactColorExpr(t: MapTokens): ExpressionSpecification {
   return ['step', ['get', 'age_min'], t.contactFresh, FRESH_MIN, t.contactRecent, RECENT_MIN, t.contactOld]
 }
 
-export function addNodeLayers(map: MLMap, t: MapTokens, hasGlyphs: boolean): void {
-  map.addSource('nodes', { type: 'geojson', data: EMPTY, cluster: true, clusterMaxZoom: 7, clusterRadius: 40 })
+/** Opzioni di raggruppamento della sorgente `nodes`. */
+export const CLUSTER_OPTS = { clusterMaxZoom: 7, clusterRadius: 40 }
+
+export function addNodeLayers(map: MLMap, t: MapTokens, hasGlyphs: boolean, cluster = true): void {
+  map.addSource('nodes', { type: 'geojson', data: EMPTY, cluster, ...CLUSTER_OPTS })
   map.addSource('selected', { type: 'geojson', data: EMPTY })
   map.addSource('precision', { type: 'geojson', data: EMPTY })
   map.addLayer({ id: 'precision-fill', type: 'fill', source: 'precision', paint: { 'fill-color': t.srcMqtt, 'fill-opacity': 0.13 } })

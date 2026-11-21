@@ -28,12 +28,16 @@
   import { readDocumentTokens } from '../lib/map/tokens'
   import type { MapTokens } from '../lib/map/tokens'
   import { registerSprites } from '../lib/map/sprites'
-  import { addNodeLayers, EMPTY, isFavorite, isMine, nodeFeatures, precisionData, ringKind, selectionData } from '../lib/map/NodeLayer'
+  import { addNodeLayers, CLUSTER_OPTS, EMPTY, isFavorite, isMine, nodeFeatures, precisionData, ringKind, selectionData } from '../lib/map/NodeLayer'
   import { addLinkLayers } from '../lib/map/LinkLayer'
   import { addTrackLayer, trackData } from '../lib/map/TrackLayer'
   import { addCoverageLayers } from '../lib/map/CoverageLayer'
+import { addRulerLayers } from '../lib/map/RulerLayer'
+import { addRulerPoint, rulerGeoJSON, rulerText } from '../lib/map/ruler'
+import type { RulerPoint } from '../lib/map/ruler'
   import Legend from '../lib/map/Legend.svelte'
   import MapControls from '../lib/map/MapControls.svelte'
+  import RulerBar from '../lib/map/RulerBar.svelte'
   import NodePopup from '../lib/map/NodePopup.svelte'
   import Icon from '../lib/ui/Icon.svelte'
   import Button from '../lib/ui/Button.svelte'
@@ -145,26 +149,27 @@
       // ordine dal basso: collegamenti e traccia, nodi, prova di copertura
       addLinkLayers(m, tk)
       addTrackLayer(m, tk)
-      addNodeLayers(m, tk, hasGlyphs)
+      addNodeLayers(m, tk, hasGlyphs, untrack(() => cluster))
       addCoverageLayers(m, tk)
+      addRulerLayers(m, tk) // sopra i nodi
       if (!bound) {
         bound = true
         for (const l of ['cov-points', 'cov-missing']) {
           m.on('click', l, (e: maplibregl.MapLayerMouseEvent) => {
-            if (picking) return
+            if (picking || tool !== 'none') return
             const p = e.features?.[0]?.properties
             if (p) showCoveragePopup(e.lngLat, p, l === 'cov-missing')
           })
           m.on('mouseenter', l, () => {
-            if (!picking) m.getCanvas().style.cursor = 'pointer'
+            if (!picking && tool === 'none') m.getCanvas().style.cursor = 'pointer'
           })
           m.on('mouseleave', l, () => {
-            if (!picking) m.getCanvas().style.cursor = ''
+            m.getCanvas().style.cursor = restCursor()
           })
         }
         for (const l of ['points', 'points-mine', 'points-fav']) {
           m.on('click', l, (e: maplibregl.MapLayerMouseEvent) => {
-            if (picking) return
+            if (picking || tool !== 'none') return
             const id = e.features?.[0]?.properties?.id
             if (typeof id !== 'string') return
             app.selectedId = id
@@ -172,6 +177,7 @@
           })
         }
         m.on('click', 'clusters', async (e: maplibregl.MapLayerMouseEvent) => {
+          if (picking || tool !== 'none') return
           const f = e.features?.[0]
           if (!f) return
           try {
@@ -183,15 +189,17 @@
         })
         for (const l of ['links', 'links-trace', 'links-gateway']) {
           m.on('click', l, (e: maplibregl.MapLayerMouseEvent) => {
-            if (picking) return
+            if (picking || tool !== 'none') return
             if (m.queryRenderedFeatures(e.point, { layers: ['points', 'points-mine', 'points-fav', 'clusters'] }).length > 0) return
             const p = e.features?.[0]?.properties
             if (p) showLinkPopup(e.lngLat, p)
           })
         }
         for (const l of ['points', 'points-mine', 'points-fav', 'clusters', 'links', 'links-trace', 'links-gateway']) {
-          m.on('mouseenter', l, () => (m.getCanvas().style.cursor = 'pointer'))
-          m.on('mouseleave', l, () => (m.getCanvas().style.cursor = ''))
+          m.on('mouseenter', l, () => {
+            if (!picking && tool === 'none') m.getCanvas().style.cursor = 'pointer'
+          })
+          m.on('mouseleave', l, () => (m.getCanvas().style.cursor = restCursor()))
         }
       }
       ready = true
@@ -200,6 +208,7 @@
       pushTrack()
       pushLinks()
       pushCoverage()
+      pushRuler()
     }
 
     const styleFor = (m: EffectiveMode): maplibregl.StyleSpecification => {
@@ -408,6 +417,7 @@
       if (verifyTimer) clearTimeout(verifyTimer)
       if (timer) clearTimeout(timer)
       cancelPick()
+      closeRuler()
       popup?.remove()
       map?.remove()
       map = null
@@ -539,6 +549,69 @@
     map?.fitBounds(b, { padding: 60, maxZoom: 16, duration: 0 })
   }
 
+  // Strumenti: righello a due punti (i clic su nodi, collegamenti e copertura restano disattivati)
+  let tool = $state<'none' | 'ruler'>('none')
+  let rulerPts = $state<RulerPoint[]>([])
+  let cluster = $state(loadView(localStorage).cluster)
+  let rulerHandler: ((e: maplibregl.MapMouseEvent) => void) | null = null
+
+  const restCursor = () => (picking || tool === 'ruler' ? 'crosshair' : '')
+
+  function pushRuler() {
+    if (!ready) return
+    src('ruler')?.setData(rulerGeoJSON(rulerPts))
+  }
+
+  function closeRuler() {
+    if (rulerHandler) map?.off('click', rulerHandler)
+    rulerHandler = null
+    tool = 'none'
+    rulerPts = []
+    if (map) map.getCanvas().style.cursor = restCursor()
+  }
+
+  function startRuler() {
+    if (!map || tool === 'ruler') return
+    cancelPick()
+    popup?.remove()
+    tool = 'ruler'
+    map.getCanvas().style.cursor = 'crosshair'
+    const m = map
+    rulerHandler = (e) => {
+      const layers = ['points', 'points-mine', 'points-fav'].filter((l) => m.getLayer(l))
+      const f = layers.length ? m.queryRenderedFeatures(e.point, { layers })[0] : undefined
+      const id = f?.properties?.id
+      const snap = f && typeof id === 'string' && f.geometry.type === 'Point'
+      const [lon, lat] = snap ? (f.geometry as Point).coordinates : [e.lngLat.lng, e.lngLat.lat]
+      rulerPts = addRulerPoint(rulerPts, { lon, lat, nodeId: snap ? (id as string) : null })
+    }
+    m.on('click', rulerHandler)
+  }
+
+  function toggleRuler() {
+    if (tool === 'ruler') closeRuler()
+    else startRuler()
+  }
+
+  function toggleCluster() {
+    cluster = !cluster
+    void src('nodes')?.setClusterOptions({ cluster, ...CLUSTER_OPTS })
+    saveView(localStorage, { cluster })
+  }
+
+  // Escape chiude il righello (listener attivo solo mentre il righello e' acceso)
+  $effect(() => {
+    if (tool !== 'ruler') return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') closeRuler()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  })
+  $effect(() => {
+    pushRuler()
+  })
+
   // Scelta della posizione della base: un solo tocco sulla mappa
   let picking = $state(false)
   let pickError = $state('')
@@ -548,11 +621,12 @@
     if (pickHandler) map?.off('click', pickHandler)
     pickHandler = null
     picking = false
-    if (map) map.getCanvas().style.cursor = ''
+    if (map) map.getCanvas().style.cursor = restCursor()
   }
 
   function startPick() {
     if (!map || picking) return
+    closeRuler()
     pickError = ''
     picking = true
     map.getCanvas().style.cursor = 'crosshair'
@@ -674,7 +748,15 @@
 </script>
 
 <div class="map" bind:this={el}></div>
-<MapControls onzoomin={() => map?.zoomIn({ duration: 0 })} onzoomout={() => map?.zoomOut({ duration: 0 })} onfit={fitAll} />
+<MapControls
+  onzoomin={() => map?.zoomIn({ duration: 0 })}
+  onzoomout={() => map?.zoomOut({ duration: 0 })}
+  onfit={fitAll}
+  ruler={tool === 'ruler'}
+  {cluster}
+  onruler={toggleRuler}
+  oncluster={toggleCluster}
+/>
 <Legend />
 {#if offlineBadge}
   <div class="badge" role="status"><Icon name="cloudoff" size={16} />Mappa offline</div>
@@ -686,6 +768,7 @@
   </div>
 {/if}
 {#if notice}<div class="notice" role="status">{notice}</div>{/if}
+<div class="topleft">
 {#if coverage.detail}
   <div class="covbar">
     <div class="row">
@@ -704,6 +787,10 @@
     {#if pickError}<p class="err">{pickError}</p>{/if}
   </div>
 {/if}
+{#if tool === 'ruler'}
+  <RulerBar text={rulerText(rulerPts, nodeName)} onclear={() => (rulerPts = [])} onclose={closeRuler} />
+{/if}
+</div>
 
 <style>
   .map {
@@ -711,11 +798,22 @@
     inset: 0;
     background: var(--map-land);
   }
-  .covbar {
+  .topleft {
     position: absolute;
     top: var(--space-3);
     left: var(--space-3);
     z-index: var(--z-map-ui);
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-2);
+    pointer-events: none;
+  }
+  :global(.vp-phone) .topleft {
+    top: calc(var(--touch-min) + var(--space-3) * 2);
+  }
+  .covbar {
+    pointer-events: auto;
     max-width: 280px;
     padding: var(--space-3);
     border-radius: var(--radius-lg);
@@ -727,9 +825,6 @@
     display: flex;
     flex-direction: column;
     gap: var(--space-2);
-  }
-  :global(.vp-phone) .covbar {
-    top: calc(var(--touch-min) + var(--space-3) * 2);
   }
   .covbar p {
     margin: 0;
