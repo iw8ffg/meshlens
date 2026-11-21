@@ -24,6 +24,7 @@ from .paths import is_frozen, updates_dir
 from .maps import MapsManager
 from .mqtt_client import MqttConnector
 from .mqtt_decode import EnvelopeDecoder
+from .mqtt_publish import MqttSender
 from .pubsub_hub import PubSubHub
 from .radio import RadioConnector
 from .radio_manager import RadioManager
@@ -210,6 +211,9 @@ def build(data_dir: Path, connector_factory=MqttConnector,
                      static_dir=static_dir, radios=rt.radios, coverage=coverage,
                      config=rt.config, maps=rt.maps, updater=rt.updater, data_dir=Path(data_dir))
     rt.ctx = ctx
+    ctx.mqtt_sender = MqttSender(
+        lambda: rt.connector, lambda: rt.settings, rt.radios.radios, time.time,
+        ingestor.record_outgoing_mqtt)
     app = create_app(ctx)
 
     @contextlib.asynccontextmanager

@@ -376,7 +376,9 @@ class Store:
                  "time": r["time"], "country": r["country"], "source": r["source"],
                  "direction": r["direction"] or "in", "radio_id": r["radio_id"],
                  "channel_index": r["channel_index"], "packet_id": r["packet_id"],
-                 "status": r["status"]}
+                 "status": r["status"],
+                 # "via" non e' una colonna: si ricava (uscita su MQTT = inviato via MQTT)
+                 **({"via": "mqtt"} if r["direction"] == "out" and r["source"] == "mqtt" else {})}
                 for r in self.conn.execute(sql, params)]
 
     def telemetry(self, num: int, since: float) -> list[dict]:

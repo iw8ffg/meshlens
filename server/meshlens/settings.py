@@ -23,6 +23,8 @@ DEFAULTS: dict = {
     "update_token": "",
     "update_auto_check": True,
     "mqtt_channels": [],
+    "mqtt_node_id": "",  # "" = id della prima radio collegata; altrimenti "!xxxxxxxx"
+    "mqtt_send_confirmed": False,  # conferma "messaggio pubblico" gia' data
     "mqtt": {
         "host": "mqtt.meshtastic.org",
         "port": 1883,
@@ -108,6 +110,12 @@ def _validate(key: str, value) -> None:
                 isinstance(c, str) and 0 < len(c) <= 32 for c in value)):
             raise ValueError("mqtt_channels deve essere una lista di al massimo 20 nomi "
                              "(da 1 a 32 caratteri)")
+    elif key == "mqtt_node_id":
+        if not (isinstance(value, str) and (value == "" or re.fullmatch(r"![0-9a-fA-F]{8}", value))):
+            raise ValueError("mqtt_node_id deve essere vuoto oppure nel formato !xxxxxxxx")
+    elif key == "mqtt_send_confirmed":
+        if not isinstance(value, bool):
+            raise ValueError("mqtt_send_confirmed deve essere vero o falso")
     elif key == "mqtt":
         _validate_mqtt(value)
 

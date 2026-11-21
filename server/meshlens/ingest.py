@@ -268,6 +268,25 @@ class Ingestor:
         self.on_message({**message, "replaces": replaces} if replaces else message)
         return message
 
+    def record_outgoing_mqtt(self, from_num: int, to_num: int, packet_id: int, text: str,
+                             channel: str, now: float | None = None) -> dict:
+        """Registra un testo pubblicato via MQTT dal proprio nodo.
+        (from, id) entra subito nel dedup: l'eco che il broker ci rimanda viene scartato
+        e non genera un secondo messaggio."""
+        t = time.time() if now is None else now
+        self.dedup.is_new(from_num, packet_id, t)
+        mine = self.live.nodes.get(from_num)
+        message = {"key": f"{from_num}:{packet_id}", "from": node_id(from_num),
+                   "from_name": mine["long_name"] if mine else None, "to": node_id(to_num),
+                   "channel": channel, "text": text, "time": int(t),
+                   "country": mine["country"] if mine else None, "source": "mqtt",
+                   "direction": "out", "via": "mqtt", "radio_id": None, "channel_index": None,
+                   "packet_id": packet_id, "status": "sent"}
+        self.live.messages.append(message)
+        self.store.add_message(message)
+        self.on_message(message)
+        return message
+
     def set_status(self, key: str, status: str) -> None:
         self.store.update_message_status(key, status)
         for message in self.live.messages:
