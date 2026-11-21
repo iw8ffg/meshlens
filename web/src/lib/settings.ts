@@ -17,6 +17,7 @@ export interface AppSettings {
   battery_alert_pct: number
   silent_alert_hours: number
   mqtt: MqttSettings
+  map_mode?: "auto" | "online" | "offline"
 }
 
 // Una voce per riga: spazi tolti, righe vuote scartate
