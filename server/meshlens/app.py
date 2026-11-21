@@ -31,7 +31,7 @@ from .pubsub_hub import PubSubHub
 from .radio import RadioConnector
 from .radio_manager import RadioManager
 from .settings import (CONNECT_KEYS, enabled_brokers, find_broker, load_settings,
-                       migrate_brokers, migrate_secrets)
+                       migrate_brokers, migrate_secrets, scrub_text)
 from .store import PURGE_CHUNK, Store
 from .updater import Updater
 
@@ -116,6 +116,7 @@ class Runtime:
     _last_start_attempt: dict = field(default_factory=dict)  # id broker -> monotonic()
     _integrity_conn: object = None  # connessione del quick_check in corso (per interromperla)
     _stopping: bool = False
+    _start_errors: dict = field(default_factory=dict)  # id broker -> (testo, time()) dell'avvio fallito
 
     def start_connector(self, broker: dict) -> None:
         bid = broker["id"]
@@ -127,13 +128,17 @@ class Runtime:
             broker, decoder, self.loop, self.on_event or self.ingestor.handle)
         connector.start()
         self.connectors[bid] = connector
+        self._start_errors.pop(bid, None)
 
     def _try_start(self, broker: dict, what: str) -> bool:
         try:
             self.start_connector(broker)
-        except Exception:
+        except Exception as e:
             log.exception("%s del connettore MQTT %s fallito", what, broker.get("name") or broker["id"])
             self.connectors.pop(broker["id"], None)
+            # senza connettore l'errore va comunque mostrato su quel broker (senza credenziali)
+            text = scrub_text(f"Avvio non riuscito: {e}", broker.get("password"), broker.get("username"))
+            self._start_errors[broker["id"]] = (text, time.time())
             return False
         return True
 
@@ -148,6 +153,9 @@ class Runtime:
         for b in self.settings.get("mqtt_brokers", []):
             c = self.connectors.get(b["id"])
             st = {**_idle_status(), **(c.status() if c is not None else {})}
+            failed = self._start_errors.get(b["id"])
+            if c is None and failed is not None and b.get("enabled"):
+                st["last_error"], st["last_error_at"] = failed
             entries.append({**st, "id": b["id"], "name": b.get("name"), "enabled": bool(b.get("enabled")),
                             "host": b.get("host"), "tls": bool(b.get("tls")),
                             "encryption": bool(b.get("encryption")),
@@ -189,8 +197,12 @@ class Runtime:
         await asyncio.to_thread(old.stop)
         self.queue_dropped_retired += getattr(getattr(old, "inbox", None), "dropped", 0)
 
-    async def restart_connector(self, broker_id: str, reason: str) -> None:
+    async def restart_connector(self, broker_id: str, reason: str, expected=None) -> None:
+        """`expected`: il connettore giudicato da riavviare; se nel frattempo e' cambiato
+        (impostazioni salvate mentre si attendeva il lock) non si riavvia quello nuovo."""
         async with self._connector_lock:
+            if expected is not None and self.connectors.get(broker_id) is not expected:
+                return
             await self._restart_connector(broker_id, reason)
 
     async def _restart_connector(self, broker_id: str, reason: str) -> None:
@@ -214,7 +226,8 @@ class Runtime:
         attivo senza connettore ritenta l'avvio al massimo ogni MQTT_RETRY_START_S."""
         for bid, connector in list(self.connectors.items()):
             if self._is_silent(connector.status()):
-                await self.restart_connector(bid, f"Nessun messaggio da {MQTT_SILENT_S} s: ricollegamento")
+                await self.restart_connector(
+                    bid, f"Nessun messaggio da {MQTT_SILENT_S} s: ricollegamento", expected=connector)
         for b in enabled_brokers(self.settings):
             if b["id"] not in self.connectors:
                 await self._retry_start_connector(b["id"])
@@ -259,6 +272,10 @@ class Runtime:
         for bid in list(self._last_start_attempt):
             if bid not in brokers:
                 del self._last_start_attempt[bid]
+        for bid in list(self._start_errors):
+            b = brokers.get(bid)
+            if b is None or not b.get("enabled"):
+                del self._start_errors[bid]
         for b in enabled_brokers(saved):
             connector = self.connectors.get(b["id"])
             if connector is None:
@@ -274,6 +291,8 @@ class Runtime:
             if decoder is not None and broker_keys(old) != new_keys:
                 decoder.set_keys(*new_keys)  # senza ricollegarsi
             connector.cfg = b  # nome, crittografia: nient'altro da fare
+            if hasattr(connector, "label"):
+                connector.label = b.get("name") or b.get("host")  # nome nei log
 
     async def _every(self, seconds: float, fn, first_now: bool = False) -> None:
         if not first_now:
@@ -364,6 +383,9 @@ class Runtime:
         if self._stopping:  # interrupt() prima di una query non avrebbe effetto
             raise sqlite3.OperationalError("interrupted")
         self._integrity_conn = conn
+        if self._stopping:  # stop() arrivato tra il controllo e l'assegnazione
+            self._integrity_conn = None
+            raise sqlite3.OperationalError("interrupted")
 
     def _interrupt_integrity(self) -> None:
         self._stopping = True
@@ -410,16 +432,19 @@ class Runtime:
             await self.config.stop()
         if self.radios is not None:
             await self.radios.stop()
-        for bid, connector in list(self.connectors.items()):
-            try:
-                connector.stop()
-            except Exception:
-                log.exception("Arresto del connettore MQTT %s fallito", bid)
-        for t in self.tasks:
+        for t in self.tasks:  # prima i task: il watchdog non riavvia piu' nulla
             t.cancel()
         for t in self.tasks:
             with contextlib.suppress(asyncio.CancelledError):
                 await t
+        async with self._connector_lock:
+            # tutti insieme e fuori dal loop: un broker lento non ritarda gli altri
+            items = list(self.connectors.items())
+            results = await asyncio.gather(*(asyncio.to_thread(c.stop) for _, c in items),
+                                           return_exceptions=True)
+            for (bid, _), r in zip(items, results):
+                if isinstance(r, BaseException):
+                    log.error("Arresto del connettore MQTT %s fallito", bid, exc_info=r)
         with contextlib.suppress(Exception):
             self.store.commit()
             self.conn.close()

@@ -638,3 +638,127 @@ async def test_integrity_check_started_after_stop_request_aborts(tmp_path):
     await rt.check_integrity()
     assert rt.db_health == "non leggibile (interrupted)" and rt._integrity_conn is None
     rt.conn.close()
+
+
+async def test_stop_stops_connectors_concurrently_off_loop(tmp_path):
+    import asyncio
+    import time as _t
+
+    class SlowStop(FakeConnector):
+        def stop(self):
+            _t.sleep(0.4)
+            super().stop()
+
+    app, rt = build(tmp_path, connector_factory=SlowStop, static_dir=None)
+    rt.settings = _plus(rt.settings, _broker("b1"), _broker("b2"))
+    ticks = 0
+
+    async def ticker():
+        nonlocal ticks
+        while True:
+            ticks += 1
+            await asyncio.sleep(0.01)
+
+    async with app.router.lifespan_context(app):
+        conns = list(rt.connectors.values())
+        assert len(conns) == 3
+        t = asyncio.create_task(ticker())
+        t0 = _t.monotonic()
+    elapsed = _t.monotonic() - t0
+    t.cancel()
+    assert all(c.stopped for c in conns)
+    assert elapsed < 1.0  # in parallelo: ~0.4 s, non 1.2 s
+    assert ticks >= 10  # il loop resta libero durante gli arresti
+
+
+async def test_stop_logs_failing_connector_and_stops_others(tmp_path, caplog):
+    class Boom(FakeConnector):
+        def stop(self):
+            if self.cfg["id"] == "b1":
+                raise RuntimeError("guasto")
+            super().stop()
+
+    app, rt = build(tmp_path, connector_factory=Boom, static_dir=None)
+    rt.settings = _plus(rt.settings, _broker("b1"))
+    with caplog.at_level("ERROR"):
+        async with app.router.lifespan_context(app):
+            d = rt.connectors["default"]
+    assert d.stopped and "b1" in caplog.text
+
+
+async def test_watchdog_restart_skipped_if_connector_changed(tmp_path):
+    rt = await _multi_rt(tmp_path, FakeConnector, _broker("b1"))
+    b1 = rt.connectors["b1"]
+    await rt.restart_connector("b1", "vecchio giudizio", expected=object())
+    assert rt.connectors["b1"] is b1 and not b1.stopped
+    assert rt.watchdog_restarts.get("b1", 0) == 0
+    await rt.restart_connector("b1", "giusto", expected=b1)
+    assert rt.connectors["b1"] is not b1 and b1.stopped
+
+
+async def test_failed_start_error_shown_on_that_broker(tmp_path):
+    import asyncio
+    state = {"fail": True}
+
+    class FailB1(FakeConnector):
+        def __init__(self, cfg, *a):
+            if cfg["id"] == "b1" and state["fail"]:
+                raise RuntimeError("certificato non valido per utente-x con pw-segreta")
+            super().__init__(cfg, *a)
+
+    clock = {"t": 1000.0}
+    _, rt = build(tmp_path, connector_factory=FailB1, static_dir=None)
+    rt.loop = asyncio.get_running_loop()
+    rt.monotonic = lambda: clock["t"]
+    rt.settings = _plus(rt.settings, _broker("b1", username="utente-x", password="pw-segreta"))
+    rt.start_connectors()
+    per = {b["id"]: b for b in rt.mqtt_status()["brokers"]}
+    err = per["b1"]["last_error"]
+    assert "certificato non valido" in err and "pw-segreta" not in err and "utente-x" not in err
+    assert per["b1"]["last_error_at"] is not None and per["default"]["last_error"] is None
+    assert rt.mqtt_status()["last_error"].startswith("Broker b1: ")
+    state["fail"] = False
+    clock["t"] += 61
+    await rt.mqtt_watchdog()
+    per = {b["id"]: b for b in rt.mqtt_status()["brokers"]}
+    assert per["b1"]["last_error"] is None  # riuscito: errore dimenticato
+
+
+async def test_rename_updates_connector_label(tmp_path):
+    class Labeled(FakeConnector):
+        def __init__(self, cfg, *a):
+            super().__init__(cfg, *a)
+            self.label = cfg["name"]
+
+    rt = await _multi_rt(tmp_path, Labeled, _broker("b1"))
+    b1 = rt.connectors["b1"]
+    await rt.on_settings_changed(_with(rt.settings, "b1", name="Nuovo nome"))
+    assert rt.connectors["b1"] is b1 and b1.label == "Nuovo nome"
+
+
+async def test_integrity_stop_between_check_and_store_aborts(tmp_path):
+    import sqlite3
+    import pytest
+    _, rt = build(tmp_path, connector_factory=FakeConnector, static_dir=None)
+
+    class Racy(type(rt)):
+        pass
+
+    # stop() arriva proprio mentre la connessione viene registrata
+    class Conn:
+        def interrupt(self):
+            pass
+
+    real_setattr = object.__setattr__
+
+    def on_store(self, name, value):
+        real_setattr(self, name, value)
+        if name == "_integrity_conn" and value is not None:
+            real_setattr(self, "_stopping", True)
+
+    rt.__class__ = Racy
+    Racy.__setattr__ = on_store
+    with pytest.raises(sqlite3.OperationalError):
+        rt._integrity_opened(Conn())
+    assert rt._integrity_conn is None
+    rt.conn.close()
