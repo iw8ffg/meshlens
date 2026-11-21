@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Callable
 from urllib.parse import urlsplit
 
+from . import paths
 from .tiles import TileStore
 
 log = logging.getLogger(__name__)
@@ -181,7 +182,8 @@ class MapsManager:
     # ---- stato ----
     @property
     def tool_path(self) -> Path:
-        return self.tools_dir / TOOL_EXE
+        # lo strumento incluso nell'installer ha la precedenza: nessun download
+        return paths.bundled_tool() or (self.tools_dir / TOOL_EXE)
 
     def _read_maps(self) -> list[dict]:
         path = self.maps_dir / "maps.json"

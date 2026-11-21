@@ -4,6 +4,8 @@ import threading
 import webbrowser
 from pathlib import Path
 
+from .paths import default_data_dir
+
 PORT = 8686
 
 
@@ -11,11 +13,11 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="meshlens")
     sub = parser.add_subparsers(dest="cmd", required=True)
     run = sub.add_parser("run", help="avvia MeshLens")
-    run.add_argument("--data-dir", default="data")
+    run.add_argument("--data-dir", default=str(default_data_dir()))
     run.add_argument("--port", type=int, default=PORT)
     run.add_argument("--no-browser", action="store_true")
     rp = sub.add_parser("reset-pin", help="azzera il PIN")
-    rp.add_argument("--data-dir", default="data")
+    rp.add_argument("--data-dir", default=str(default_data_dir()))
     args = parser.parse_args(argv)
 
     if args.cmd == "reset-pin":

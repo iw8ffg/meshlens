@@ -50,6 +50,7 @@ class AppContext:
     static_dir: Path | None = None
     radios: object | None = None  # RadioManager
     coverage: object | None = None  # CoverageRecorder
+    data_dir: Path | None = None
     config: object | None = None  # ConfigService
     maps: object | None = None  # MapsManager
     _alerts: list = field(default_factory=list)
@@ -283,6 +284,13 @@ def create_app(ctx: AppContext) -> FastAPI:
             raise HTTPException(401, "Accesso richiesto")
 
     # ---- auth ----
+    @app.get("/api/version", dependencies=[Depends(require_auth)])
+    async def version():
+        from . import __version__
+        from .paths import default_data_dir, is_frozen
+        return {"version": __version__, "frozen": is_frozen(),
+                "data_dir": str(ctx.data_dir or default_data_dir())}
+
     @app.get("/api/auth/status")
     async def auth_status(request: Request):
         return {"pin_set": ctx.auth.pin_is_set(),

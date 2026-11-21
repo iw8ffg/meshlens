@@ -188,7 +188,7 @@ def build(data_dir: Path, connector_factory=MqttConnector,
     ctx = AppContext(live=live, store=store, auth=auth, bus=bus, locator=locator, conn=conn,
                      mqtt_status=rt.mqtt_status, on_settings_changed=rt.on_settings_changed,
                      static_dir=static_dir, radios=rt.radios, coverage=coverage,
-                     config=rt.config, maps=rt.maps)
+                     config=rt.config, maps=rt.maps, data_dir=Path(data_dir))
     rt.ctx = ctx
     app = create_app(ctx)
 
