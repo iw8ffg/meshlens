@@ -5,7 +5,9 @@ import sys
 
 def _fix_std_streams() -> None:
     """Senza console (console=False) stdout/stderr sono None e uvicorn/logging si rompono:
-    li reindirizza su %LOCALAPPDATA%\MeshLens\logs\meshlens.log (o su devnull)."""
+    li reindirizza su %LOCALAPPDATA%\MeshLens\logs\console.log (o su devnull).
+    Il file meshlens.log e' del gestore di log con rotazione (meshlens.logsetup): su Windows un
+    file aperto da un altro stream non si puo' rinominare, quindi i due non lo condividono."""
     if sys.stdout is not None and sys.stderr is not None:
         return
     stream = None
@@ -13,7 +15,7 @@ def _fix_std_streams() -> None:
         base = os.environ.get("LOCALAPPDATA") or os.path.join(os.path.expanduser("~"), "AppData", "Local")
         logdir = os.path.join(base, "MeshLens", "logs")
         os.makedirs(logdir, exist_ok=True)
-        path = os.path.join(logdir, "meshlens.log")
+        path = os.path.join(logdir, "console.log")
         try:  # rotazione all'avvio: tiene un solo file precedente
             if os.path.getsize(path) > 1_000_000:
                 os.replace(path, path + ".1")

@@ -214,7 +214,7 @@ class Runtime:
 def build(data_dir: Path, connector_factory=MqttConnector,
           static_dir: Path | None = STATIC_DIR,
           radio_connector_factory=RadioConnector, update_http=None,
-          auto_update: bool = False) -> tuple[FastAPI, Runtime]:
+          auto_update: bool = False, log_dir: Path | None = None) -> tuple[FastAPI, Runtime]:
     db_path = Path(data_dir) / "meshlens.db"
     restored = apply_pending_restore(Path(data_dir))
     if restored:
@@ -263,7 +263,7 @@ def build(data_dir: Path, connector_factory=MqttConnector,
                      static_dir=static_dir, radios=rt.radios, coverage=coverage,
                      config=rt.config, maps=rt.maps, updater=rt.updater, data_dir=Path(data_dir),
                      db_path=rt.db_path, last_purge=lambda: rt.last_purge,
-                     backups=backups, db_health=lambda: rt.db_health)
+                     backups=backups, db_health=lambda: rt.db_health, log_dir=log_dir)
     rt.ctx = ctx
     ctx.mqtt_sender = MqttSender(
         lambda: rt.connector, lambda: rt.settings, rt.radios.radios, time.time,

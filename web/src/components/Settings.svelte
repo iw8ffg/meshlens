@@ -15,6 +15,7 @@
   import OfflineMaps from './OfflineMaps.svelte'
   import Updates from './Updates.svelte'
   import Maintenance from './settings/Maintenance.svelte'
+  import Diagnostics from './settings/Diagnostics.svelte'
   import { channelOptions, checkMqttNodeId, joinLines, maskedKeyLines, parseLines, type AppSettings, type MqttChannel } from '../lib/settings'
 
   let { onlogout }: { onlogout: () => void } = $props()
@@ -292,6 +293,8 @@
     <OfflineMaps />
     <Updates />
   {/if}
+
+  <Diagnostics />
 
   <Card>
     <section class="sec">

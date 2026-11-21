@@ -1,4 +1,5 @@
 """Connessione SQLite e schema."""
+import logging
 import sqlite3
 from collections.abc import Callable
 from pathlib import Path
@@ -129,6 +130,9 @@ def _migration_2(conn: sqlite3.Connection) -> None:
 _STEPS = {1: _migration_1, 2: _migration_2}
 
 
+log = logging.getLogger(__name__)
+
+
 def schema_version(conn: sqlite3.Connection) -> int:
     return conn.execute("PRAGMA user_version").fetchone()[0]
 
@@ -142,6 +146,7 @@ def _run_migrations(conn: sqlite3.Connection, old_version: int) -> None:
             _STEPS[version](conn)
             conn.execute(f"PRAGMA user_version={version}")
             conn.commit()
+            log.info("Migrazione del database eseguita: schema %s", version)
         except BaseException:
             conn.rollback()
             raise

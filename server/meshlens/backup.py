@@ -83,6 +83,7 @@ class BackupManager:
         finally:
             tmp.unlink(missing_ok=True)
         self.prune()
+        log.info("Backup creato: %s", dest.name)
         return self._info(dest)
 
     def create_sync(self, conn: sqlite3.Connection, reason: str) -> dict:

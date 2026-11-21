@@ -1,10 +1,12 @@
 """Riga di comando: meshlens run | tray | reset-pin."""
 import argparse
+import logging
 import threading
 import webbrowser
 from pathlib import Path
 
-from .paths import default_data_dir, is_frozen
+from . import __version__
+from .paths import default_data_dir, is_frozen, logs_dir
 
 PORT = 8686
 
@@ -27,6 +29,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd is None:  # solo installata: comando predefinito
         args = parser.parse_args(["tray"])
 
+    if args.cmd in ("run", "tray"):
+        from .logsetup import setup_logging
+        setup_logging(logs_dir())
+        logging.getLogger("meshlens").info("Avvio di MeshLens %s (%s)", __version__, args.cmd)
+
     if args.cmd == "tray":
         from .tray import run_tray
         return run_tray(Path(args.data_dir), args.port, not args.no_browser)
@@ -43,7 +50,7 @@ def main(argv: list[str] | None = None) -> int:
     import uvicorn
     from .app import build
     from .settings import load_settings
-    app, rt = build(Path(args.data_dir), auto_update=True)
+    app, rt = build(Path(args.data_dir), auto_update=True, log_dir=logs_dir())
     host = "0.0.0.0" if load_settings(rt.conn)["lan_access"] else "127.0.0.1"
     if not args.no_browser:
         timer = threading.Timer(1.5, webbrowser.open, args=(f"http://127.0.0.1:{args.port}",))

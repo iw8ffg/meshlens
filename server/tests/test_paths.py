@@ -56,3 +56,11 @@ async def test_version_route():
         assert j["version"] == __version__ == "1.2.3"
         assert j["frozen"] is False
         assert isinstance(j["data_dir"], str)
+
+
+def test_logs_dir_frozen_and_dev(monkeypatch, tmp_path):
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    assert paths.logs_dir() == tmp_path / "MeshLens" / "logs"
+    monkeypatch.delattr(sys, "frozen", raising=False)
+    assert paths.logs_dir() == paths.app_dir() / "data" / "logs"

@@ -26,6 +26,13 @@ def default_data_dir() -> Path:
     return app_dir() / "data"
 
 
+def logs_dir() -> Path:
+    """File di log: installata in %LOCALAPPDATA%/MeshLens/logs, sviluppo in data/logs."""
+    if is_frozen():
+        return _local_root() / "logs"
+    return app_dir() / "data" / "logs"
+
+
 def updates_dir() -> Path:
     """Dove finiscono gli installer scaricati (solo versione installata)."""
     return _local_root() / "updates"

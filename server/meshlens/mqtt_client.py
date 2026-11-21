@@ -4,6 +4,7 @@ I callback di paho girano in un thread dedicato: qui si decodifica soltanto, poi
 gli eventi passano al loop asyncio con call_soon_threadsafe."""
 import asyncio
 import collections
+import logging
 import secrets
 import threading
 import time
@@ -15,6 +16,7 @@ from .events import MeshEvent
 from .mqtt_decode import EnvelopeDecoder
 
 RATE_WINDOW_S = 5.0
+log = logging.getLogger(__name__)
 
 
 def _default_factory(client_id: str):
@@ -45,8 +47,9 @@ class MqttConnector:
         try:
             client.connect_async(self.cfg["host"], int(self.cfg["port"]), keepalive=60)
             client.loop_start()
-        except OSError:
+        except OSError as e:
             self._connected = False
+            log.info("MQTT: avvio della connessione a %s non riuscito (%s)", self.cfg.get("host"), e)
 
     def stop(self) -> None:
         client, self._client = self._client, None
@@ -85,12 +88,17 @@ class MqttConnector:
         failed = rc.is_failure if hasattr(rc, "is_failure") else bool(rc)
         if failed:
             self._connected = False
+            log.info("MQTT: connessione rifiutata da %s (motivo: %s)", self.cfg.get("host"), rc)
             return
         self._connected = True
+        log.info("MQTT: connesso a %s:%s", self.cfg.get("host"), self.cfg.get("port"))
         for topic in self.cfg["topics"]:
             client.subscribe(topic, 0)
 
     def _on_disconnect(self, client, userdata, *args):
+        if self._connected:
+            reason = args[1] if len(args) > 1 else (args[0] if args else "sconosciuto")
+            log.info("MQTT: disconnesso da %s (motivo: %s)", self.cfg.get("host"), reason)
         self._connected = False
 
     def _on_message(self, client, userdata, msg):

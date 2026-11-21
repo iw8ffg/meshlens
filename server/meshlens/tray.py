@@ -12,7 +12,7 @@ import webbrowser
 from pathlib import Path
 
 from . import __version__
-from .paths import app_dir, is_frozen
+from .paths import app_dir, is_frozen, logs_dir
 
 PORT = 8686
 RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
@@ -196,7 +196,7 @@ def run_tray(data_dir: Path, port: int = PORT, open_browser: bool = True) -> int
 
     data_dir = Path(data_dir)
     data_dir.mkdir(parents=True, exist_ok=True)
-    app, rt = build(data_dir, auto_update=True)
+    app, rt = build(data_dir, auto_update=True, log_dir=logs_dir())
     host = "0.0.0.0" if load_settings(rt.conn)["lan_access"] else "127.0.0.1"
     srv = ServerThread(app, host, port)
     srv.start()

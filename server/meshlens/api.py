@@ -27,6 +27,7 @@ from .config_service import ConfigError
 from .coverage import SessionActive, precision_m
 from .geo import CountryLocator
 from .live import LiveState
+from .diagnostics import build_bundle
 from .maintenance import compact, read_db_stats
 from .maps import MapsError
 from .updater import UpdateError
@@ -67,6 +68,8 @@ class AppContext:
     last_purge: Callable[[], dict | None] = lambda: None
     backups: object | None = None  # BackupManager
     db_health: Callable[[], str] = lambda: "non controllata"
+    log_dir: Path | None = None
+    started_at: float = field(default_factory=time.time)
     exit_callback: Callable[[], None] | None = None  # impostata dal lanciatore
     _alerts: list = field(default_factory=list)
 
@@ -588,6 +591,39 @@ def create_app(ctx: AppContext) -> FastAPI:
         # VACUUM e' bloccante: gira sul loop (la connessione e' solo sua), su richiesta esplicita
         before, after = compact(ctx.conn)
         return {"before_bytes": before, "after_bytes": after}
+
+    # ---- diagnostica ----
+    @app.get("/api/diagnostics/bundle", dependencies=[Depends(require_auth)])
+    async def diagnostics_bundle():
+        import platform
+        import sys
+        from . import __version__
+        from .paths import is_frozen
+        now = time.time()
+        info = {
+            "version": __version__, "frozen": is_frozen(), "platform": sys.platform,
+            "python": platform.python_version(), "generated_at": now,
+            "uptime_s": round(now - ctx.started_at),
+            "mqtt": ctx.mqtt_status(),
+            "radios": [{"id": r["id"], "kind": r["kind"], "state": r["state"], "error": r["error"]}
+                       for r in (ctx.radios.radios() if ctx.radios is not None else [])],
+            "db_health": ctx.db_health(), "last_purge": ctx.last_purge(),
+        }
+        resyncs = getattr(ctx.bus, "resyncs", None)
+        if resyncs is not None:
+            info["resyncs"] = resyncs
+        settings = load_settings(ctx.conn)
+
+        def collect() -> bytes:  # file e database: fuori dal loop, con connessione propria
+            info["backups"] = ctx.backups.list() if ctx.backups is not None else []
+            if ctx.db_path is not None:
+                info["db"] = read_db_stats(ctx.db_path)
+            return build_bundle(info, settings, ctx.log_dir)
+
+        data = await asyncio.to_thread(collect)
+        fname = f"meshlens-diagnostica-{time.strftime('%Y%m%d-%H%M')}.zip"
+        return Response(data, media_type="application/zip",
+                        headers={"Content-Disposition": f'attachment; filename="{fname}"'})
 
     # ---- backup ----
     def backup_mgr():

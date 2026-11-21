@@ -1,5 +1,6 @@
 """PIN (argon2), sessioni e blocco tentativi per IP."""
 import hashlib
+import logging
 import math
 import secrets
 import sqlite3
@@ -11,6 +12,7 @@ from argon2.exceptions import VerifyMismatchError
 
 MAX_FAILURES = 5
 LOCK_SECONDS = 300
+log = logging.getLogger(__name__)
 
 
 class LockedError(Exception):
@@ -49,6 +51,7 @@ class Auth:
         until = self._locked_until.get(client_ip)
         if until is not None:
             if now < until:
+                log.info("Accesso bloccato per %s (troppi tentativi)", client_ip)
                 raise LockedError(math.ceil(until - now))
             del self._locked_until[client_ip]
             self._failures.pop(client_ip, None)
@@ -62,10 +65,13 @@ class Auth:
         if not ok:
             n = self._failures.get(client_ip, 0) + 1
             self._failures[client_ip] = n
+            log.info("Accesso fallito da %s (tentativo %d)", client_ip, n)
             if n >= MAX_FAILURES:
                 self._locked_until[client_ip] = now + LOCK_SECONDS
+                log.info("Accesso bloccato per %s per %d s", client_ip, LOCK_SECONDS)
             raise PermissionError("PIN errato")
         self._failures.pop(client_ip, None)
+        log.info("Accesso riuscito da %s", client_ip)
         token = secrets.token_urlsafe(32)
         self.conn.execute(
             "INSERT INTO sessions(token_hash, created, last_seen, user_agent) VALUES(?,?,?,?)",
