@@ -32,11 +32,14 @@
   import type { NodeSortKey } from './lib/nodesort'
   import { formatHash, parseHash, type Route } from './lib/route'
   import { loadView, saveView } from './lib/viewstate'
-  import { ApiError, getJSON, alerts as fetchAlerts, coverageSessions, coverageSession, updateStatus, AUTH_REQUIRED } from './lib/api'
+  import { ApiError, getJSON, alerts as fetchAlerts, conversations, waypoints as fetchWaypoints, coverageSessions, coverageSession, updateStatus, AUTH_REQUIRED } from './lib/api'
   import { connectWS } from './lib/ws'
+  import { onIncoming } from './lib/incoming'
+  import { unread, applySummaries, applyRead, totalUnread } from './lib/unread.svelte'
+  import { titleFor } from './lib/notify'
   import { markOnline, markOffline, resetConn } from './lib/connection.svelte'
   import { serialRunner } from './lib/serial'
-  import { app, upsertNodes, addMessage, addRadioHistory, setMessageStatus, setStatus, setRadios, setAlerts, setTraceroute, persistFilter, persistFeedFilter, coverage, setCoverageSessions, applyCoverage, configUi, setConfigJob, setMapJob, setUpdateStatus, setUpdateJob, openChat } from './lib/stores.svelte'
+  import { app, upsertNodes, addMessage, addRadioHistory, setMessageStatus, setStatus, setRadios, setAlerts, setTraceroute, persistFilter, persistFeedFilter, coverage, setCoverageSessions, applyCoverage, configUi, setConfigJob, setMapJob, setUpdateStatus, setUpdateJob, openChat, setWaypoints, upsertWaypoint, removeWaypoint } from './lib/stores.svelte'
   import type { AuthStatus, Message, Node, Radio } from './lib/types'
 
   let auth = $state<AuthStatus | null>(null)
@@ -59,6 +62,7 @@
   // Su desktop "Mappa" e "Altro" non esistono come schede: la mappa e' sempre visibile
   const activeTab = $derived<Tab>(effectiveTab(tab, viewport.phone))
   const alertCount = $derived(app.alerts.length)
+  const unreadTotal = $derived(totalUnread(unread.counts))
 
   function goTab(t: Tab) {
     tab = t
@@ -166,6 +170,11 @@
     if (t) saveView(localStorage, { tab: t })
   })
 
+  // legge lo stato, scrive solo il DOM
+  $effect(() => {
+    document.title = titleFor('MeshLens', unreadTotal)
+  })
+
   $effect(persistFilter)
   $effect(persistFeedFilter)
 
@@ -182,6 +191,8 @@
         getJSON<Message[]>('/messages/radio?limit=200').then(addRadioHistory),
         getJSON<Radio[]>('/radios').then(setRadios),
         fetchAlerts().then(setAlerts),
+        conversations().then(applySummaries),
+        fetchWaypoints().then(setWaypoints),
         coverageSessions().then(setCoverageSessions),
         updateStatus().then(setUpdateStatus),
       ]
@@ -207,13 +218,19 @@
       authLost: resetConn,
       connection: (on) => (on ? markOnline(Date.now()) : markOffline(Date.now())),
       nodes: upsertNodes,
-      message: addMessage,
+      message: (m) => {
+        addMessage(m)
+        onIncoming(m)
+      },
       status: setStatus,
       radios: setRadios,
       alerts: setAlerts,
       traceroute: setTraceroute,
       coverage: applyCoverage,
       messageStatus: setMessageStatus,
+      waypoint: upsertWaypoint,
+      waypointDeleted: removeWaypoint,
+      convRead: applyRead,
       configJob: setConfigJob,
       mapJob: setMapJob,
       updateJob: setUpdateJob,
@@ -308,7 +325,7 @@
       {/if}
     </div>
     {#if viewport.phone}
-      <BottomNav tab={tab} alerts={alertCount} onselect={goTab} />
+      <BottomNav tab={tab} alerts={alertCount} unread={unreadTotal} onselect={goTab} />
     {/if}
   </div>
   {#if configUi.target}

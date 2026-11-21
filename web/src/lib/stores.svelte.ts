@@ -7,7 +7,7 @@ import { appendTrackPoint, upsertPoint } from './coverage'
 import { updateStatus } from './api'
 import { shouldReloadStatus } from './update'
 import { saveView } from './viewstate'
-import type { Bbox, ConfigJob, MapJob, UpdateJob, UpdateStatus, Alert, CoverageDetail, CoveragePoint, CoverageSession, CoverageTrackPoint, Message, MessageStatus, Node, Radio, Status, Traceroute } from './types'
+import type { Bbox, ConfigJob, MapJob, UpdateJob, UpdateStatus, Alert, CoverageDetail, CoveragePoint, CoverageSession, CoverageTrackPoint, Message, MessageStatus, Node, Radio, Status, Traceroute, Waypoint } from './types'
 
 const MAX_MESSAGES = 500
 
@@ -22,6 +22,7 @@ export const app = $state({
   selectedId: null as string | null,
   alerts: [] as Alert[],
   traceroutes: new SvelteMap<string, Traceroute>(),
+  waypoints: new SvelteMap<number, Waypoint>(),
   reconnects: 0, // contatore: cresce a ogni riconnessione del WebSocket
 })
 
@@ -102,9 +103,12 @@ export function addRadioHistory(list: Message[]): void {
   mergeRadioMessages(app.radioMessages, list, replaced)
 }
 
-export function setMessageStatus(key: string, status: MessageStatus): void {
+export function setMessageStatus(key: string, status: MessageStatus, error: string | null = null): void {
   const m = app.radioMessages.find((x) => x.key === key) ?? app.messages.find((x) => x.key === key)
-  if (m) m.status = status
+  if (m) {
+    m.status = status
+    m.error = status === 'failed' ? error : null
+  }
 }
 
 export function setRadios(list: Radio[]): void {
@@ -194,4 +198,18 @@ export function setUpdateJob(j: UpdateJob): void {
 /** Ultima conversazione aperta in Messaggi: si riapre al prossimo avvio. */
 export function rememberConv(key: string): void {
   saveView(localStorage, { conv: key })
+}
+
+export function setWaypoints(list: Waypoint[]): void {
+  const ids = new Set(list.map((w) => w.id))
+  for (const id of [...app.waypoints.keys()]) if (!ids.has(id)) app.waypoints.delete(id)
+  for (const w of list) app.waypoints.set(w.id, w)
+}
+
+export function upsertWaypoint(w: Waypoint): void {
+  app.waypoints.set(w.id, w)
+}
+
+export function removeWaypoint(id: number): void {
+  app.waypoints.delete(id)
 }

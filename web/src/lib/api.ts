@@ -12,6 +12,7 @@ import type {
   ConfigSaved,
   ConfigSchema,
   Bbox,
+  ConvSummary,
   Link,
   MapEstimate,
   MapJob,
@@ -23,6 +24,7 @@ import type {
   Traceroute,
   UpdateJob,
   UpdateStatus,
+  Waypoint,
 } from './types'
 import type { MqttSendBody } from './send'
 import type { AppSettings } from './settings'
@@ -167,6 +169,16 @@ export const updateStatus = () => getJSON<UpdateStatus>('/update/status')
 export const checkUpdate = () => send<UpdateStatus>('POST', '/update/check', {})
 export const downloadUpdate = () => send<UpdateJob>('POST', '/update/download', {})
 export const installUpdate = () => send<{ ok: boolean }>('POST', '/update/install', { confirm: true })
+
+export const conversations = () => getJSON<ConvSummary[]>('/conversations')
+export const markConversationRead = (key: string, time: number) =>
+  send<{ key: string; read_time: number }>('POST', '/conversations/read', { key, time })
+export const waypoints = () => getJSON<Waypoint[]>('/waypoints')
+export const sendWaypoint = (
+  radioId: string,
+  body: { name: string; description: string; icon: string; lat: number; lon: number; expire_h: number | null; channel_index: number },
+) => send<Waypoint>('POST', `/radios/${encodeURIComponent(radioId)}/waypoint`, body)
+export const deleteWaypoint = (id: number) => send<{ ok: boolean }>('DELETE', `/waypoints/${id}`)
 
 export const mqttSend = (body: MqttSendBody) => send<{ message: Message }>('POST', '/mqtt/send', body)
 export const mqttChannels = (broker?: string) =>

@@ -5,6 +5,7 @@ function handlers() {
   return {
     nodes: vi.fn(), message: vi.fn(), status: vi.fn(), radios: vi.fn(), alerts: vi.fn(),
     traceroute: vi.fn(), coverage: vi.fn(), messageStatus: vi.fn(), resync: vi.fn(),
+    waypoint: vi.fn(), waypointDeleted: vi.fn(), convRead: vi.fn(),
   } satisfies WSHandlers
 }
 
@@ -19,6 +20,18 @@ describe('dispatch', () => {
     const mqtt = { connected: true }
     dispatch({ type: 'status', mqtt }, h)
     expect(h.status).toHaveBeenCalledWith({ mqtt })
+  })
+  it('waypoint, waypoint_deleted, conv_read e message_status con errore', () => {
+    const h = handlers()
+    const waypoint = { id: 7 }
+    dispatch({ type: 'waypoint', waypoint }, h)
+    expect(h.waypoint).toHaveBeenCalledWith(waypoint)
+    dispatch({ type: 'waypoint_deleted', id: 7 }, h)
+    expect(h.waypointDeleted).toHaveBeenCalledWith(7)
+    dispatch({ type: 'conv_read', key: 'dm:r1:!b', time: 5 }, h)
+    expect(h.convRead).toHaveBeenCalledWith('dm:r1:!b', 5)
+    dispatch({ type: 'message_status', key: 'k', status: 'failed', error: 'NO_ROUTE' }, h)
+    expect(h.messageStatus).toHaveBeenCalledWith('k', 'failed', 'NO_ROUTE')
   })
   it('tipo ignoto o null: nessuna chiamata, nessuna eccezione', () => {
     const h = handlers()

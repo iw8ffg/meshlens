@@ -1,8 +1,10 @@
 <script lang="ts">
   import Icon from '../ui/Icon.svelte'
+  import { T } from '../strings/messaggi'
+  import { num } from '../format'
   import { PHONE_NAV, navActive, type Tab } from './nav'
 
-  let { tab, alerts = 0, onselect }: { tab: Tab; alerts?: number; onselect: (t: Tab) => void } = $props()
+  let { tab, alerts = 0, unread = 0, onselect }: { tab: Tab; alerts?: number; unread?: number; onselect: (t: Tab) => void } = $props()
   const active = $derived(navActive(tab))
 </script>
 
@@ -11,6 +13,7 @@
     <button type="button" class:on={active === it.id} aria-current={active === it.id ? 'page' : undefined} onclick={() => onselect(it.id)}>
       <span class="ic">
         <Icon name={it.icon} size={22} />
+        {#if it.id === 'chat' && unread > 0}<b class="cnt" aria-label={T.unreadAria(unread)}>{num(unread)}</b>{/if}
         {#if it.id === 'more' && alerts > 0}<b class="cnt" aria-label="{alerts} {alerts === 1 ? 'avviso' : 'avvisi'}">{alerts}</b>{/if}
       </span>
       <span class="lb">{it.label}</span>

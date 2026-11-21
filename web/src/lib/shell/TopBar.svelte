@@ -6,6 +6,8 @@
   import MqttStatusDetail from './MqttStatusDetail.svelte'
   import { mqttSummary } from '../mqttstatus'
   import { app, updates } from '../stores.svelte'
+  import { unread, totalUnread } from '../unread.svelte'
+  import { T } from '../strings/messaggi'
   import { viewport } from '../viewport.svelte'
   import { getTheme, THEME_LABELS, type ThemePref } from '../theme'
   import { num } from '../format'
@@ -27,6 +29,7 @@
   const mqttSum = $derived(mqttSummary(mqtt, Date.now() / 1000))
   const upd = $derived(updates.status?.available ? updates.status.latest : null)
   const hasWarnAlert = $derived(app.alerts.some((a) => alertTone(a.kind) === 'warn'))
+  const unreadTotal = $derived(totalUnread(unread.counts))
   const radiosOn = $derived(app.radios.filter((r) => r.state === 'connected').length)
 
   let open = $state<'alerts' | 'menu' | 'mqtt' | null>(null)
@@ -63,7 +66,7 @@
     <nav class="tabs" aria-label="Sezioni">
       {#each DESKTOP_TABS as t (t.id)}
         <button type="button" class:on={tab === t.id} aria-current={tab === t.id ? 'page' : undefined} onclick={() => onselect(t.id)}>
-          <Icon name={t.icon} size={16} />{t.label}
+          <Icon name={t.icon} size={16} />{t.label}{#if t.id === 'chat' && unreadTotal > 0}<span class="bdg" aria-label={T.unreadAria(unreadTotal)}>{num(unreadTotal)}</span>{/if}
         </button>
       {/each}
     </nav>
@@ -138,6 +141,7 @@
   .tabs { display: flex; gap: 2px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
   .tabs button { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 var(--space-3); border: 0; border-radius: var(--radius-md); background: none; color: var(--ink-muted); font: 500 14px/20px var(--font-sans); cursor: pointer; white-space: nowrap; }
   .tabs button:hover { color: var(--ink); background: var(--surface-sunken); }
+  .bdg { min-width: 18px; height: 18px; padding: 0 5px; box-sizing: border-box; border-radius: var(--radius-pill); background: var(--warn); color: var(--bg); font: 700 14px/18px var(--font-sans); text-align: center; }
   .tabs button.on { background: var(--accent-soft); color: var(--accent-ink); }
   .status { display: flex; align-items: center; gap: var(--space-4); margin-left: auto; min-width: 0; white-space: nowrap; }
   .it { display: inline-flex; align-items: center; gap: 6px; }

@@ -27,6 +27,10 @@ export interface Node {
   is_favorite?: boolean
   /** Salti minimi noti quando `hops` e' nullo (1 = non diretto, distanza ignota). */
   hops_min?: number | null
+  /** Chiave pubblica (base64), se nota. */
+  public_key?: string | null
+  /** Secondi epoch dell'ultimo cambio di chiave pubblica. */
+  key_changed?: number | null
 }
 
 export type MessageStatus = 'sending' | 'sent' | 'acked' | 'failed'
@@ -51,6 +55,44 @@ export interface Message {
   via?: 'radio' | 'mqtt'
   /** Id del broker MQTT che ha consegnato il messaggio. */
   broker?: string | null
+  /** `packet_id` del messaggio a cui risponde o reagisce. */
+  reply_id?: number | null
+  /** Vero se e' una reazione: il testo e' l'emoji. */
+  emoji?: boolean
+  /** DM ricevuto cifrato con la chiave pubblica. */
+  pki?: boolean
+  /** Codice `Routing.Error` (es. "NO_ROUTE") per lo stato `failed`. */
+  error?: string | null
+}
+
+export interface Waypoint {
+  id: number
+  from: string
+  from_name: string | null
+  lat: number
+  lon: number
+  name: string
+  description: string
+  /** Carattere del codepoint, oppure "" se manca o non e' valido. */
+  icon: string
+  /** Secondi epoch di scadenza; null se non scade mai. */
+  expire: number | null
+  locked_to: string | null
+  time: number
+  source: string
+  radio_id: string | null
+  channel: string
+  mine: boolean
+}
+
+export interface ConvSummary {
+  key: string
+  last_time: number
+  last_text: string
+  last_from: string
+  last_emoji: boolean
+  unread: number
+  read_time: number
 }
 
 /** Stato del connettore MQTT. I campi oltre i primi tre sono facoltativi: il client regge un server vecchio. */
@@ -148,7 +190,7 @@ export interface Link {
 
 export interface Alert {
   key: string
-  kind: 'battery_low' | 'silent' | 'chutil_high' | 'back_online' | 'firmware_old'
+  kind: 'battery_low' | 'silent' | 'key_changed' | 'chutil_high' | 'back_online' | 'firmware_old'
   node_id: string
   node_name: string
   /** Percentuale per battery_low, ore di silenzio per silent, media canale per chutil_high. */

@@ -1,5 +1,5 @@
 import { emitAuthRequired } from './api'
-import type { ConfigJob, MapJob, UpdateJob, Alert, CoveragePoint, CoverageSession, CoverageTrackPoint, Message, MessageStatus, Node, Radio, Status, Traceroute } from './types'
+import type { ConfigJob, MapJob, UpdateJob, Alert, CoveragePoint, CoverageSession, CoverageTrackPoint, Message, MessageStatus, Node, Radio, Status, Traceroute, Waypoint } from './types'
 
 export interface WSHandlers {
   nodes(n: Node[]): void
@@ -9,7 +9,11 @@ export interface WSHandlers {
   alerts(a: Alert[]): void
   traceroute(t: Traceroute): void
   coverage(session: CoverageSession, point: CoveragePoint | null, trackPoint?: CoverageTrackPoint | null): void
-  messageStatus(key: string, status: MessageStatus): void
+  messageStatus(key: string, status: MessageStatus, error?: string | null): void
+  waypoint?(w: Waypoint): void
+  waypointDeleted?(id: number): void
+  /** Conversazione letta da un altro dispositivo. */
+  convRead?(key: string, time: number): void
   configJob?(job: ConfigJob): void
   mapJob?(job: MapJob): void
   updateJob?(job: UpdateJob): void
@@ -42,7 +46,10 @@ export function dispatch(msg: unknown, h: WSHandlers): void {
   else if (m.type === 'alerts') h.alerts(m.alerts)
   else if (m.type === 'traceroute') h.traceroute(m.result)
   else if (m.type === 'coverage') h.coverage(m.session, m.point ?? null, m.track_point ?? null)
-  else if (m.type === 'message_status') h.messageStatus(m.key, m.status)
+  else if (m.type === 'message_status') h.messageStatus(m.key, m.status, m.error ?? null)
+  else if (m.type === 'waypoint') h.waypoint?.(m.waypoint)
+  else if (m.type === 'waypoint_deleted') h.waypointDeleted?.(m.id)
+  else if (m.type === 'conv_read') h.convRead?.(m.key, m.time)
   else if (m.type === 'config_job') h.configJob?.(m.job)
   else if (m.type === 'map_job') h.mapJob?.(m.job)
   else if (m.type === 'update_job') h.updateJob?.(m.job)
