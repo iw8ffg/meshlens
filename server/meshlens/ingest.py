@@ -166,14 +166,26 @@ class Ingestor:
         if message is not None:
             self.on_message(message)
 
+    def _persisted(self, num: int) -> bool:
+        """Nodo che si archivia: in una nazione salvata o "mio". Se e' sconosciuto, no."""
+        node = self.live.nodes.get(num)
+        return node is not None and (node["country"] in self.get_settings()["saved_countries"]
+                                     or bool(node.get("is_mine")))
+
+    def _link(self, ev: MeshEvent, a: int, b: int, source: str, snr) -> None:
+        # MQTT: si archivia solo se almeno un estremo e' archiviato; l'RF sempre
+        if ev.source == "rf" or self._persisted(a) or self._persisted(b):
+            self.store.upsert_link(a, b, source, snr, ev.rx_time)
+
     def _record_links(self, ev: MeshEvent) -> None:
         if ev.kind == "neighbors":
             for neighbor, snr in ev.payload.neighbors:
-                self.store.upsert_link(neighbor, ev.from_node, "neighborinfo", snr, ev.rx_time)
-        elif ev.kind == "traceroute":
+                self._link(ev, neighbor, ev.from_node, "neighborinfo", snr)
+        elif ev.kind == "traceroute" and ev.payload.request_id:
+            # le richieste in transito non hanno request_id: solo le risposte contano
             for chain in traceroute_chains(ev):
                 for (a, _), (b, snr) in zip(chain, chain[1:]):
-                    self.store.upsert_link(a, b, "traceroute", snr, ev.rx_time)
+                    self._link(ev, a, b, "traceroute", snr)
         if ev.source == "rf" and ev.hops == 0 and ev.rx_time > 0:
             radio_num = self._radio_nodes.get(ev.radio_id)
             if radio_num is not None:

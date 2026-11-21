@@ -117,7 +117,7 @@ def _parse_mapreport(payload: bytes) -> MapReportData:
 def _parse_neighbors(payload: bytes) -> NeighborData:
     info = mesh_pb2.NeighborInfo()
     info.ParseFromString(payload)
-    return NeighborData([(n.node_id, n.snr) for n in info.neighbors])
+    return NeighborData([(n.node_id, n.snr) for n in info.neighbors if n.node_id])
 
 
 def _parse_route(data: mesh_pb2.Data) -> RouteData:

@@ -174,6 +174,9 @@ def test_traceroute_chains():
 def test_ingest_records_links(env):
     from meshlens.events import NeighborData, RouteData
     ing, live, store, conn, got = env
+    for n in (1, 2, 3, 5, 6):
+        ing.live.nodes[n] = _new_node(n)
+        ing.live.nodes[n]["is_mine"] = True
     ing.handle(ev("neighbors", NeighborData([(5, 6.5), (6, None)]), num=3, pid=1))
     ing.handle(ev("traceroute", RouteData(5, [2], [6.0, -1.0], [], [4.0]), num=3, pid=2,
                   to_node=1))
@@ -185,3 +188,24 @@ def test_ingest_records_links(env):
                     (node_id(3), node_id(1), "traceroute"): 4.0}
     assert live.nodes[3]["last_heard"] == NOW and live.nodes[3]["lat"] is None
     assert not got
+
+
+def test_mqtt_links_only_for_persisted_endpoints(env):
+    from meshlens.events import NeighborData, RouteData
+    ing, live, store, conn, got = env
+    for n, c in ((3, "DE"), (4, "DE"), (5, "IT")):
+        live.nodes[n] = _new_node(n)
+        live.nodes[n]["country"] = c
+    ing.handle(ev("neighbors", NeighborData([(4, 1.0), (9, 2.0)]), num=3, pid=1))
+    assert store.links(0) == []
+    ing.handle(ev("neighbors", NeighborData([(5, 1.0)]), num=3, pid=2))
+    assert len(store.links(0)) == 1
+
+
+def test_traceroute_request_without_id_makes_no_links(env):
+    from meshlens.events import RouteData
+    ing, live, store, conn, got = env
+    live.nodes[1] = _new_node(1)
+    live.nodes[1]["is_mine"] = True
+    ing.handle(ev("traceroute", RouteData(None, [], [], [], []), num=3, to_node=1))
+    assert store.links(0) == []
