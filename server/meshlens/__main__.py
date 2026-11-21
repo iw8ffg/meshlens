@@ -47,17 +47,24 @@ def main(argv: list[str] | None = None) -> int:
         print("PIN azzerato: al prossimo accesso dal PC potrai sceglierne uno nuovo.")
         return 0
 
-    import uvicorn
+    import asyncio
+    from uvicorn.config import LOGGING_CONFIG
     from .app import build
+    from .serving import make_servers, prepare_serving, serve_all
     from .settings import load_settings
     app, rt = build(Path(args.data_dir), auto_update=True, log_dir=logs_dir())
-    host = "0.0.0.0" if load_settings(rt.conn)["lan_access"] else "127.0.0.1"
+    settings = load_settings(rt.conn)
+    binds, cert, rt.ctx.tls = prepare_serving(Path(args.data_dir), settings["lan_access"],
+                                              settings["lan_https"], args.port)
+    servers = make_servers(app, binds, cert, LOGGING_CONFIG)
     if not args.no_browser:
         timer = threading.Timer(1.5, webbrowser.open, args=(f"http://127.0.0.1:{args.port}",))
         timer.daemon = True
         timer.start()
-    uvicorn.run(app, host=host, port=args.port, use_colors=False,
-                proxy_headers=False, forwarded_allow_ips=None)
+    try:
+        asyncio.run(serve_all(servers, rt.ctx.tls_errors))
+    except KeyboardInterrupt:  # uvicorn rilancia il Ctrl+C dopo l'arresto ordinato
+        pass
     return 0
 
 

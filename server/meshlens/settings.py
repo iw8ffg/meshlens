@@ -25,6 +25,7 @@ DEFAULTS: dict = {
     "battery_alert_pct": 20,
     "silent_alert_hours": 6,
     "lan_access": False,
+    "lan_https": False,  # HTTPS sulla porta successiva per l'accesso dalla rete
     "map_mode": "auto",
     "maps_source_url": "",
     "update_repo": "iw8ffg/meshlens",
@@ -102,9 +103,9 @@ def _validate(key: str, value) -> None:
         lo, hi = _RANGE_KEYS[key]
         if not (_is_int(value) and lo <= value <= hi):
             raise ValueError(f"{key} deve essere un numero intero tra {lo} e {hi}")
-    elif key == "lan_access":
+    elif key in ("lan_access", "lan_https"):
         if not isinstance(value, bool):
-            raise ValueError("lan_access deve essere vero o falso")
+            raise ValueError(f"{key} deve essere vero o falso")
     elif key == "map_mode":
         if value not in ("auto", "online", "offline"):
             raise ValueError("map_mode deve essere auto, online oppure offline")

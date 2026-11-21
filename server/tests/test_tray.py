@@ -8,6 +8,7 @@ import pytest
 
 from meshlens import tray
 from meshlens.app import build
+from meshlens.serving import Bind
 
 
 def _serve(body: bytes, status=200):
@@ -118,8 +119,26 @@ async def _client(app, ip):
 
 def test_server_config_ignores_proxy_headers(tmp_path):
     app, _ = build(tmp_path, static_dir=None)
-    st = tray.ServerThread(app, "127.0.0.1", 0)
+    st = tray.ServerThread(app, [Bind("127.0.0.1", 0, False)], None)
     assert st.server.config.proxy_headers is False
+
+
+def test_server_thread_stop_signals_every_server(monkeypatch):
+    class T:
+        def join(self, t):
+            pass
+
+        def is_alive(self):
+            return False
+
+    class S:
+        should_exit = False
+
+    st = tray.ServerThread.__new__(tray.ServerThread)
+    st.servers = [S(), S()]
+    st.server, st.thread = st.servers[0], T()
+    st.stop(0.01)
+    assert all(s.should_exit for s in st.servers)
 
 
 def test_stop_timeout_logs_and_kills_children(caplog, monkeypatch):
@@ -138,7 +157,8 @@ def test_stop_timeout_logs_and_kills_children(caplog, monkeypatch):
         should_exit = False
 
     st = tray.ServerThread.__new__(tray.ServerThread)
-    st.server, st.thread = S(), T()
+    st.servers = [S()]
+    st.server, st.thread = st.servers[0], T()
     with caplog.at_level("WARNING"):
         st.stop(0.01)
     assert killed == [1] and "non si è fermato" in caplog.text

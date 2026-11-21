@@ -14,6 +14,8 @@ export interface AppSettings {
   retention_telemetry_days: number
   storage_cap_mb: number
   lan_access: boolean
+  /** HTTPS sulla porta 8687 per l'accesso dalla rete (vale dal prossimo avvio). */
+  lan_https?: boolean
   battery_alert_pct: number
   silent_alert_hours: number
   mqtt: MqttSettings
@@ -121,4 +123,26 @@ export function deviceLabel(ua: string | null | undefined): string {
             : null
   if (browser && os) return `${browser} su ${os}`
   return browser ?? os ?? 'Dispositivo sconosciuto'
+}
+
+/** Stato dell'HTTPS per la rete (GET /api/tls). */
+export interface TlsInfo {
+  enabled: boolean
+  port: number | null
+  /** SHA-256 del certificato, esadecimale separato da ":". */
+  fingerprint_sha256: string | null
+  /** Scadenza del certificato, secondi epoch. */
+  not_after: number | null
+  error: string | null
+}
+
+export const HTTPS_PORT = 8687
+
+/** Nota sotto l'interruttore dell'HTTPS. */
+export function httpsNote(port: number | null | undefined): string {
+  return (
+    `Indirizzo: https://<IP del PC>:${port ?? HTTPS_PORT}. Il browser mostrerà un avviso perché il certificato è creato da MeshLens: ` +
+    "confronta l'impronta qui sotto. Dal PC resta http://127.0.0.1:8686. Vale dal prossimo avvio; " +
+    'Windows potrebbe chiedere il permesso del firewall per la nuova porta.'
+  )
 }

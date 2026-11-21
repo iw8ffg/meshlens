@@ -764,3 +764,34 @@ async def test_mine_and_favorite_revive_cap_evicted_node(ctx):
         r = await c.put("/api/nodes/!000000aa/favorite", json={"favorite": True})
         assert r.status_code == 200 and r.json()["long_name"] == "Evicted"
         assert ctx.store.get_node(0xaa)["is_mine"]
+
+
+async def test_cookie_secure_on_https(ctx):
+    async with httpx.AsyncClient(transport=ASGITransport(app=create_app(ctx),
+                                                         client=("127.0.0.1", 1234)),
+                                 base_url="https://127.0.0.1") as c:
+        r = await c.post("/api/auth/setup", json={"pin": "1234"})
+        assert r.status_code == 200
+        sc = r.headers["set-cookie"]
+        assert "Secure" in sc and "HttpOnly" in sc and "samesite=strict" in sc.lower()
+        # da HTTPS il cookie torna indietro e la sessione vale
+        assert (await c.get("/api/auth/status")).json()["authenticated"] is True
+    async with client(ctx) as c:  # su http (loopback) niente Secure: il login funziona
+        r = await c.post("/api/auth/login", json={"pin": "1234"})
+        assert r.status_code == 200 and "Secure" not in r.headers["set-cookie"]
+        assert (await c.get("/api/auth/status")).json()["authenticated"] is True
+
+
+async def test_tls_route(ctx):
+    async with client(ctx) as c:
+        assert (await c.get("/api/tls")).status_code == 401
+    async with logged(ctx) as c:
+        assert (await c.get("/api/tls")).json() == {
+            "enabled": False, "port": None, "fingerprint_sha256": None,
+            "not_after": None, "error": None}
+        ctx.tls = {"enabled": True, "port": 8687, "fingerprint_sha256": "AB:CD",
+                   "not_after": 1.5, "error": None}
+        ctx.tls_errors.append("HTTPS non avviato sulla porta 8687")
+        assert (await c.get("/api/tls")).json() == {
+            "enabled": True, "port": 8687, "fingerprint_sha256": "AB:CD",
+            "not_after": 1.5, "error": "HTTPS non avviato sulla porta 8687"}

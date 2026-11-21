@@ -90,3 +90,12 @@ def test_load_normalizes_saved_topics(tmp_path):
     conn = connect(tmp_path / "t.db")
     conn.execute("INSERT INTO settings(key, value) VALUES('mqtt', ?)", (json.dumps({"topics": ["msh/EU_868/IT"]}),))
     assert load_settings(conn)["mqtt"]["topics"] == ["msh/EU_868/IT/#"]
+
+
+def test_lan_https_setting_validation(conn):
+    assert load_settings(conn)["lan_https"] is False
+    assert save_settings(conn, {"lan_https": True})["lan_https"] is True
+    for bad in (1, "true", None):
+        with pytest.raises(ValueError):
+            save_settings(conn, {"lan_https": bad})
+    assert load_settings(conn)["lan_https"] is True

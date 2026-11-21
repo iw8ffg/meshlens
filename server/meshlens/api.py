@@ -39,6 +39,7 @@ from .backup import NAME_RE, BackupUnusable
 from .settings import (MASK, export_settings, load_settings, mask_secrets, prepare_import,
                        resolve_extra_keys,
                        save_settings)
+from .serving import tls_status
 from .store import Store
 
 COOKIE = "meshlens_session"
@@ -86,6 +87,9 @@ class AppContext:
     log_dir: Path | None = None
     started_at: float = field(default_factory=time.time)
     exit_callback: Callable[[], None] | None = None  # impostata dal lanciatore
+    # stato dell'HTTPS per la rete (impostato da chi avvia il server) ed errori degli ascolti
+    tls: dict = field(default_factory=tls_status)
+    tls_errors: list[str] = field(default_factory=list)
     _alerts: list = field(default_factory=list)
 
     def request_exit(self, delay_s: float = 0.0) -> None:
@@ -336,9 +340,10 @@ def create_app(ctx: AppContext) -> FastAPI:
             return JSONResponse({"detail": "Host non consentito"}, status_code=400)
         return await call_next(request)
 
-    def set_cookie(response: Response, token: str) -> None:
+    def set_cookie(request: Request, response: Response, token: str) -> None:
+        # Secure solo su HTTPS: il loopback resta in HTTP e il cookie deve tornare indietro
         response.set_cookie(COOKIE, token, max_age=COOKIE_MAX_AGE, httponly=True,
-                            samesite="strict", secure=False, path="/")
+                            samesite="strict", secure=request.url.scheme == "https", path="/")
 
     def is_local(request: Request) -> bool:
         return request.client is not None and request.client.host in LOCAL_HOSTS
@@ -403,7 +408,7 @@ def create_app(ctx: AppContext) -> FastAPI:
                                           request.headers.get("user-agent"))
         except LockedError as e:
             return locked_response(e)
-        set_cookie(response, token)
+        set_cookie(request, response, token)
         return {"ok": True}
 
     @app.post("/api/auth/login", dependencies=[Depends(require_json)])
@@ -415,7 +420,7 @@ def create_app(ctx: AppContext) -> FastAPI:
             return locked_response(e)
         except PermissionError:
             raise HTTPException(401, "PIN errato")
-        set_cookie(response, token)
+        set_cookie(request, response, token)
         return {"ok": True}
 
     @app.post("/api/auth/pin", dependencies=[Depends(require_auth), Depends(require_json)])
@@ -653,6 +658,14 @@ def create_app(ctx: AppContext) -> FastAPI:
     @app.get("/api/mqtt/status", dependencies=[Depends(require_auth)])
     async def mqtt_status_route():
         return ctx.mqtt_status()
+
+    # ---- HTTPS per la rete ----
+    @app.get("/api/tls", dependencies=[Depends(require_auth)])
+    async def tls_info():
+        info = {**tls_status(), **ctx.tls}
+        errors = [e for e in (info["error"], *ctx.tls_errors) if e]
+        info["error"] = " ".join(errors) or None
+        return info
 
     # ---- database ----
     @app.get("/api/db", dependencies=[Depends(require_auth)])

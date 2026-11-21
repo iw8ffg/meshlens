@@ -13,6 +13,8 @@ from pathlib import Path
 
 from . import __version__
 from .paths import app_dir, is_frozen, logs_dir
+from .serving import Bind, make_servers, prepare_serving, serve_all
+from .tls import CertInfo
 
 PORT = 8686
 RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
@@ -110,14 +112,14 @@ def ensure_icon(png: Path = ASSETS / "meshlens.png") -> Path:
 # ---------- server in un thread ----------
 
 class ServerThread:
-    def __init__(self, app, host: str, port: int):
-        import uvicorn
+    """Gli ascolti di MeshLens (loopback HTTP ed eventuale HTTPS per la rete) in un thread."""
+
+    def __init__(self, app, binds: list[Bind], cert: CertInfo | None):
         from uvicorn.config import LOGGING_CONFIG
         # senza console (eseguibile installato) stdout è None: niente configurazione di log
-        cfg = uvicorn.Config(app, host=host, port=port,
-                             log_config=None if is_frozen() else LOGGING_CONFIG,
-                             proxy_headers=False, forwarded_allow_ips=None, use_colors=False)
-        self.server = uvicorn.Server(cfg)
+        self.servers = make_servers(app, binds, cert, None if is_frozen() else LOGGING_CONFIG)
+        self.server = self.servers[0]  # quello col lifespan: il suo avvio è l'avvio dell'app
+        self.errors: list[str] = []  # ascolti secondari non partiti (es. porta HTTPS occupata)
         self.thread = threading.Thread(target=self._run, name="meshlens-server", daemon=True)
         self.error: BaseException | None = None
 
@@ -128,7 +130,7 @@ class ServerThread:
                     else asyncio.new_event_loop())
             asyncio.set_event_loop(loop)
             try:
-                loop.run_until_complete(self.server.serve())
+                loop.run_until_complete(serve_all(self.servers, self.errors))
             finally:
                 loop.close()
         except BaseException as e:  # noqa: BLE001 - riportato al thread principale
@@ -148,7 +150,8 @@ class ServerThread:
         return False
 
     def stop(self, timeout: float = 20.0) -> None:
-        self.server.should_exit = True
+        for srv in self.servers:
+            srv.should_exit = True
         self.thread.join(timeout)
         if self.thread.is_alive():
             from . import maps
@@ -197,8 +200,11 @@ def run_tray(data_dir: Path, port: int = PORT, open_browser: bool = True) -> int
     data_dir = Path(data_dir)
     data_dir.mkdir(parents=True, exist_ok=True)
     app, rt = build(data_dir, auto_update=True, log_dir=logs_dir())
-    host = "0.0.0.0" if load_settings(rt.conn)["lan_access"] else "127.0.0.1"
-    srv = ServerThread(app, host, port)
+    settings = load_settings(rt.conn)
+    binds, cert, rt.ctx.tls = prepare_serving(data_dir, settings["lan_access"],
+                                              settings["lan_https"], port)
+    srv = ServerThread(app, binds, cert)
+    rt.ctx.tls_errors = srv.errors  # GET /api/tls mostra anche la porta HTTPS occupata
     srv.start()
     if not srv.wait_started():
         _message_box(f"MeshLens non è riuscito ad avviarsi: {srv.error or 'errore sconosciuto'}")

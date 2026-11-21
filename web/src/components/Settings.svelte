@@ -19,7 +19,8 @@
   import Maintenance from './settings/Maintenance.svelte'
   import Diagnostics from './settings/Diagnostics.svelte'
   import Devices from './settings/Devices.svelte'
-  import { channelOptions, checkMqttNodeId, joinLines, maskedKeyLines, parseLines, type AppSettings, type MqttChannel } from '../lib/settings'
+  import { channelOptions, checkMqttNodeId, httpsNote, joinLines, maskedKeyLines, parseLines, type AppSettings, type MqttChannel, type TlsInfo } from '../lib/settings'
+  import { formatDate } from '../lib/format'
 
   let { onlogout }: { onlogout: () => void } = $props()
 
@@ -33,6 +34,8 @@
   let retTel = $state(365)
   let capMb = $state(2048)
   let lan = $state(false)
+  let lanHttps = $state(false)
+  let tls = $state<TlsInfo | null>(null)
   let batteryPct = $state(20)
   let silentH = $state(6)
   let host = $state('')
@@ -62,6 +65,7 @@
     retTel = s.retention_telemetry_days
     capMb = s.storage_cap_mb
     lan = s.lan_access
+    lanHttps = s.lan_https ?? false
     batteryPct = s.battery_alert_pct
     silentH = s.silent_alert_hours
     host = s.mqtt.host
@@ -91,6 +95,9 @@
     } catch {
       loadError = 'Impostazioni non disponibili'
     }
+    getJSON<TlsInfo>('/tls')
+      .then((t) => (tls = t))
+      .catch(() => {})
     try {
       seenChannels = await getJSON<MqttChannel[]>('/mqtt/channels')
     } catch {
@@ -134,6 +141,7 @@
         retention_telemetry_days: retTel,
         storage_cap_mb: capMb,
         lan_access: lan,
+        lan_https: lanHttps,
         mqtt_channels: onlyChosen ? chosen : [],
         mqtt_node_id: nodeIdCheck.value,
         battery_alert_pct: batteryPct,
@@ -233,6 +241,16 @@
           <h3>Rete</h3>
           <Switch bind:checked={lan} label="Accesso dalla rete locale" />
           <p class="ui-hint">Richiede il riavvio di MeshLens.</p>
+          <Switch bind:checked={lanHttps} disabled={!lan} label="Usa HTTPS per l'accesso dalla rete" />
+          {#if lanHttps}<p class="ui-hint">{httpsNote(tls?.port)}</p>{/if}
+          {#if tls?.fingerprint_sha256}
+            <div class="fld">
+              <span class="ui-lbl">Impronta del certificato (SHA-256)</span>
+              <code class="ui-mono fp">{tls.fingerprint_sha256}</code>
+              <span class="ui-hint">Scade il {formatDate(tls.not_after)}</span>
+            </div>
+          {/if}
+          {#if tls?.error}<Banner kind="danger" title={tls.error} />{/if}
         </section>
       </Card>
 
@@ -330,6 +348,7 @@
   .chan { width: 100%; }
   .n { margin-left: auto; color: var(--ink-muted); font-size: 13px; }
   .area { height: auto; padding: var(--space-2) var(--space-3); resize: vertical; font-family: var(--font-mono); }
+  .fp { font-size: 14px; line-height: 20px; overflow-wrap: anywhere; word-break: break-all; }
   .line { margin: 0; font: 400 14px/20px var(--font-sans); }
   p { margin: 0; }
   .out { padding-bottom: var(--space-4); }

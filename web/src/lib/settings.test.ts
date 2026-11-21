@@ -74,3 +74,12 @@ describe('deviceLabel', () => {
     expect(deviceLabel('curl/8.0')).toBe('Dispositivo sconosciuto')
   })
 })
+
+import { httpsNote } from './settings'
+
+test('httpsNote: testo con la porta HTTPS, 8687 se non nota', () => {
+  expect(httpsNote(null)).toBe(
+    "Indirizzo: https://<IP del PC>:8687. Il browser mostrerà un avviso perché il certificato è creato da MeshLens: confronta l'impronta qui sotto. Dal PC resta http://127.0.0.1:8686. Vale dal prossimo avvio; Windows potrebbe chiedere il permesso del firewall per la nuova porta.",
+  )
+  expect(httpsNote(9000)).toContain('https://<IP del PC>:9000.')
+})
