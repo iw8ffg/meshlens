@@ -62,3 +62,56 @@ describe('validInterval', () => {
     expect(validInterval(null)).toBe(false)
   })
 })
+
+import { coverageGeoJSON } from './coverage'
+import type { CoverageDetail } from './types'
+
+const detail = (over: Partial<CoverageDetail> = {}): CoverageDetail =>
+  ({
+    id: 1,
+    base_lat: 45,
+    base_lon: 9,
+    points: [],
+    missing_points: [],
+    track: [],
+    ...over,
+  }) as unknown as CoverageDetail
+
+const pt = (o: object) => ({ seq: 0, time: 1, snr: 1, rssi: -90, hops: 0, lat: 45, lon: 9, precision_bits: 32, distance_m: 10, ...o })
+
+describe('coverageGeoJSON', () => {
+  it('salta i punti con lat null', () => {
+    const g = coverageGeoJSON(detail({ points: [pt({ lat: null }), pt({ seq: 1 })] }))
+    expect(g.points.features.length).toBe(1)
+  })
+  it('percorso ordinato per tempo', () => {
+    const g = coverageGeoJSON(
+      detail({
+        track: [
+          { time: 30, lat: 3, lon: 3, precision_bits: 32 },
+          { time: 10, lat: 1, lon: 1, precision_bits: 32 },
+          { time: 20, lat: 2, lon: 2, precision_bits: 32 },
+        ],
+      }),
+    )
+    expect(g.track.features[0].geometry.coordinates).toEqual([
+      [1, 1],
+      [2, 2],
+      [3, 3],
+    ])
+  })
+  it('colore SNR -12 rosso', () => {
+    const g = coverageGeoJSON(detail({ points: [pt({ snr: -12 })] }))
+    expect(g.points.features[0].properties?.color).toBe('#c8382e')
+  })
+  it('base assente se base_lat null', () => {
+    expect(coverageGeoJSON(detail({ base_lat: null })).base.features.length).toBe(0)
+    expect(coverageGeoJSON(detail()).base.features.length).toBe(1)
+  })
+  it('punti mancanti senza coordinate saltati', () => {
+    const g = coverageGeoJSON(
+      detail({ missing_points: [{ seq: 1, time: 1, lat: null, lon: null }, { seq: 2, time: 2, lat: 1, lon: 2 }] }),
+    )
+    expect(g.missing.features.length).toBe(1)
+  })
+})

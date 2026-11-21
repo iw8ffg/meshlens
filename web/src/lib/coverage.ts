@@ -1,5 +1,7 @@
+import type { Feature, FeatureCollection, LineString, Point } from 'geojson'
 import { formatMeters } from './geo'
-import type { CoverageCheck, CoverageMode, CoverageSession } from './types'
+import { snrColor } from './links'
+import type { CoverageCheck, CoverageDetail, CoverageMode, CoverageSession } from './types'
 
 export interface ChecklistItem {
   key: 'radio' | 'mobile' | 'gps' | 'precision' | 'rangetest'
@@ -69,4 +71,44 @@ export function formatLoss(s: CoverageSession | number | null): string {
   const v = s !== null && typeof s === 'object' ? s.loss_pct : s
   if (v === null || v === undefined || !Number.isFinite(v)) return '—'
   return `${v.toFixed(1).replace('.', ',')}%`
+}
+
+export interface CoverageGeo {
+  points: FeatureCollection<Point>
+  missing: FeatureCollection<Point>
+  track: FeatureCollection<LineString>
+  base: FeatureCollection<Point>
+}
+
+/** Dati GeoJSON del dettaglio di una prova: punti senza coordinate saltati, percorso ordinato per tempo. */
+export function coverageGeoJSON(detail: CoverageDetail): CoverageGeo {
+  const points: Feature<Point>[] = []
+  for (const p of detail.points) {
+    if (p.lat === null || p.lon === null) continue
+    points.push({
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [p.lon, p.lat] },
+      properties: { color: snrColor(p.snr), snr: p.snr, rssi: p.rssi, seq: p.seq, time: p.time, hops: p.hops, distance_m: p.distance_m },
+    })
+  }
+  const missing: Feature<Point>[] = []
+  for (const m of detail.missing_points) {
+    if (m.lat === null || m.lon === null) continue
+    missing.push({
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [m.lon, m.lat] },
+      properties: { seq: m.seq, time: m.time },
+    })
+  }
+  const sorted = [...detail.track].sort((a, b) => a.time - b.time)
+  const track: Feature<LineString>[] =
+    sorted.length > 1
+      ? [{ type: 'Feature', geometry: { type: 'LineString', coordinates: sorted.map((t) => [t.lon, t.lat]) }, properties: {} }]
+      : []
+  const base: Feature<Point>[] =
+    detail.base_lat !== null && detail.base_lon !== null
+      ? [{ type: 'Feature', geometry: { type: 'Point', coordinates: [detail.base_lon, detail.base_lat] }, properties: {} }]
+      : []
+  const fc = <G extends Point | LineString>(features: Feature<G>[]): FeatureCollection<G> => ({ type: 'FeatureCollection', features })
+  return { points: fc(points), missing: fc(missing), track: fc(track), base: fc(base) }
 }
