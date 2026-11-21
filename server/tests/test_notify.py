@@ -91,7 +91,10 @@ ONLINE = {"key": "online:!00000001", "kind": "back_online", "node_id": "!0000000
 
 
 def test_mine_status_transitions():
-    n, _clock, s, toasts, _sent, _r = make()
+    n, clock, s, toasts, _sent, radios = make()
+    radios.append({"id": "r1", "state": "connected"})
+    n.on_alerts([], [])  # registra la radio: silenzio di 300 s
+    clock.t += 301
     n.on_alerts([], [SILENT])
     assert toasts == [("Base non risponde", "Nessun pacchetto da 7 h")]
     n.on_alerts([], [SILENT])  # stessa coppia: nessun doppione
@@ -102,6 +105,49 @@ def test_mine_status_transitions():
     s["notify_mine_status"] = False
     n.on_alerts([], [{**SILENT, "key": "silent:!00000002", "node_name": "Altro"}])
     assert len(toasts) == 2
+
+
+def test_alerts_silent_without_sources_or_during_quiet():
+    mqtt = {"up": False}
+    clock = Clock()
+    s = settings()
+    toasts = []
+    radios = []
+    n = Notifier(lambda: s, lambda: (lambda t, b: toasts.append((t, b))), lambda: radios, clock,
+                 send_telegram=lambda *a: None, run_bg=lambda f: f(),
+                 get_mqtt_connected=lambda: mqtt["up"])
+    clock.t += 1000
+    n.on_alerts([], [SILENT])  # nessuna radio ne' broker: niente
+    assert toasts == []
+    mqtt["up"] = True
+    n.on_alerts([], [{**SILENT, "key": "silent:!00000002"}])
+    assert len(toasts) == 1
+    radios.append({"id": "r1", "state": "connected"})  # cambio delle radio: altri 300 s
+    n.on_alerts([], [ONLINE])
+    assert len(toasts) == 1
+    clock.t += 301
+    n.on_alerts([], [ONLINE])
+    assert len(toasts) == 2
+
+
+def test_message_replay_ignored_and_keyword_budget():
+    n, clock, _s, toasts, _sent, _r = make(notify_keywords=["aiuto"])
+    assert n.on_message(msg("aiuto", key="9:old", time=clock.t - 601)) is None
+    assert n.on_message(msg("aiuto", key="9:new", time=clock.t - 599)) == "aiuto"
+    for i in range(12):
+        n.on_message(msg("aiuto", key=f"9:k{i}", time=clock.t))
+    assert len(toasts) == 10  # budget orario delle parole chiave
+
+
+def test_alert_budget_independent_of_keywords():
+    n, clock, _s, toasts, _sent, radios = make(notify_keywords=["aiuto"])
+    radios.append({"id": "r1", "state": "connected"})
+    n.on_alerts([], [])
+    clock.t += 301
+    for i in range(12):
+        n.on_message(msg("aiuto", key=f"9:k{i}"))
+    n.on_alerts([], [{**SILENT, "key": "silent:!00000003"}])
+    assert len(toasts) == 11
 
 
 def msg(text: str, **over) -> dict:
@@ -136,10 +182,10 @@ def test_rate_and_dedup():
     for i in range(31):
         clock.t += 60
         n.on_message(msg(words[i % 20], key=f"9:{i}"))
-    assert len(toasts) == 30 and len(sent) == 30
+    assert len(toasts) == 10 and len(sent) == 10
     clock.t += 3600  # dopo un'ora il limite si libera
     n.on_message(msg(words[0], key="9:new"))
-    assert len(toasts) == 31
+    assert len(toasts) == 11
 
 
 def test_no_channel_enabled_sends_nothing():

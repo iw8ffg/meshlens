@@ -35,6 +35,11 @@ QUIET_S = 300  # silenzio dopo l'avvio e dopo ogni cambio delle radio connesse
 NEW_NODE_HEARD_S = 600  # un nodo "nuovo" deve essere stato sentito da poco
 DEDUP_S = 600
 MAX_PER_HOUR = 30
+KEYWORD_PER_HOUR = 10  # le parole chiave hanno un budget proprio, piu' stretto
+MESSAGE_MAX_AGE_S = 600  # messaggi piu' vecchi (replay di Store & Forward): niente notifica
+# kind -> gruppo del budget orario; i kind non elencati stanno nel gruppo "other"
+BUDGET_GROUP = {"keyword": "keyword", "mine_offline": "alerts", "mine_online": "alerts"}
+BUDGET = {"keyword": KEYWORD_PER_HOUR, "alerts": MAX_PER_HOUR, "other": MAX_PER_HOUR}
 KEYWORD_TEXT_MAX = 120
 
 
@@ -113,18 +118,20 @@ class Notifier:
                  get_toast: Callable[[], Callable[[str, str], None] | None],
                  get_radios: Callable[[], list[dict]], clock: Callable[[], float],
                  send_telegram=telegram_send,
-                 run_bg: Callable[[Callable[[], None]], None] = _daemon):
+                 run_bg: Callable[[Callable[[], None]], None] = _daemon,
+                 get_mqtt_connected: Callable[[], bool] = lambda: False):
         self.get_settings = get_settings
         self.get_toast = get_toast
         self.get_radios = get_radios
         self.clock = clock
         self.send_telegram = send_telegram
         self.run_bg = run_bg
+        self.get_mqtt_connected = get_mqtt_connected
         self._known: set[int] = set()
         self._radio_ids: frozenset = frozenset()
         self._quiet_until = clock() + QUIET_S
         self._sent: dict[tuple[str, str], float] = {}  # (tipo, chiave) -> ultimo invio
-        self._recent: deque[float] = deque()  # invii dell'ultima ora
+        self._recent: dict[str, deque[float]] = {g: deque() for g in BUDGET}  # invii dell'ultima ora
         self._lock = threading.Lock()
         self.telegram_last_ok: float | None = None
         self.telegram_last_error: str | None = None
@@ -134,12 +141,17 @@ class Notifier:
         self._known = {n["num"] for n in nodes if "rf" in (n.get("sources") or [])}
         self._quiet_until = self.clock() + QUIET_S
 
-    def on_nodes(self, changed: list[dict]) -> None:
-        now = self.clock()
+    def _track_radios(self, now: float) -> frozenset:
+        """Radio collegate; se cambiano (arriva il loro database dei nodi) scatta il silenzio."""
         ids = frozenset(r.get("id") for r in self.get_radios() if r.get("state") == "connected")
-        if ids != self._radio_ids:  # radio collegata: arriva il suo database dei nodi
+        if ids != self._radio_ids:
             self._radio_ids = ids
             self._quiet_until = max(self._quiet_until, now + QUIET_S)
+        return ids
+
+    def on_nodes(self, changed: list[dict]) -> None:
+        now = self.clock()
+        self._track_radios(now)
         enabled = None
         for n in changed:
             num = n.get("num")
@@ -155,6 +167,10 @@ class Notifier:
     def on_alerts(self, old: list[dict], new: list[dict]) -> None:
         if not self.get_settings().get("notify_mine_status"):
             return
+        now = self.clock()
+        ids = self._track_radios(now)
+        if now < self._quiet_until or not (ids or self.get_mqtt_connected()):
+            return  # senza sorgenti collegate (o appena collegate) un nodo "muto" non e' una notizia
         before = {a["key"] for a in old}
         for a in new:
             if a["key"] in before:
@@ -171,6 +187,9 @@ class Notifier:
         text = msg.get("text") or ""
         if not words or not text:
             return None
+        t = msg.get("time")
+        if isinstance(t, (int, float)) and self.clock() - t > MESSAGE_MAX_AGE_S:
+            return None  # replay (Store & Forward dopo un'unione): non e' una novita'
         mine = {r.get("my_node_id") for r in self.get_radios() if r.get("my_node_id")}
         if msg.get("from") in mine:  # proprio messaggio sentito da un'altra radio locale
             return None
@@ -190,12 +209,14 @@ class Notifier:
                 del self._sent[k]
             if (kind, dedup_key) in self._sent:
                 return False
-            while self._recent and now - self._recent[0] >= 3600:
-                self._recent.popleft()
-            if len(self._recent) >= MAX_PER_HOUR:
+            group = BUDGET_GROUP.get(kind, "other")
+            recent = self._recent[group]
+            while recent and now - recent[0] >= 3600:
+                recent.popleft()
+            if len(recent) >= BUDGET[group]:
                 return False
             self._sent[(kind, dedup_key)] = now
-            self._recent.append(now)
+            recent.append(now)
             return True
 
     def send(self, kind: str, dedup_key: str, **fmt) -> None:

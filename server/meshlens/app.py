@@ -526,7 +526,8 @@ def build(data_dir: Path, connector_factory=MqttConnector,
                          launcher_exit=lambda d: rt.ctx.request_exit(d),
                          before_install=lambda: rt.backups.create("pre-aggiornamento"))
     rt.auto_update = auto_update
-    notifier = Notifier(lambda: rt.settings, lambda: rt.ctx.toast, rt.radios.radios, time.time)
+    notifier = Notifier(lambda: rt.settings, lambda: rt.ctx.toast, rt.radios.radios, time.time,
+                        get_mqtt_connected=lambda: bool(rt.mqtt_status()["connected"]))
     notifier.seed(live.nodes.values())
     rt.notifier = notifier
     ctx = AppContext(live=live, store=store, auth=auth, bus=bus, locator=locator, conn=conn,

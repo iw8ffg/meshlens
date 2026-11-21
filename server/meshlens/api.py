@@ -113,7 +113,8 @@ class AppContext:
         if self.notifier is None:
             self.notifier = Notifier(
                 lambda: load_settings(self.conn), lambda: self.toast,
-                lambda: self.radios.radios() if self.radios is not None else [], time.time)
+                lambda: self.radios.radios() if self.radios is not None else [], time.time,
+                get_mqtt_connected=lambda: bool(self.mqtt_status()["connected"]))
 
     def request_exit(self, delay_s: float = 0.0) -> None:
         """Chiede al lanciatore di uscire (anche l'aggiornamento la usa, senza HTTP)."""
