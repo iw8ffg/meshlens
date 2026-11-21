@@ -1,30 +1,53 @@
 <script lang="ts">
-  import { tick, untrack } from 'svelte'
-  import { getJSON, send } from '../lib/api'
-  import { timeAgo } from '../lib/format'
+  import { onMount, tick, untrack } from 'svelte'
+  import { ApiError, getJSON, mqttChannels, mqttSend, send } from '../lib/api'
+  import { ago } from '../lib/format'
+  import { MAX_BYTES, MQTT_CONV, groupMessages, localNodeIds, splitKey, statusIcon } from '../lib/chat'
   import {
-    MAX_BYTES,
-    MQTT_CONV,
-    byteLength,
-    groupMessages,
-    localNodeIds,
-    pickSendRadio,
-    sendTargets,
-    splitKey,
-    statusIcon,
-    statusLabel,
-  } from '../lib/chat'
+    MQTT_VIA,
+    PUBLIC_WARNING,
+    byteCount,
+    classifyMqttError,
+    mqttBody,
+    mqttChannelNames,
+    pickRadioChannel,
+    pickVia,
+    resendBody,
+    statusAria,
+    viaOptions,
+    viaRadioId,
+    DEFAULT_MQTT_CHANNEL,
+    type MqttSendBody,
+  } from '../lib/send'
+  import { keepAboveKeyboard } from '../lib/keyboard'
   import { app, addMessage, addRadioHistory } from '../lib/stores.svelte'
+  import Badge from '../lib/ui/Badge.svelte'
+  import Banner from '../lib/ui/Banner.svelte'
+  import Button from '../lib/ui/Button.svelte'
+  import Empty from '../lib/ui/Empty.svelte'
+  import Field from '../lib/ui/Field.svelte'
+  import Modal from '../lib/ui/Modal.svelte'
+  import Select from '../lib/ui/Select.svelte'
+  import Toast from '../lib/ui/Toast.svelte'
   import MessageFeed from './MessageFeed.svelte'
   import type { Message } from '../lib/types'
 
   let { now, onpick }: { now: number; onpick: (id: string) => void } = $props()
 
+  const uid = $props.id()
   let conv = $state<string>(MQTT_CONV)
   let text = $state('')
-  let radioId = $state('')
+  let via = $state('')
+  let radioChan = $state('0')
+  let mqttChan = $state(DEFAULT_MQTT_CHANNEL)
+  let mqttChans = $state<string[]>([DEFAULT_MQTT_CHANNEL])
+  let mqttNodeId = $state('')
+  let unknownNode = $state(false)
   let sending = $state(false)
   let error = $state('')
+  let notice = $state('')
+  let confirmOpen = $state(false)
+  let pending = $state<MqttSendBody | null>(null)
   let listEl = $state<HTMLElement | null>(null)
   let nearBottom = true
   let forceScroll = false
@@ -48,6 +71,24 @@
       loadingOlder = false
     }
   }
+
+  // Canali MQTT per l'invio e id nodo impostato (per sapere in anticipo se MQTT e' utilizzabile)
+  onMount(() => {
+    let alive = true
+    mqttChannels()
+      .then((rows) => {
+        if (alive) mqttChans = mqttChannelNames(rows)
+      })
+      .catch(() => {})
+    getJSON<{ mqtt_node_id?: string }>('/settings')
+      .then((s) => {
+        if (alive && typeof s.mqtt_node_id === 'string') mqttNodeId = s.mqtt_node_id
+      })
+      .catch(() => {})
+    return () => {
+      alive = false
+    }
+  })
 
   // Apertura da fuori (es. "Messaggio diretto" nel dettaglio nodo)
   $effect(() => {
@@ -73,7 +114,7 @@
     return `${radioName(rid)} · DM ${nodeName(rest)}`
   }
 
-  const options = $derived.by(() => {
+  const convOptions = $derived.by(() => {
     const keys: string[] = [MQTT_CONV]
     for (const r of app.radios) for (const c of r.channels) keys.push(`ch:${r.id}:${c.index}`)
     for (const k of groups.keys()) if (!keys.includes(k)) keys.push(k)
@@ -82,47 +123,107 @@
   })
 
   const isRadioConv = $derived(conv !== MQTT_CONV)
-  const convRadio = $derived(isRadioConv ? splitKey(conv)[1] : '')
   const msgs = $derived(groups.get(conv) ?? [])
-  // canale: solo radio con un canale dello stesso nome; diretto: qualunque radio connessa
-  const targets = $derived(sendTargets(app.radios, conv))
+  const dmTo = $derived(conv.startsWith('dm:') ? splitKey(conv)[2] : '')
 
-  // Radio di invio: la scelta manuale persiste (vedi pickSendRadio)
+  // --- Invia via ---
+  const mqttConnected = $derived(app.status?.mqtt.connected ?? false)
+  const options = $derived(viaOptions({ radios: app.radios, mqttConnected, mqttNodeId, unknownNode }))
+  const radioId = $derived(viaRadioId(via))
+  const viaRadio = $derived(app.radios.find((r) => r.id === radioId) ?? null)
+  const hasChoice = $derived(options.some((o) => !o.disabled))
+
+  // Se le radio collegate o l'id nodo cambiano, un vecchio "nodo sconosciuto" non vale piu'
+  const identityKey = $derived(app.radios.map((r) => `${r.id}:${r.state}:${r.my_node_id ?? ''}`).join('|') + `#${mqttNodeId}`)
+  $effect(() => {
+    void identityKey
+    unknownNode = false
+  })
+
+  // Scelta di "Invia via": la scelta manuale persiste finche' e' disponibile (vedi pickVia)
   let lastConv = ''
   $effect(() => {
     const changed = conv !== lastConv
     lastConv = conv
-    radioId = pickSendRadio(
-      untrack(() => radioId),
-      convRadio,
-      targets.map((t) => t.radio.id),
-      changed,
-    )
+    via = pickVia(untrack(() => via), conv, options, changed)
   })
 
-  const bytes = $derived(byteLength(text))
-  const over = $derived(bytes > MAX_BYTES)
-  const canSend = $derived(!sending && !over && text.trim() !== '' && radioId !== '')
+  // Canale della radio scelta
+  let lastSel = ''
+  $effect(() => {
+    const sel = `${conv}|${radioId}`
+    const changed = sel !== lastSel
+    lastSel = sel
+    radioChan = String(pickRadioChannel(conv, app.radios, radioId, Number(untrack(() => radioChan)), changed))
+  })
+
+  const bc = $derived(byteCount(text))
+  const canSend = $derived(!sending && !bc.over && text.trim() !== '' && hasChoice && via !== '')
+
+  async function sendRadio() {
+    const m = await send<Message>('POST', `/radios/${encodeURIComponent(radioId)}/send`, {
+      text: text.trim(),
+      channel_index: dmTo ? 0 : Number(radioChan),
+      to: dmTo || null,
+    })
+    forceScroll = true
+    addMessage(m)
+    text = ''
+  }
+
+  async function sendMqtt(body: MqttSendBody) {
+    try {
+      const r = await mqttSend(body)
+      forceScroll = true
+      addMessage(r.message)
+      text = ''
+      notice = `Pubblicato su MQTT · ${body.channel}`
+    } catch (e) {
+      const info = classifyMqttError(
+        e instanceof ApiError ? { status: e.status, code: e.code, message: e.message, retryAfter: e.retryAfter } : { status: 0, code: null, message: '' },
+      )
+      if (info.kind === 'confirm') {
+        pending = body
+        confirmOpen = true
+        return
+      }
+      if (info.kind === 'unknown_node') unknownNode = true
+      error = info.message
+    }
+  }
 
   async function submit() {
     if (!canSend) return
-    const [kind, , rest] = splitKey(conv)
     sending = true
     error = ''
+    notice = ''
     try {
-      const m = await send<Message>('POST', `/radios/${encodeURIComponent(radioId)}/send`, {
-        text: text.trim(),
-        channel_index: kind === 'ch' ? (targets.find((t) => t.radio.id === radioId)?.index ?? Number(rest)) : 0,
-        to: kind === 'dm' ? rest : null,
-      })
-      forceScroll = true
-      addMessage(m)
-      text = ''
+      if (via === MQTT_VIA) await sendMqtt(mqttBody(text, mqttChan, dmTo || null, false))
+      else await sendRadio()
     } catch (e) {
       error = e instanceof Error && e.message ? e.message : 'Invio non riuscito'
     } finally {
       sending = false
     }
+  }
+
+  async function confirmPublic() {
+    const body = pending
+    confirmOpen = false
+    pending = null
+    if (!body) return
+    sending = true
+    error = ''
+    try {
+      await sendMqtt(resendBody(body))
+    } finally {
+      sending = false
+    }
+  }
+
+  function cancelPublic() {
+    confirmOpen = false
+    pending = null
   }
 
   function onkey(e: KeyboardEvent) {
@@ -140,15 +241,21 @@
       forceScroll = false
     })
   })
+
+  const placeholder = $derived(dmTo ? 'Messaggio diretto…' : via === MQTT_VIA ? 'Messaggio pubblico su MQTT…' : 'Messaggio sul canale…')
 </script>
 
 <div class="chat">
   <div class="bar">
-    <select aria-label="Conversazione" bind:value={conv}>
-      {#each options as o (o.key)}
-        <option value={o.key}>{o.label}</option>
-      {/each}
-    </select>
+    <Field label="Conversazione" for="{uid}-conv">
+      {#snippet children({ describedby })}
+        <Select id="{uid}-conv" bind:value={conv} aria-describedby={describedby}>
+          {#each convOptions as o (o.key)}
+            <option value={o.key}>{o.label}</option>
+          {/each}
+        </Select>
+      {/snippet}
+    </Field>
   </div>
 
   {#if !isRadioConv}
@@ -161,25 +268,24 @@
     >
       {#if !exhausted}
         <li class="older">
-          <button type="button" onclick={loadOlder} disabled={loadingOlder}>
-            {loadingOlder ? 'Caricamento…' : 'Carica precedenti'}
-          </button>
+          <Button onclick={loadOlder} disabled={loadingOlder}>{loadingOlder ? 'Caricamento…' : 'Carica precedenti'}</Button>
         </li>
       {/if}
-      {#if olderError}<li class="err" role="alert">{olderError}</li>{/if}
-      {#if msgs.length === 0}<li class="empty">Nessun messaggio</li>{/if}
+      {#if olderError}<li role="alert"><Banner kind="danger" title={olderError} /></li>{/if}
+      {#if msgs.length === 0}<li><Empty icon="chat" title="Nessun messaggio" /></li>{/if}
       {#each msgs as m (m.key)}
         {@const out = m.direction === 'out'}
         <li class="msg" class:out>
           <div class="bubble">
             {#if !out}
-              <button class="name" onclick={() => onpick(m.from)}>{m.from_name ?? nodeName(m.from)}</button>
+              <button type="button" class="name" onclick={() => onpick(m.from)}>{m.from_name ?? nodeName(m.from)}</button>
             {/if}
             <p class="text">{m.text}</p>
             <div class="meta">
-              <span>{timeAgo(m.time, now)}</span>
+              <span>{ago((now - m.time) / 60)}</span>
+              {#if m.via === 'mqtt'}<Badge kind="info">via MQTT</Badge>{/if}
               {#if out && m.status}
-                <span class="st" class:bad={m.status === 'failed'} title={statusLabel(m.status)} aria-label={statusLabel(m.status)}>
+                <span class="st" class:bad={m.status === 'failed'} role="img" title={statusAria(m.status, m.via)} aria-label={statusAria(m.status, m.via)}>
                   {statusIcon(m.status)}
                 </span>
               {/if}
@@ -188,33 +294,64 @@
         </li>
       {/each}
     </ul>
-
-    <form class="composer" onsubmit={(e) => (e.preventDefault(), submit())}>
-      {#if targets.length === 0}
-        <p class="warn">
-          {conv.startsWith('ch:') ? 'Nessuna radio connessa con questo canale: impossibile inviare.' : 'Nessuna radio connessa: impossibile inviare.'}
-        </p>
-      {/if}
-      <textarea
-        rows="2"
-        placeholder={conv.startsWith('dm:') ? 'Messaggio diretto…' : 'Messaggio sul canale…'}
-        bind:value={text}
-        onkeydown={onkey}
-        disabled={targets.length === 0}
-      ></textarea>
-      <div class="row">
-        <span class="count" class:over>{bytes}/{MAX_BYTES} byte{over ? ' — troppo lungo' : ''}</span>
-        <select aria-label="Radio di invio" bind:value={radioId} disabled={targets.length === 0}>
-          {#each targets as t (t.radio.id)}
-            <option value={t.radio.id}>{t.radio.name}</option>
-          {/each}
-        </select>
-        <button type="submit" disabled={!canSend} title="Ctrl+Invio">{sending ? 'Invio…' : 'Invia'}</button>
-      </div>
-      {#if error}<p class="err" role="alert">{error}</p>{/if}
-    </form>
   {/if}
+
+  <form class="composer" use:keepAboveKeyboard onsubmit={(e) => (e.preventDefault(), submit())}>
+    {#if notice}<Toast kind="ok" onclose={() => (notice = '')}>{notice}</Toast>{/if}
+    <fieldset class="via">
+      <legend>Invia via</legend>
+      {#each options as o (o.value)}
+        <label class="opt" class:dis={o.disabled}>
+          <input type="radio" name="{uid}-via" value={o.value} bind:group={via} disabled={o.disabled} aria-describedby={o.reason ? `${uid}-why-${o.value}` : undefined} />
+          <span class="lbl">{o.label}</span>
+          {#if o.reason}<span class="why" id="{uid}-why-{o.value}">{o.reason}</span>{/if}
+        </label>
+      {/each}
+    </fieldset>
+
+    {#if via === MQTT_VIA}
+      <Field label="Canale MQTT" for="{uid}-mch" hint={dmTo ? `Diretto a ${nodeName(dmTo)}` : undefined}>
+        {#snippet children({ describedby })}
+          <Select id="{uid}-mch" bind:value={mqttChan} aria-describedby={describedby}>
+            {#each mqttChans as c (c)}<option value={c}>{c}</option>{/each}
+          </Select>
+        {/snippet}
+      </Field>
+    {:else if viaRadio}
+      {#if dmTo}
+        <p class="to">Messaggio diretto a <b>{nodeName(dmTo)}</b></p>
+      {:else}
+        <Field label="Canale" for="{uid}-rch">
+          {#snippet children({ describedby })}
+            <Select id="{uid}-rch" bind:value={radioChan} aria-describedby={describedby}>
+              {#each viaRadio.channels as c (c.index)}<option value={String(c.index)}>{c.name || `Canale ${c.index}`}</option>{/each}
+            </Select>
+          {/snippet}
+        </Field>
+      {/if}
+    {/if}
+
+    <textarea
+      class="ui-input ta"
+      rows="2"
+      aria-label="Messaggio"
+      aria-describedby="{uid}-cnt"
+      {placeholder}
+      bind:value={text}
+      onkeydown={onkey}
+      disabled={!hasChoice}
+    ></textarea>
+    <div class="row">
+      <span class="count ui-mono" class:over={bc.over} id="{uid}-cnt">{bc.bytes}/{MAX_BYTES} byte{bc.over ? ' — troppo lungo' : ''}</span>
+      <Button type="submit" kind="primary" icon="send" disabled={!canSend} title="Ctrl+Invio">{sending ? 'Invio…' : 'Invia'}</Button>
+    </div>
+    {#if error}<Banner kind="danger" title={error} />{/if}
+  </form>
 </div>
+
+<Modal open={confirmOpen} title="Pubblicare su MQTT?" confirmLabel="Pubblica" oncancel={cancelPublic} onconfirm={confirmPublic}>
+  <p class="warn">{PUBLIC_WARNING}</p>
+</Modal>
 
 <style>
   .chat {
@@ -222,36 +359,26 @@
     flex-direction: column;
     height: 100%;
     min-height: 0;
+    color: var(--ink);
   }
   .bar {
-    padding: 6px 8px;
-    border-bottom: 1px solid #1f2937;
-  }
-  select,
-  textarea {
-    background: #1f2937;
-    color: inherit;
-    border: 1px solid #374151;
-    border-radius: 6px;
-    font: inherit;
-  }
-  .bar select {
-    width: 100%;
-    padding: 6px;
+    padding: var(--space-3);
+    border-bottom: 1px solid var(--line);
   }
   .feed {
     flex: 1;
     overflow: auto;
+    min-height: 120px;
   }
   .list {
     list-style: none;
     margin: 0;
-    padding: 8px;
+    padding: var(--space-3);
     flex: 1;
     overflow: auto;
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: var(--space-2);
     min-height: 120px;
   }
   .msg {
@@ -262,21 +389,23 @@
   }
   .bubble {
     max-width: 85%;
-    background: #1f2937;
-    border-radius: 8px;
-    padding: 6px 8px;
+    background: var(--surface-raised);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-lg);
+    padding: var(--space-2) var(--space-3);
   }
   .out .bubble {
-    background: #1d4ed8;
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--on-accent);
   }
   .name {
     background: none;
     border: 0;
     padding: 0;
-    color: #93c5fd;
-    font: inherit;
-    font-size: 13px;
-    font-weight: 600;
+    min-height: 24px;
+    color: var(--accent-ink);
+    font: 600 13px/20px var(--font-sans);
     cursor: pointer;
   }
   .text {
@@ -286,81 +415,124 @@
   }
   .meta {
     display: flex;
-    gap: 6px;
+    gap: var(--space-2);
+    align-items: center;
     justify-content: flex-end;
-    font-size: 11px;
-    color: #9ca3af;
+    font-size: 12px;
+    color: var(--ink-muted);
   }
   .out .meta {
-    color: #bfdbfe;
+    color: var(--on-accent);
+  }
+  .st {
+    min-width: 20px;
+    text-align: right;
   }
   .st.bad {
-    color: #fca5a5;
+    font-weight: 700;
   }
   .older {
     text-align: center;
   }
-  .older button {
-    background: #1f2937;
-    color: inherit;
-    border: 1px solid #374151;
-    border-radius: 6px;
-    padding: 4px 10px;
-    cursor: pointer;
-  }
-  .empty {
-    color: #9ca3af;
-    padding: 8px;
-  }
   .composer {
-    border-top: 1px solid #1f2937;
-    padding: 8px;
+    border-top: 1px solid var(--line);
+    background: var(--surface);
+    padding: var(--space-3);
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: var(--space-3);
+    position: relative;
+    z-index: 1;
+    flex: none;
   }
-  textarea {
+  .via {
+    border: 0;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    min-width: 0;
+  }
+  .via legend {
+    font: 600 13px/16px var(--font-sans);
+    color: var(--ink-muted);
+    padding: 0;
+    margin-bottom: var(--space-1);
+  }
+  .opt {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--space-1) var(--space-2);
+    min-height: var(--touch-min);
+    padding: 0 var(--space-3);
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius-md);
+    background: var(--surface-sunken);
+    cursor: pointer;
+    font: 500 14px/20px var(--font-sans);
+  }
+  .opt:has(input:checked) {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+  }
+  .opt:has(input:focus-visible) {
+    outline: 2px solid var(--focus-ring);
+    outline-offset: 2px;
+  }
+  .opt input {
+    accent-color: var(--accent);
+    width: 18px;
+    height: 18px;
+    margin: 0;
+  }
+  .opt.dis {
+    cursor: not-allowed;
+    color: var(--ink-muted);
+  }
+  .why {
+    font: 400 13px/16px var(--font-sans);
+    color: var(--warn);
+  }
+  .to {
+    margin: 0;
+    font-size: 14px;
+  }
+  .ta {
+    height: auto;
+    padding: var(--space-2) var(--space-3);
     resize: vertical;
-    padding: 6px;
+    min-height: 64px;
   }
   .row {
     display: flex;
-    gap: 6px;
+    gap: var(--space-3);
     align-items: center;
+    justify-content: space-between;
   }
   .count {
-    flex: 1;
-    font-size: 12px;
-    color: #9ca3af;
+    font-size: 13px;
+    color: var(--ink-muted);
   }
   .count.over {
-    color: #f87171;
-  }
-  .row select {
-    padding: 4px;
-    max-width: 40%;
-  }
-  button[type='submit'] {
-    background: #2563eb;
-    color: #fff;
-    border: 0;
-    border-radius: 6px;
-    padding: 6px 14px;
-    cursor: pointer;
-  }
-  button[type='submit']:disabled {
-    opacity: 0.5;
-    cursor: default;
-  }
-  .warn,
-  .err {
-    margin: 0;
-    font-size: 13px;
+    color: var(--danger);
+    font-weight: 600;
   }
   .warn {
-    color: #fbbf24;
+    margin: 0;
   }
-  .err {
-    color: #f87171;
+  :global(.vp-phone) .name,
+  :global(.vp-phone) .meta,
+  :global(.vp-phone) .count,
+  :global(.vp-phone) .why,
+  :global(.vp-phone) .opt {
+    font-size: 14px;
+  }
+  :global(.vp-phone) .ta {
+    font-size: 16px;
+  }
+  :global(.vp-phone) .opt {
+    min-height: 48px;
   }
 </style>

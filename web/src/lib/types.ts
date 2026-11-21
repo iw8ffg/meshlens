@@ -44,6 +44,8 @@ export interface Message {
   packet_id?: number | null
   status?: MessageStatus | null
   replaces?: string | null
+  /** Canale di invio dei messaggi in uscita. */
+  via?: 'radio' | 'mqtt'
 }
 
 export interface Status {

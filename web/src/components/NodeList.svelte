@@ -1,68 +1,128 @@
 <script lang="ts">
   import { app } from '../lib/stores.svelte'
-  import { compareLastHeard, flag, timeAgo } from '../lib/format'
+  import { ago, compareLastHeard } from '../lib/format'
+  import { batteryView, contactMinutes, nodeName, sourceKind } from '../lib/nodes'
+  import { contactClass } from '../lib/ui/logic'
+  import BatteryBadge from '../lib/ui/BatteryBadge.svelte'
+  import Empty from '../lib/ui/Empty.svelte'
+  import Flag from '../lib/ui/Flag.svelte'
+  import SnrBadge from '../lib/ui/SnrBadge.svelte'
+  import SourceMark from '../lib/ui/SourceMark.svelte'
   import type { Node } from '../lib/types'
 
   let { nodes, now, onpick }: { nodes: Node[]; now: number; onpick: (n: Node) => void } = $props()
   const sorted = $derived([...nodes].sort((a, b) => compareLastHeard(a.last_heard, b.last_heard)))
 </script>
 
-<ul>
-  {#each sorted as n (n.id)}
-    <li>
-      <button class:sel={app.selectedId === n.id} onclick={() => onpick(n)}>
-        <span>{n.country ? flag(n.country) : '❔'}</span>
-        <span class="name">{n.long_name || n.short_name || n.id}</span>
-        <span class="dim">{timeAgo(n.last_heard, now)}</span>
-        <span class="dim">{n.battery !== null ? `${n.battery}%` : ''}</span>
-      </button>
-    </li>
-  {:else}
-    <li class="empty">Nessun nodo con questi filtri</li>
-  {/each}
-</ul>
+{#if sorted.length === 0}
+  <Empty icon="search" title="Nessun nodo con questi filtri">Allarga l'ultimo contatto o togli qualche nazione.</Empty>
+{:else}
+  <ul class="nl">
+    {#each sorted as n (n.id)}
+      {@const mins = contactMinutes(n.last_heard, now)}
+      {@const src = sourceKind(n)}
+      {@const bat = batteryView(n.battery)}
+      <li>
+        <button type="button" class:sel={app.selectedId === n.id} onclick={() => onpick(n)}>
+          <Flag code={n.country} />
+          <span class="id">
+            <span class="name">{nodeName(n)}</span>
+            <span class="sub ui-mono">{n.id}</span>
+          </span>
+          {#if src}<SourceMark source={src} />{/if}
+          <span class="vals">
+            <span class="age {mins === null ? 'old' : contactClass(mins)}"><i aria-hidden="true"></i>{ago(mins)}</span>
+            <span class="meas">
+              {#if n.last_snr !== null}<SnrBadge value={n.last_snr} />{/if}
+              {#if bat}<BatteryBadge pct={bat.pct} usb={bat.usb} />{/if}
+            </span>
+          </span>
+        </button>
+      </li>
+    {/each}
+  </ul>
+{/if}
 
 <style>
-  ul {
+  .nl {
     list-style: none;
     margin: 0;
     padding: 0;
   }
   button {
     display: grid;
-    grid-template-columns: 24px 1fr auto 44px;
-    gap: 6px;
+    grid-template-columns: auto 1fr auto auto;
+    align-items: center;
+    gap: var(--space-3);
     width: 100%;
+    min-height: 56px;
     text-align: left;
     background: none;
-    color: inherit;
+    color: var(--ink);
     border: 0;
-    border-bottom: 1px solid #1f2937;
-    padding: 8px;
+    border-bottom: 1px solid var(--line);
+    padding: var(--space-2) var(--space-3);
     cursor: pointer;
-    font: inherit;
+    font: 400 14px/20px var(--font-sans);
   }
-  button:hover,
+  button:hover {
+    background: var(--accent-soft);
+  }
   button.sel {
-    background: #1f2937;
+    background: var(--accent-soft);
+    box-shadow: inset 3px 0 0 var(--accent);
+  }
+  .id {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
   }
   .name {
+    font-weight: 600;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .dim {
-    color: #9ca3af;
+  .sub {
+    color: var(--ink-muted);
     font-size: 12px;
-    text-align: right;
   }
-  .empty {
-    padding: 16px;
-    color: #9ca3af;
+  .vals {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 2px;
+    font-size: 12px;
   }
-  @media (max-width: 767px) {
-    .dim {
-      font-size: 13px;
-    }
+  .meas {
+    display: flex;
+    gap: var(--space-2);
+    font-size: 12px;
+  }
+  .age {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    color: var(--ink-muted);
+  }
+  .age i {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--contact-old);
+  }
+  .age.fresh i {
+    background: var(--contact-fresh);
+  }
+  .age.recent i {
+    background: var(--contact-recent);
+  }
+  :global(.vp-phone) button {
+    min-height: 64px;
+  }
+  :global(.vp-phone) .sub,
+  :global(.vp-phone) .vals,
+  :global(.vp-phone) .meas {
+    font-size: 14px;
   }
 </style>

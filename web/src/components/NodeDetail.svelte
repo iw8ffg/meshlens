@@ -1,6 +1,14 @@
 <script lang="ts">
   import { getJSON, setMine } from '../lib/api'
-  import { flag, formatDate, timeAgo } from '../lib/format'
+  import { formatDate, ago, num } from '../lib/format'
+  import { batteryView, contactMinutes, fmtOpt, nodeName, sourceKind } from '../lib/nodes'
+  import Badge from '../lib/ui/Badge.svelte'
+  import BatteryBadge from '../lib/ui/BatteryBadge.svelte'
+  import Banner from '../lib/ui/Banner.svelte'
+  import Button from '../lib/ui/Button.svelte'
+  import Flag from '../lib/ui/Flag.svelte'
+  import SnrBadge from '../lib/ui/SnrBadge.svelte'
+  import SourceMark from '../lib/ui/SourceMark.svelte'
   import { app, upsertNodes, openConfig } from '../lib/stores.svelte'
   import TelemetryChart from './TelemetryChart.svelte'
   import Traceroute from './Traceroute.svelte'
@@ -86,157 +94,166 @@
     }
   }
 
-  const fmt = (v: number | null, unit = '', d = 1) => (v === null ? '–' : `${v.toFixed(d).replace('.', ',')}${unit}`)
   const precision = $derived(formatPrecision(node.precision_bits))
+  const src = $derived(sourceKind(node))
+  const bat = $derived(batteryView(node.battery))
   const rows = $derived<[string, string][]>([
     ['Id', node.id],
     ['Nome breve', node.short_name ?? '–'],
     ['Modello', node.hw_model ?? '–'],
-    ['Ruolo', node.role ?? '–'],
     ['Firmware', node.firmware ?? '–'],
-    ['Nazione', node.country ? `${flag(node.country)} ${node.country}` : 'Sconosciuta'],
-    ['Posizione', node.lat !== null && node.lon !== null ? `${node.lat.toFixed(5)}, ${node.lon.toFixed(5)}` : '–'],
+    ['Posizione', node.lat !== null && node.lon !== null ? `${num(node.lat, 5)}, ${num(node.lon, 5)}` : '–'],
     ['Precisione posizione', precision ?? (node.precision_bits === null ? '–' : 'esatta')],
     ['Fonte posizione', node.position_source ?? '–'],
     ['Ultimo contatto', formatDate(node.last_heard)],
-    ['Batteria', node.battery === null ? '–' : `${node.battery}%`],
-    ['Tensione', fmt(node.voltage, ' V', 2)],
-    ['Uso canale', fmt(node.channel_util, '%')],
-    ['Uso aria TX', fmt(node.air_util_tx, '%')],
+    ['Tensione', fmtOpt(node.voltage, 2, ' V')],
+    ['Uso canale', fmtOpt(node.channel_util, 1, '%')],
+    ['Uso aria TX', fmtOpt(node.air_util_tx, 1, '%')],
     ['Gateway MQTT', String(node.mqtt_gateways)],
-    ['SNR', fmt(node.last_snr, ' dB')],
     ['Salti', node.hops === null ? '–' : String(node.hops)],
-    ['Sorgenti', node.sources.join(', ') || '–'],
   ])
 </script>
 
-<section>
+<section class="nd">
   <header>
-    <h2>{node.long_name || node.short_name || node.id}</h2>
-    <button class="star" disabled={mineBusy} title="Mio nodo" aria-label="Mio nodo" aria-pressed={!!node.is_mine} onclick={toggleMine}>
-      {node.is_mine ? '★' : '☆'}
-    </button>
-    <button class="x" aria-label="Chiudi dettaglio" onclick={onclose}>✕</button>
+    <Flag code={node.country} name={node.country ?? undefined} />
+    <h2>{nodeName(node)}</h2>
+    <Button kind="ghost" iconOnly icon="star" label={node.is_mine ? 'Smetti di seguire questo nodo' : 'Segui questo nodo (Mio nodo)'} aria-pressed={!!node.is_mine} disabled={mineBusy} onclick={toggleMine} class={node.is_mine ? 'on' : ''} />
+    <Button kind="ghost" iconOnly icon="x" label="Chiudi dettaglio" onclick={onclose} />
   </header>
+
+  <div class="state">
+    {#if node.role}<Badge>{node.role}</Badge>{/if}
+    {#if src}<SourceMark source={src} />{/if}
+    <SnrBadge value={node.last_snr} />
+    {#if bat}<BatteryBadge pct={bat.pct} usb={bat.usb} />{/if}
+    <span class="ui-muted">{ago(contactMinutes(node.last_heard, now))}</span>
+  </div>
+
+  <div class="acts">
+    {#if !node.is_local_radio}
+      <Button icon="chat" disabled={!firstRadio} title={firstRadio ? '' : 'Collega una radio'} onclick={directMessage}>Messaggio diretto</Button>
+    {/if}
+    <Button icon="settings" disabled={!firstRadio} title={firstRadio ? '' : 'Collega una radio'} onclick={() => openConfig(node.id)}>Configura</Button>
+    {#if node.lat !== null}
+      <Button icon="route" disabled={loading} onclick={toggleTrack}>{shown ? 'Nascondi percorso' : loading ? 'Caricamento…' : 'Mostra percorso'}</Button>
+    {/if}
+  </div>
+  {#if !firstRadio}<p class="hint">Collega una radio per i messaggi diretti e per configurare il nodo.</p>{/if}
+  {#if msg}<div class="gap"><Banner kind="warn" title={msg} /></div>{/if}
+
   <dl>
     {#each rows as [k, v] (k)}
       <dt>{k}</dt>
       <dd>{v}</dd>
     {/each}
   </dl>
+
   <h3>Sentito da</h3>
   {#if heard.length === 0 && !showMqtt}
-    <p class="none">Nessuna radio</p>
+    <p class="ui-muted none">Nessuna radio</p>
   {:else}
     <ul class="heard">
       {#each heard as h (h.rid)}
         <li>
+          <SourceMark source="radio" size={18} />
           <b>{h.name}</b>
-          SNR {h.snr === null ? '–' : `${h.snr.toFixed(1).replace('.', ',')} dB`} · RSSI {h.rssi === null ? '–' : `${h.rssi} dBm`} ·
-          salti {h.hops ?? '–'} · {timeAgo(h.time, now)}
+          <SnrBadge value={h.snr} />
+          <span class="ui-mono">RSSI {h.rssi === null ? '–' : `${h.rssi} dBm`}</span>
+          <span>salti {h.hops ?? '–'}</span>
+          <span class="ui-muted">{ago(contactMinutes(h.time, now))}</span>
         </li>
       {/each}
-      {#if showMqtt}<li><b>MQTT</b> {node.mqtt_gateways} gateway</li>{/if}
+      {#if showMqtt}<li><SourceMark source="mqtt" size={18} /><b>MQTT</b> <span>{node.mqtt_gateways} gateway</span></li>{/if}
     </ul>
   {/if}
-  {#if !node.is_local_radio}
-    <button class="dm" disabled={!firstRadio} title={firstRadio ? '' : 'Nessuna radio connessa'} onclick={directMessage}>
-      Messaggio diretto
-    </button>
-  {/if}
-  <button class="dm" disabled={!firstRadio} title={firstRadio ? '' : 'Nessuna radio connessa'} onclick={() => openConfig(node.id)}>
-    Configura
-  </button>
-  {#if node.lat !== null}
-    <button class="track" disabled={loading} onclick={toggleTrack}>
-      {shown ? 'Nascondi percorso' : loading ? 'Caricamento…' : 'Mostra percorso'}
-    </button>
-  {/if}
-  {#if msg}<p class="msg">{msg}</p>{/if}
+
   <TelemetryChart nodeId={node.id} />
   <Traceroute {node} />
 </section>
 
 <style>
-  section {
-    padding: 8px 12px;
+  .nd {
+    padding: var(--space-3) var(--space-4);
+    color: var(--ink);
   }
   header {
     display: flex;
-    justify-content: space-between;
     align-items: center;
+    gap: var(--space-2);
   }
   h2 {
-    font-size: 17px;
-    margin: 4px 0;
+    font: 600 18px/24px var(--font-sans);
+    margin: var(--space-1) 0;
     flex: 1;
+    min-width: 0;
+    overflow-wrap: anywhere;
   }
-  .star {
-    background: none;
-    border: 0;
-    color: #fbbf24;
-    font-size: 20px;
-    cursor: pointer;
+  header :global(.ui-btn.on) {
+    color: var(--warn);
   }
-  .x {
-    background: none;
-    border: 0;
-    color: inherit;
-    font-size: 18px;
-    cursor: pointer;
+  .state {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+    margin: var(--space-2) 0 var(--space-3);
+  }
+  .acts {
+    display: flex;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+  }
+  .gap {
+    margin-top: var(--space-2);
+  }
+  .hint {
+    margin: var(--space-2) 0 0;
+    color: var(--ink-muted);
+    font-size: 13px;
   }
   dl {
     display: grid;
     grid-template-columns: auto 1fr;
-    gap: 3px 12px;
-    margin: 8px 0;
+    gap: var(--space-1) var(--space-4);
+    margin: var(--space-4) 0;
     font-size: 14px;
   }
   dt {
-    color: #9ca3af;
+    color: var(--ink-muted);
   }
   dd {
     margin: 0;
     word-break: break-all;
-  }
-  .track {
-    background: #2563eb;
-    color: #fff;
-    border: 0;
-    border-radius: 6px;
-    padding: 6px 12px;
-    cursor: pointer;
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
   }
   h3 {
-    font-size: 14px;
-    margin: 10px 0 4px;
+    font: 600 14px/20px var(--font-sans);
+    margin: var(--space-4) 0 var(--space-2);
   }
   .heard {
     list-style: none;
-    margin: 0 0 8px;
+    margin: 0 0 var(--space-2);
     padding: 0;
     font-size: 13px;
   }
+  .heard li {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--space-2) var(--space-3);
+    min-height: 36px;
+    border-bottom: 1px solid var(--line);
+  }
   .none {
-    margin: 0 0 8px;
+    margin: 0 0 var(--space-2);
     font-size: 13px;
-    color: #9ca3af;
   }
-  .dm {
-    background: #1f2937;
-    color: inherit;
-    border: 1px solid #374151;
-    border-radius: 6px;
-    padding: 6px 12px;
-    cursor: pointer;
-    margin-right: 6px;
-  }
-  .dm:disabled {
-    opacity: 0.5;
-    cursor: default;
-  }
-  .msg {
-    color: #fbbf24;
-    font-size: 13px;
+  :global(.vp-phone) dl,
+  :global(.vp-phone) .heard,
+  :global(.vp-phone) .hint,
+  :global(.vp-phone) .none {
+    font-size: 14px;
   }
 </style>
