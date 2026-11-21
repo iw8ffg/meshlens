@@ -99,7 +99,7 @@ class Ingestor:
             prev = node["hops"]
             node["hops"] = ev.hops if not is_dup or prev is None else min(prev, ev.hops)
 
-        self._record_links(ev)  # anche per i duplicati: un'altra copia puo' avere SNR migliore
+        self._record_links(ev)  # anche per i duplicati: l'upsert tiene l'ultima copia ricevuta
 
         if ev.source == "mqtt":
             key = (num, ev.packet_id)
@@ -186,9 +186,10 @@ class Ingestor:
             for chain in traceroute_chains(ev):
                 for (a, _), (b, snr) in zip(chain, chain[1:]):
                     self._link(ev, a, b, "traceroute", snr)
-        if ev.source == "rf" and ev.hops == 0 and ev.rx_time > 0:
+        if ev.source == "rf" and ev.hops == 0 and ev.rx_time > 0 and not ev.via_mqtt:
             radio_num = self._radio_nodes.get(ev.radio_id)
-            if radio_num is not None:
+            # niente link via MQTT (non e' un collegamento radio) ne' verso se stessi
+            if radio_num is not None and ev.from_node != radio_num:
                 self.store.upsert_link(ev.from_node, radio_num, "rf_direct", ev.snr, ev.rx_time)
 
     def set_radio_node(self, radio_id: str, num: int) -> None:

@@ -532,3 +532,19 @@ async def test_traceroute_slot_released_if_store_fails():
     with pytest.raises(RuntimeError):
         await e.mgr.traceroute(TARGET, r["id"])
     assert r["id"] not in e.mgr._last_trace and e.mgr._tracing == set()
+
+
+async def test_traceroute_early_reply_returns_final_state_and_canonical_target():
+    e = Env()
+    r = await e.mgr.add("usb", "COM5", "A")
+    fc = FakeConnector.instances[0]
+    orig = fc.send_traceroute
+
+    async def send_with_early_reply(dest, ch=0):
+        pid = await orig(dest, ch)
+        fc.on_traceroute(r["id"], pid, route_event(request_id=pid))
+        return pid
+
+    fc.send_traceroute = send_with_early_reply
+    res = await e.mgr.traceroute("!0000004A", None)
+    assert res["status"] == "ok" and res["target_id"] == "!0000004a"

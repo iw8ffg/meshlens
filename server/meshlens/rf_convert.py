@@ -95,11 +95,11 @@ def _route(decoded: dict, packet: dict) -> RouteData | None:
 
 
 def _event(kind, payload, *, from_node, to_node, packet_id, channel, rx_time,
-           snr, rssi, hops, radio_id) -> MeshEvent:
+           snr, rssi, hops, radio_id, via_mqtt=False) -> MeshEvent:
     return MeshEvent(
         source="rf", from_node=from_node, to_node=to_node, packet_id=packet_id,
         channel=channel, rx_time=rx_time, snr=snr, rssi=rssi, hops=hops,
-        gateway_id=None, radio_id=radio_id, kind=kind, payload=payload,
+        gateway_id=None, radio_id=radio_id, kind=kind, payload=payload, via_mqtt=via_mqtt,
     )
 
 
@@ -133,7 +133,7 @@ def packet_to_event(packet: dict, radio_id: str, now: float) -> MeshEvent | None
         from_node=packet.get("from", 0), to_node=packet.get("to", 0),
         packet_id=packet.get("id", 0), channel=str(packet.get("channel", 0)),
         rx_time=now, snr=packet.get("rxSnr"), rssi=packet.get("rxRssi"),
-        hops=hops, radio_id=radio_id,
+        hops=hops, radio_id=radio_id, via_mqtt=bool(packet.get("viaMqtt")),
     )
 
 

@@ -332,6 +332,7 @@ def create_app(ctx: AppContext) -> FastAPI:
         except ValueError as e:
             raise HTTPException(400, str(e))
         await ctx.on_settings_changed(saved)
+        ctx.alerts()  # soglie cambiate: pubblica subito gli avvisi aggiornati
         return _mask_settings(saved)
 
     @app.get("/api/status", dependencies=[Depends(require_auth)])

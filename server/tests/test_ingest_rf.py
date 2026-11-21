@@ -158,3 +158,11 @@ def test_rf_direct_link_only_with_zero_hops(env):
     ing.handle(rf("text", TextData("d"), "rZ", num=4, pid=4, hops=0))
     assert [(r["from_id"], r["to_id"], r["source"]) for r in store.links(0)] == [
         ("!00000001", "!00000063", "rf_direct")]
+
+
+def test_rf_direct_link_skips_mqtt_relayed_and_own_node(env):
+    ing, live, store, conn, _ = env
+    ing.set_radio_node("rA", 99)
+    ing.handle(rf("text", TextData("a"), "rA", num=1, pid=1, hops=0, via_mqtt=True))
+    ing.handle(rf("text", TextData("b"), "rA", num=99, pid=2, hops=0))
+    assert store.links(0) == []

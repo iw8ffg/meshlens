@@ -344,3 +344,16 @@ async def test_links_route(ctx):
         ctx.store.upsert_link(2, 3, "rf_direct", None, time.time() - 48 * 3600)
         assert len((await c.get("/api/links")).json()) == 1
         assert len((await c.get("/api/links?hours=72")).json()) == 2
+
+
+async def test_put_settings_republishes_alerts(ctx):
+    ctx.live.nodes[3]["battery"] = 30
+    q = ctx.bus.subscribe()
+    ctx.live.nodes[3]["is_mine"] = True
+    ctx.alerts()
+    while not q.empty():
+        q.get_nowait()
+    async with logged(ctx) as c:
+        r = await c.put("/api/settings", json={"battery_alert_pct": 50})
+        assert r.status_code == 200
+    assert q.qsize() == 1 and q.get_nowait()["type"] == "alerts"

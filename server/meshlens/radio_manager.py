@@ -400,11 +400,10 @@ class RadioManager:
             raise
         finally:
             self._tracing.discard(radio_id)
-        result = {"id": tid, "radio_id": radio_id, "target_id": target_id, "time": now,
+        result = {"id": tid, "radio_id": radio_id, "target_id": node_id(num), "time": now,
                   "status": "pending", "error": None, "forward": [], "back": []}
         key = (radio_id, packet_id)
         self._traces[key] = result
-        snapshot = dict(result)
         self.bus.publish({"type": "traceroute", "result": dict(result)})
         early = self._early_traces.pop(key, None)  # esito arrivato durante l'invio
         if early is not None and self._clock() - early[0] < TRACEROUTE_TIMEOUT:
@@ -412,4 +411,4 @@ class RadioManager:
                 self._finish_ok(key, early[1])
             else:
                 self._finish_trace(key, "failed", _routing_text(early[2]))
-        return snapshot
+        return dict(result)  # stato attuale: un esito arrivato durante l'invio e' gia' applicato

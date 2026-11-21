@@ -89,3 +89,4 @@ class MeshEvent:
     kind: str
     payload: (PositionData | NodeInfoData | TextData | TelemetryData | MapReportData
                | NeighborData | RouteData)
+    via_mqtt: bool = False  # pacchetto RF arrivato alla radio tramite un gateway MQTT
