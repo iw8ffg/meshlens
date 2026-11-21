@@ -187,6 +187,12 @@ class Store:
             "SELECT * FROM coverage_points WHERE session_id=? ORDER BY time, id", (session_id,))
         return [dict(r) for r in rows]
 
+    def points_since(self, session_id: int, since: float) -> list[dict]:
+        rows = self.conn.execute(
+            "SELECT * FROM coverage_points WHERE session_id=? AND time>=? ORDER BY time, id",
+            (session_id, since))
+        return [dict(r) for r in rows]
+
     def add_track(self, session_id: int, time: float, lat: float, lon: float,
                   precision_bits: int | None) -> None:
         self.conn.execute(

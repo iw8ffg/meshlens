@@ -1,7 +1,7 @@
 import pytest
 
 from meshlens.bus import Bus
-from meshlens.coverage import (CoverageRecorder, haversine_m, interpolate_position,
+from meshlens.coverage import (CoverageRecorder, SessionActive, haversine_m, interpolate_position,
                                missing_points, precision_m, summarize)
 from meshlens.db import connect
 from meshlens.events import MeshEvent, PositionData, RangeTestData
@@ -128,13 +128,32 @@ def test_recorder_new_segment_on_seq_drop(env):
 
 
 def test_point_without_position_then_backfilled(env):
-    rec, store, *_ = env
+    rec, store, _, q, _ = env
     sid = begin(rec)["id"]
     rec.handle(rt(0, T0 + 100))
     assert store.points(sid)[0]["lat"] is None
+    while not q.empty():
+        q.get_nowait()
     rec.handle(pos(T0 + 110, 45.2, 11.2))
     p = store.points(sid)[0]
     assert (p["lat"], p["lon"]) == (45.2, 11.2)
+    msg = q.get_nowait()
+    assert msg["type"] == "coverage" and msg["point"]["id"] == p["id"]
+    assert msg["point"]["segment"] == 0 and msg["point"]["lat"] == 45.2
+    assert msg["point"]["distance_m"] > 0 and msg["session"]["id"] == sid
+    assert rec.detail(sid)["points"][0]["id"] == p["id"]
+
+
+def test_backfill_refines_nearest_to_interpolated_and_dedups_track(env):
+    rec, store, *_ = env
+    sid = begin(rec)["id"]
+    rec.handle(pos(T0, 45.0, 11.0))
+    rec.handle(rt(0, T0 + 50))
+    assert store.points(sid)[0]["lat"] == 45.0  # solo la piu' vicina
+    rec.handle(pos(T0 + 100, 45.1, 11.0))
+    rec.handle(pos(T0 + 100, 45.1, 11.0, source="mqtt"))
+    assert store.points(sid)[0]["lat"] == pytest.approx(45.05)
+    assert len(store.track(sid)) == 2
 
 
 def test_point_without_any_position_counts_but_null(env):
@@ -183,11 +202,11 @@ def test_active_session_resumes_after_restart(env):
 
 def test_start_session_base_from_radio_node_and_single_active(env):
     rec, store, live, *_ = env
-    rec._radio_node = lambda rid: 0x99
+    rec = CoverageRecorder(store, live, Bus(), radio_node=lambda rid: 0x99)
     live.nodes[0x99] = {"lat": 44.0, "lon": 10.0}
     s = rec.start_session("r1", MOBILE, "rangetest", 30, None, None, None, 0)
     assert (s["base_lat"], s["base_lon"]) == (44.0, 10.0) and s["name"].startswith("Prova ")
-    with pytest.raises(RuntimeError):
+    with pytest.raises(SessionActive):
         begin(rec)
     assert rec.stop_session()["end_reason"] == "manual"
 

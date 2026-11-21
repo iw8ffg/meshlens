@@ -163,7 +163,7 @@ def build(data_dir: Path, connector_factory=MqttConnector,
     rt = Runtime(conn, store, live, auth, bus, dedup, ingestor, connector_factory,
                  settings=load_settings(conn))
     coverage = CoverageRecorder(store, live, bus,
-                                radio_node=lambda rid: ingestor._radio_nodes.get(rid))
+                                radio_node=ingestor.radio_node)
 
     def on_event(ev) -> None:
         # prima l'ingestor (aggiorna i nodi), poi il registratore delle prove di copertura

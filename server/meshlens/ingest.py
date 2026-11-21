@@ -192,6 +192,9 @@ class Ingestor:
             if radio_num is not None and ev.from_node != radio_num:
                 self.store.upsert_link(ev.from_node, radio_num, "rf_direct", ev.snr, ev.rx_time)
 
+    def radio_node(self, radio_id: str) -> int | None:
+        return self._radio_nodes.get(radio_id)
+
     def set_radio_node(self, radio_id: str, num: int) -> None:
         self._radio_nodes[radio_id] = num
 
