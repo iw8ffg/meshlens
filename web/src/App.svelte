@@ -12,10 +12,11 @@
   import Network from './components/Network.svelte'
   import Coverage from './components/Coverage.svelte'
   import Alerts from './components/Alerts.svelte'
+  import ConfigPanel from './components/ConfigPanel.svelte'
   import { matchNode } from './lib/filters'
   import { getJSON, alerts as fetchAlerts, coverageSessions, coverageSession, AUTH_REQUIRED } from './lib/api'
   import { connectWS } from './lib/ws'
-  import { app, upsertNodes, addMessage, addRadioHistory, setMessageStatus, setStatus, setRadios, setAlerts, setTraceroute, persistFilter, coverage, setCoverageSessions, applyCoverage } from './lib/stores.svelte'
+  import { app, upsertNodes, addMessage, addRadioHistory, setMessageStatus, setStatus, setRadios, setAlerts, setTraceroute, persistFilter, coverage, setCoverageSessions, applyCoverage, configUi, setConfigJob } from './lib/stores.svelte'
   import type { AuthStatus, Message, Node, Radio } from './lib/types'
 
   let auth = $state<AuthStatus | null>(null)
@@ -133,6 +134,7 @@
       traceroute: setTraceroute,
       coverage: applyCoverage,
       messageStatus: setMessageStatus,
+      configJob: setConfigJob,
     })
   })
 </script>
@@ -179,6 +181,9 @@
       </aside>
     </div>
   </div>
+  {#if configUi.target}
+    <ConfigPanel nodeId={configUi.target.nodeId} radioId={configUi.target.radioId} initialTab={configUi.target.tab} {now} onclose={() => (configUi.target = null)} />
+  {/if}
 {/if}
 
 <style>

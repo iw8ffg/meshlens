@@ -4,6 +4,11 @@ import type {
   CoverageDetail,
   CoverageSession,
   CoverageStartBody,
+  ConfigBackup,
+  ConfigJob,
+  ConfigPreview,
+  ConfigSaved,
+  ConfigSchema,
   Link,
   Node,
   TelemetryPoint,
@@ -88,3 +93,25 @@ export const coverageCheck = (radioId: string, mobileId: string) =>
   getJSON<CoverageCheck>(
     `/coverage/check?radio_id=${encodeURIComponent(radioId)}&mobile_id=${encodeURIComponent(mobileId)}`,
   )
+
+const cfgPath = (id: string) => `/config/${encodeURIComponent(id)}`
+export const configSchema = () => getJSON<ConfigSchema>('/config/schema')
+export const radioAdminKey = (radioId: string) =>
+  getJSON<{ public_key_b64: string }>(`/radios/${encodeURIComponent(radioId)}/admin-key`)
+export const readConfig = (nodeId: string, body: { radio_id?: string; sections?: string[] } = {}) =>
+  send<ConfigJob>('POST', `${cfgPath(nodeId)}/read`, body)
+export const savedConfig = (nodeId: string) => getJSON<ConfigSaved>(cfgPath(nodeId))
+export const previewConfig = (nodeId: string, changes: Record<string, unknown>) =>
+  send<ConfigPreview>('POST', `${cfgPath(nodeId)}/preview`, { changes })
+export const applyConfig = (nodeId: string, previewId: string, confirmRisky = false) =>
+  send<ConfigJob>('POST', `${cfgPath(nodeId)}/apply`, { preview_id: previewId, confirm_risky: confirmRisky })
+export const rebootNode = (nodeId: string, radioId?: string) =>
+  send<ConfigJob>('POST', `${cfgPath(nodeId)}/reboot`, { radio_id: radioId, confirm: true })
+export const setFixedPosition = (nodeId: string, body: { lat: number; lon: number; alt?: number } | { remove: true }) =>
+  send<ConfigJob>('POST', `${cfgPath(nodeId)}/fixed-position`, { ...body, confirm: true })
+export const configBackups = (nodeId: string) => getJSON<ConfigBackup[]>(`${cfgPath(nodeId)}/backups`)
+export const configBackup = (id: number) => getJSON<ConfigBackup>(`/config/backups/${id}`)
+export const previewRestore = (id: number) => send<ConfigPreview>('POST', `/config/backups/${id}/preview-restore`)
+export const revealPsk = (nodeId: string, index: number) =>
+  send<{ psk: string }>('POST', `${cfgPath(nodeId)}/channels/${index}/reveal-psk`)
+export const configJob = (id: number) => getJSON<ConfigJob>(`/config/jobs/${id}`)

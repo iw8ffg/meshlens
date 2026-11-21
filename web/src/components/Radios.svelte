@@ -1,6 +1,6 @@
 <script lang="ts">
   import { getJSON, send, ApiError } from '../lib/api'
-  import { app, setRadios } from '../lib/stores.svelte'
+  import { app, setRadios, openConfig } from '../lib/stores.svelte'
   import { sortPorts, stateClass, stateLabel } from '../lib/radios'
   import type { BleDevice, Port, Radio } from '../lib/types'
 
@@ -135,6 +135,10 @@
           <button disabled={acting} onclick={() => action(r, 'disconnect')}>Scollega</button>
         {:else}
           <button disabled={acting} onclick={() => action(r, 'connect')}>Connetti</button>
+        {/if}
+        {#if r.state === 'connected' && r.my_node_id}
+          <button onclick={() => openConfig(r.my_node_id!, r.id)}>Configura</button>
+          <button onclick={() => openConfig(r.my_node_id!, r.id, 'adminkey')}>Chiave admin</button>
         {/if}
         {#if confirmId === r.id}
           <span>Rimuovere "{r.name}"?</span>
