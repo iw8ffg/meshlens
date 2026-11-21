@@ -316,9 +316,27 @@ def test_build_migrates_legacy_mqtt(tmp_path, caplog):
         rt.conn.close()
 
 
-def test_validate_channels_trims_and_normalizes_empty_psk(conn):
+def test_validate_channels_trims_and_keeps_empty_psk_as_lost(conn):
     b = {"id": "default", "name": "X", "host": "h", "topics": ["msh/#"],
-         "channels": [{"name": " Priv ", "psk": " AQ== "}, {"name": "Aperto", "psk": ""}]}
+         "channels": [{"name": " Priv ", "psk": " AQ== "}, {"name": "Perso", "psk": ""}]}
     out = save_settings(conn, {"mqtt_brokers": [b]})
     assert out["mqtt_brokers"][0]["channels"] == [
-        {"name": "Priv", "psk": "AQ=="}, {"name": "Aperto", "psk": "AA=="}]
+        {"name": "Priv", "psk": "AQ=="}, {"name": "Perso", "psk": ""}]
+
+
+def test_lost_psk_survives_other_saves_and_send_refused(conn):
+    from meshlens.settings import default_broker, DEFAULTS, merge_channels
+    from test_mqtt_publish import FakeConnector, expect, make_sender
+    a = {**default_broker(DEFAULTS["mqtt"]), "channels": [{"name": "Perso", "psk": ""}]}
+    b = {**default_broker(DEFAULTS["mqtt"]), "id": "b2", "name": "B", "channels": []}
+    s = save_settings(conn, {"mqtt_brokers": [a, b]})
+    brokers = s["mqtt_brokers"]
+    merge_channels(brokers[1], [{"name": "Nuovo", "psk": ""}])  # import in un altro broker
+    s = save_settings(conn, {"mqtt_brokers": brokers})
+    s = save_settings(conn, {"mqtt": {"host": "altro.example"}})  # PUT legacy
+    assert s["mqtt_brokers"][0]["channels"] == [{"name": "Perso", "psk": ""}]
+    assert s["mqtt_brokers"][1]["channels"] == [{"name": "Nuovo", "psk": "AA=="}]
+    conn_mqtt = FakeConnector()
+    sender = make_sender(conn_mqtt, settings=s)
+    expect(400, "unknown_channel_key", lambda: sender.send("x", "Perso", None, True, broker="default"))
+    assert conn_mqtt.published == []

@@ -178,7 +178,7 @@ def _validate_channels(name: str, channels) -> None:
         if isinstance(ch.get("name"), str):
             ch["name"] = ch["name"].strip()
         if isinstance(ch.get("psk"), str):
-            ch["psk"] = ch["psk"].strip() or NO_CRYPTO_PSK  # "" vuoto = chiave persa
+            ch["psk"] = ch["psk"].strip()  # "" resta: chiave persa, mai "nessuna cifratura"
         cname = ch.get("name")
         if not (isinstance(cname, str)
                 and 1 <= len(cname.encode("utf-8")) <= MAX_CHANNEL_NAME_BYTES):
