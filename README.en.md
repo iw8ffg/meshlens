@@ -5,7 +5,7 @@
 <p align="center">
   <img alt="License GPL-3.0" src="https://img.shields.io/badge/license-GPL--3.0-blue">
   <img alt="Platform Windows" src="https://img.shields.io/badge/platform-Windows%2010%2F11-0078D6">
-  <img alt="Version 1.0.2" src="https://img.shields.io/badge/version-1.0.2-brightgreen">
+  <img alt="Version 1.1.0" src="https://img.shields.io/badge/version-1.1.0-brightgreen">
 </p>
 
 **MeshLens** is a local Windows application that brings everything happening on a [Meshtastic](https://meshtastic.org) network onto one interactive map: nodes heard over the **Internet (MQTT)** and by **your own radios** connected over USB or Bluetooth. Watch the network, manage your nodes and chat over radio, even without Internet. Use it from your PC and from your phone on the same Wi-Fi.
@@ -30,7 +30,8 @@
 
 ### 📻 Radios and chat
 - Several radios at once, over **USB** and **Bluetooth**, with automatic reconnection.
-- Chat on channels and direct messages, with radio selection and delivery status.
+- Chat on channels and direct messages, with delivery status and a single **"Send via"** field: radio or **MQTT** (text only, as your own node, with a confirmation the first time).
+- **Dark and light** themes, designed for phones too.
 
 ### 📊 Network management
 - Node status, **battery history charts** and alerts (configurable threshold, silent nodes).
@@ -115,7 +116,7 @@ The first command runs the server tests, the second the interface tests and a ho
 ## Privacy
 
 - **No data is sent to anyone.** Everything stays in the database on your PC.
-- MQTT is **listen-only**: MeshLens never publishes anything to public brokers.
+- On MQTT MeshLens **listens** and publishes **only the text messages you send** with "Send via MQTT" (as your own node, with a confirmation the first time and a rate limit). Nothing else is ever published: no positions, no node data.
 - By default the server listens on `127.0.0.1` only; local-network access is your choice and is protected by the PIN.
 - History expires (default: messages and positions 90 days, telemetry 1 year, configurable).
 - The only outgoing connections are the ones you trigger: the MQTT broker, online maps, offline map downloads and the update check on GitHub.

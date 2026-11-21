@@ -53,6 +53,6 @@ async def test_version_route():
         r = await c.get("/api/version")
         assert r.status_code == 200
         j = r.json()
-        assert j["version"] == __version__ == "1.0.2"
+        assert j["version"] == __version__ == "1.1.0"
         assert j["frozen"] is False
         assert isinstance(j["data_dir"], str)

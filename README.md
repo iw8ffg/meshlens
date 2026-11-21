@@ -5,7 +5,7 @@
 <p align="center">
   <img alt="Licenza GPL-3.0" src="https://img.shields.io/badge/licenza-GPL--3.0-blue">
   <img alt="Piattaforma Windows" src="https://img.shields.io/badge/piattaforma-Windows%2010%2F11-0078D6">
-  <img alt="Versione 1.0.2" src="https://img.shields.io/badge/versione-1.0.2-brightgreen">
+  <img alt="Versione 1.1.0" src="https://img.shields.io/badge/versione-1.1.0-brightgreen">
 </p>
 
 **MeshLens** è un'applicazione locale per Windows che riunisce in un'unica mappa interattiva tutto ciò che accade su una rete [Meshtastic](https://meshtastic.org): i nodi sentiti da **Internet (MQTT)** e dalle **tue radio** collegate via USB o Bluetooth. Osservi la rete, gestisci i tuoi nodi e chatti via radio, anche senza Internet. Si usa dal PC e dal telefono sulla stessa Wi-Fi.
@@ -30,7 +30,8 @@
 
 ### 📻 Radio e chat
 - Più radio insieme, via **USB** e **Bluetooth**, con riconnessione automatica.
-- Chat su canali e messaggi diretti, con scelta della radio e stato di consegna.
+- Chat su canali e messaggi diretti, con stato di consegna e un unico campo **"Invia via"**: radio oppure **MQTT** (solo testo, a nome del tuo nodo, con conferma la prima volta).
+- Interfaccia con tema **scuro e chiaro**, pensata anche per il telefono.
 
 ### 📊 Gestione della rete
 - Stato dei nodi, **batteria con grafico storico** e avvisi (soglia configurabile, nodi silenziosi).
@@ -115,7 +116,7 @@ Il primo comando esegue i test del server, il secondo quelli dell'interfaccia e 
 ## Privacy
 
 - **Nessun dato viene inviato a nessuno.** Tutto resta nel database sul tuo PC.
-- MQTT è **solo in ascolto**: MeshLens non pubblica mai nulla sui broker pubblici.
+- Su MQTT MeshLens **ascolta** e pubblica **solo i messaggi di testo che invii tu** scegliendo "Invia via MQTT" (a nome del tuo nodo, con conferma la prima volta e un limite di frequenza). Nient'altro viene mai pubblicato: né posizioni né dati dei nodi.
 - Per default il server ascolta solo su `127.0.0.1`; l'accesso dalla rete locale è una tua scelta ed è protetto dal PIN.
 - Lo storico ha una scadenza configurabile (default: messaggi e posizioni 90 giorni, telemetria 1 anno).
 - Le uniche connessioni in uscita sono quelle che avvii tu: il broker MQTT, le mappe online, lo scaricamento delle mappe offline e il controllo degli aggiornamenti su GitHub.

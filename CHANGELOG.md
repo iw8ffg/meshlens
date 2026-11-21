@@ -3,6 +3,30 @@
 Il formato segue [Keep a Changelog](https://keepachangelog.com/it-IT/1.1.0/) e il progetto usa il [versionamento semantico](https://semver.org/lang/it/).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [1.1.0] - 2026-11-21
+
+### Italiano
+
+#### Aggiunto
+- **Nuova interfaccia** completa, progettata con Claude Design: tema scuro e chiaro (Auto / Scuro / Chiaro), caratteri IBM Plex e icone inclusi nell'app (funziona anche senza internet), bandiere vere, colori dei dati leggibili anche per i daltonici (SNR con ▲ ● ▼, fonte riconoscibile dalla forma dell'anello).
+- **Telefono:** barra in basso (Mappa, Nodi, Chat, Copertura, Altro) e pannello che sale dal basso; sul PC pannello laterale ridimensionabile.
+- **Mappa** nei due temi: marker per età del contatto, anello per la fonte, stella per i tuoi nodi, legenda e popup nuovi. La mappa compare subito anche con una rete lenta.
+- **Invio dei messaggi via radio o via MQTT** da un unico campo "Invia via". Via MQTT si pubblica solo il testo, a nome del tuo nodo (la radio collegata o l'id impostato in Impostazioni → MQTT), con conferma la prima volta e un limite di un messaggio ogni 10 secondi e 30 all'ora.
+
+#### Modificato
+- La regola "nessuna pubblicazione su MQTT" diventa "solo i messaggi di testo che invii tu".
+
+### English
+
+#### Added
+- **New interface**, designed with Claude Design: dark and light themes (Auto / Dark / Light), IBM Plex fonts and icons bundled (works offline), real flags, data colours readable with colour blindness (SNR with ▲ ● ▼, source shown by ring shape).
+- **Phone:** bottom bar (Map, Nodes, Chat, Coverage, More) and a bottom sheet; resizable side panel on desktop.
+- **Map** in both themes: markers by contact age, ring by source, star for your nodes, new legend and popups. The map appears immediately even on a slow network.
+- **Send messages over radio or MQTT** from a single "Send via" field. Over MQTT only text is published, as your own node (the connected radio or the id set in Settings → MQTT), with a confirmation the first time and a limit of one message every 10 seconds and 30 per hour.
+
+#### Changed
+- The "never publish to MQTT" rule becomes "only the text messages you send".
+
 ## [1.0.2] - 2026-11-21
 
 ### Italiano
@@ -60,3 +84,4 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 [1.0.1]: https://github.com/iw8ffg/meshlens/releases/tag/v1.0.1
 [1.0.0]: https://github.com/iw8ffg/meshlens/releases/tag/v1.0.0
 [1.0.2]: https://github.com/iw8ffg/meshlens/releases/tag/v1.0.2
+[1.1.0]: https://github.com/iw8ffg/meshlens/releases/tag/v1.1.0
