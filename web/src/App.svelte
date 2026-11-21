@@ -133,6 +133,7 @@
         load()
         app.reconnects++
       },
+      resync: load,
       nodes: upsertNodes,
       message: addMessage,
       status: setStatus,

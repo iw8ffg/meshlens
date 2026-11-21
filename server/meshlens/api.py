@@ -2,6 +2,7 @@
 condivisa e va usata solo dal thread dell'event loop."""
 import logging
 import asyncio
+import contextlib
 import ipaddress
 import mimetypes
 import sqlite3
@@ -22,6 +23,7 @@ from starlette.websockets import WebSocketDisconnect
 from .alerts import compute_alerts
 from .auth import Auth, LockedError
 from .bus import Bus
+from .ingest import revive_node
 from .config_model import schema as config_schema
 from .config_service import ConfigError
 from .coverage import SessionActive, precision_m
@@ -43,6 +45,18 @@ COOKIE = "meshlens_session"
 COOKIE_MAX_AGE = 365 * 24 * 3600
 LOCAL_HOSTS = ("127.0.0.1", "::1", "localhost")
 INTERNAL_KEYS = ()
+
+
+WS_SEND_TIMEOUT_S = 10
+
+
+async def send_with_timeout(ws, msg: dict, timeout: float = WS_SEND_TIMEOUT_S) -> bool:
+    """Invia al client; False se non accetta i dati entro `timeout` (client bloccato)."""
+    try:
+        await asyncio.wait_for(ws.send_json(msg), timeout)
+        return True
+    except asyncio.TimeoutError:
+        return False
 
 
 @dataclass
@@ -422,13 +436,21 @@ def create_app(ctx: AppContext) -> FastAPI:
         return [{k: p[k] for k in keys}
                 for p in ctx.store.telemetry(num, time.time() - hours * 3600)]
 
+    def _live_or_revive(num: int) -> dict:
+        """Nodo in memoria; se il limite dei nodi lo ha tolto ma e' archiviato (i client lo
+        mostrano ancora) lo rimette in memoria dalla riga del database."""
+        node = ctx.live.nodes.get(num)
+        if node is None:
+            if ctx.store.get_node(num) is None:
+                raise HTTPException(404, "Nodo non trovato")
+            node = ctx.live.nodes[num] = revive_node(ctx.store, num)
+        return node
+
     @app.put("/api/nodes/{node_id}/mine",
              dependencies=[Depends(require_auth), Depends(require_json)])
     async def set_mine(node_id: str, body: MineBody):
         num = _num_from_id(node_id)
-        node = ctx.live.nodes.get(num)
-        if node is None:
-            raise HTTPException(404, "Nodo non trovato")
+        node = _live_or_revive(num)
         node["is_mine"] = body.mine
         ctx.store.upsert_node(node, is_mine=body.mine)  # inserisce se manca nel database
         ctx.store.commit()
@@ -440,9 +462,7 @@ def create_app(ctx: AppContext) -> FastAPI:
              dependencies=[Depends(require_auth), Depends(require_json)])
     async def set_favorite(node_id: str, body: FavoriteBody):
         num = _num_from_id(node_id)
-        node = ctx.live.nodes.get(num)
-        if node is None:
-            raise HTTPException(404, "Nodo non trovato")
+        node = _live_or_revive(num)
         node["is_favorite"] = body.favorite
         ctx.store.upsert_node(node, is_favorite=body.favorite)  # inserisce se manca nel database
         ctx.store.commit()
@@ -1047,7 +1067,11 @@ def create_app(ctx: AppContext) -> FastAPI:
                         break
                     recv = asyncio.ensure_future(ws.receive())  # frame del client: ignorato
                 if get in done:
-                    await ws.send_json(get.result())
+                    if not await send_with_timeout(ws, get.result()):
+                        # client troppo lento: si ricollega (dopo 3 s) e ricarica
+                        with contextlib.suppress(Exception):
+                            await asyncio.wait_for(ws.close(code=1013), 2)
+                        break
                     get = asyncio.ensure_future(q.get())
         except (WebSocketDisconnect, RuntimeError):
             pass

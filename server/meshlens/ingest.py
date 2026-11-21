@@ -40,6 +40,13 @@ def traceroute_chains(ev: MeshEvent) -> tuple[list[tuple[int, float | None]],
     return forward, back
 
 
+def revive_node(store, num: int) -> dict:
+    """Nodo assente dalla memoria (nuovo o tolto dal limite dei nodi): se e' archiviato
+    riparte dalla riga del database, altrimenti l'upsert cancellerebbe nome e posizione."""
+    stored = store.get_node(num)
+    return _new_node(num) if stored is None else {**_new_node(num), **stored}
+
+
 def _new_node(num: int) -> dict:
     return {"id": node_id(num), "num": num, "long_name": None, "short_name": None,
             "hw_model": None, "role": None, "firmware": None, "lat": None, "lon": None,
@@ -191,10 +198,7 @@ class Ingestor:
             self.on_message(message)
 
     def _revive_node(self, num: int) -> dict:
-        """Nodo assente dalla memoria (nuovo o tolto dal limite dei nodi): se e' archiviato
-        riparte dalla riga del database, altrimenti l'upsert cancellerebbe nome e posizione."""
-        stored = self.store.get_node(num)
-        return _new_node(num) if stored is None else {**_new_node(num), **stored}
+        return revive_node(self.store, num)
 
     def _update_hops(self, node: dict, ev: MeshEvent, is_dup: bool) -> None:
         num = ev.from_node

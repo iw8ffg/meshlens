@@ -15,9 +15,29 @@ export interface WSHandlers {
   updateJob?(job: UpdateJob): void
   /** Chiamato a ogni riapertura dopo la prima: lo stato puo' essere vecchio (telefono in standby). */
   reconnected?(): void
+  /** Il server ha scartato eventi (coda piena): ricaricare i dati. */
+  resync?(): void
 }
 
 const RECONNECT_MS = 3000
+
+/** Smista un messaggio del WebSocket verso l'handler giusto; tipi ignoti o non-oggetti: nessun effetto. */
+export function dispatch(msg: unknown, h: WSHandlers): void {
+  if (msg === null || typeof msg !== 'object') return
+  const m = msg as Record<string, any>
+  if (m.type === 'nodes') h.nodes(m.nodes)
+  else if (m.type === 'message') h.message(m.message)
+  else if (m.type === 'radios') h.radios(m.radios)
+  else if (m.type === 'alerts') h.alerts(m.alerts)
+  else if (m.type === 'traceroute') h.traceroute(m.result)
+  else if (m.type === 'coverage') h.coverage(m.session, m.point ?? null, m.track_point ?? null)
+  else if (m.type === 'message_status') h.messageStatus(m.key, m.status)
+  else if (m.type === 'config_job') h.configJob?.(m.job)
+  else if (m.type === 'map_job') h.mapJob?.(m.job)
+  else if (m.type === 'update_job') h.updateJob?.(m.job)
+  else if (m.type === 'status') h.status({ mqtt: m.mqtt })
+  else if (m.type === 'resync') h.resync?.()
+}
 
 /** Apre /ws e si riconnette ogni 3 s. Restituisce una funzione per chiudere. */
 export function connectWS(handlers: WSHandlers): () => void {
@@ -35,18 +55,7 @@ export function connectWS(handlers: WSHandlers): () => void {
     }
     ws.onmessage = (ev) => {
       try {
-        const msg = JSON.parse(ev.data as string)
-        if (msg.type === 'nodes') handlers.nodes(msg.nodes)
-        else if (msg.type === 'message') handlers.message(msg.message)
-        else if (msg.type === 'radios') handlers.radios(msg.radios)
-        else if (msg.type === 'alerts') handlers.alerts(msg.alerts)
-        else if (msg.type === 'traceroute') handlers.traceroute(msg.result)
-        else if (msg.type === 'coverage') handlers.coverage(msg.session, msg.point ?? null, msg.track_point ?? null)
-        else if (msg.type === 'message_status') handlers.messageStatus(msg.key, msg.status)
-        else if (msg.type === 'config_job') handlers.configJob?.(msg.job)
-        else if (msg.type === 'map_job') handlers.mapJob?.(msg.job)
-        else if (msg.type === 'update_job') handlers.updateJob?.(msg.job)
-        else if (msg.type === 'status') handlers.status({ mqtt: msg.mqtt })
+        dispatch(JSON.parse(ev.data as string), handlers)
       } catch {
         /* messaggio malformato: ignorato */
       }

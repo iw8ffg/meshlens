@@ -190,12 +190,12 @@ def test_ws_receives_bus(ctx):
             assert ws.receive_json() == {"type": "message", "message": {"text": "x"}}
 
 
-async def test_bus_drops_oldest():
+async def test_bus_overflow_sends_resync():
     bus = Bus(maxsize=3)
     q = bus.subscribe()
     for i in range(5):
         bus.publish({"i": i})
-    assert [q.get_nowait()["i"] for _ in range(3)] == [2, 3, 4]
+    assert [q.get_nowait() for _ in range(3)] == [{"type": "resync"}, {"i": 3}, {"i": 4}]
     bus.unsubscribe(q)
     bus.publish({"i": 9})
     assert q.empty()
@@ -544,3 +544,17 @@ async def test_backup_restore_refuses_corrupt(tmp_path):
             assert not (tmp_path / "restore.json").exists()
     finally:
         rt.conn.close()
+
+
+async def test_mine_and_favorite_revive_cap_evicted_node(ctx):
+    ctx.store.upsert_node({"id": "!000000aa", "num": 0xaa, "long_name": "Evicted"})
+    ctx.store.commit()
+    assert 0xaa not in ctx.live.nodes
+    async with logged(ctx) as c:
+        r = await c.put("/api/nodes/!000000aa/mine", json={"mine": True})
+        assert r.status_code == 200 and r.json()["long_name"] == "Evicted"
+        assert ctx.live.nodes[0xaa]["is_mine"] is True
+        del ctx.live.nodes[0xaa]
+        r = await c.put("/api/nodes/!000000aa/favorite", json={"favorite": True})
+        assert r.status_code == 200 and r.json()["long_name"] == "Evicted"
+        assert ctx.store.get_node(0xaa)["is_mine"]
