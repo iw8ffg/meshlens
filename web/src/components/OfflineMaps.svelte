@@ -5,6 +5,14 @@
   import { app, bumpMaps, maps, setMapJob } from '../lib/stores.svelte'
   import type { AppSettings } from '../lib/settings'
   import type { Bbox, MapEstimate, MapKind, MapsState, OfflineMap } from '../lib/types'
+  import Banner from '../lib/ui/Banner.svelte'
+  import Button from '../lib/ui/Button.svelte'
+  import Card from '../lib/ui/Card.svelte'
+  import Field from '../lib/ui/Field.svelte'
+  import Modal from '../lib/ui/Modal.svelte'
+  import Progress from '../lib/ui/Progress.svelte'
+  import Select from '../lib/ui/Select.svelte'
+  import Skeleton from '../lib/ui/Skeleton.svelte'
 
   const MODES: [string, string][] = [
     ['auto', 'Automatica'],
@@ -26,6 +34,7 @@
   let askArea = $state(false)
   let toDelete = $state<string | null>(null)
 
+  const toDeleteMap = $derived(snap?.maps.find((m) => m.id === toDelete) ?? null)
   const job = $derived(maps.job ?? snap?.job ?? null)
   const running = $derived(job?.status === 'running')
   const percent = $derived(job ? jobPercent(job) : null)
@@ -179,209 +188,131 @@
   const dataDate = (s: string | null) => (s && /^\d{8}$/.test(s) ? `${s.slice(6, 8)}/${s.slice(4, 6)}/${s.slice(0, 4)}` : '—')
 </script>
 
-<fieldset>
-  <legend>Mappe offline</legend>
-  {#if loadError}
-    <p class="err">{loadError}</p>
-  {:else if !snap}
-    <p class="muted">Caricamento…</p>
-  {:else}
-    <label>
-      Modalità mappa
-      <select bind:value={mode} onchange={saveMode}>
-        {#each MODES as [v, l] (v)}<option value={v}>{l}</option>{/each}
-      </select>
-    </label>
-    <p class="muted">Spazio libero: {formatBytes(snap.disk_free_bytes)}</p>
-
-    {#if snap.maps.length === 0}
-      <p class="muted">Nessuna mappa scaricata.</p>
+<Card>
+  <section class="sec">
+    <h3>Mappe offline</h3>
+    {#if loadError}
+      <Banner kind="danger" title={loadError} />
+    {:else if !snap}
+      <Skeleton tall />
     {:else}
-      <ul class="maps">
-        {#each snap.maps as m (m.id)}
-          <li>
-            <div>
-              <b>{m.name}</b> · {LABEL[m.kind]} · {formatBytes(m.size_bytes)}
-              <div class="muted">Dati del {dataDate(m.source_date)} · scaricata il {when(m.created)}</div>
-            </div>
-            {#if toDelete === m.id}
-              <span class="row">
-                <span>Eliminare "{m.name}"?</span>
-                <button type="button" class="danger" onclick={() => remove(m)}>Sì, elimina</button>
-                <button type="button" onclick={() => (toDelete = null)}>No</button>
-              </span>
-            {:else}
-              <button type="button" disabled={running} onclick={() => (toDelete = m.id)}>Elimina</button>
-            {/if}
-          </li>
-        {/each}
-      </ul>
-    {/if}
+      <Field label="Modalità mappa" for="map-mode">
+        {#snippet children()}
+          <Select id="map-mode" bind:value={mode} onchange={saveMode}>
+            {#each MODES as [v, l] (v)}<option value={v}>{l}</option>{/each}
+          </Select>
+        {/snippet}
+      </Field>
+      <p class="muted">Spazio libero: <span class="ui-mono">{formatBytes(snap.disk_free_bytes)}</span></p>
 
-    {#if running && job}
-      <div class="job" role="status">
-        <div>{job.name}: {job.step}</div>
-        {#if percent !== null}
-          <progress max="100" value={percent}></progress>
-          <span>{percent}% ({formatBytes(job.bytes_done)} di {formatBytes(job.bytes_total ?? 0)})</span>
-        {:else}
-          <progress></progress>
-          <span>{formatBytes(job.bytes_done)}</span>
-        {/if}
-        <button type="button" onclick={cancel}>Annulla</button>
-      </div>
-    {:else if job && job.status === 'failed'}
-      <p class="err" role="alert">Download non riuscito: {job.error ?? 'errore sconosciuto'}</p>
-    {:else if job && job.status === 'cancelled'}
-      <p class="muted">Download annullato.</p>
-    {:else if job && job.status === 'done'}
-      <p class="ok">Download completato: {job.name}.</p>
-    {/if}
-
-    {#if pending}
-      <div class="confirm" role="dialog" aria-label="Conferma download">
-        <p>
-          <b>{pending.kind === 'area' ? pending.name : LABEL[pending.kind]}</b>: circa {formatBytes(pending.est.estimate_bytes)}.<br />
-          Fonte: {pending.est.source_url}<br />
-          Dati del {dataDate(pending.est.source_date)}.
-        </p>
-        {#if pending.est.needs_tool}
-          <p>Verrà scaricato anche lo strumento ufficiale go-pmtiles (≈ {Math.round(pending.est.tool_size_bytes / 1_000_000)} MB) da GitHub.</p>
-        {/if}
-        <span class="row">
-          <button type="button" class="primary" disabled={busy} onclick={confirmDownload}>Scarica</button>
-          <button type="button" onclick={() => (pending = null)}>Annulla</button>
-        </span>
-      </div>
-    {:else if !running}
-      <div class="row wrap">
-        <button type="button" disabled={busy} onclick={() => ask('world')}>Scarica mondo (base)</button>
-        <button type="button" disabled={busy} onclick={() => ask('italy')}>Scarica Italia</button>
-        <button type="button" disabled={busy} onclick={() => (askArea = !askArea)}>Scarica area visibile</button>
-      </div>
-      {#if askArea}
-        <div class="row wrap">
-          <input type="text" aria-label="Nome dell'area" maxlength="60" bind:value={areaName} />
-          <button type="button" disabled={busy} onclick={askVisible}>Continua</button>
-        </div>
+      {#if snap.maps.length === 0}
+        <p class="muted">Nessuna mappa scaricata.</p>
+      {:else}
+        <ul class="maps">
+          {#each snap.maps as m (m.id)}
+            <li>
+              <div>
+                <b>{m.name}</b> · {LABEL[m.kind]} · <span class="ui-mono">{formatBytes(m.size_bytes)}</span>
+                <div class="muted">Dati del {dataDate(m.source_date)} · scaricata il {when(m.created)}</div>
+              </div>
+              <Button icon="trash" disabled={running} onclick={() => (toDelete = m.id)}>Elimina</Button>
+            </li>
+          {/each}
+        </ul>
       {/if}
-    {/if}
 
-    <details>
-      <summary>Avanzate</summary>
-      <label>
-        Fonte personalizzata (URL .pmtiles)
-        <input type="text" placeholder="https://…/mappa.pmtiles" bind:value={sourceUrl} />
-      </label>
-      <button type="button" onclick={saveSource}>Salva fonte</button>
-    </details>
-    <p class="muted">© OpenStreetMap contributors · Protomaps</p>
-    {#if error}<p class="err" role="alert">{error}</p>{/if}
-    {#if info}<p class="ok" role="status">{info}</p>{/if}
+      {#if running && job}
+        <div class="job" role="status">
+          <div>{job.name}: {job.step}</div>
+          {#if percent !== null}
+            <Progress value={percent} label="Avanzamento del download" text="{percent}% ({formatBytes(job.bytes_done)} di {formatBytes(job.bytes_total ?? 0)})" />
+          {:else}
+            <Progress value={100} label="Download in corso" text={formatBytes(job.bytes_done)} />
+          {/if}
+          <div><Button icon="x" onclick={cancel}>Annulla</Button></div>
+        </div>
+      {:else if job && job.status === 'failed'}
+        <Banner kind="danger" title="Download non riuscito">{job.error ?? 'errore sconosciuto'}</Banner>
+      {:else if job && job.status === 'cancelled'}
+        <p class="muted">Download annullato.</p>
+      {:else if job && job.status === 'done'}
+        <Banner kind="ok" title="Download completato">{job.name}</Banner>
+      {/if}
+
+      {#if !running}
+        <div class="row">
+          <Button icon="download" disabled={busy || !!pending} onclick={() => ask('world')}>Scarica mondo (base)</Button>
+          <Button icon="download" disabled={busy || !!pending} onclick={() => ask('italy')}>Scarica Italia</Button>
+          <Button icon="map" disabled={busy || !!pending} onclick={() => (askArea = !askArea)}>Scarica area visibile</Button>
+        </div>
+        {#if askArea}
+          <div class="row">
+            <input class="ui-input grow" type="text" aria-label="Nome dell'area" maxlength="60" bind:value={areaName} />
+            <Button kind="primary" disabled={busy} onclick={askVisible}>Continua</Button>
+          </div>
+        {/if}
+      {/if}
+
+      <details>
+        <summary>Avanzate</summary>
+        <Field label="Fonte personalizzata (URL .pmtiles)" for="map-src">
+          {#snippet children()}
+            <input id="map-src" class="ui-input" type="text" placeholder="https://…/mappa.pmtiles" bind:value={sourceUrl} />
+          {/snippet}
+        </Field>
+        <div class="gap"><Button onclick={saveSource}>Salva fonte</Button></div>
+      </details>
+      <p class="muted">© OpenStreetMap contributors · Protomaps</p>
+      {#if error}<Banner kind="danger" title={error} />{/if}
+      {#if info}<Banner kind="ok" title={info} />{/if}
+    {/if}
+  </section>
+</Card>
+
+<Modal
+  open={pending !== null}
+  title="Conferma download"
+  confirmLabel="Scarica"
+  onconfirm={confirmDownload}
+  oncancel={() => (pending = null)}
+>
+  {#if pending}
+    <p class="wrapany">
+      <b>{pending.kind === 'area' ? pending.name : LABEL[pending.kind]}</b>: circa <span class="ui-mono">{formatBytes(pending.est.estimate_bytes)}</span>.<br />
+      Fonte: {pending.est.source_url}<br />
+      Dati del {dataDate(pending.est.source_date)}.
+    </p>
+    {#if pending.est.needs_tool}
+      <p>Verrà scaricato anche lo strumento ufficiale go-pmtiles (≈ {Math.round(pending.est.tool_size_bytes / 1_000_000)} MB) da GitHub.</p>
+    {/if}
   {/if}
-</fieldset>
+</Modal>
+<Modal
+  open={toDeleteMap !== null}
+  title="Eliminare la mappa?"
+  danger
+  confirmLabel="Sì, elimina"
+  cancelLabel="No"
+  onconfirm={() => toDeleteMap && remove(toDeleteMap)}
+  oncancel={() => (toDelete = null)}
+>
+  <p>Eliminare "{toDeleteMap?.name ?? ''}"? Dovrai scaricarla di nuovo per usarla offline.</p>
+</Modal>
 
 <style>
-  fieldset {
-    border: 1px solid #374151;
-    border-radius: 6px;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-  label {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    font-size: 13px;
-  }
-  .maps {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    font-size: 13px;
-  }
-  .maps li {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 8px;
-  }
-  .row {
-    display: flex;
-    gap: 6px;
-    align-items: center;
-  }
-  .wrap {
-    flex-wrap: wrap;
-  }
-  .job,
-  .confirm {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    padding: 8px;
-    border: 1px solid #374151;
-    border-radius: 6px;
-    font-size: 13px;
-  }
-  .confirm p {
-    margin: 0;
-    overflow-wrap: anywhere;
-  }
-  progress {
-    width: 100%;
-  }
-  input[type='text'],
-  select {
-    padding: 5px 8px;
-    background: #1f2937;
-    color: inherit;
-    border: 1px solid #374151;
-    border-radius: 6px;
-    font: inherit;
-  }
-  button {
-    padding: 6px 12px;
-    background: #1f2937;
-    color: inherit;
-    border: 1px solid #374151;
-    border-radius: 6px;
-    cursor: pointer;
-    font: inherit;
-  }
-  button.primary {
-    background: #2563eb;
-    border-color: #2563eb;
-  }
-  button.danger {
-    background: #b91c1c;
-    border-color: #b91c1c;
-  }
-  .muted {
-    color: #9ca3af;
-    margin: 0;
-    font-size: 12px;
-  }
-  @media (max-width: 767px) {
-    .muted {
-      font-size: 13px;
-    }
-    button,
-    select,
-    input:not([type='checkbox']) {
-      min-height: 40px;
-    }
-  }
-  .err {
-    color: #f87171;
-    margin: 0;
-  }
-  .ok {
-    color: #34d399;
-    margin: 0;
-  }
+  .sec { display: flex; flex-direction: column; gap: var(--space-3); color: var(--ink); }
+  h3 { margin: 0; font: 600 15px/20px var(--font-sans); }
+  p { margin: 0; }
+  .muted { color: var(--ink-muted); font: 400 13px/18px var(--font-sans); }
+  .maps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-2); font: 400 14px/20px var(--font-sans); }
+  .maps li { display: flex; justify-content: space-between; align-items: center; gap: var(--space-2); padding-bottom: var(--space-2); border-bottom: 1px solid var(--line); }
+  .row { display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; }
+  .grow { flex: 1; min-width: 160px; }
+  .job { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-3); border: 1px solid var(--line); border-radius: var(--radius-md); font: 400 14px/20px var(--font-sans); }
+  .wrapany { overflow-wrap: anywhere; }
+  details { font: 400 14px/20px var(--font-sans); }
+  summary { cursor: pointer; min-height: var(--touch-min); display: flex; align-items: center; }
+  summary:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+  .gap { margin-top: var(--space-2); }
+  :global(.vp-phone) .muted { font-size: 14px; line-height: 20px; }
 </style>

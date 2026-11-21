@@ -19,11 +19,32 @@ export const app = $state({
   filter: loadFilter(localStorage) as NodeFilter,
   feedFilter: loadFeedFilter(localStorage) as FeedFilter,
   selectedId: null as string | null,
-  chatConv: null as string | null,
   alerts: [] as Alert[],
   traceroutes: new SvelteMap<string, Traceroute>(),
   reconnects: 0, // contatore: cresce a ogni riconnessione del WebSocket
 })
+
+// Apertura di una conversazione dall'esterno (es. «Messaggio diretto»): callback, nessuno stato reattivo.
+// Se la chat non e' ancora montata la richiesta resta in attesa e la ritira alla creazione.
+const chatBridge = { open: null as ((key: string) => void) | null, pending: null as string | null }
+
+export function openChat(key: string): void {
+  if (chatBridge.open) chatBridge.open(key)
+  else chatBridge.pending = key
+}
+
+/** La chat si registra alla creazione; restituisce la richiesta in attesa e la funzione di annullamento. */
+export function attachChat(open: (key: string) => void): { pending: string | null; detach: () => void } {
+  const pending = chatBridge.pending
+  chatBridge.pending = null
+  chatBridge.open = open
+  return {
+    pending,
+    detach: () => {
+      if (chatBridge.open === open) chatBridge.open = null
+    },
+  }
+}
 
 export const coverage = $state({
   sessions: [] as CoverageSession[],

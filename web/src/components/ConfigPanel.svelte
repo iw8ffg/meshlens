@@ -35,6 +35,10 @@
   import ConfigAdvanced from './ConfigAdvanced.svelte'
   import ConfigDiff from './ConfigDiff.svelte'
   import ConfigField from './ConfigField.svelte'
+  import Banner from '../lib/ui/Banner.svelte'
+  import Button from '../lib/ui/Button.svelte'
+  import Field from '../lib/ui/Field.svelte'
+  import Modal from '../lib/ui/Modal.svelte'
 
   let {
     nodeId,
@@ -316,51 +320,55 @@
   <div class="box">
     <header>
       <h2>Configura · {nodeName}</h2>
-      <button class="x" aria-label="Chiudi" onclick={onclose}>✕</button>
+      <Button kind="ghost" iconOnly icon="x" label="Chiudi" onclick={onclose} />
     </header>
-    <p class="muted">{nodeId}{local ? ' · nodo locale della radio' : ''}</p>
+    <p class="muted"><span class="ui-mono">{nodeId}</span>{local ? ' · nodo locale della radio' : ''}</p>
 
     <div class="row">
-      <label>
-        Radio
-        <select value={radio} disabled={lock} onchange={(e) => { radioSel = e.currentTarget.value; loadKey() }}>
-          {#if radios.length === 0}<option value="">Nessuna radio connessa</option>{/if}
-          {#each radios as r (r.id)}<option value={r.id}>{r.name}</option>{/each}
-        </select>
-      </label>
-      <button class="go" disabled={lock || !radio} onclick={read}>Leggi configurazione</button>
+      <Field label="Radio" for="cfg-radio">
+        {#snippet children()}
+          <select id="cfg-radio" class="ui-select" value={radio} disabled={lock} onchange={(e) => { radioSel = e.currentTarget.value; loadKey() }}>
+            {#if radios.length === 0}<option value="">Nessuna radio connessa</option>{/if}
+            {#each radios as r (r.id)}<option value={r.id}>{r.name}</option>{/each}
+          </select>
+        {/snippet}
+      </Field>
+      <Button kind="primary" icon="download" disabled={lock || !radio} onclick={read}>Leggi configurazione</Button>
     </div>
     <p class="muted">
       {saved ? `Ultima lettura: ${timeAgo(saved.time, now)} (${formatDate(saved.time)})` : 'Nessuna lettura salvata: leggi prima la configurazione.'}
     </p>
 
-    {#if err}<p class="err" role="alert">{err}</p>{/if}
+    {#if err}<Banner kind="danger" title={err} />{/if}
 
     {#if job}
-      <div class="job" class:bad={job.status === 'failed'}>
+      <div class="job">
         {#if running}
-          <span>{jobText(job.step, job.progress)}</span>
+          <Banner kind="info" title="In corso">
+            {jobText(job.step, job.progress)}
+          </Banner>
         {:else}
-          <strong>{outcome}</strong>
+          <Banner kind={job.status === 'failed' ? 'danger' : job.verify === 'mismatch' ? 'warn' : 'ok'} title={outcome}>
+            {#if keyMissing}
+              <div class="keyhelp">
+                <Button kind="ghost" icon="key" onclick={() => (tab = 'adminkey')}>Come aggiungere la chiave admin</Button>
+                {#if adminKey}
+                  <code class="key">{adminKey}</code>
+                  <Button icon="copy" onclick={copyKey}>{copied ? 'Copiata' : 'Copia'}</Button>
+                {/if}
+              </div>
+            {/if}
+          </Banner>
+          <div><Button kind="ghost" onclick={() => (jobId = null)}>Chiudi esito</Button></div>
         {/if}
-        {#if keyMissing}
-          <p>
-            <button class="link" onclick={() => (tab = 'adminkey')}>Come aggiungere la chiave admin</button>
-          </p>
-          {#if adminKey}
-            <code class="key">{adminKey}</code>
-            <button onclick={copyKey}>{copied ? 'Copiata' : 'Copia'}</button>
-          {/if}
-        {/if}
-        {#if !running}<button class="link" onclick={() => (jobId = null)}>Chiudi</button>{/if}
       </div>
     {/if}
 
-    <nav class="tabs">
+    <div class="tabs" role="tablist" aria-label="Sezioni della configurazione">
       {#each TABS as [id, label] (id)}
-        <button class:on={tab === id} onclick={() => (tab = id)}>{label}</button>
+        <button type="button" role="tab" aria-selected={tab === id} class:on={tab === id} onclick={() => (tab = id)}>{label}</button>
       {/each}
-    </nav>
+    </div>
 
     {#if activePreview}
       {#key activePreview.preview_id}
@@ -375,11 +383,11 @@
       </p>
       {#if adminKey}
         <code class="key">{adminKey}</code>
-        <button onclick={copyKey}>{copied ? 'Copiata' : 'Copia'}</button>
+        <div><Button icon="copy" onclick={copyKey}>{copied ? 'Copiata' : 'Copia'}</Button></div>
       {:else}
         <p class="muted">Chiave non disponibile: la radio deve essere connessa.</p>
       {/if}
-      <ol>
+      <ol class="steps">
         <li>Apri l'app Meshtastic sul nodo da gestire.</li>
         <li>Vai in Sicurezza → Admin key e incolla la chiave.</li>
         <li>Salva.</li>
@@ -392,7 +400,7 @@
             {formatDate(b.time)} · {backupReasonLabel(b.reason)}{b.label ? ` · ${b.label}` : ''}
             <small class="muted">({b.sections.join(', ')})</small>
           </span>
-          <button disabled={lock || !!activePreview} onclick={() => restore(b)}>Ripristina</button>
+          <Button disabled={lock || !!activePreview} onclick={() => restore(b)}>Ripristina</Button>
         </div>
       {:else}
         <p class="muted">Nessuna copia.</p>
@@ -407,7 +415,7 @@
           <summary>
             Canale {c.index}{c.name ? ` · ${c.name}` : ''} <small class="muted">{enumLabel('channel.role', String(c.role ?? ''))}</small>
           </summary>
-          {#if c.index === 0}<p class="warn">Il canale 0 è quello principale: modificarlo può isolare il nodo.</p>{/if}
+          {#if c.index === 0}<Banner kind="warn" title="Canale principale">Il canale 0 è quello principale: modificarlo può isolare il nodo.</Banner>{/if}
           {#each ['role', 'name', 'position_precision', 'uplink_enabled', 'downlink_enabled'] as f (f)}
             {#if schema.channel[f]}
               <ConfigField
@@ -421,15 +429,15 @@
             {/if}
           {/each}
           <div class="psk">
-            <span class="lbl">{CHANNEL_LABELS.psk}</span>
+            <span class="ui-lbl">{CHANNEL_LABELS.psk}</span>
             <code>{c.psk !== MASK && c.psk ? 'nuova chiave (da applicare)' : (revealed[c.index] ?? MASK)}</code>
-            <button disabled={lock} onclick={() => reveal(c.index)}>Mostra</button>
-            <button disabled={lock} onclick={() => set(`channels.${c.index}.psk`, genPsk())}>Genera nuova</button>
+            <Button icon="eye" disabled={lock} onclick={() => reveal(c.index)}>Mostra</Button>
+            <Button icon="refresh" disabled={lock} onclick={() => set(`channels.${c.index}.psk`, genPsk())}>Genera nuova</Button>
             {#if c.psk !== MASK}
-              <button disabled={lock} onclick={() => set(`channels.${c.index}.psk`, MASK)}>Annulla</button>
+              <Button kind="ghost" disabled={lock} onclick={() => set(`channels.${c.index}.psk`, MASK)}>Annulla</Button>
             {/if}
           </div>
-          {#if c.index === 0 && c.psk !== MASK}<p class="warn">Una nuova chiave sul canale 0 ti separa da tutti i nodi che non la conoscono.</p>{/if}
+          {#if c.index === 0 && c.psk !== MASK}<Banner kind="warn" title="Nuova chiave sul canale 0">Ti separa da tutti i nodi che non la conoscono.</Banner>{/if}
         </details>
       {/each}
     {:else}
@@ -452,214 +460,70 @@
       {#if tab === 'position'}
         <h3>Posizione fissa</h3>
         <div class="row">
-          <label>Latitudine <input bind:value={lat} inputmode="decimal" /></label>
-          <label>Longitudine <input bind:value={lon} inputmode="decimal" /></label>
-          <label>Altitudine (m) <input bind:value={alt} inputmode="decimal" placeholder="opzionale" /></label>
+          <Field label="Latitudine" for="cfg-lat">{#snippet children()}<input id="cfg-lat" class="ui-input ui-mono" bind:value={lat} inputmode="decimal" />{/snippet}</Field>
+          <Field label="Longitudine" for="cfg-lon">{#snippet children()}<input id="cfg-lon" class="ui-input ui-mono" bind:value={lon} inputmode="decimal" />{/snippet}</Field>
+          <Field label="Altitudine (m)" for="cfg-alt">{#snippet children()}<input id="cfg-alt" class="ui-input ui-mono" bind:value={alt} inputmode="decimal" placeholder="opzionale" />{/snippet}</Field>
         </div>
-        {#if pending === 'fixed' || pending === 'remove'}
-          <p class="warn">{pending === 'fixed' ? 'Impostare la posizione fissa?' : 'Rimuovere la posizione fissa?'} Il nodo si riavvierà.</p>
-          <button class="go" disabled={lock} onclick={() => (pending === 'fixed' ? fixed() : run(() => setFixedPosition(nodeId, { remove: true })))}>Conferma</button>
-          <button onclick={() => (pending = null)}>Annulla</button>
-        {:else}
-          <button disabled={lock || !radio} onclick={() => (pending = 'fixed')}>Imposta posizione fissa</button>
-          <button disabled={lock || !radio} onclick={() => (pending = 'remove')}>Rimuovi posizione fissa</button>
-        {/if}
+        <div class="row">
+          <Button disabled={lock || !radio} onclick={() => (pending = 'fixed')}>Imposta posizione fissa</Button>
+          <Button disabled={lock || !radio} onclick={() => (pending = 'remove')}>Rimuovi posizione fissa</Button>
+        </div>
       {/if}
     {/if}
 
     {#if saved && schema && tab !== 'adminkey' && tab !== 'backups'}
       <div class="foot">
-        <button class="go" disabled={lock || dirty === 0 || !!activePreview} onclick={review}>Rivedi modifiche{dirty ? ` (${dirty})` : ''}</button>
-        {#if pending === 'reboot'}
-          <span>Riavviare il nodo?</span>
-          <button class="danger" disabled={lock} onclick={reboot}>Conferma</button>
-          <button onclick={() => (pending = null)}>Annulla</button>
-        {:else}
-          <button class="danger" disabled={lock || !radio} onclick={() => (pending = 'reboot')}>Riavvia nodo</button>
-        {/if}
+        <Button kind="primary" disabled={lock || dirty === 0 || !!activePreview} onclick={review}>Rivedi modifiche{dirty ? ` (${dirty})` : ''}</Button>
+        <Button kind="danger" icon="power" disabled={lock || !radio} onclick={() => (pending = 'reboot')}>Riavvia nodo</Button>
       </div>
     {/if}
   </div>
 </div>
 
+<Modal
+  open={pending === 'reboot'}
+  title="Riavviare il nodo?"
+  danger
+  confirmLabel="Riavvia"
+  onconfirm={reboot}
+  oncancel={() => (pending = null)}
+>
+  <p>Il nodo si riavvierà e resterà irraggiungibile per qualche istante.</p>
+</Modal>
+<Modal
+  open={pending === 'fixed' || pending === 'remove'}
+  title={pending === 'remove' ? 'Rimuovere la posizione fissa?' : 'Impostare la posizione fissa?'}
+  confirmLabel="Conferma"
+  onconfirm={() => (pending === 'remove' ? run(() => setFixedPosition(nodeId, { remove: true })) : fixed())}
+  oncancel={() => (pending = null)}
+>
+  <p>Il nodo si riavvierà.</p>
+</Modal>
+
 <style>
-  .overlay {
-    position: fixed;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.6);
-    z-index: 1000;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-  .box {
-    background: #111827;
-    border: 1px solid #374151;
-    border-radius: 8px;
-    width: min(720px, 96vw);
-    max-height: 92dvh;
-    overflow: auto;
-    padding: 10px 14px;
-  }
-  header {
-    display: flex;
-    align-items: center;
-  }
-  h2 {
-    flex: 1;
-    font-size: 17px;
-    margin: 0;
-  }
-  h3 {
-    font-size: 14px;
-    margin: 12px 0 4px;
-  }
-  .x {
-    background: none;
-    border: 0;
-    color: inherit;
-    font-size: 18px;
-    cursor: pointer;
-  }
-  .muted {
-    color: #9ca3af;
-    font-size: 12px;
-  }
-  .err {
-    color: #f87171;
-  }
-  .warn {
-    color: #fbbf24;
-    font-size: 13px;
-  }
-  .row {
-    display: flex;
-    gap: 8px;
-    align-items: flex-end;
-    flex-wrap: wrap;
-  }
-  label {
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-    font-size: 13px;
-  }
-  .job {
-    border: 1px solid #374151;
-    border-radius: 6px;
-    padding: 6px 8px;
-    margin: 6px 0;
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    align-items: center;
-  }
-  .job.bad {
-    border-color: #ef4444;
-    color: #f87171;
-  }
-  .tabs {
-    display: flex;
-    flex-wrap: wrap;
-    border-bottom: 1px solid #1f2937;
-    margin: 8px 0;
-  }
-  .tabs button {
-    background: none;
-    border: 0;
-    border-bottom: 2px solid transparent;
-    color: inherit;
-    padding: 6px 10px;
-    cursor: pointer;
-    font: inherit;
-  }
-  .tabs button.on {
-    border-bottom-color: #2563eb;
-    color: #93c5fd;
-  }
-  .key {
-    display: block;
-    word-break: break-all;
-    background: #1f2937;
-    padding: 6px;
-    border-radius: 4px;
-    margin: 6px 0;
-    font-size: 12px;
-  }
-  .bk {
-    display: flex;
-    justify-content: space-between;
-    gap: 8px;
-    align-items: center;
-    padding: 4px 0;
-    border-bottom: 1px solid #1f2937;
-    font-size: 13px;
-  }
-  details {
-    border: 1px solid #1f2937;
-    border-radius: 6px;
-    padding: 4px 8px;
-    margin: 6px 0;
-  }
-  summary {
-    cursor: pointer;
-    font-size: 14px;
-  }
-  .psk {
-    display: flex;
-    gap: 6px;
-    align-items: center;
-    flex-wrap: wrap;
-    margin: 8px 0;
-    font-size: 13px;
-  }
-  .psk code {
-    word-break: break-all;
-    font-size: 12px;
-  }
-  .foot {
-    display: flex;
-    gap: 8px;
-    align-items: center;
-    flex-wrap: wrap;
-    margin-top: 12px;
-    padding-top: 8px;
-    border-top: 1px solid #1f2937;
-  }
-  button,
-  select,
-  input {
-    font: inherit;
-  }
-  button:not(.x):not(.link):not(.tabs button),
-  select,
-  input {
-    padding: 6px 10px;
-    background: #1f2937;
-    color: inherit;
-    border: 1px solid #374151;
-    border-radius: 4px;
-  }
-  button {
-    cursor: pointer;
-  }
-  button:disabled {
-    opacity: 0.5;
-    cursor: default;
-  }
-  button.go {
-    background: #2563eb;
-    border-color: #2563eb;
-    color: #fff;
-  }
-  button.danger {
-    color: #f87171;
-  }
-  button.link {
-    background: none;
-    border: 0;
-    color: #93c5fd;
-    text-decoration: underline;
-    padding: 0;
-  }
+  .overlay { position: fixed; inset: 0; background: var(--scrim); z-index: var(--z-modal); display: flex; align-items: center; justify-content: center; }
+  .box { background: var(--surface-raised); color: var(--ink); border: 1px solid var(--line-strong); border-radius: var(--radius-xl); box-shadow: var(--shadow-3); width: min(720px, 96vw); max-height: 92dvh; overflow: auto; padding: var(--space-3) var(--space-4) var(--space-4); box-sizing: border-box; }
+  header { display: flex; align-items: center; gap: var(--space-2); }
+  h2 { flex: 1; font: 600 18px/24px var(--font-sans); margin: 0; }
+  h3 { font: 600 15px/20px var(--font-sans); margin: var(--space-4) 0 var(--space-1); }
+  p { margin: var(--space-1) 0; }
+  .muted { color: var(--ink-muted); font: 400 13px/18px var(--font-sans); }
+  .row { display: flex; gap: var(--space-2); align-items: flex-end; flex-wrap: wrap; margin: var(--space-2) 0; }
+  .job { display: flex; flex-direction: column; gap: var(--space-2); margin: var(--space-2) 0; }
+  .keyhelp { display: flex; flex-direction: column; gap: var(--space-2); align-items: flex-start; }
+  .tabs { display: flex; overflow-x: auto; border-bottom: 1px solid var(--line); margin: var(--space-3) 0; }
+  .tabs button { flex: none; background: none; border: 0; border-bottom: 2px solid transparent; color: var(--ink-muted); min-height: var(--touch-min); padding: 0 var(--space-3); cursor: pointer; font: 500 14px/20px var(--font-sans); }
+  .tabs button.on { border-bottom-color: var(--accent); color: var(--accent-ink); }
+  .tabs button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+  .key { display: block; word-break: break-all; background: var(--surface-sunken); padding: var(--space-2); border-radius: var(--radius-sm); margin: var(--space-2) 0; font: 400 13px/18px var(--font-mono); }
+  .steps { padding-left: 20px; font: 400 14px/20px var(--font-sans); }
+  .bk { display: flex; justify-content: space-between; gap: var(--space-2); align-items: center; padding: var(--space-2) 0; border-bottom: 1px solid var(--line); font: 400 14px/20px var(--font-sans); }
+  details { border: 1px solid var(--line); border-radius: var(--radius-md); padding: 0 var(--space-3) var(--space-2); margin: var(--space-2) 0; background: var(--surface); }
+  summary { cursor: pointer; min-height: var(--touch-min); display: flex; align-items: center; gap: var(--space-2); font: 500 14px/20px var(--font-sans); }
+  summary:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+  .psk { display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; margin: var(--space-3) 0; }
+  .psk code { word-break: break-all; font: 400 13px/18px var(--font-mono); }
+  .foot { display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; margin-top: var(--space-4); padding-top: var(--space-3); border-top: 1px solid var(--line); }
+  :global(.vp-phone) .box { width: 100vw; max-height: 100dvh; height: 100dvh; border-radius: 0; border: 0; }
+  :global(.vp-phone) .muted { font-size: 14px; line-height: 20px; }
 </style>

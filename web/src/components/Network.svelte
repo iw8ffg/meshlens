@@ -1,22 +1,30 @@
 <script lang="ts">
   import { app } from '../lib/stores.svelte'
-  import { timeAgo } from '../lib/format'
-  import { batteryLabel, sortNodes, type SortKey } from '../lib/network'
+  import { ago } from '../lib/format'
+  import { sortNodes, type SortKey } from '../lib/network'
+  import { alertText, alertsByNode, batteryView, contactMinutes, fmtOpt, nodeName } from '../lib/nodes'
+  import Banner from '../lib/ui/Banner.svelte'
+  import BatteryBadge from '../lib/ui/BatteryBadge.svelte'
+  import Badge from '../lib/ui/Badge.svelte'
+  import Empty from '../lib/ui/Empty.svelte'
+  import SnrBadge from '../lib/ui/SnrBadge.svelte'
+  import Switch from '../lib/ui/Switch.svelte'
+  import Table, { type Column } from '../lib/ui/Table.svelte'
   import type { Node } from '../lib/types'
 
   let { nodes, now, onpick }: { nodes: Node[]; now: number; onpick: (n: Node) => void } = $props()
 
-  const COLS: [SortKey, string][] = [
-    ['name', 'Nome'],
-    ['last_heard', 'Ultimo'],
-    ['role', 'Ruolo'],
-    ['firmware', 'Firmware'],
-    ['battery', 'Batt.'],
-    ['voltage', 'Volt'],
-    ['snr', 'SNR'],
-    ['hops', 'Salti'],
-    ['channel_util', 'Can. %'],
-    ['air_util_tx', 'Tx %'],
+  const COLS: (Column & { key: SortKey })[] = [
+    { key: 'name', label: 'Nodo', fix: true, sortable: true },
+    { key: 'last_heard', label: 'Ultimo', sortable: true },
+    { key: 'role', label: 'Ruolo', sortable: true },
+    { key: 'firmware', label: 'Firmware', sortable: true },
+    { key: 'battery', label: 'Batteria', sortable: true },
+    { key: 'voltage', label: 'Volt', num: true, sortable: true },
+    { key: 'snr', label: 'SNR', sortable: true },
+    { key: 'hops', label: 'Salti', num: true, sortable: true },
+    { key: 'channel_util', label: 'Can. %', num: true, sortable: true },
+    { key: 'air_util_tx', label: 'Tx %', num: true, sortable: true },
   ]
 
   const hasMine = $derived(nodes.some((n) => n.is_mine))
@@ -27,145 +35,86 @@
   let dir = $state<'asc' | 'desc'>('desc')
 
   const rows = $derived(sortNodes(onlyMine ? nodes.filter((n) => n.is_mine) : nodes, key, dir))
+  const alerts = $derived(alertsByNode(app.alerts))
+  const alertRows = $derived(rows.filter((n) => alerts.has(n.id)))
 
-  function sortBy(k: SortKey) {
-    if (k === key) dir = dir === 'asc' ? 'desc' : 'asc'
+  function sortBy(k: string) {
+    const sk = k as SortKey
+    if (sk === key) dir = dir === 'asc' ? 'desc' : 'asc'
     else {
-      key = k
-      dir = k === 'name' || k === 'role' || k === 'firmware' ? 'asc' : 'desc'
-    }
-  }
-
-  const num = (v: number | null, d = 1) => (v === null ? '—' : v.toFixed(d).replace('.', ','))
-  const cell = (n: Node, k: SortKey): string => {
-    switch (k) {
-      case 'name':
-        return n.long_name || n.short_name || n.id
-      case 'last_heard':
-        return timeAgo(n.last_heard, now)
-      case 'role':
-        return n.role ?? '—'
-      case 'firmware':
-        return n.firmware ?? '—'
-      case 'battery':
-        return batteryLabel(n.battery)
-      case 'voltage':
-        return n.voltage === null ? '—' : `${num(n.voltage, 2)} V`
-      case 'snr':
-        return n.last_snr === null ? '—' : `${num(n.last_snr)} dB`
-      case 'hops':
-        return n.hops === null ? '—' : String(n.hops)
-      case 'channel_util':
-        return num(n.channel_util)
-      case 'air_util_tx':
-        return num(n.air_util_tx)
+      key = sk
+      dir = sk === 'name' || sk === 'role' || sk === 'firmware' ? 'asc' : 'desc'
     }
   }
 </script>
 
-<div class="bar">
-  <label class="inline">
-    <input type="checkbox" checked={onlyMine} onchange={(e) => (mineChoice = e.currentTarget.checked)} />
-    Solo i miei nodi
-  </label>
-</div>
-{#if onlyMine && !hasMine}
-  <p class="empty">Nessun nodo segnato come tuo: aprilo e premi ☆</p>
-{:else}
-  <div class="scroll">
-    <table>
-      <thead>
-        <tr>
-          {#each COLS as [k, label] (k)}
-            <th aria-sort={key === k ? (dir === 'asc' ? 'ascending' : 'descending') : 'none'}>
-              <button onclick={() => sortBy(k)}>{label}{key === k ? (dir === 'asc' ? ' ▲' : ' ▼') : ''}</button>
-            </th>
-          {/each}
-        </tr>
-      </thead>
-      <tbody>
-        {#each rows as n (n.id)}
-          <tr class:sel={app.selectedId === n.id} onclick={() => onpick(n)}>
-            {#each COLS as [k] (k)}
-              <td class:first={k === 'name'}>{cell(n, k)}</td>
-            {/each}
-          </tr>
-        {:else}
-          <tr><td class="empty" colspan={COLS.length}>Nessun nodo</td></tr>
-        {/each}
-      </tbody>
-    </table>
+<div class="net">
+  <div class="bar">
+    <Switch checked={onlyMine} label="Solo i miei nodi" onchange={(v) => (mineChoice = v)} />
+    <span class="ui-muted">{rows.length} {rows.length === 1 ? 'nodo' : 'nodi'}</span>
   </div>
-{/if}
+
+  {#if alertRows.length > 0}
+    <div class="alerts">
+      {#each alertRows as n (n.id)}
+        {#each alerts.get(n.id) ?? [] as a (a.key)}
+          <Banner kind="warn" title={nodeName(n)}>{alertText(a)}</Banner>
+        {/each}
+      {/each}
+    </div>
+  {/if}
+
+  {#if onlyMine && !hasMine}
+    <Empty icon="star" title="Nessun nodo seguito">Apri un nodo e premi la stella per seguirlo qui.</Empty>
+  {:else if rows.length === 0}
+    <Empty icon="network" title="Nessun nodo" />
+  {:else}
+    <Table columns={COLS} {rows} rowKey={(n) => n.id} sortKey={key} sortDir={dir} onsort={sortBy} selectedKey={app.selectedId} onrowclick={onpick} caption="Nodi della rete">
+      {#snippet cell(n, c)}
+        {#if c.key === 'name'}
+          <b>{nodeName(n)}</b>
+        {:else if c.key === 'last_heard'}
+          {ago(contactMinutes(n.last_heard, now))}
+        {:else if c.key === 'role'}
+          {#if n.role}<Badge>{n.role}</Badge>{:else}–{/if}
+        {:else if c.key === 'firmware'}
+          {n.firmware ?? '–'}
+        {:else if c.key === 'battery'}
+          {@const b = batteryView(n.battery)}
+          {#if b}<BatteryBadge pct={b.pct} usb={b.usb} />{:else}–{/if}
+        {:else if c.key === 'voltage'}
+          {fmtOpt(n.voltage, 2)}
+        {:else if c.key === 'snr'}
+          <SnrBadge value={n.last_snr} />
+        {:else if c.key === 'hops'}
+          {n.hops ?? '–'}
+        {:else if c.key === 'channel_util'}
+          {fmtOpt(n.channel_util)}
+        {:else if c.key === 'air_util_tx'}
+          {fmtOpt(n.air_util_tx)}
+        {/if}
+      {/snippet}
+    </Table>
+  {/if}
+</div>
 
 <style>
-  .bar {
-    padding: 8px;
-    border-bottom: 1px solid #1f2937;
-    font-size: 13px;
+  .net {
+    padding: var(--space-3);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
   }
-  .inline {
+  .bar {
     display: flex;
     align-items: center;
-    gap: 6px;
+    justify-content: space-between;
+    gap: var(--space-3);
+    flex-wrap: wrap;
   }
-  .scroll {
-    overflow-x: auto;
-  }
-  table {
-    border-collapse: separate;
-    border-spacing: 0;
-    width: 100%;
-    font-size: 12px;
-    white-space: nowrap;
-  }
-  th,
-  td {
-    padding: 6px 8px;
-    text-align: left;
-    border-bottom: 1px solid #1f2937;
-    background: #111827;
-  }
-  th button {
-    background: none;
-    border: 0;
-    color: #9ca3af;
-    font: inherit;
-    cursor: pointer;
-    padding: 0;
-  }
-  tbody tr {
-    cursor: pointer;
-  }
-  tbody tr:hover td,
-  tr.sel td {
-    background: #1f2937;
-  }
-  /* Prima colonna ferma nello scorrimento orizzontale */
-  th:first-child,
-  td.first {
-    position: sticky;
-    left: 0;
-    z-index: 1;
-    max-width: 140px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .empty {
-    padding: 16px;
-    color: #9ca3af;
-    margin: 0;
-  }
-  @media (max-width: 767px) {
-    table {
-      font-size: 13px;
-    }
-    th button {
-      min-height: 40px;
-      padding: 0 4px;
-    }
-    .inline {
-      min-height: 40px;
-    }
+  .alerts {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
   }
 </style>

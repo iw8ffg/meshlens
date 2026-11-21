@@ -75,7 +75,7 @@ Elenco generato con `pip-licenses` sull'ambiente del progetto, limitato alle dip
 
 Il bootloader di PyInstaller è coperto da un'eccezione che consente di distribuire le applicazioni create sotto una licenza qualsiasi. / The PyInstaller bootloader carries an exception that allows the resulting applications to be distributed under any license.
 
-I testi completi delle licenze sono nella cartella `licenses\` dell'installer (`python.txt`, OFL dei caratteri, MIT degli sprite, BSD-3 di go-pmtiles). / Full license texts are in the installer's `licenses\` folder.
+I testi completi delle licenze sono nella cartella `licenses\` dell'installer (`python.txt`, OFL di Noto Sans e di IBM Plex, ISC di Lucide, MIT degli sprite e di flag-icons, BSD-3 di go-pmtiles). / Full license texts are in the installer's `licenses\` folder.
 
 ## JavaScript (interfaccia, dipendenze di produzione / UI, production dependencies)
 
@@ -83,6 +83,11 @@ I testi completi delle licenze sono nella cartella `licenses\` dell'installer (`
 |---|---|---|
 | @protomaps/basemaps | 5.7.2 | BSD-3-Clause |
 | maplibre-gl | 6.19.0 | BSD-3-Clause |
+| @lucide/svelte (icone / icons) | 1.77.x | ISC |
+| @fontsource/ibm-plex-sans (IBM Plex Sans) | 5.3.x | SIL OFL-1.1 |
+| @fontsource/ibm-plex-mono (IBM Plex Mono) | 5.3.x | SIL OFL-1.1 |
+
+Le bandiere SVG (flag-icons 7.6, MIT) sono copiate in `web/public/flags` in fase di sviluppo e distribuite con l'interfaccia. / The flag SVGs (flag-icons 7.6, MIT) are copied into `web/public/flags` at development time and shipped with the UI.
 
 ## Strumenti e risorse / Tools and assets
 
@@ -90,7 +95,10 @@ I testi completi delle licenze sono nella cartella `licenses\` dell'installer (`
 |---|---|---|
 | [go-pmtiles](https://github.com/protomaps/go-pmtiles) | BSD-3-Clause | incluso come `tools\pmtiles.exe` / bundled as `tools\pmtiles.exe` |
 | Noto Sans (Regular, Medium, Italic) | SIL OFL-1.1 | glifi in `web/public/map-assets/fonts`, Copyright dei Noto Project Authors, via [protomaps/basemaps-assets](https://github.com/protomaps/basemaps-assets) |
-| Sprite Protomaps / tangrams icons | MIT | `web/public/map-assets/sprites` |
+| Sprite Protomaps / tangrams icons | MIT | `web/public/map-assets/sprites` (light e dark / light and dark) |
+| IBM Plex Sans e Mono | SIL OFL-1.1 | caratteri dell'interfaccia, Copyright IBM Corp., via @fontsource / UI typefaces |
+| [Lucide](https://lucide.dev) | ISC | icone dell'interfaccia / UI icons |
+| [flag-icons](https://github.com/lipis/flag-icons) | MIT | bandiere delle nazioni / country flags |
 | [Natural Earth](https://www.naturalearthdata.com) | Pubblico dominio / Public domain | confini delle nazioni (`countries.geojson`) / country borders |
 
 ## Dati / Data

@@ -1,16 +1,13 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { getJSON } from '../lib/api'
-  import { flag } from '../lib/format'
   import { app } from '../lib/stores.svelte'
+  import { AGE_OPTIONS, SOURCE_OPTIONS, toggleIn } from '../lib/nodes'
+  import Flag from '../lib/ui/Flag.svelte'
+  import Icon from '../lib/ui/Icon.svelte'
+  import Check from '../lib/ui/Check.svelte'
 
   type Country = { code: string; name: string; nodes: number }
-  const AGES: [string, number | null][] = [
-    ['Tutti', null],
-    ['2 h', 2],
-    ['24 h', 24],
-    ['7 g', 168],
-  ]
 
   let countries = $state<Country[]>([])
   let error = $state('')
@@ -28,115 +25,90 @@
     }
   })
 
-  function toggle(code: string) {
-    const c = app.filter.countries
-    app.filter.countries = c.includes(code) ? c.filter((x) => x !== code) : [...c, code]
-  }
+  const countryLabel = $derived(app.filter.countries.length === 0 ? 'tutte' : String(app.filter.countries.length))
 </script>
 
 <div class="filters">
-  <input type="search" placeholder="Cerca nome o id…" aria-label="Cerca nodi" bind:value={app.filter.text} />
+  <div class="search">
+    <Icon name="search" size={18} />
+    <input class="ui-input" type="search" placeholder="Cerca nome o id…" aria-label="Cerca nodi" bind:value={app.filter.text} />
+  </div>
   <div class="row" role="group" aria-label="Ultimo contatto">
-    {#each AGES as [label, h] (label)}
-      <button class="chip" class:on={app.filter.maxAgeH === h} onclick={() => (app.filter.maxAgeH = h)}>{label}</button>
+    {#each AGE_OPTIONS as o (o.label)}
+      <button type="button" class="ui-chip" aria-pressed={app.filter.maxAgeH === o.hours} onclick={() => (app.filter.maxAgeH = o.hours)}>{o.label}</button>
     {/each}
   </div>
-  <label class="sw">
-    <input type="checkbox" bind:checked={app.filter.links} />
-    <span>Collegamenti</span>
-  </label>
+  <div class="row" role="group" aria-label="Fonte">
+    {#each SOURCE_OPTIONS as o (o.value)}
+      <button type="button" class="ui-chip" aria-pressed={app.filter.sources.includes(o.value)} onclick={() => (app.filter.sources = toggleIn(app.filter.sources, o.value))}>{o.label}</button>
+    {/each}
+  </div>
+  <Check bind:checked={app.filter.links} label="Collegamenti" />
   <details>
-    <summary>Nazioni ({app.filter.countries.length === 0 ? 'tutte' : app.filter.countries.length})</summary>
+    <summary>Nazioni ({countryLabel})</summary>
     {#if error}<p class="err">{error}</p>{/if}
-    <button class="chip" onclick={() => (app.filter.countries = [])}>Tutte</button>
-    <ul>
+    <div class="row wrap">
+      <button type="button" class="ui-chip" aria-pressed={app.filter.countries.length === 0} onclick={() => (app.filter.countries = [])}>Tutte</button>
       {#each countries as c (c.code)}
-        <li>
-          <label>
-            <input type="checkbox" checked={app.filter.countries.includes(c.code)} onchange={() => toggle(c.code)} />
-            <span>{c.code === 'none' ? '❔' : flag(c.code)} {c.name}</span>
-            <span class="n">{c.nodes}</span>
-          </label>
-        </li>
+        <button type="button" class="ui-chip" aria-pressed={app.filter.countries.includes(c.code)} onclick={() => (app.filter.countries = toggleIn(app.filter.countries, c.code))}>
+          {#if c.code !== 'none'}<Flag code={c.code} name={c.name} />{/if}{c.code === 'none' ? 'Sconosciuta' : c.name}
+          <span class="n">{c.nodes}</span>
+        </button>
       {/each}
-    </ul>
+    </div>
   </details>
 </div>
 
 <style>
   .filters {
-    padding: 8px;
+    padding: var(--space-3);
     display: flex;
     flex-direction: column;
-    gap: 8px;
-    border-bottom: 1px solid #1f2937;
+    gap: var(--space-3);
+    border-bottom: 1px solid var(--line);
   }
-  input[type='search'] {
-    padding: 6px 8px;
-    background: #1f2937;
-    color: inherit;
-    border: 1px solid #374151;
-    border-radius: 6px;
+  .search {
+    position: relative;
+    display: flex;
+    align-items: center;
+    color: var(--ink-muted);
+  }
+  .search :global(.ui-ic) {
+    position: absolute;
+    left: var(--space-3);
+    pointer-events: none;
+  }
+  .search .ui-input {
+    padding-left: 38px;
   }
   .row {
     display: flex;
-    gap: 6px;
+    gap: var(--space-2);
+    flex-wrap: wrap;
   }
-  .chip {
-    background: #1f2937;
-    color: inherit;
-    border: 1px solid #374151;
-    border-radius: 999px;
-    padding: 3px 10px;
-    cursor: pointer;
-  }
-  .chip.on {
-    background: #2563eb;
-    border-color: #2563eb;
-  }
-  ul {
-    list-style: none;
-    margin: 6px 0 0;
-    padding: 0;
-    max-height: 200px;
+  .row.wrap {
+    max-height: 220px;
     overflow: auto;
+    margin-top: var(--space-2);
   }
-  label {
+  summary {
+    min-height: var(--touch-min);
     display: flex;
-    gap: 6px;
     align-items: center;
-    padding: 2px 0;
     cursor: pointer;
+    color: var(--ink);
+    font: 600 14px/20px var(--font-sans);
   }
   .n {
-    margin-left: auto;
-    color: #9ca3af;
+    font-family: var(--font-mono);
+    color: var(--ink-muted);
     font-size: 12px;
   }
   .err {
-    color: #f87171;
+    color: var(--danger);
+    margin: 0;
   }
-  @media (max-width: 767px) {
-    input[type='search'] {
-      min-height: 40px;
-      box-sizing: border-box;
-      font-size: 16px;
-    }
-    .chip {
-      min-height: 40px;
-      padding: 6px 14px;
-    }
-    label {
-      min-height: 40px;
-      padding: 0;
-    }
-    summary {
-      min-height: 40px;
-      display: flex;
-      align-items: center;
-    }
-    .n {
-      font-size: 13px;
-    }
+  :global(.vp-phone) .n {
+    font-size: 14px;
   }
 </style>

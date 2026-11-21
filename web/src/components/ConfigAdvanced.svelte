@@ -18,7 +18,7 @@
 </script>
 
 <div>
-  <p class="note">Tutte le altre impostazioni del nodo. I segreti si possono solo sostituire, mai leggere.</p>
+  <p class="note ui-hint">Tutte le altre impostazioni del nodo. I segreti si possono solo sostituire, mai leggere.</p>
   {#each sections as s (s.key)}
     <details>
       <summary>{s.label}</summary>
@@ -37,18 +37,8 @@
 </div>
 
 <style>
-  .note {
-    color: #9ca3af;
-    font-size: 12px;
-  }
-  details {
-    border: 1px solid #1f2937;
-    border-radius: 6px;
-    padding: 4px 8px;
-    margin: 6px 0;
-  }
-  summary {
-    cursor: pointer;
-    font-size: 14px;
-  }
+  .note { margin: 0 0 var(--space-2); }
+  details { border: 1px solid var(--line); border-radius: var(--radius-md); padding: 0 var(--space-3); margin: var(--space-2) 0; background: var(--surface-raised); color: var(--ink); }
+  summary { cursor: pointer; min-height: var(--touch-min); display: flex; align-items: center; font: 500 14px/20px var(--font-sans); }
+  summary:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 </style>

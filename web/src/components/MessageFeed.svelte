@@ -1,7 +1,15 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { getJSON } from '../lib/api'
-  import { flag, timeAgo } from '../lib/format'
+  import { ago } from '../lib/format'
+  import { statusIcon } from '../lib/chat'
+  import { statusAria } from '../lib/send'
+  import Badge from '../lib/ui/Badge.svelte'
+  import Banner from '../lib/ui/Banner.svelte'
+  import Button from '../lib/ui/Button.svelte'
+  import Check from '../lib/ui/Check.svelte'
+  import Empty from '../lib/ui/Empty.svelte'
+  import Flag from '../lib/ui/Flag.svelte'
   import { app, addMessage } from '../lib/stores.svelte'
   import { matchFeed } from '../lib/filters'
   import type { Message } from '../lib/types'
@@ -23,7 +31,8 @@
     for (const m of [...older, ...app.messages]) byKey.set(m.key, m)
     return [...byKey.values()].filter((m) => !m.radio_id).sort((a, b) => b.time - a.time)
   })
-  const shown = $derived(all.filter((m) => matchFeed(m.country, app.feedFilter)))
+  // i messaggi inviati da qui restano sempre visibili, qualunque sia il filtro
+  const shown = $derived(all.filter((m) => m.direction === 'out' || matchFeed(m.country, app.feedFilter)))
   const hidden = $derived(all.length - shown.length)
 
   const qs = (extra: string) => `limit=${LIMIT}${extra}`
@@ -66,80 +75,77 @@
     <summary>
       Filtro messaggi ({app.feedFilter.countries.length === 0 ? 'tutte le nazioni' : `${app.feedFilter.countries.length} nazioni`})
     </summary>
-    <label class="opt"><input type="checkbox" bind:checked={app.feedFilter.includeUnknown} /> Includi nodi senza posizione</label>
-    <button class="chip" onclick={() => (app.feedFilter.countries = [])}>Tutte le nazioni</button>
-    <ul class="cl">
+    <Check bind:checked={app.feedFilter.includeUnknown} label="Includi nodi senza posizione" />
+    <div class="chips">
+      <button type="button" class="ui-chip" aria-pressed={app.feedFilter.countries.length === 0} onclick={() => (app.feedFilter.countries = [])}>Tutte le nazioni</button>
       {#each countries as c (c.code)}
-        <li>
-          <label class="opt">
-            <input type="checkbox" checked={app.feedFilter.countries.includes(c.code)} onchange={() => toggle(c.code)} />
-            <span>{flag(c.code)} {c.name}</span>
-          </label>
-        </li>
+        <button type="button" class="ui-chip" aria-pressed={app.feedFilter.countries.includes(c.code)} onclick={() => toggle(c.code)}>
+          <Flag code={c.code} name={c.name} />{c.name}
+        </button>
       {/each}
-    </ul>
+    </div>
   </details>
   {#if hidden > 0}<p class="hid" role="status">{hidden} {hidden === 1 ? 'messaggio nascosto' : 'messaggi nascosti'} dal filtro</p>{/if}
-  {#if error}<p class="err" role="alert">{error}</p>{/if}
-  {#if shown.length === 0 && !error}<p class="empty">Nessun messaggio</p>{/if}
+  {#if error}<div class="pad"><Banner kind="danger" title={error} /></div>{/if}
+  {#if shown.length === 0 && !error}<Empty icon="chat" title="Nessun messaggio" />{/if}
   <ul>
     {#each shown as m (m.key)}
-      <li>
+      {@const out = m.direction === 'out'}
+      <li class:out>
         <div class="head">
-          <span title={m.country ?? 'Posizione sconosciuta'}>{m.country ? flag(m.country) : '?'}</span>
-          <button class="name" onclick={() => onpick(m.from)}>{m.from_name ?? m.from}</button>
-          {#if m.channel}<span class="ch">{m.channel}</span>{/if}
-          <span class="t">{timeAgo(m.time, now)}</span>
+          <Flag code={m.country} name={m.country ?? 'Posizione sconosciuta'} />
+          {#if out}
+            <b class="name">Tu</b>
+          {:else}
+            <button type="button" class="name" onclick={() => onpick(m.from)}>{m.from_name ?? m.from}</button>
+          {/if}
+          {#if m.channel}<Badge>{m.channel}</Badge>{/if}
+          {#if out}<Badge kind="info">via MQTT</Badge>{/if}
+          <span class="t">{ago((now - m.time) / 60)}</span>
+          {#if out && m.status}
+            <span class="st" role="img" title={statusAria(m.status, m.via)} aria-label={statusAria(m.status, m.via)}>{statusIcon(m.status)}</span>
+          {/if}
         </div>
         <p class="text">{m.text}</p>
       </li>
     {/each}
   </ul>
   {#if !exhausted && shown.length > 0}
-    <button class="more" onclick={loadOlder} disabled={loading}>
-      {loading ? 'Caricamento…' : 'Carica precedenti'}
-    </button>
+    <div class="more"><Button onclick={loadOlder} disabled={loading}>{loading ? 'Caricamento…' : 'Carica precedenti'}</Button></div>
   {/if}
 </div>
 
 <style>
+  .feed {
+    color: var(--ink);
+  }
   .ff {
-    padding: 6px 8px;
-    border-bottom: 1px solid #1f2937;
-    font-size: 13px;
+    padding: var(--space-1) var(--space-3);
+    border-bottom: 1px solid var(--line);
   }
   .ff summary {
     cursor: pointer;
-    min-height: 40px;
+    min-height: var(--touch-min);
     display: flex;
     align-items: center;
+    font: 600 14px/20px var(--font-sans);
   }
-  .opt {
+  .chips {
     display: flex;
-    gap: 6px;
-    align-items: center;
-    min-height: 40px;
-    cursor: pointer;
-  }
-  .chip {
-    background: #1f2937;
-    color: inherit;
-    border: 1px solid #374151;
-    border-radius: 999px;
-    padding: 6px 14px;
-    min-height: 40px;
-    font-size: 13px;
-    cursor: pointer;
-  }
-  .cl {
+    gap: var(--space-2);
+    flex-wrap: wrap;
     max-height: 200px;
     overflow: auto;
+    padding: var(--space-2) 0 var(--space-3);
   }
   .hid {
     margin: 0;
-    padding: 6px 8px;
+    padding: var(--space-2) var(--space-3);
     font-size: 13px;
-    color: #fbbf24;
+    color: var(--warn);
+  }
+  .pad {
+    padding: var(--space-3);
   }
   ul {
     list-style: none;
@@ -147,61 +153,54 @@
     padding: 0;
   }
   li {
-    padding: 8px;
-    border-bottom: 1px solid #1f2937;
+    padding: var(--space-3);
+    border-bottom: 1px solid var(--line);
+  }
+  li.out {
+    background: var(--accent-soft);
   }
   .head {
     display: flex;
-    gap: 6px;
-    align-items: baseline;
+    gap: var(--space-2);
+    align-items: center;
+    flex-wrap: wrap;
     font-size: 13px;
   }
   .name {
     background: none;
     border: 0;
     padding: 0;
-    color: #93c5fd;
-    font: inherit;
-    font-weight: 600;
+    min-height: 24px;
+    color: var(--accent-ink);
+    font: 600 14px/20px var(--font-sans);
     cursor: pointer;
     text-align: left;
     overflow-wrap: anywhere;
   }
-  .ch {
-    color: #9ca3af;
+  b.name {
+    cursor: default;
   }
   .t {
     margin-left: auto;
-    color: #9ca3af;
+    color: var(--ink-muted);
     white-space: nowrap;
-    font-size: 13px;
+  }
+  .st {
+    min-width: 20px;
+    text-align: right;
   }
   .text {
-    margin: 4px 0 0;
+    margin: var(--space-1) 0 0;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
   }
   .more {
-    display: block;
-    margin: 8px auto;
-    padding: 6px 12px;
-    min-height: 40px;
-    font-size: 13px;
-    background: #1f2937;
-    color: inherit;
-    border: 1px solid #374151;
-    border-radius: 6px;
-    cursor: pointer;
+    display: flex;
+    justify-content: center;
+    padding: var(--space-3);
   }
-  .empty,
-  .err {
-    padding: 8px 16px;
-    margin: 0;
-  }
-  .empty {
-    color: #9ca3af;
-  }
-  .err {
-    color: #f87171;
+  :global(.vp-phone) .head,
+  :global(.vp-phone) .hid {
+    font-size: 14px;
   }
 </style>

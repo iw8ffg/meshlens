@@ -1,5 +1,6 @@
 <script lang="ts">
   import { getJSON, telemetry } from '../lib/api'
+  import { num } from '../lib/format'
   import { batterySeries, isolatedPoints, linePath, niceRange, voltageSeries } from '../lib/chart'
   import type { AppSettings } from '../lib/settings'
   import type { TelemetryPoint } from '../lib/types'
@@ -63,15 +64,13 @@
   const batDots = $derived(isolatedPoints(bat, x0, x1, 0, 100, W, H))
   const voltDots = $derived(isolatedPoints(volt, x0, x1, vRange[0], vRange[1], W, H))
   const thY = $derived(H - (threshold / 100) * H)
-  const fmtV = (v: number) => v.toFixed(1).replace('.', ',')
+  const fmtV = (v: number) => num(v, 1)
 </script>
 
 <h3>Telemetria</h3>
 <div class="periods" role="group" aria-label="Periodo">
   {#each PERIODS as p (p.hours)}
-    <button class:on={hours === p.hours} aria-pressed={hours === p.hours} onclick={() => (hours = p.hours)}>
-      {p.label}
-    </button>
+    <button type="button" class="ui-chip" aria-pressed={hours === p.hours} onclick={() => (hours = p.hours)}>{p.label}</button>
   {/each}
 </div>
 {#if error}
@@ -94,68 +93,57 @@
     <div class="axis right"><span>{fmtV(vRange[1])} V</span><span>{fmtV(vRange[0])} V</span></div>
   </div>
   <p class="legend">
-    <span class="k bat">Batteria %</span>
-    <span class="k volt">Tensione V</span>
-    <span class="k thr">Soglia {threshold}%</span>
+    <span class="k bat"><i></i>Batteria %</span>
+    <span class="k volt"><i></i>Tensione V</span>
+    <span class="k thr"><i></i>Soglia {threshold}%</span>
   </p>
 {/if}
 
 <style>
   h3 {
-    font-size: 14px;
-    margin: 10px 0 4px;
+    font: 600 14px/20px var(--font-sans);
+    margin: var(--space-4) 0 var(--space-2);
   }
   .periods {
     display: flex;
-    gap: 4px;
-    margin-bottom: 6px;
-  }
-  .periods button {
-    background: #1f2937;
-    color: inherit;
-    border: 1px solid #374151;
-    border-radius: 6px;
-    padding: 2px 10px;
-    cursor: pointer;
-    font-size: 13px;
-  }
-  .periods button.on {
-    background: #2563eb;
-    border-color: #2563eb;
+    gap: var(--space-2);
+    margin-bottom: var(--space-2);
   }
   .chart {
     position: relative;
-    padding: 0 44px;
+    padding: 0 48px;
   }
   svg {
     width: 100%;
     height: 120px;
     display: block;
+    border-radius: var(--radius-sm);
   }
   .bg {
-    fill: #111827;
+    fill: var(--surface-sunken);
   }
   path {
     fill: none;
-    stroke-width: 1.5;
+    stroke-width: 2;
     vector-effect: non-scaling-stroke;
   }
   path.bat {
-    stroke: #34d399;
+    stroke: var(--ok);
   }
   path.volt {
-    stroke: #60a5fa;
+    stroke: var(--accent);
+    stroke-dasharray: 6 3;
   }
   circle.dot.bat {
-    fill: #34d399;
+    fill: var(--ok);
   }
   circle.dot.volt {
-    fill: #60a5fa;
+    fill: var(--accent);
   }
   line.thr {
-    stroke: #f87171;
+    stroke: var(--danger);
     stroke-width: 1;
-    stroke-dasharray: 4 3;
+    stroke-dasharray: 1 3;
     vector-effect: non-scaling-stroke;
   }
   .axis {
@@ -165,8 +153,8 @@
     display: flex;
     flex-direction: column;
     justify-content: space-between;
-    font-size: 11px;
-    color: #9ca3af;
+    font: 400 12px/16px var(--font-mono);
+    color: var(--ink-muted);
   }
   .axis.left {
     left: 0;
@@ -176,26 +164,46 @@
   }
   .legend {
     display: flex;
-    gap: 10px;
+    gap: var(--space-3);
+    flex-wrap: wrap;
     font-size: 12px;
-    margin: 4px 0;
+    margin: var(--space-2) 0;
+    color: var(--ink-muted);
   }
-  .k.bat {
-    color: #34d399;
+  .k {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
   }
-  .k.volt {
-    color: #60a5fa;
+  .k i {
+    width: 18px;
+    height: 0;
+    border-top: 2px solid;
   }
-  .k.thr {
-    color: #f87171;
+  .k.bat i {
+    border-color: var(--ok);
+  }
+  .k.volt i {
+    border-color: var(--accent);
+    border-top-style: dashed;
+  }
+  .k.thr i {
+    border-color: var(--danger);
+    border-top-style: dotted;
   }
   .none {
-    margin: 0 0 8px;
+    margin: 0 0 var(--space-2);
     font-size: 13px;
-    color: #9ca3af;
+    color: var(--ink-muted);
   }
   .msg {
-    color: #fbbf24;
+    color: var(--warn);
     font-size: 13px;
+  }
+  :global(.vp-phone) .axis,
+  :global(.vp-phone) .legend,
+  :global(.vp-phone) .none,
+  :global(.vp-phone) .msg {
+    font-size: 14px;
   }
 </style>

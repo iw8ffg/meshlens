@@ -1,10 +1,20 @@
 <script lang="ts">
   import { onMount } from 'svelte'
+  import Banner from '../lib/ui/Banner.svelte'
+  import Button from '../lib/ui/Button.svelte'
+  import Card from '../lib/ui/Card.svelte'
+  import Field from '../lib/ui/Field.svelte'
+  import Icon from '../lib/ui/Icon.svelte'
+  import Segmented from '../lib/ui/Segmented.svelte'
+  import Skeleton from '../lib/ui/Skeleton.svelte'
+  import Switch from '../lib/ui/Switch.svelte'
+  import MeshtasticBadge from '../lib/shell/MeshtasticBadge.svelte'
+  import { getTheme, THEME_LABELS, type ThemePref } from '../lib/theme'
   import { getJSON, send, ApiError } from '../lib/api'
-  import { flag } from '../lib/format'
+  import Flag from '../lib/ui/Flag.svelte'
   import OfflineMaps from './OfflineMaps.svelte'
   import Updates from './Updates.svelte'
-  import { channelOptions, joinLines, parseLines, type AppSettings, type MqttChannel } from '../lib/settings'
+  import { channelOptions, checkMqttNodeId, joinLines, parseLines, type AppSettings, type MqttChannel } from '../lib/settings'
 
   let { onlogout }: { onlogout: () => void } = $props()
 
@@ -29,6 +39,11 @@
   let onlyChosen = $state(false)
   let chosen = $state<string[]>([])
   let seenChannels = $state<MqttChannel[]>([])
+  let nodeId = $state('')
+  let version = $state('')
+  let themePref = $state<ThemePref>('auto')
+  const themeItems = (Object.keys(THEME_LABELS) as ThemePref[]).map((v) => ({ value: v, label: THEME_LABELS[v] }))
+  const nodeIdCheck = $derived(checkMqttNodeId(nodeId))
   let loaded = $state(false)
   let loadError = $state('')
   let error = $state('')
@@ -51,10 +66,20 @@
     topics = joinLines(s.mqtt.topics)
     keys = joinLines(s.mqtt.extra_keys)
     chosen = [...(s.mqtt_channels ?? [])]
+    nodeId = s.mqtt_node_id ?? ''
     onlyChosen = chosen.length > 0
   }
 
+  onMount(() => {
+    const ctl = getTheme()
+    themePref = ctl.pref()
+    return ctl.subscribe((_t, p) => (themePref = p))
+  })
+
   onMount(async () => {
+    getJSON<{ version: string }>('/version')
+      .then((v) => (version = v.version))
+      .catch(() => {})
     try {
       apply(await getJSON<AppSettings>('/settings'))
       loaded = true
@@ -94,6 +119,7 @@
   async function save(e: Event) {
     e.preventDefault()
     error = ok = ''
+    if (!nodeIdCheck.ok) return
     busy = true
     try {
       const res = await send<AppSettings>('PUT', '/settings', {
@@ -104,6 +130,7 @@
         storage_cap_mb: capMb,
         lan_access: lan,
         mqtt_channels: onlyChosen ? chosen : [],
+        mqtt_node_id: nodeIdCheck.value,
         battery_alert_pct: batteryPct,
         silent_alert_hours: silentH,
         mqtt: {
@@ -134,189 +161,165 @@
   }
 </script>
 
-{#if loadError}
-  <p class="err">{loadError}</p>
-{:else if !loaded}
-  <p class="muted">Caricamento…</p>
-{:else}
-  <form onsubmit={save}>
-    <fieldset>
-      <legend>Nazioni da salvare nello storico</legend>
-      <ul class="countries">
-        {#each options as c (c.code)}
-          <li>
-            <label>
-              <input type="checkbox" checked={saved.includes(c.code)} onchange={() => toggle(c.code)} />
-              {flag(c.code)} {c.name}
-            </label>
-          </li>
-        {/each}
-      </ul>
-    </fieldset>
+<div class="settings">
+  <h2>Impostazioni</h2>
 
-    <fieldset>
-      <legend>Conservazione</legend>
-      <label>Messaggi (giorni) <input type="number" min="1" bind:value={retMsg} /></label>
-      <label>Posizioni (giorni) <input type="number" min="1" bind:value={retPos} /></label>
-      <label>Telemetria (giorni) <input type="number" min="1" bind:value={retTel} /></label>
-      <label>Limite spazio (MB) <input type="number" min="1" bind:value={capMb} /></label>
-    </fieldset>
+  <Card>
+    <section class="sec">
+      <h3>Aspetto</h3>
+      <div class="fld">
+        <span class="ui-lbl">Tema</span>
+        <Segmented items={themeItems} bind:value={themePref} label="Tema" onchange={(v) => getTheme().setPref(v)} />
+        <span class="ui-hint">Auto segue il tema del dispositivo.</span>
+      </div>
+    </section>
+  </Card>
 
-    <fieldset>
-      <legend>Avvisi (solo nodi miei)</legend>
-      <label>Avviso batteria sotto (%) <input type="number" min="1" max="99" bind:value={batteryPct} /></label>
-      <label>Avviso nodo silenzioso dopo (ore) <input type="number" min="1" max="168" bind:value={silentH} /></label>
-    </fieldset>
+  {#if loadError}
+    <Banner kind="danger" title={loadError} />
+  {:else if !loaded}
+    <Skeleton tall />
+    <Skeleton tall />
+  {:else}
+    <form onsubmit={save}>
+      <Card>
+        <section class="sec">
+          <h3>Nazioni da salvare nello storico</h3>
+          <ul class="countries">
+            {#each options as c (c.code)}
+              <li>
+                <label class="ui-check">
+                  <input type="checkbox" checked={saved.includes(c.code)} onchange={() => toggle(c.code)} />
+                  <span class="bx">{#if saved.includes(c.code)}<Icon name="check" size={14} />{/if}</span>
+                  <span class="cn"><Flag code={c.code} name={c.name} /> {c.name}</span>
+                </label>
+              </li>
+            {/each}
+          </ul>
+        </section>
+      </Card>
 
-    <fieldset>
-      <legend>Rete</legend>
-      <label class="inline"><input type="checkbox" bind:checked={lan} /> Accesso dalla rete locale</label>
-      <p class="muted">Richiede il riavvio di MeshLens.</p>
-    </fieldset>
+      <Card>
+        <section class="sec">
+          <h3>Conservazione</h3>
+          <div class="grid">
+            <Field label="Messaggi (giorni)" for="set-ret-msg">{#snippet children()}<input id="set-ret-msg" class="ui-input ui-mono" type="number" min="1" bind:value={retMsg} />{/snippet}</Field>
+            <Field label="Posizioni (giorni)" for="set-ret-pos">{#snippet children()}<input id="set-ret-pos" class="ui-input ui-mono" type="number" min="1" bind:value={retPos} />{/snippet}</Field>
+            <Field label="Telemetria (giorni)" for="set-ret-tel">{#snippet children()}<input id="set-ret-tel" class="ui-input ui-mono" type="number" min="1" bind:value={retTel} />{/snippet}</Field>
+            <Field label="Limite spazio (MB)" for="set-cap">{#snippet children()}<input id="set-cap" class="ui-input ui-mono" type="number" min="1" bind:value={capMb} />{/snippet}</Field>
+          </div>
+        </section>
+      </Card>
 
-    <fieldset>
-      <legend>MQTT</legend>
-      <label>Host <input type="text" bind:value={host} /></label>
-      <label>Porta <input type="number" min="1" max="65535" bind:value={port} /></label>
-      <label>Utente <input type="text" autocomplete="off" bind:value={username} /></label>
-      <label>Password <input type="password" autocomplete="new-password" bind:value={password} /></label>
-      <label>Topic (uno per riga) <textarea rows="3" bind:value={topics}></textarea></label>
-      <label>Chiavi aggiuntive base64 (una per riga) <textarea rows="3" bind:value={keys}></textarea></label>
-    </fieldset>
+      <Card>
+        <section class="sec">
+          <h3>Avvisi (solo nodi miei)</h3>
+          <div class="grid">
+            <Field label="Avviso batteria sotto (%)" for="set-batt">{#snippet children()}<input id="set-batt" class="ui-input ui-mono" type="number" min="1" max="99" bind:value={batteryPct} />{/snippet}</Field>
+            <Field label="Avviso nodo silenzioso dopo (ore)" for="set-silent">{#snippet children()}<input id="set-silent" class="ui-input ui-mono" type="number" min="1" max="168" bind:value={silentH} />{/snippet}</Field>
+          </div>
+        </section>
+      </Card>
 
-    <fieldset>
-      <legend>Canali da ascoltare (MQTT)</legend>
-      <label class="inline"><input type="radio" name="chmode" checked={!onlyChosen} onchange={() => (onlyChosen = false)} /> Tutti i canali</label>
-      <label class="inline"><input type="radio" name="chmode" checked={onlyChosen} onchange={() => (onlyChosen = true)} /> Solo i canali scelti</label>
-      <ul class="countries">
-        {#each channels as c (c.name)}
-          <li>
-            <label>
-              <input type="checkbox" disabled={!onlyChosen} checked={chosen.includes(c.name)} onchange={() => toggleChannel(c.name)} />
-              {c.name} <span class="n">{c.count} nell'ultima ora</span>
-            </label>
-          </li>
-        {/each}
-      </ul>
-      <p class="muted">LongFast è il canale pubblico predefinito; gli altri sono preset usati da meno nodi. I canali non scelti vengono ignorati del tutto (nodi, mappa, messaggi, archivio). La radio non è mai filtrata.</p>
-    </fieldset>
+      <Card>
+        <section class="sec">
+          <h3>Rete</h3>
+          <Switch bind:checked={lan} label="Accesso dalla rete locale" />
+          <p class="ui-hint">Richiede il riavvio di MeshLens.</p>
+        </section>
+      </Card>
 
-    {#if error}<p class="err" role="alert">{error}</p>{/if}
-    {#if ok}<p class="ok" role="status">{ok}</p>{/if}
-    <button type="submit" class="primary" disabled={busy}>Salva</button>
-  </form>
-{/if}
-{#if !loadError && loaded}<div class="maps"><OfflineMaps /></div>{/if}
-{#if !loadError && loaded}<div class="maps"><Updates /></div>{/if}
-<div class="out"><button onclick={logout}>Esci</button></div>
+      <Card>
+        <section class="sec">
+          <h3>MQTT</h3>
+          <div class="grid">
+            <Field label="Host" for="set-host">{#snippet children()}<input id="set-host" class="ui-input" type="text" bind:value={host} />{/snippet}</Field>
+            <Field label="Porta" for="set-port">{#snippet children()}<input id="set-port" class="ui-input ui-mono" type="number" min="1" max="65535" bind:value={port} />{/snippet}</Field>
+            <Field label="Utente" for="set-user">{#snippet children()}<input id="set-user" class="ui-input" type="text" autocomplete="off" bind:value={username} />{/snippet}</Field>
+            <Field label="Password" for="set-pass">{#snippet children()}<input id="set-pass" class="ui-input" type="password" autocomplete="new-password" bind:value={password} />{/snippet}</Field>
+          </div>
+          <Field label="Topic (uno per riga)" for="set-topics">{#snippet children()}<textarea id="set-topics" class="ui-input area" rows="3" bind:value={topics}></textarea>{/snippet}</Field>
+          <Field label="Chiavi aggiuntive base64 (una per riga)" for="set-keys">{#snippet children()}<textarea id="set-keys" class="ui-input area" rows="3" bind:value={keys}></textarea>{/snippet}</Field>
+          <Field
+            label="Il tuo id nodo per MQTT"
+            for="set-nodeid"
+            error={nodeIdCheck.ok ? undefined : nodeIdCheck.error}
+            hint="È l'id con cui scrivi nella rete MQTT pubblica. Se lo lasci vuoto si usa quello della radio collegata."
+          >
+            {#snippet children({ describedby, invalid })}
+              <input id="set-nodeid" class="ui-input ui-mono" class:err={invalid} type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="!a1b2c3d4" aria-describedby={describedby} aria-invalid={invalid} bind:value={nodeId} />
+            {/snippet}
+          </Field>
+        </section>
+      </Card>
+
+      <Card>
+        <section class="sec">
+          <h3>Canali da ascoltare (MQTT)</h3>
+          <Segmented
+            label="Canali da ascoltare"
+            items={[
+              { value: 'all', label: 'Tutti i canali' },
+              { value: 'chosen', label: 'Solo i canali scelti' },
+            ]}
+            value={onlyChosen ? 'chosen' : 'all'}
+            onchange={(v) => (onlyChosen = v === 'chosen')}
+          />
+          <ul class="countries">
+            {#each channels as c (c.name)}
+              <li>
+                <label class="ui-check chan">
+                  <input type="checkbox" disabled={!onlyChosen} checked={chosen.includes(c.name)} onchange={() => toggleChannel(c.name)} />
+                  <span class="bx">{#if chosen.includes(c.name)}<Icon name="check" size={14} />{/if}</span>
+                  <span>{c.name}</span>
+                  <span class="n ui-mono">{c.count} nell'ultima ora</span>
+                </label>
+              </li>
+            {/each}
+          </ul>
+          <p class="ui-hint">LongFast è il canale pubblico predefinito; gli altri sono preset usati da meno nodi. I canali non scelti vengono ignorati del tutto (nodi, mappa, messaggi, archivio). La radio non è mai filtrata.</p>
+        </section>
+      </Card>
+
+      {#if error}<Banner kind="danger" title={error} />{/if}
+      {#if ok}<Banner kind="ok" title={ok} />{/if}
+      <div><Button type="submit" kind="primary" disabled={busy || !nodeIdCheck.ok}>Salva</Button></div>
+    </form>
+
+    <OfflineMaps />
+    <Updates />
+  {/if}
+
+  <Card>
+    <section class="sec">
+      <h3>Informazioni</h3>
+      <p class="line">MeshLens <b class="ui-mono">{version || '—'}</b></p>
+      <p class="ui-hint">
+        Software libero con licenza GNU GPL v3 (file LICENSE). Le componenti di terze parti (font IBM Plex con licenza OFL, icone Lucide con licenza ISC, bandiere flag-icons con licenza MIT, Protomaps e le librerie Python) sono elencate con le rispettive licenze nel file THIRD_PARTY_NOTICES.
+      </p>
+      <p class="ui-hint">Dati delle mappe © OpenStreetMap contributors, disponibili con licenza ODbL (Open Database License).</p>
+      <MeshtasticBadge />
+    </section>
+  </Card>
+
+  <div class="out"><Button icon="power" onclick={logout}>Esci</Button></div>
+</div>
 
 <style>
-  form {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    padding: 8px;
-  }
-  fieldset {
-    border: 1px solid #374151;
-    border-radius: 6px;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-  label {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    font-size: 13px;
-  }
-  label.inline {
-    flex-direction: row;
-    align-items: center;
-    gap: 6px;
-  }
-  .countries {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    max-height: 180px;
-    overflow: auto;
-  }
-  .countries label {
-    flex-direction: row;
-    align-items: center;
-    gap: 6px;
-  }
-  input[type='text'],
-  input[type='number'],
-  input[type='password'],
-  textarea {
-    padding: 5px 8px;
-    background: #1f2937;
-    color: inherit;
-    border: 1px solid #374151;
-    border-radius: 6px;
-    font: inherit;
-  }
-  textarea {
-    resize: vertical;
-    font-family: ui-monospace, monospace;
-    font-size: 12px;
-  }
-  button {
-    padding: 6px 12px;
-    background: #1f2937;
-    color: inherit;
-    border: 1px solid #374151;
-    border-radius: 6px;
-    cursor: pointer;
-    font: inherit;
-  }
-  button.primary {
-    background: #2563eb;
-    border-color: #2563eb;
-  }
-  .n {
-    margin-left: auto;
-    color: #9ca3af;
-    font-size: 13px;
-  }
-  .maps {
-    padding: 0 8px 8px;
-  }
-  .out {
-    padding: 8px;
-  }
-  .muted {
-    color: #9ca3af;
-    margin: 0;
-    font-size: 12px;
-    padding: 0 8px;
-  }
-  .err {
-    color: #f87171;
-    margin: 0;
-  }
-  .ok {
-    color: #34d399;
-    margin: 0;
-  }
-  @media (max-width: 767px) {
-    .muted {
-      font-size: 13px;
-    }
-    label.inline,
-    .countries label {
-      min-height: 40px;
-    }
-    input[type='text'],
-    input[type='number'],
-    input[type='password'] {
-      min-height: 40px;
-      box-sizing: border-box;
-    }
-    button {
-      min-height: 40px;
-    }
-  }
+  .settings { display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-4); max-width: 760px; margin: 0 auto; box-sizing: border-box; color: var(--ink); }
+  h2 { margin: 0; font: 600 18px/24px var(--font-sans); }
+  h3 { margin: 0; font: 600 15px/20px var(--font-sans); }
+  form { display: flex; flex-direction: column; gap: var(--space-3); }
+  .sec { display: flex; flex-direction: column; gap: var(--space-3); }
+  .fld { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--space-3); }
+  .cn { display: inline-flex; align-items: center; gap: var(--space-2); }
+  .countries { list-style: none; margin: 0; padding: 0; max-height: 240px; overflow: auto; }
+  .chan { width: 100%; }
+  .n { margin-left: auto; color: var(--ink-muted); font-size: 13px; }
+  .area { height: auto; padding: var(--space-2) var(--space-3); resize: vertical; font-family: var(--font-mono); }
+  .line { margin: 0; font: 400 14px/20px var(--font-sans); }
+  p { margin: 0; }
+  .out { padding-bottom: var(--space-4); }
+  :global(.vp-phone) .n { font-size: 14px; }
 </style>

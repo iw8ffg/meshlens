@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { FALLBACK_TOKENS } from './map/tokens'
 import { canSwitch, chooseMode, offlineStyle, SWITCH_MIN_MS } from './mapstyle'
 
 describe('chooseMode', () => {
@@ -42,5 +43,19 @@ describe('offlineStyle', () => {
     expect(s.glyphs).toBe('http://localhost:8000/map-assets/fonts/{fontstack}/{range}.pbf')
     expect(s.sprite).toBe('http://localhost:8000/map-assets/sprites/light')
     expect(s.layers.length).toBeGreaterThan(10)
+  })
+})
+
+describe('offlineStyle in tema', () => {
+  beforeEach(() => vi.stubGlobal('location', { origin: 'http://localhost:8000' }))
+  afterEach(() => vi.unstubAllGlobals())
+  it('lo sprite segue il tema', () => {
+    expect(offlineStyle({ maxzoom: 14 }, 'dark').sprite).toBe('http://localhost:8000/map-assets/sprites/dark')
+    expect(offlineStyle({ maxzoom: 14 }, 'light').sprite).toBe('http://localhost:8000/map-assets/sprites/light')
+  })
+  it('scuro e chiaro hanno fondo diverso; i token ricolorano il fondo', () => {
+    const bg = (s: ReturnType<typeof offlineStyle>) => (s.layers[0] as { paint: { 'background-color': string } }).paint['background-color']
+    expect(bg(offlineStyle({ maxzoom: 14 }, 'dark'))).not.toBe(bg(offlineStyle({ maxzoom: 14 }, 'light')))
+    expect(bg(offlineStyle({ maxzoom: 14 }, 'dark', { ...FALLBACK_TOKENS, land: '#123456' }))).toBe('#123456')
   })
 })
