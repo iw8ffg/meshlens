@@ -1043,7 +1043,7 @@ async def test_import_routes_require_auth(ctx):
         for path in ("import-link", "import-radio"):
             assert (await c.post(f"/api/mqtt/brokers/default/channels/{path}",
                                  json={})).status_code == 401
-        assert (await c.post("/api/mqtt/brokers/default/channels/0/reveal")).status_code == 401
+        assert (await c.post("/api/mqtt/brokers/default/channels/0/reveal", json={})).status_code == 401
 
 
 async def test_import_radio_route_409_without_radio():
@@ -1084,12 +1084,46 @@ async def test_reveal_psk_route(ctx):
                                  "channels": [{"name": "Squadra", "psk": KEY32_B64}]}]}
     save_settings(ctx.conn, changes)
     async with logged(ctx) as c:
-        r = await c.post("/api/mqtt/brokers/default/channels/0/reveal")
+        r = await c.post("/api/mqtt/brokers/default/channels/0/reveal", json={})
         assert r.status_code == 200 and r.json() == {"psk": KEY32_B64}
-        assert (await c.post("/api/mqtt/brokers/default/channels/99/reveal")).status_code == 404
-        assert (await c.post("/api/mqtt/brokers/zz/channels/0/reveal")).status_code == 404
+        assert (await c.post("/api/mqtt/brokers/default/channels/99/reveal", json={})).status_code == 404
+        assert (await c.post("/api/mqtt/brokers/zz/channels/0/reveal", json={})).status_code == 404
         cookie = c.cookies.get("meshlens_session")
     async with client_from(ctx, "192.168.1.5") as lan:
         lan.cookies.set("meshlens_session", cookie)
-        r = await lan.post("/api/mqtt/brokers/default/channels/0/reveal")
+        r = await lan.post("/api/mqtt/brokers/default/channels/0/reveal", json={})
         assert r.status_code == 403 and KEY32_B64 not in r.text
+
+
+async def test_import_does_not_lose_concurrent_save(ctx):
+    """Un salvataggio arrivato mentre si aspetta la radio non va perso."""
+    import asyncio
+    from meshlens.settings import load_settings
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    class SlowConfig:
+        async def channel_secrets(self, radio_id):
+            entered.set()
+            await release.wait()
+            return [{"name": "Squadra", "psk": KEY32_B64}]
+    ctx.config = SlowConfig()
+    async with logged(ctx) as c:
+        task = asyncio.create_task(c.post("/api/mqtt/brokers/default/channels/import-radio",
+                                          json={"radio_id": "r1"}))
+        await entered.wait()
+        r = await c.put("/api/settings", json={"retention_messages_days": 33})
+        assert r.status_code == 200
+        release.set()
+        r = await task
+        assert r.status_code == 200 and r.json()["added"] == ["Squadra"]
+        assert load_settings(ctx.conn)["retention_messages_days"] == 33
+        assert r.json()["settings"]["retention_messages_days"] == 33
+
+
+async def test_manual_channel_psk_must_be_strict_base64(ctx):
+    async with logged(ctx) as c:
+        cur = (await c.get("/api/settings")).json()["mqtt_brokers"]
+        for bad in ("***", "!!"):
+            body = [{**cur[0], "channels": [{"name": "X", "psk": bad}]}]
+            r = await c.put("/api/settings", json={"mqtt_brokers": body})
+            assert r.status_code == 400, bad

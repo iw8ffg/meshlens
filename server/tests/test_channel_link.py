@@ -39,7 +39,7 @@ def test_parse_link_roundtrip():
 
 
 @pytest.mark.parametrize("url", ["https://example.com/e/#abc", "https://meshtastic.org/e/#!!!",
-                                 "http://meshtastic.org/e/#abc", "non un link"])
+                                 "http://meshtastic.org/e/#abc", "https://meshtastic.org/evil/#abc", "non un link"])
 def test_parse_link_rejects_garbage(url):
     with pytest.raises(ValueError, match="Link non valido: usa un link https://meshtastic.org/e/#"):
         parse_channel_url(url)
@@ -59,6 +59,8 @@ def test_merge_channels_reasons():
         {"name": "Gia", "psk": KEY32_B64},         # doppione
         {"name": "NomeTroppoLungo", "psk": "AQ=="},
         {"name": "Strano", "psk": "AQID"},
+        {"name": "Mal", "psk": "***"}, {"name": "Mal2", "psk": "!!"},
+        {"name": "a/b", "psk": "AQ=="}, {"name": "", "psk": "AQ=="},
         {"name": "LongFast", "psk": KEY32_B64},    # preset ma con chiave propria: ok
         {"name": "Nuovo", "psk": KEY32_B64},
     ])
@@ -66,7 +68,11 @@ def test_merge_channels_reasons():
     assert skipped == [{"name": "LongFast", "reason": "canale pubblico predefinito"},
                        {"name": "Gia", "reason": "già presente"},
                        {"name": "NomeTroppoLungo", "reason": "nome troppo lungo"},
-                       {"name": "Strano", "reason": "chiave non valida"}]
+                       {"name": "Strano", "reason": "chiave non valida"},
+                       {"name": "Mal", "reason": "chiave non valida"},
+                       {"name": "Mal2", "reason": "chiave non valida"},
+                       {"name": "a/b", "reason": "nome non valido"},
+                       {"name": "", "reason": "nome non valido"}]
     assert [c["name"] for c in broker["channels"]] == ["Gia", "LongFast", "Nuovo"]
 
 

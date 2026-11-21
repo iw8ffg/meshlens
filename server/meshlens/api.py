@@ -694,13 +694,15 @@ def create_app(ctx: AppContext) -> FastAPI:
 
     async def import_channels(broker_id: str, entries_fn):
         """Importa i canali nel broker salvato; le PSK escono solo mascherate."""
-        current = load_settings(ctx.conn)
-        if find_broker(current, broker_id) is None:
+        if find_broker(load_settings(ctx.conn), broker_id) is None:
             raise HTTPException(404, "Broker non trovato")
         try:
             entries = await entries_fn()
         except ValueError as e:
             raise HTTPException(400, str(e))
+        current = load_settings(ctx.conn)  # dopo l'attesa: nessuna modifica concorrente persa
+        if find_broker(current, broker_id) is None:
+            raise HTTPException(404, "Broker non trovato")
         brokers = copy.deepcopy(current["mqtt_brokers"])
         added, skipped = merge_channels(find_broker({"mqtt_brokers": brokers}, broker_id), entries)
         saved = current
@@ -730,7 +732,7 @@ def create_app(ctx: AppContext) -> FastAPI:
         return await import_channels(broker_id, entries)
 
     @app.post("/api/mqtt/brokers/{broker_id}/channels/{index}/reveal",
-              dependencies=[Depends(require_auth)])
+              dependencies=[Depends(require_auth), Depends(require_json)])
     async def mqtt_reveal_channel_psk(broker_id: str, index: int, request: Request):
         if not is_loopback(request):
             raise HTTPException(403, "Le chiavi si mostrano solo da questo PC")

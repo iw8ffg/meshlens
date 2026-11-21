@@ -1,4 +1,5 @@
 """Impostazioni persistenti (tabella settings, valori JSON)."""
+import base64
 import copy
 import json
 import logging
@@ -147,6 +148,17 @@ def _validate_mqtt(m) -> None:
             raise ValueError(f"Chiave PSK non valida ({key}): {e}") from e
 
 
+def strict_psk(psk) -> bytes:
+    """Chiave effettiva di una PSK base64 rigorosa (niente caratteri estranei ignorati)."""
+    if not isinstance(psk, str):
+        raise ValueError("deve essere una stringa base64")
+    try:
+        base64.b64decode(psk, validate=True)
+    except ValueError:
+        raise ValueError("base64 non valido") from None
+    return expand_psk(psk)
+
+
 def _validate_channels(name: str, channels) -> None:
     if not isinstance(channels, list):
         raise ValueError(f"Broker {name}: channels deve essere una lista")
@@ -172,9 +184,7 @@ def _validate_channels(name: str, channels) -> None:
         seen.add(cname)
         psk = ch.get("psk")
         try:
-            if not isinstance(psk, str):
-                raise ValueError("deve essere una stringa base64")
-            expand_psk(psk)
+            strict_psk(psk)
         except ValueError as e:
             raise ValueError(f"Canale {cname}: chiave PSK non valida ({e})") from e
 
@@ -193,10 +203,12 @@ def merge_channels(broker: dict, entries: list[dict]) -> tuple[list[str], list[d
         key = None
         if (not isinstance(name, str) or not 1 <= len(name.encode("utf-8")) <= MAX_CHANNEL_NAME_BYTES
                 or any(c in name for c in "/#+")):
-            reason = "nome troppo lungo"
+            reason = "nome non valido" if (
+                isinstance(name, str) and (not name or any(c in name for c in "/#+"))
+                or not isinstance(name, str)) else "nome troppo lungo"
         else:
             try:
-                key = expand_psk(psk) if isinstance(psk, str) else None
+                key = strict_psk(psk)
             except ValueError:
                 key = None
             if key is None:
@@ -210,7 +222,7 @@ def merge_channels(broker: dict, entries: list[dict]) -> tuple[list[str], list[d
         if reason:
             skipped.append({"name": name if isinstance(name, str) else "", "reason": reason})
             continue
-        channels.append({"name": name, "psk": psk})
+        channels.append({"name": name, "psk": base64.b64encode(base64.b64decode(psk)).decode()})
         added.append(name)
     return added, skipped
 

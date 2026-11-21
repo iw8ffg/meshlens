@@ -27,7 +27,7 @@ def parse_channel_url(url: str) -> list[dict]:
     except ValueError:
         raise ValueError(MSG_BAD_LINK) from None
     if (parts.scheme != "https" or (parts.hostname or "").lower() not in _HOSTS
-            or not parts.path.startswith("/e")):
+            or parts.path not in ("/e", "/e/")):
         raise ValueError(MSG_BAD_LINK)
     frag = parts.fragment.split("?", 1)[0].strip()  # "...#<dati>?add=true"
     if not frag:
