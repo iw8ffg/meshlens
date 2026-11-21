@@ -32,8 +32,9 @@ from .maps import MapsError
 from .updater import UpdateError
 from .mqtt_publish import MqttSendError
 from .radio_manager import NoRadioConnected, TracerouteThrottled
-from .backup import NAME_RE
+from .backup import NAME_RE, BackupUnusable
 from .settings import (MASK, export_settings, load_settings, mask_secrets, prepare_import,
+                       resolve_extra_keys,
                        save_settings)
 from .store import Store
 
@@ -284,13 +285,7 @@ def _num_from_id(node_id: str) -> int:
         raise HTTPException(404, "Nodo non trovato")
 
 
-def _mask_settings(s: dict) -> dict:
-    out = {**s, "mqtt": dict(s["mqtt"])}
-    if out["mqtt"].get("password"):
-        out["mqtt"]["password"] = MASK
-    if out.get("update_token"):
-        out["update_token"] = MASK  # il token non esce mai
-    return out
+_mask_settings = mask_secrets
 
 # Su Windows mimetypes legge il registro: forza i tipi JS per gli script ES module.
 mimetypes.add_type("text/javascript", ".js")
@@ -511,6 +506,13 @@ def create_app(ctx: AppContext) -> FastAPI:
         mqtt = changes.get("mqtt")
         if isinstance(mqtt, dict) and mqtt.get("password") == MASK:
             changes["mqtt"] = {k: v for k, v in mqtt.items() if k != "password"}
+        mqtt = changes.get("mqtt")
+        if isinstance(mqtt, dict) and "extra_keys" in mqtt:
+            try:
+                changes["mqtt"] = {**mqtt, "extra_keys": resolve_extra_keys(
+                    mqtt["extra_keys"], load_settings(ctx.conn)["mqtt"]["extra_keys"])}
+            except ValueError as e:
+                raise HTTPException(400, str(e))
         if changes.get("update_token") == MASK:
             del changes["update_token"]  # invariato
         try:
@@ -612,9 +614,11 @@ def create_app(ctx: AppContext) -> FastAPI:
         if body.confirm is not True:
             raise HTTPException(400, "Conferma richiesta")
         try:
-            backup_mgr().schedule_restore(name)
+            await asyncio.to_thread(backup_mgr().schedule_restore, name)
         except (ValueError, FileNotFoundError):
             raise HTTPException(404, "Backup non trovato")
+        except BackupUnusable as e:
+            raise HTTPException(409, f"Ripristino rifiutato: {e}")
         return {"ok": True, "restart_required": True}
 
     # ---- radio ----

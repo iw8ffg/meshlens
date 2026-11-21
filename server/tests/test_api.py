@@ -503,3 +503,44 @@ async def test_backup_routes(tmp_path):
             assert (tmp_path / "restore.json").exists()
     finally:
         rt.conn.close()
+
+
+async def test_extra_keys_never_returned_and_mask_preserved(ctx):
+    from meshlens.settings import load_settings
+    k1, k2, k3 = "AQ==", "Ag==", "Aw=="
+    async with logged(ctx) as c:
+        r = await c.put("/api/settings", json={"mqtt": {"extra_keys": [k1, k2]}})
+        assert r.status_code == 200 and r.json()["mqtt"]["extra_keys"] == ["••••", "••••"]
+        assert k1 not in r.text and k2 not in r.text
+        g = await c.get("/api/settings")
+        assert g.json()["mqtt"]["extra_keys"] == ["••••", "••••"] and k1 not in g.text
+        # invariate (maschere posizionali)
+        r = await c.put("/api/settings", json={"mqtt": {"extra_keys": ["••••", "••••"]}})
+        assert load_settings(ctx.conn)["mqtt"]["extra_keys"] == [k1, k2]
+        # aggiunta di una nuova chiave
+        r = await c.put("/api/settings", json={"mqtt": {"extra_keys": ["••••#0", "••••#1", k3]}})
+        assert r.status_code == 200 and r.json()["mqtt"]["extra_keys"] == ["••••"] * 3
+        assert load_settings(ctx.conn)["mqtt"]["extra_keys"] == [k1, k2, k3]
+        # rimozione della prima: la seconda resta riconoscibile
+        r = await c.put("/api/settings", json={"mqtt": {"extra_keys": ["••••#1", "••••#2"]}})
+        assert load_settings(ctx.conn)["mqtt"]["extra_keys"] == [k2, k3]
+        # riferimento fuori intervallo: 400, nulla cambia
+        r = await c.put("/api/settings", json={"mqtt": {"extra_keys": ["••••#9"]}})
+        assert r.status_code == 400
+        assert load_settings(ctx.conn)["mqtt"]["extra_keys"] == [k2, k3]
+
+
+async def test_backup_restore_refuses_corrupt(tmp_path):
+    from meshlens.app import build
+    app, rt = build(tmp_path, static_dir=None)
+    try:
+        async with client_for_app(app) as c:
+            assert (await c.post("/api/auth/setup", json={"pin": "1234"})).status_code == 200
+            (tmp_path / "backups").mkdir(exist_ok=True)
+            (tmp_path / "backups" / "meshlens-20240101-000000-manuale.db").write_bytes(b"")
+            r = await c.post("/api/backups/meshlens-20240101-000000-manuale.db/restore",
+                             json={"confirm": True})
+            assert r.status_code == 409 and "rifiutato" in r.json()["detail"]
+            assert not (tmp_path / "restore.json").exists()
+    finally:
+        rt.conn.close()

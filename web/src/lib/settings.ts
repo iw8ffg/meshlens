@@ -74,3 +74,11 @@ export function checkMqttNodeId(text: string): NodeIdCheck {
   if (/^![0-9a-fA-F]{8}$/.test(v)) return { ok: true, value: v.toLowerCase() }
   return { ok: false, error: 'Formato non valido: usa il punto esclamativo e 8 cifre esadecimali, per esempio !a1b2c3d4' }
 }
+
+const KEY_MASK = '••••'
+
+/** Chiavi PSK extra come righe: quelle mascherate dal server diventano "••••#n" (n = posizione
+ *  salvata), così restano riconoscibili anche se se ne cancella una. */
+export function maskedKeyLines(keys: string[]): string[] {
+  return keys.map((k, i) => (k === KEY_MASK ? `${KEY_MASK}#${i}` : k))
+}

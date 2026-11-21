@@ -15,7 +15,7 @@
   import OfflineMaps from './OfflineMaps.svelte'
   import Updates from './Updates.svelte'
   import Maintenance from './settings/Maintenance.svelte'
-  import { channelOptions, checkMqttNodeId, joinLines, parseLines, type AppSettings, type MqttChannel } from '../lib/settings'
+  import { channelOptions, checkMqttNodeId, joinLines, maskedKeyLines, parseLines, type AppSettings, type MqttChannel } from '../lib/settings'
 
   let { onlogout }: { onlogout: () => void } = $props()
 
@@ -65,7 +65,7 @@
     username = s.mqtt.username
     password = s.mqtt.password
     topics = joinLines(s.mqtt.topics)
-    keys = joinLines(s.mqtt.extra_keys)
+    keys = joinLines(maskedKeyLines(s.mqtt.extra_keys))
     chosen = [...(s.mqtt_channels ?? [])]
     nodeId = s.mqtt_node_id ?? ''
     onlyChosen = chosen.length > 0
@@ -242,7 +242,7 @@
             <Field label="Password" for="set-pass">{#snippet children()}<input id="set-pass" class="ui-input" type="password" autocomplete="new-password" bind:value={password} />{/snippet}</Field>
           </div>
           <Field label="Topic (uno per riga)" for="set-topics" hint="Esempio: msh/EU_868/IT/# per il traffico italiano (se manca, /# viene aggiunto da solo). I messaggi inviati via MQTT usano la radice del primo topic, per esempio msh/EU_868/IT, così arrivano ai gateway che la ascoltano.">{#snippet children()}<textarea id="set-topics" class="ui-input area" rows="3" bind:value={topics}></textarea>{/snippet}</Field>
-          <Field label="Chiavi aggiuntive base64 (una per riga)" for="set-keys">{#snippet children()}<textarea id="set-keys" class="ui-input area" rows="3" bind:value={keys}></textarea>{/snippet}</Field>
+          <Field label="Chiavi aggiuntive base64 (una per riga; ••••#n = chiave salvata, cancella la riga per rimuoverla)" for="set-keys">{#snippet children()}<textarea id="set-keys" class="ui-input area" rows="3" bind:value={keys}></textarea>{/snippet}</Field>
           <Field
             label="Il tuo id nodo per MQTT"
             for="set-nodeid"

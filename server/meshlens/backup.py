@@ -16,6 +16,8 @@ REASONS = ("pre-migrazione", "pre-aggiornamento", "settimanale", "manuale")
 NAME_RE = re.compile(r"^meshlens-(\d{8}-\d{6})-([a-z-]+)\.db$")
 RESTORE_FILE = "restore.json"
 SAFETY_REASON = "prima-del-ripristino"
+KEEP_SPECIAL = 3  # pre-migrazione e prima-del-ripristino: copie di salvataggio, tenute a parte
+SPECIAL_REASONS = ("pre-migrazione", SAFETY_REASON)
 log = logging.getLogger(__name__)
 
 
@@ -23,6 +25,26 @@ def quick_check(conn: sqlite3.Connection) -> str:
     """'ok' oppure il primo errore di PRAGMA quick_check."""
     row = conn.execute("PRAGMA quick_check").fetchone()
     return str(row[0]) if row else "ok"
+
+
+class BackupUnusable(Exception):
+    """Il backup scelto e' illeggibile o danneggiato."""
+
+
+def verify_backup(path: Path) -> None:
+    """Controlla un backup con una connessione propria; solleva BackupUnusable se non e' sano."""
+    try:
+        conn = sqlite3.connect(f"{Path(path).resolve().as_uri()}?mode=ro", uri=True, timeout=30)
+        try:
+            if conn.execute("SELECT 1 FROM sqlite_master WHERE name='nodes'").fetchone() is None:
+                raise BackupUnusable("il backup e' vuoto o non e' un database MeshLens")
+            result = quick_check(conn)
+        finally:
+            conn.close()
+    except sqlite3.Error as e:
+        raise BackupUnusable(f"il backup non e' leggibile ({e})") from e
+    if result != "ok":
+        raise BackupUnusable(f"il backup e' danneggiato ({result})")
 
 
 def _stamp(ts: float) -> str:
@@ -84,15 +106,26 @@ class BackupManager:
         return {"name": path.name, "time": t, "reason": m.group(2),
                 "size_bytes": path.stat().st_size}
 
+    def _info_or_none(self, path: Path) -> dict | None:
+        try:
+            return self._info(path)
+        except OSError:  # sparito tra iterdir e stat
+            return None
+
     def list(self) -> list[dict]:
         if not self.dir.is_dir():
             return []
-        out = [self._info(p) for p in self.dir.iterdir() if p.is_file() and _valid(p.name)]
+        out = [i for p in self.dir.iterdir() if _valid(p.name)
+               if (i := self._info_or_none(p)) is not None]
         out.sort(key=lambda b: (b["time"], b["name"]), reverse=True)
         return out
 
     def prune(self) -> None:
-        for old in self.list()[self.keep:]:
+        items = self.list()
+        doomed = [b for b in items if b["reason"] not in SPECIAL_REASONS][self.keep:]
+        for reason in SPECIAL_REASONS:
+            doomed += [b for b in items if b["reason"] == reason][KEEP_SPECIAL:]
+        for old in doomed:
             for suffix in ("", "-wal", "-shm"):
                 (self.dir / (old["name"] + suffix)).unlink(missing_ok=True)
 
@@ -106,6 +139,7 @@ class BackupManager:
             raise ValueError("Nome del backup non valido")
         if not (self.dir / name).is_file():
             raise FileNotFoundError(name)
+        verify_backup(self.dir / name)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         (self.db_path.parent / RESTORE_FILE).write_text(json.dumps({"name": name}), encoding="utf-8")
 
@@ -127,19 +161,37 @@ def apply_pending_restore(data_dir: Path) -> str | None:
         log.error("Ripristino richiesto non applicabile: %r", name)
         return None
     db = data_dir / "meshlens.db"
-    if db.exists():
-        ts = time.time()
-        safety = backups / f"meshlens-{_stamp(ts)}-{SAFETY_REASON}.db"
-        while safety.exists():
-            ts += 1
-            safety = backups / f"meshlens-{_stamp(ts)}-{SAFETY_REASON}.db"
-        backups.mkdir(parents=True, exist_ok=True)
-        for suffix in ("", "-wal", "-shm"):
-            src = db.with_name(db.name + suffix)
-            if src.exists():
-                shutil.move(str(src), str(safety.with_name(safety.name + suffix)))
+    suffixes = ("", "-wal", "-shm")
+    moved: list[tuple[Path, Path]] = []  # (originale, copia di salvataggio)
     tmp = db.with_name(db.name + ".restore")
-    shutil.copy2(source, tmp)
-    os.replace(tmp, db)
+    try:
+        verify_backup(source)
+        if db.exists():
+            ts = time.time()
+            safety = backups / f"meshlens-{_stamp(ts)}-{SAFETY_REASON}.db"
+            while safety.exists():
+                ts += 1
+                safety = backups / f"meshlens-{_stamp(ts)}-{SAFETY_REASON}.db"
+            backups.mkdir(parents=True, exist_ok=True)
+            for suffix in suffixes:
+                src = db.with_name(db.name + suffix)
+                if src.exists():
+                    dst = safety.with_name(safety.name + suffix)
+                    shutil.move(str(src), str(dst))
+                    moved.append((src, dst))
+        shutil.copy2(source, tmp)
+        os.replace(tmp, db)
+    except Exception:
+        log.exception("Ripristino fallito: si riparte dal database originale")
+        tmp.unlink(missing_ok=True)
+        for suffix in suffixes:  # niente resti del ripristino a meta'
+            if moved:
+                db.with_name(db.name + suffix).unlink(missing_ok=True)
+        for src, dst in moved:
+            try:
+                shutil.move(str(dst), str(src))
+            except OSError:
+                log.exception("Impossibile rimettere %s al suo posto", src)
+        return None
     log.warning("Database ripristinato dal backup %s", name)
     return name

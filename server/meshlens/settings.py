@@ -218,3 +218,27 @@ def prepare_import(data: dict) -> tuple[dict, list[str]]:
             del mqtt["extra_keys"]
             skipped.append("mqtt.extra_keys")
     return changes, skipped
+
+
+_MASK_REF = re.compile("^" + re.escape(MASK) + r"#(\d+)$")
+
+
+def resolve_extra_keys(entries, existing: list[str]):
+    """Sostituisce le voci mascherate con le chiavi salvate: "••••#n" e' la n-esima chiave
+    esistente, "••••" da solo e' quella nella stessa posizione. Le altre voci restano com'e'."""
+    if not isinstance(entries, list):
+        return entries
+    out = []
+    for i, e in enumerate(entries):
+        ref = None
+        if e == MASK:
+            ref = i
+        elif isinstance(e, str) and (m := _MASK_REF.match(e)):
+            ref = int(m.group(1))
+        if ref is None:
+            out.append(e)
+        elif ref < len(existing):
+            out.append(existing[ref])
+        else:
+            raise ValueError("Chiave mascherata senza corrispondenza: reinseriscila")
+    return out

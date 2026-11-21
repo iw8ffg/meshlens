@@ -1,5 +1,5 @@
 import { describe, expect, it, test } from 'vitest'
-import { joinLines, parseLines } from './settings'
+import { joinLines, maskedKeyLines, parseLines } from './settings'
 
 describe('parseLines', () => {
   it('toglie spazi e righe vuote', () => {
@@ -37,5 +37,11 @@ describe('checkMqttNodeId', () => {
   })
   it.each(['a1b2c3d4', '!a1b2c3d', '!a1b2c3d4e', '!g1b2c3d4', '!'])('rifiuta %s', (v) => {
     expect(checkMqttNodeId(v).ok).toBe(false)
+  })
+})
+
+describe('maskedKeyLines', () => {
+  it('numera le chiavi mascherate e lascia le altre', () => {
+    expect(maskedKeyLines(['••••', 'AQ==', '••••'])).toEqual(['••••#0', 'AQ==', '••••#2'])
   })
 })

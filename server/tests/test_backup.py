@@ -131,3 +131,58 @@ def test_quick_check_ok(tmp_path):
     conn, _ = mgr(tmp_path)
     assert quick_check(conn) == "ok"
     conn.close()
+
+
+def test_zero_byte_and_corrupt_backup_refused(tmp_path):
+    from meshlens.backup import BackupUnusable
+    conn, m = mgr(tmp_path)
+    conn.close()
+    m.dir.mkdir(exist_ok=True)
+    (m.dir / "meshlens-20240101-000000-manuale.db").write_bytes(b"")
+    (m.dir / "meshlens-20240101-000001-manuale.db").write_bytes(b"questo non e' sqlite" * 500)
+    for n in ("meshlens-20240101-000000-manuale.db", "meshlens-20240101-000001-manuale.db"):
+        with pytest.raises(BackupUnusable):
+            m.schedule_restore(n)
+    assert not (tmp_path / "restore.json").exists()
+
+
+def test_copy_failure_midway_restores_original(tmp_path, monkeypatch):
+    import meshlens.backup as bk
+    conn, m = mgr(tmp_path)
+    conn.execute("INSERT INTO settings(key, value) VALUES('marker', '\"originale\"')")
+    conn.commit()
+    name = m.create_sync(conn, "manuale")["name"]
+    conn.close()
+    m.schedule_restore(name)
+
+    def boom(src, dst, *a, **k):
+        raise OSError("disco pieno")
+
+    monkeypatch.setattr(bk.shutil, "copy2", boom)
+    assert apply_pending_restore(tmp_path) is None
+    cur = sqlite3.connect(tmp_path / "meshlens.db")
+    assert cur.execute("SELECT value FROM settings WHERE key='marker'").fetchone()[0] == '"originale"'
+    cur.close()
+    assert not list((tmp_path / "backups").glob("*-prima-del-ripristino.db*"))
+    assert not (tmp_path / "meshlens.db.restore").exists()
+    _, rt = build(tmp_path, static_dir=None)  # l'app parte sul database originale
+    rt.conn.close()
+
+
+def test_prune_keeps_special_backups_and_tolerates_vanishing(tmp_path):
+    clock = Clock(1_700_000_000)
+    conn, m = mgr(tmp_path, clock)
+    m.create_sync(conn, "pre-migrazione")
+    for _ in range(8):
+        clock.t += 100
+        m.create_sync(conn, "manuale")
+    names = [b["reason"] for b in m.list()]
+    assert names.count("pre-migrazione") == 1 and names.count("manuale") == 5
+    for _ in range(5):
+        clock.t += 100
+        m.create_sync(conn, "pre-migrazione")
+    assert [b["reason"] for b in m.list()].count("pre-migrazione") == 3
+    victim = m.list()[0]["name"]
+    (m.dir / victim).unlink()  # sparito: list non solleva
+    assert all(b["name"] != victim for b in m.list())
+    conn.close()
