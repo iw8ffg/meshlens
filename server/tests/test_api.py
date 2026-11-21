@@ -14,6 +14,7 @@ from meshlens.db import connect
 from meshlens.events import TelemetryData
 from meshlens.geo import CountryLocator
 from meshlens.live import LiveState
+from meshlens.settings import save_settings
 from meshlens.store import Store
 
 
@@ -55,6 +56,14 @@ def client(ctx, host="127.0.0.1"):
 
 
 @contextlib.asynccontextmanager
+async def logged_existing(ctx, pin="1234"):
+    async with client(ctx) as c:
+        r = await c.post("/api/auth/login", json={"pin": pin})
+        assert r.status_code == 200
+        yield c
+
+
+@contextlib.asynccontextmanager
 async def logged(ctx):
     async with client(ctx) as c:
         r = await c.post("/api/auth/setup", json={"pin": "1234"})
@@ -68,7 +77,8 @@ async def test_requires_auth(ctx):
         assert r.status_code == 401
         assert r.json() == {"detail": "Accesso richiesto"}
         r = await c.get("/api/auth/status")
-        assert r.json() == {"pin_set": False, "authenticated": False, "is_local": True}
+        assert r.json() == {"pin_set": False, "authenticated": False, "is_local": True,
+                            "pin_short": None, "pin_min": 4}
 
 
 def test_ws_rejects_without_cookie(ctx):
@@ -109,6 +119,108 @@ async def test_login_wrong_then_locked(ctx):
         r = await c.post("/api/auth/login", json={"pin": "1234"})
         assert r.status_code == 429
         assert int(r.headers["Retry-After"]) > 0
+
+
+async def test_login_lock_returns_429_with_retry_after(ctx):
+    ctx.auth.set_pin("1234")
+    async with client(ctx, host="10.0.0.5") as c:
+        for _ in range(5):
+            assert (await c.post("/api/auth/login", json={"pin": "0000"})).status_code == 401
+        r = await c.post("/api/auth/login", json={"pin": "1234"})
+        assert r.status_code == 429
+        assert r.headers["Retry-After"] == "60"
+    # dal PC si entra ancora
+    async with client(ctx) as c:
+        assert (await c.post("/api/auth/login", json={"pin": "1234"})).status_code == 200
+
+
+async def test_setup_requires_6_digits_with_lan(ctx):
+    save_settings(ctx.conn, {"lan_access": True})
+    async with client(ctx) as c:
+        r = await c.post("/api/auth/setup", json={"pin": "1234"})
+        assert r.status_code == 400
+        assert not ctx.auth.pin_is_set()
+        assert (await c.post("/api/auth/setup", json={"pin": "123456"})).status_code == 200
+        st = (await c.get("/api/auth/status")).json()
+        assert st["authenticated"] is True and st["pin_short"] is False
+        assert st["pin_min"] == 6
+
+
+async def test_short_pin_keeps_working_with_lan(ctx):
+    async with logged(ctx) as c:
+        assert (await c.get("/api/auth/status")).json()["pin_short"] is False
+        save_settings(ctx.conn, {"lan_access": True})
+        assert (await c.get("/api/auth/status")).json()["pin_short"] is True
+    async with client(ctx, host="192.168.1.20") as c:
+        assert (await c.post("/api/auth/login", json={"pin": "1234"})).status_code == 200
+        assert (await c.get("/api/auth/status")).json()["pin_short"] is True
+
+
+async def test_pin_short_null_when_length_unknown(ctx):
+    ctx.auth.set_pin("1234")
+    ctx.conn.execute("DELETE FROM auth WHERE key='pin_len'")
+    save_settings(ctx.conn, {"lan_access": True})
+    async with client(ctx) as c:
+        assert (await c.get("/api/auth/status")).json()["pin_short"] is None
+
+
+async def test_change_pin_requires_current_and_revokes_others(ctx):
+    ctx.auth.set_pin("1234")
+    async with client(ctx, host="192.168.1.20") as other:
+        assert (await other.post("/api/auth/login", json={"pin": "1234"})).status_code == 200
+        async with logged_existing(ctx) as c:
+            r = await c.post("/api/auth/pin", json={"current_pin": "0000", "new_pin": "5678"})
+            assert r.status_code == 403
+            r = await c.post("/api/auth/pin", json={"current_pin": "1234", "new_pin": "56"})
+            assert r.status_code == 400
+            r = await c.post("/api/auth/pin", json={"current_pin": "1234", "new_pin": "5678"})
+            assert r.status_code == 200 and r.json() == {"ok": True}
+            assert (await c.get("/api/nodes")).status_code == 200
+        assert (await other.get("/api/nodes")).status_code == 401
+    async with client(ctx) as c:
+        assert (await c.post("/api/auth/login", json={"pin": "5678"})).status_code == 200
+
+
+async def test_change_pin_needs_6_digits_with_lan(ctx):
+    async with logged(ctx) as c:
+        save_settings(ctx.conn, {"lan_access": True})
+        r = await c.post("/api/auth/pin", json={"current_pin": "1234", "new_pin": "5678"})
+        assert r.status_code == 400
+        r = await c.post("/api/auth/pin", json={"current_pin": "1234", "new_pin": "567890"})
+        assert r.status_code == 200
+
+
+async def test_change_pin_requires_auth(ctx):
+    ctx.auth.set_pin("1234")
+    async with client(ctx) as c:
+        r = await c.post("/api/auth/pin", json={"current_pin": "1234", "new_pin": "5678"})
+        assert r.status_code == 401
+
+
+async def test_sessions_api(ctx):
+    ctx.auth.set_pin("1234")
+    async with client(ctx, host="192.168.1.20") as other:
+        await other.post("/api/auth/login", json={"pin": "1234"},
+                         headers={"user-agent": "Telefono"})
+        async with client(ctx, host="192.168.1.21") as third:
+            await third.post("/api/auth/login", json={"pin": "1234"})
+            async with logged_existing(ctx) as c:
+                rows = (await c.get("/api/auth/sessions")).json()
+                assert len(rows) == 3
+                me = [r for r in rows if r["current"]]
+                assert len(me) == 1 and me[0]["ip"] == "127.0.0.1"
+                assert set(me[0]) == {"id", "created", "last_seen", "user_agent", "ip", "current"}
+                phone = next(r for r in rows if r["user_agent"] == "Telefono")
+                assert (await c.delete(f"/api/auth/sessions/{phone['id']}")).status_code == 200
+                assert (await c.delete(f"/api/auth/sessions/{phone['id']}")).status_code == 404
+                assert (await c.delete("/api/auth/sessions/zz")).status_code == 404
+                assert (await other.get("/api/nodes")).status_code == 401
+                r = await c.post("/api/auth/sessions/revoke-others")
+                assert r.json() == {"ok": True, "revoked": 1}
+                assert len((await c.get("/api/auth/sessions")).json()) == 1
+            assert (await third.get("/api/nodes")).status_code == 401
+    async with client(ctx) as c:
+        assert (await c.get("/api/auth/sessions")).status_code == 401
 
 
 async def test_login_ok(ctx):

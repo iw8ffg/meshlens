@@ -82,3 +82,43 @@ const KEY_MASK = '••••'
 export function maskedKeyLines(keys: string[]): string[] {
   return keys.map((k, i) => (k === KEY_MASK ? `${KEY_MASK}#${i}` : k))
 }
+
+export const MIN_PIN = 4
+export const MIN_PIN_LAN = 6
+export const MAX_PIN = 12
+
+/** Errore di un PIN nuovo: solo cifre, da 6 a 12 con l'accesso dalla rete, da 4 a 12 senza. */
+export function pinError(pin: string, lan: boolean): string | null {
+  const min = lan ? MIN_PIN_LAN : MIN_PIN
+  if (!/^\d+$/.test(pin) || pin.length < min || pin.length > MAX_PIN) return `Il PIN deve avere da ${min} a ${MAX_PIN} cifre`
+  return null
+}
+
+/** Nome leggibile del dispositivo dal user agent, per esempio "Chrome su Windows". */
+export function deviceLabel(ua: string | null | undefined): string {
+  if (!ua) return 'Dispositivo sconosciuto'
+  const browser = /Edg\//.test(ua)
+    ? 'Edge'
+    : /OPR\/|Opera/.test(ua)
+      ? 'Opera'
+      : /Firefox\/|FxiOS\//.test(ua)
+        ? 'Firefox'
+        : /Chrome\/|CriOS\//.test(ua)
+          ? 'Chrome'
+          : /Safari\//.test(ua)
+            ? 'Safari'
+            : null
+  const os = /Windows/.test(ua)
+    ? 'Windows'
+    : /Android/.test(ua)
+      ? 'Android'
+      : /iPhone|iPad|iPod/.test(ua)
+        ? 'iOS'
+        : /Mac OS X|Macintosh/.test(ua)
+          ? 'macOS'
+          : /Linux/.test(ua)
+            ? 'Linux'
+            : null
+  if (browser && os) return `${browser} su ${os}`
+  return browser ?? os ?? 'Dispositivo sconosciuto'
+}

@@ -77,6 +77,20 @@ export interface AuthStatus {
   pin_set: boolean
   authenticated: boolean
   is_local: boolean
+  /** PIN sotto le 6 cifre con l'accesso dalla rete attivo; null se la lunghezza non è nota. */
+  pin_short?: boolean | null
+  /** Cifre minime per un PIN nuovo: 6 con l'accesso dalla rete, altrimenti 4. */
+  pin_min?: number
+}
+
+/** Una sessione aperta (dispositivo collegato). Tempi in secondi epoch. */
+export interface SessionInfo {
+  id: string
+  created: number
+  last_seen: number
+  user_agent: string | null
+  ip: string | null
+  current: boolean
 }
 
 // Impostazioni: la forma esatta e' definita dal backend (task successivi).

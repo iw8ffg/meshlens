@@ -18,6 +18,7 @@
   import { app } from '../lib/stores.svelte'
   import Maintenance from './settings/Maintenance.svelte'
   import Diagnostics from './settings/Diagnostics.svelte'
+  import Devices from './settings/Devices.svelte'
   import { channelOptions, checkMqttNodeId, joinLines, maskedKeyLines, parseLines, type AppSettings, type MqttChannel } from '../lib/settings'
 
   let { onlogout }: { onlogout: () => void } = $props()
@@ -234,6 +235,8 @@
           <p class="ui-hint">Richiede il riavvio di MeshLens.</p>
         </section>
       </Card>
+
+      <Devices />
 
       <Card>
         <section class="sec">

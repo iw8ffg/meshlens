@@ -45,3 +45,32 @@ describe('maskedKeyLines', () => {
     expect(maskedKeyLines(['••••', 'AQ==', '••••'])).toEqual(['••••#0', 'AQ==', '••••#2'])
   })
 })
+
+import { deviceLabel, pinError } from './settings'
+
+describe('pinError', () => {
+  it('con la rete servono almeno 6 cifre', () => {
+    expect(pinError('1234', true)).toBe('Il PIN deve avere da 6 a 12 cifre')
+    expect(pinError('123456', true)).toBeNull()
+  })
+  it('senza rete bastano 4 cifre, solo numeri', () => {
+    expect(pinError('1234', false)).toBeNull()
+    expect(pinError('12a4', false)).toBe('Il PIN deve avere da 4 a 12 cifre')
+    expect(pinError('123', false)).toBe('Il PIN deve avere da 4 a 12 cifre')
+    expect(pinError('1234567890123', false)).toBe('Il PIN deve avere da 4 a 12 cifre')
+    expect(pinError('', true)).toBe('Il PIN deve avere da 6 a 12 cifre')
+  })
+})
+
+describe('deviceLabel', () => {
+  it('riconosce browser e sistema', () => {
+    expect(deviceLabel('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36 Edg/130.0')).toBe('Edge su Windows')
+    expect(deviceLabel('Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Mobile Safari/537.36')).toBe('Chrome su Android')
+    expect(deviceLabel('Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1')).toBe('Safari su iOS')
+    expect(deviceLabel('Mozilla/5.0 (X11; Linux x86_64; rv:130.0) Gecko/20100101 Firefox/130.0')).toBe('Firefox su Linux')
+  })
+  it('user agent assente o ignoto', () => {
+    expect(deviceLabel(null)).toBe('Dispositivo sconosciuto')
+    expect(deviceLabel('curl/8.0')).toBe('Dispositivo sconosciuto')
+  })
+})

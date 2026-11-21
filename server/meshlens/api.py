@@ -21,7 +21,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.websockets import WebSocketDisconnect
 
 from .alerts import compute_alerts
-from .auth import Auth, LockedError
+from .auth import MIN_PIN, MIN_PIN_LAN, Auth, LockedError
 from .bus import Bus
 from .ingest import revive_node
 from .config_model import schema as config_schema
@@ -150,6 +150,11 @@ class FavoriteBody(BaseModel):
 
 class PinBody(BaseModel):
     pin: str
+
+
+class ChangePinBody(BaseModel):
+    current_pin: str
+    new_pin: str
 
 
 class RadioBody(BaseModel):
@@ -361,36 +366,84 @@ def create_app(ctx: AppContext) -> FastAPI:
         return {"version": __version__, "frozen": is_frozen(),
                 "data_dir": str(ctx.data_dir or default_data_dir())}
 
+    def client_ip(request: Request) -> str:
+        return request.client.host if request.client else "unknown"
+
+    def min_pin_len() -> int:
+        return MIN_PIN_LAN if load_settings(ctx.conn)["lan_access"] else MIN_PIN
+
+    def locked_response(e: LockedError) -> JSONResponse:
+        return JSONResponse({"detail": "Troppi tentativi, riprova più tardi"},
+                            status_code=429, headers={"Retry-After": str(e.retry_after)})
+
     @app.get("/api/auth/status")
     async def auth_status(request: Request):
+        # PIN corto per l'accesso dalla rete; null finché la lunghezza non è nota
+        # (PIN di una versione precedente: si impara al prossimo login riuscito)
+        length = ctx.auth.pin_length()
+        lan = load_settings(ctx.conn)["lan_access"]
         return {"pin_set": ctx.auth.pin_is_set(),
                 "authenticated": ctx.auth.check(request.cookies.get(COOKIE)),
-                "is_local": is_local(request)}
+                "is_local": is_local(request),
+                "pin_short": None if length is None else bool(lan and length < MIN_PIN_LAN),
+                # cifre minime per un PIN nuovo (primo PIN o cambio)
+                "pin_min": MIN_PIN_LAN if lan else MIN_PIN}
 
     @app.post("/api/auth/setup", dependencies=[Depends(require_json)])
     async def auth_setup(body: PinBody, request: Request, response: Response):
         if ctx.auth.pin_is_set() or not is_local(request):
             raise HTTPException(403, "Impostazione del PIN non consentita")
         try:
-            ctx.auth.set_pin(body.pin)
+            ctx.auth.set_pin(body.pin, min_pin_len())
         except ValueError as e:
             raise HTTPException(400, str(e))
-        token = ctx.auth.login(body.pin, request.client.host, request.headers.get("user-agent"))
+        try:
+            token = await ctx.auth.alogin(body.pin, client_ip(request),
+                                          request.headers.get("user-agent"))
+        except LockedError as e:
+            return locked_response(e)
         set_cookie(response, token)
         return {"ok": True}
 
     @app.post("/api/auth/login", dependencies=[Depends(require_json)])
     async def auth_login(body: PinBody, request: Request, response: Response):
-        ip = request.client.host if request.client else "unknown"
         try:
-            token = ctx.auth.login(body.pin, ip, request.headers.get("user-agent"))
+            token = await ctx.auth.alogin(body.pin, client_ip(request),
+                                          request.headers.get("user-agent"))
         except LockedError as e:
-            return JSONResponse({"detail": "Troppi tentativi, riprova più tardi"},
-                                status_code=429, headers={"Retry-After": str(e.retry_after)})
+            return locked_response(e)
         except PermissionError:
             raise HTTPException(401, "PIN errato")
         set_cookie(response, token)
         return {"ok": True}
+
+    @app.post("/api/auth/pin", dependencies=[Depends(require_auth), Depends(require_json)])
+    async def auth_change_pin(body: ChangePinBody, request: Request):
+        try:
+            await ctx.auth.change_pin(request.cookies.get(COOKIE), body.current_pin,
+                                      body.new_pin, min_pin_len())
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+        except LockedError as e:
+            return locked_response(e)
+        except PermissionError:
+            # 403, non 401: il client tratta il 401 come sessione scaduta
+            raise HTTPException(403, "PIN attuale errato")
+        return {"ok": True}
+
+    @app.get("/api/auth/sessions", dependencies=[Depends(require_auth)])
+    async def auth_sessions(request: Request):
+        return ctx.auth.sessions(request.cookies.get(COOKIE))
+
+    @app.delete("/api/auth/sessions/{session_id}", dependencies=[Depends(require_auth)])
+    async def auth_revoke(session_id: str):
+        if not ctx.auth.revoke(session_id):
+            raise HTTPException(404, "Sessione non trovata")
+        return {"ok": True}
+
+    @app.post("/api/auth/sessions/revoke-others", dependencies=[Depends(require_auth)])
+    async def auth_revoke_others(request: Request):
+        return {"ok": True, "revoked": ctx.auth.revoke_others(request.cookies.get(COOKIE))}
 
     @app.post("/api/auth/logout")
     async def auth_logout(request: Request, response: Response):

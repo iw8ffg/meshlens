@@ -6,6 +6,7 @@
   import Banner from '../lib/ui/Banner.svelte'
   import Logo from '../lib/shell/Logo.svelte'
   import MeshtasticBadge from '../lib/shell/MeshtasticBadge.svelte'
+  import { pinError } from '../lib/settings'
   import type { AuthStatus } from '../lib/types'
 
   let { status, onsuccess }: { status: AuthStatus; onsuccess: () => void } = $props()
@@ -38,12 +39,16 @@
 
   const setup = $derived(!status.pin_set && status.is_local)
   const remote = $derived(!status.pin_set && !status.is_local)
+  // Primo PIN con l'accesso dalla rete attivo: almeno 6 cifre. Al login valgono anche i PIN
+  // di 4-5 cifre già impostati.
+  const minLen = $derived(setup ? (status.pin_min ?? 4) : 4)
 
   async function submit(e: Event) {
     e.preventDefault()
     message = ''
-    if (!/^\d{4,12}$/.test(pin)) {
-      message = 'Il PIN deve avere da 4 a 12 cifre'
+    const invalid = pinError(pin, minLen >= 6)
+    if (invalid) {
+      message = invalid
       return
     }
     if (setup && pin !== confirm) {
@@ -62,6 +67,8 @@
         message = err.retryAfter ? 'Troppi tentativi' : 'Troppi tentativi: riprova tra qualche minuto'
       } else if (err instanceof ApiError && err.status === 401) {
         message = 'PIN errato'
+      } else if (err instanceof ApiError && err.status === 400) {
+        message = err.message.charAt(0).toUpperCase() + err.message.slice(1)
       } else {
         message = 'Errore di accesso'
       }
@@ -82,7 +89,7 @@
     {:else}
       <form onsubmit={submit} novalidate>
         <h2>{setup ? 'Scegli un PIN' : 'Inserisci il PIN'}</h2>
-        {#if setup}<p class="ui-muted sub">Da 4 a 12 cifre. Servirà per aprire MeshLens da questo e dagli altri dispositivi.</p>{/if}
+        {#if setup}<p class="ui-muted sub">Da {minLen} a 12 cifre. Servirà per aprire MeshLens da questo e dagli altri dispositivi.</p>{/if}
         <Field label="PIN" for="pin" hint={setup ? undefined : 'Da 4 a 12 cifre'}>
           {#snippet children({ describedby, invalid })}
             <input
