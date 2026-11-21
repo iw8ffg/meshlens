@@ -174,6 +174,7 @@ class MapsManager:
         self.progress_interval = progress_interval
         self.job: dict | None = None
         self._task: asyncio.Task | None = None
+        self._closing = False  # chiusura in corso: nessun nuovo lavoro
         self._starting = False  # slot riservato prima di qualsiasi await in start()
         self._tool_cancel = threading.Event()
 
@@ -269,6 +270,8 @@ class MapsManager:
                             f"{math.ceil(need / GB)} GB", 409)
         if kind != "tool":
             url, sdate = await self._source()
+        if self._closing:
+            raise MapsError("Server in chiusura", 409)
         now = self.clock()
         self.job = {"id": uuid.uuid4().hex[:12], "kind": "tool" if need_tool else kind,
                     "name": name or {"world": "Mondo", "italy": "Italia",
@@ -300,7 +303,7 @@ class MapsManager:
                 self._set(kind=kind, step="Ritaglio della mappa", bytes_done=0,
                           bytes_total=size)
                 await self._extract(kind, bbox, url, tmp, size)
-                self._register(map_id, kind, name, bbox, tmp, sdate)
+                await self._register(map_id, kind, name, bbox, tmp, sdate)
             self._set(status="done", step="Completato", ended=self.clock())
         except asyncio.CancelledError:
             self._set(status="cancelled", step="Annullato", ended=self.clock())
@@ -372,16 +375,26 @@ class MapsManager:
         if not tmp.exists():
             raise MapsError("Ritaglio non riuscito: file non creato")
 
-    def _register(self, map_id, kind, name, bbox, tmp: Path, sdate) -> None:
+    async def _register(self, map_id, kind, name, bbox, tmp: Path, sdate) -> None:
         final = self.maps_dir / f"{map_id}.pmtiles"
         self.tiles.release()  # Windows: niente replace con l'archivio aperto da un Reader
-        os.replace(tmp, final)  # rinomina solo a fine riuscita
-        entry = {"id": map_id, "name": name, "kind": kind, "bbox": bbox,
-                 "maxzoom": MAXZOOM[kind], "size_bytes": final.stat().st_size,
-                 "created": self.clock(), "source_date": sdate}
-        items = [m for m in self._read_maps() if m["id"] != map_id] + [entry]
-        self._write_maps(items)
-        self.tiles.reload()
+        try:
+            # Windows (Defender) puo' tenere il file bloccato per un attimo: fino a 5 tentativi
+            for attempt in range(5):
+                try:
+                    os.replace(tmp, final)  # rinomina solo a fine riuscita
+                    break
+                except OSError:
+                    if attempt == 4:
+                        raise
+                    await asyncio.sleep(0.5)
+            entry = {"id": map_id, "name": name, "kind": kind, "bbox": bbox,
+                     "maxzoom": MAXZOOM[kind], "size_bytes": final.stat().st_size,
+                     "created": self.clock(), "source_date": sdate}
+            items = [m for m in self._read_maps() if m["id"] != map_id] + [entry]
+            self._write_maps(items)
+        finally:
+            self.tiles.reload()  # sempre: gli archivi esistenti tornano serviti anche se fallisce
         self.job["bytes_done"] = entry["size_bytes"]
 
     async def cancel(self, job_id: str) -> dict:
@@ -400,6 +413,7 @@ class MapsManager:
 
     async def shutdown(self) -> None:
         """Chiusura del server: termina il lavoro in corso (uccide il figlio, cancella i .tmp)."""
+        self._closing = True
         await self._cancel_running()
         self.cleanup_tmp()
 

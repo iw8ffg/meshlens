@@ -175,3 +175,61 @@ def test_concurrent_reads_return_correct_tiles(tmp_path):
     [t.start() for t in ts]
     [t.join() for t in ts]
     assert errors == []
+
+
+def test_unknown_compression_archive_skipped(tmp_path, caplog):
+    d, (ix, iy), _ = setup(tmp_path)
+    with open(d / "italy.pmtiles", "wb") as f:
+        w = Writer(f)
+        w.write_tile(zxy_to_tileid(5, ix, iy), b"X")
+        w.finalize({"tile_type": TileType.MVT, "tile_compression": Compression.UNKNOWN,
+                    "min_zoom": 0, "max_zoom": 14,
+                    "min_lon_e7": -1800000000, "min_lat_e7": -850000000,
+                    "max_lon_e7": 1800000000, "max_lat_e7": 850000000,
+                    "center_zoom": 0, "center_lon_e7": 0, "center_lat_e7": 0}, {})
+    with caplog.at_level("WARNING"):
+        s = TileStore(d)
+    assert s.get(5, ix, iy)[0] == b"WORLD"
+    assert "italy" in caplog.text
+    s.close()
+
+
+def test_brotli_and_zstd_encodings(tmp_path):
+    d = tmp_path / "maps"
+    d.mkdir()
+    for comp, name in ((Compression.BROTLI, "br"), (Compression.ZSTD, "zstd")):
+        make_archive(d / "world.pmtiles", {(0, 0, 0): b"T"}, 6)
+        with open(d / "world.pmtiles", "wb") as f:
+            w = Writer(f)
+            w.write_tile(zxy_to_tileid(0, 0, 0), b"T")
+            w.finalize({"tile_type": TileType.MVT, "tile_compression": comp,
+                        "min_zoom": 0, "max_zoom": 6,
+                        "min_lon_e7": -1800000000, "min_lat_e7": -850000000,
+                        "max_lon_e7": 1800000000, "max_lat_e7": 850000000,
+                        "center_zoom": 0, "center_lon_e7": 0, "center_lat_e7": 0}, {})
+        (d / "maps.json").write_text(json.dumps({"maps": [entry("world", "world", None, 6)]}))
+        s = TileStore(d)
+        assert s.get(0, 0, 0) == (b"T", name)
+        s.close()
+
+
+def test_bad_entries_never_raise(tmp_path):
+    d, (ix, iy), _ = setup(tmp_path)
+    items = [entry("world", "world", None, 6), entry("italy", "italy", [1, "x"], 14)]
+    items[0]["created"] = "boh"
+    (d / "maps.json").write_text(json.dumps({"maps": items}))
+    s = TileStore(d)  # bbox malformata: archivio saltato; created non numerico: tollerato
+    assert s.get(5, ix, iy)[0] == b"WORLD"
+    s.close()
+
+
+async def test_tiles_cache_control_and_spa_404(tmp_path):
+    ctx = make_ctx()
+    ctx.maps = make_manager(tmp_path)
+    d, (ix, iy), _ = setup(tmp_path, gz=False)
+    ctx.maps.tiles.reload()
+    async with logged(ctx) as c:
+        r = await c.get(f"/tiles/5/{ix}/{iy}.mvt")
+        assert r.status_code == 200 and r.headers["cache-control"] == "private, max-age=300"
+        assert "cache-control" not in (await c.get("/tiles/5/0/0.mvt")).headers
+    ctx.maps.tiles.close()

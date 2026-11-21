@@ -250,7 +250,9 @@ class _SpaStaticFiles(StaticFiles):
         try:
             return await super().get_response(path, scope)
         except StarletteHTTPException as e:
-            if e.status_code == 404 and not path.startswith("api"):
+            p = path.replace("\\", "/")  # su Windows get_path usa il separatore del sistema
+            if (e.status_code == 404 and not p.startswith("api")
+                    and not p.startswith(("map-assets/", "tiles/"))):
                 return await super().get_response("index.html", scope)
             raise
 
@@ -770,7 +772,9 @@ def create_app(ctx: AppContext) -> FastAPI:
         if found is None:
             return Response(status_code=204)
         data, enc = found
-        headers = {"Content-Encoding": enc} if enc else {}
+        headers = {"Cache-Control": "private, max-age=300"}
+        if enc:
+            headers["Content-Encoding"] = enc
         return Response(data, media_type="application/x-protobuf", headers=headers)
 
     # ---- websocket ----

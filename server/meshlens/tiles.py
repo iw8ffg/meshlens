@@ -16,6 +16,28 @@ from pmtiles.tile import (Compression, deserialize_directory, deserialize_header
 log = logging.getLogger(__name__)
 WORLD_BOUNDS = [-180.0, -85.0, 180.0, 85.0]
 _PRIORITY = {"area": 0, "italy": 1, "world": 2}
+# compressione delle tessere PMTiles -> valore di Content-Encoding (None = non compresse)
+_ENCODINGS = {Compression.NONE: None, Compression.GZIP: "gzip", Compression.BROTLI: "br",
+              Compression.ZSTD: "zstd"}
+
+
+def _clean_bbox(b):
+    """bbox valida (4 numeri finiti) oppure None; solleva ValueError se malformata."""
+    if b is None:
+        return None
+    if (not isinstance(b, (list, tuple)) or len(b) != 4
+            or not all(isinstance(v, (int, float)) and not isinstance(v, bool)
+                       and math.isfinite(v) for v in b)):
+        raise ValueError("bbox malformata")
+    return [float(v) for v in b]
+
+
+def _created(m: dict) -> float:
+    try:
+        v = float(m.get("created") or 0)
+        return v if math.isfinite(v) else 0.0
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def _tile_bounds(z: int, x: int, y: int) -> tuple[float, float, float, float]:
@@ -30,7 +52,7 @@ def _tile_bounds(z: int, x: int, y: int) -> tuple[float, float, float, float]:
 class _Archive:
     def __init__(self, entry: dict, path: Path):
         self.entry = entry
-        self.bbox = entry.get("bbox")
+        self.bbox = _clean_bbox(entry.get("bbox"))
         self.maxzoom = int(entry.get("maxzoom", 0))
         self.lock = threading.Lock()
         self.f = open(path, "rb")
@@ -39,7 +61,11 @@ class _Archive:
         except Exception:
             self.f.close()
             raise
-        self.gzip = self.header["tile_compression"] == Compression.GZIP
+        comp = self.header["tile_compression"]
+        if comp not in _ENCODINGS:
+            self.f.close()
+            raise ValueError(f"compressione tessere non supportata: {comp}")
+        self.encoding = _ENCODINGS[comp]
         self._dir = lru_cache(maxsize=256)(self._load_dir)  # cache delle directory
 
     def _read(self, offset: int, length: int) -> bytes:
@@ -102,13 +128,13 @@ class TileStore:
             items = []
         items = [m for m in items if isinstance(m, dict) and isinstance(m.get("id"), str)]
         # aree dalla piu recente, poi Italia, poi mondo
-        items.sort(key=lambda m: (_PRIORITY.get(m.get("kind"), 3), -float(m.get("created") or 0)))
+        items.sort(key=lambda m: (_PRIORITY.get(m.get("kind"), 3), -_created(m)))
         opened: list[_Archive] = []
         for m in items:
             try:
                 opened.append(_Archive(m, self.maps_dir / f"{m['id']}.pmtiles"))
             except Exception as e:
-                log.warning("Archivio %s ignorato: %s", m.get("id"), type(e).__name__)
+                log.warning("Archivio %s ignorato: %s", m.get("id"), e or type(e).__name__)
                 continue  # archivio mancante o corrotto: non si usa
         with self._lock:
             self.release()
@@ -121,10 +147,10 @@ class TileStore:
                     continue
                 try:
                     data = a.get(z, x, y)
-                except (ValueError, OSError):
-                    continue  # archivio chiuso o danneggiato
+                except Exception:
+                    continue  # archivio chiuso o danneggiato: mai un 500
                 if data is not None:
-                    return data, ("gzip" if a.gzip else None)
+                    return data, a.encoding
         return None
 
     def info(self) -> dict:

@@ -351,3 +351,78 @@ def test_read_maps_tolerates_malformed_and_keeps_corrupt_file(tmp_path):
     assert mgr._read_maps() == []
     assert (tmp_path / "maps" / "maps.json.bad").read_text() == "{non json"
     assert not (tmp_path / "maps" / "maps.json").exists()
+
+
+async def test_register_retries_replace_then_succeeds(tmp_path, monkeypatch):
+    mgr = make_manager(tmp_path, install_tool=True)
+    real, calls = maps.os.replace, {"n": 0}
+
+    def flaky(a, b):
+        if str(a).endswith(".pmtiles.tmp"):
+            calls["n"] += 1
+            if calls["n"] <= 2:
+                raise PermissionError("bloccato")
+        return real(a, b)
+
+    async def no_sleep(_):
+        return None
+
+    monkeypatch.setattr(maps.os, "replace", flaky)
+    monkeypatch.setattr(maps.asyncio, "sleep", no_sleep)
+    await mgr.start("world", None, None)
+    job = await wait_done(mgr)
+    assert job["status"] == "done", job
+    assert calls["n"] == 3 and [m["id"] for m in mgr.status()["maps"]] == ["world"]
+
+
+async def test_register_failure_keeps_existing_archives_served(tmp_path, monkeypatch):
+    from test_tiles import entry, make_archive
+    mgr = make_manager(tmp_path, install_tool=True)
+    d = tmp_path / "maps"
+    make_archive(d / "world.pmtiles", {(0, 0, 0): b"W0"}, 6)
+    (d / "maps.json").write_text(json.dumps({"maps": [entry("world", "world", None, 6)]}))
+    mgr.tiles.reload()
+    assert mgr.tiles.get(0, 0, 0)[0] == b"W0"
+    real = maps.os.replace
+
+    def failing(a, b):
+        if str(a).endswith(".pmtiles.tmp"):
+            raise PermissionError("bloccato")
+        return real(a, b)
+
+    async def no_sleep(_):
+        return None
+
+    monkeypatch.setattr(maps.os, "replace", failing)
+    monkeypatch.setattr(maps.asyncio, "sleep", no_sleep)
+    await mgr.start("italy", None, None)
+    job = await wait_done(mgr)
+    assert job["status"] == "failed"
+    assert mgr.tiles.get(0, 0, 0)[0] == b"W0"  # reload() eseguito comunque
+    mgr.tiles.close()
+
+
+async def test_start_refused_after_shutdown_began(tmp_path):
+    mgr = make_manager(tmp_path, install_tool=True)
+    await mgr.shutdown()
+    with pytest.raises(MapsError):
+        await mgr.start("world", None, None)
+    assert mgr.job is None and mgr._task is None
+
+
+async def test_shutdown_during_source_lookup_creates_no_task(tmp_path):
+    gate = asyncio.Event()
+    mgr = make_manager(tmp_path, install_tool=True)
+
+    async def slow_source():
+        await gate.wait()
+        return SRC, None
+
+    mgr._source = slow_source
+    t = asyncio.create_task(mgr.start("world", None, None))
+    await asyncio.sleep(0.05)
+    await mgr.shutdown()
+    gate.set()
+    with pytest.raises(MapsError):
+        await t
+    assert mgr._task is None and mgr.job is None

@@ -14,7 +14,7 @@ dependencies = [
     "cryptography",
     "shapely>=2.0",
     "argon2-cffi",
-    "pmtiles",
+    "pmtiles>=3.8.1",
 ]
 
 [project.optional-dependencies]

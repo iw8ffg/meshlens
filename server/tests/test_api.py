@@ -211,6 +211,9 @@ async def test_static_spa(tmp_path):
         assert "SPA" in (await c.get("/some/route")).text
         r = await c.get("/api/unknown")
         assert r.status_code == 404 and "SPA" not in r.text
+        for u in ("/map-assets/nope.json", "/tiles/x/y.mvt"):
+            r = await c.get(u)
+            assert r.status_code == 404 and "SPA" not in r.text
 
 
 async def test_no_static_dir(tmp_path):
