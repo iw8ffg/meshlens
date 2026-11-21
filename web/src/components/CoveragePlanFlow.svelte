@@ -1,8 +1,9 @@
 <script lang="ts">
-  import { ApiError, applyPlan } from '../lib/api'
+  import { untrack } from 'svelte'
+  import { ApiError, applyPlan, configJob } from '../lib/api'
   import { MASK, pathLabel } from '../lib/config'
   import { prepareStatus } from '../lib/coverage'
-  import { configJobs, setConfigJob } from '../lib/stores.svelte'
+  import { app, configJobs, setConfigJob } from '../lib/stores.svelte'
   import type { CoveragePlan } from '../lib/types'
 
   // Il genitore lo monta con {#key plan.plan_id}: la conferma di rischio non passa mai a un altro piano.
@@ -22,15 +23,41 @@
   const empty = $derived(plan.steps.every((s) => s.preview.changes.length === 0))
   const started = $derived(jobIds.length > 0)
   const status = $derived(
-    prepareStatus({ steps: plan.steps, jobs: jobIds.map((id) => configJobs.get(id) ?? null) }),
+    prepareStatus({ steps: plan.steps, jobs: jobIds.map((id) => configJobs.get(id) ?? null) }, kind),
   )
 
   let notified = false
   $effect(() => {
     if (started && status.finished && !notified) {
       notified = true
-      onfinished?.()
+      untrack(() => onfinished?.())  // il genitore puo' leggere e scrivere il proprio stato
     }
+  })
+
+  // Rilegge i lavori non terminati (il WebSocket puo' aver perso aggiornamenti)
+  async function refresh() {
+    for (const id of jobIds) {
+      const cur = configJobs.get(id)
+      if (cur && cur.status !== 'running') continue
+      try {
+        setConfigJob(await configJob(id))
+      } catch {
+        /* riprova al prossimo giro */
+      }
+    }
+  }
+  // dopo una riconnessione del WebSocket
+  $effect(() => {
+    void app.reconnects
+    if (untrack(() => jobIds.length) > 0) untrack(refresh)
+  })
+  // ogni 5 s finche' qualche lavoro e' in corso
+  $effect(() => {
+    if (!started) return
+    const t = setInterval(() => {
+      if (!status.finished) void refresh()
+    }, 5000)
+    return () => clearInterval(t)
   })
 
   const show = (v: unknown) => {
@@ -38,7 +65,7 @@
     if (v === MASK) return MASK
     return typeof v === 'object' ? JSON.stringify(v) : String(v)
   }
-  const roleOf = (i: number) => (i === 0 ? 'Mobile' : 'Base')
+  const roleOf = (role: string) => (role === 'mobile' ? 'Mobile' : 'Base')
 
   async function apply() {
     busy = true
@@ -57,9 +84,9 @@
 
 <div class="flow">
   <h4>{kind === 'prepare' ? 'Anteprima: prepara le radio' : 'Anteprima: ripristina la configurazione'}</h4>
-  {#each plan.steps as s, i (s.node_id)}
+  {#each plan.steps as s (s.node_id)}
     <div class="step">
-      <b>{roleOf(i)}</b> <small>{s.node_id}</small>
+      <b>{roleOf(s.role)}</b> <small>{s.node_id}</small>
       {#if s.preview.changes.length === 0}
         <p class="muted">Nessuna modifica.</p>
       {:else}

@@ -257,7 +257,7 @@ export interface ConfigJob {
   step: string
   progress: [number, number] | null
   error: string | null
-  error_code: 'unauthorized' | 'timeout' | 'error' | null
+  error_code: 'unauthorized' | 'timeout' | 'error' | 'busy' | 'skipped' | null
   result_id: number | null
   verify: 'verified' | 'mismatch' | null
   started: number
@@ -302,16 +302,17 @@ export interface ConfigBackup {
 // ---- Prepara le radio (fase 5) ----
 export interface CoveragePlanStep {
   node_id: string
+  role: 'mobile' | 'base'
   preview: ConfigPreview
 }
 /** Piano di preparazione o di ripristino: mobile prima, base dopo. */
 export interface CoveragePlan {
-  plan_id: string
+  plan_id: number
   steps: CoveragePlanStep[]
 }
 /** Ultimo piano applicato e non ripristinato. */
 export interface CoverageLastPlan {
-  plan_id: string
-  steps: { node_id: string; preview?: ConfigPreview }[]
+  plan_id: number
+  steps: { node_id: string; role: 'mobile' | 'base'; backup_id?: number | null }[]
   jobs?: ConfigJob[]
 }

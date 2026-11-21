@@ -11,6 +11,7 @@
   let { now }: { now: number } = $props()
 
   const active = $derived(coverage.sessions.find((s) => s.ended === null) ?? null)
+  let prepared = $state(0) // cresce a ogni preparazione terminata: ricarica il riquadro di ripristino
   let creating = $state(false)
   let error = $state('')
   let name = $state('')
@@ -99,12 +100,12 @@
       <button class="stop" onclick={() => stop(active)}>Ferma</button>
     </div>
   {/if}
-  <CoverageRestoreBox reloadKey={coverage.sessions.filter((s) => s.ended !== null).length + (active ? 1000 : 0)} />
+  <CoverageRestoreBox reloadKey={coverage.sessions.filter((s) => s.ended !== null).length + (active ? 1000 : 0) + prepared * 10000} />
   <div class="bar">
     <button disabled={!!active} onclick={() => (creating = !creating)}>Nuova prova</button>
   </div>
   {#if creating && !active}
-    <CoverageSetup />
+    <CoverageSetup onprepared={() => prepared++} />
   {/if}
   {#if error}<p class="err">{error}</p>{/if}
 

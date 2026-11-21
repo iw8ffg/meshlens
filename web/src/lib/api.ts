@@ -113,14 +113,14 @@ export const setFixedPosition = (nodeId: string, body: { lat: number; lon: numbe
   send<ConfigJob>('POST', `${cfgPath(nodeId)}/fixed-position`, { ...body, confirm: true })
 export const configBackups = (nodeId: string) => getJSON<ConfigBackup[]>(`${cfgPath(nodeId)}/backups`)
 export const configBackup = (id: number) => getJSON<ConfigBackup>(`/config/backups/${id}`)
-export const previewRestore = (id: number) => send<ConfigPreview>('POST', `/config/backups/${id}/preview-restore`)
+export const previewRestore = (id: number) => send<ConfigPreview>('POST', `/config/backups/${id}/preview-restore`, {})
 export const revealPsk = (nodeId: string, index: number) =>
-  send<{ psk: string }>('POST', `${cfgPath(nodeId)}/channels/${index}/reveal-psk`)
+  send<{ psk: string }>('POST', `${cfgPath(nodeId)}/channels/${index}/reveal-psk`, {})
 export const configJob = (id: number) => getJSON<ConfigJob>(`/config/jobs/${id}`)
 
 export const preparePlan = (body: { radio_id: string; mobile_id: string; interval_s: number; private_channel: boolean }) =>
   send<CoveragePlan>('POST', '/coverage/prepare', body)
-export const applyPlan = (planId: string, confirmRisky = false) =>
-  send<{ jobs: ConfigJob[] }>('POST', `/coverage/prepare/${encodeURIComponent(planId)}/apply`, { confirm_risky: confirmRisky })
-export const restorePlan = (planId: string) => send<CoveragePlan>('POST', '/coverage/restore', { plan_id: planId })
+export const applyPlan = (planId: number, confirmRisky = false) =>
+  send<{ jobs: ConfigJob[] }>('POST', `/coverage/prepare/${planId}/apply`, { confirm_risky: confirmRisky })
+export const restorePlan = (planId: number) => send<CoveragePlan>('POST', '/coverage/restore', { plan_id: planId })
 export const lastPlan = () => getJSON<CoverageLastPlan | null>('/coverage/prepare/last')

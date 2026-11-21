@@ -158,7 +158,7 @@ const job = (over: Partial<ConfigJob>): ConfigJob => ({
   id: 1, node_id: '!a', radio_id: 'r', kind: 'apply', status: 'done', step: '', progress: null,
   error: null, error_code: null, result_id: null, verify: 'verified', started: 0, ended: 1, ...over,
 })
-const steps = [{ node_id: '!mob' }, { node_id: '!base' }]
+const steps = [{ node_id: '!mob', role: 'mobile' }, { node_id: '!base', role: 'base' }]
 
 describe('prepareStatus', () => {
   it('senza lavori: in attesa', () => {
@@ -187,6 +187,20 @@ describe('prepareStatus', () => {
   it('mobile fallito: base non toccata', () => {
     const s = prepareStatus({ steps, jobs: [job({ status: 'failed', error: 'x', verify: null })] })
     expect(s.summary).toBe('Mobile non preparato, base non toccata')
+  })
+  it('piano con la sola base: il ruolo viene dal passo, non dalla posizione', () => {
+    const s = prepareStatus({ steps: [{ node_id: '!base', role: 'base' }], jobs: [job({})] })
+    expect(s.nodes[0].role).toBe('Base')
+    expect(s.summary).toBe('Radio preparate')
+    const f = prepareStatus({ steps: [{ node_id: '!base', role: 'base' }], jobs: [job({ status: 'failed', error: 'x', verify: null })] })
+    expect(f.summary).toBe('Base non preparato')
+  })
+  it('parole del ripristino', () => {
+    expect(prepareStatus({ steps, jobs: [job({ status: 'running', verify: null })] }, 'restore').summary).toBe('Ripristino in corso')
+    expect(prepareStatus({ steps, jobs: [job({}), job({ id: 2 })] }, 'restore').summary).toBe('Configurazione ripristinata')
+    const s = prepareStatus({ steps, jobs: [job({}), job({ id: 2, status: 'failed', error: 'x', verify: null })] }, 'restore')
+    expect(s.summary).toBe('Mobile ripristinato, base no')
+    expect(s.nodes[0].text).toBe('Ripristinato e verificato')
   })
   it('mismatch segnalato', () => {
     const s = prepareStatus({ steps, jobs: [job({ verify: 'mismatch' }), job({ id: 2 })] })

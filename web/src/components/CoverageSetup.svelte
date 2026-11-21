@@ -5,6 +5,8 @@
   import type { CoverageCheck, CoverageMode, CoveragePlan } from '../lib/types'
   import CoveragePlanFlow from './CoveragePlanFlow.svelte'
 
+  let { onprepared }: { onprepared?: () => void } = $props()
+
   const connected = $derived(app.radios.filter((r) => r.state === 'connected'))
   const radioNodeIds = $derived(new Set(app.radios.map((r) => r.my_node_id).filter((x): x is string => !!x)))
   let radioId = $state('')
@@ -161,7 +163,7 @@
   {#if prepError}<p class="err">{prepError}</p>{/if}
   {#if plan}
     {#key plan.plan_id}
-      <CoveragePlanFlow {plan} kind="prepare" oncancel={() => (plan = null)} />
+      <CoveragePlanFlow {plan} kind="prepare" oncancel={() => (plan = null)} onfinished={onprepared} />
     {/key}
   {/if}
 

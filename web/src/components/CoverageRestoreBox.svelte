@@ -1,5 +1,7 @@
 <script lang="ts">
   import { ApiError, lastPlan, restorePlan } from '../lib/api'
+  import { prepareStatus } from '../lib/coverage'
+  import { configJobs } from '../lib/stores.svelte'
   import type { CoverageLastPlan, CoveragePlan } from '../lib/types'
   import CoveragePlanFlow from './CoveragePlanFlow.svelte'
 
@@ -10,6 +12,13 @@
   let plan = $state<CoveragePlan | null>(null)
   let busy = $state(false)
   let error = $state('')
+
+  // stato (anche parziale) della preparazione, aggiornato dal WebSocket
+  const status = $derived(
+    last && last.jobs?.length
+      ? prepareStatus({ steps: last.steps, jobs: last.jobs.map((j) => configJobs.get(j.id) ?? j) })
+      : null,
+  )
 
   async function load() {
     try {
@@ -43,7 +52,16 @@
 
 {#if last}
   <div class="box">
-    <span>Radio preparate per la prova.</span>
+    {#if status}
+      <ul class="prog" aria-label="Stato della preparazione">
+        {#each status.nodes as n (n.node_id)}
+          <li class={n.state}><b>{n.role}</b>: {n.text}</li>
+        {/each}
+      </ul>
+      <span class:err={status.failed}>{status.summary}</span>
+    {:else}
+      <span>Radio preparate per la prova.</span>
+    {/if}
     {#if !plan}<button disabled={busy} onclick={start}>Ripristina configurazione</button>{/if}
     {#if error}<p class="err">{error}</p>{/if}
     {#if plan}
@@ -65,9 +83,21 @@
     gap: 6px;
     font-size: 0.9em;
   }
-  .err {
+  .err,
+  li.failed {
     color: #f87171;
     margin: 0;
+  }
+  .prog {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  li.ok {
+    color: #2e9d4b;
+  }
+  li.mismatch {
+    color: #d9a400;
   }
   button {
     padding: 8px 10px;

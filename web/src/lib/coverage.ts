@@ -152,22 +152,28 @@ export interface PrepareStatus {
   failed: boolean
 }
 
-const ROLES = ['Mobile', 'Base']
+const ROLE_NAMES: Record<string, string> = { mobile: 'Mobile', base: 'Base' }
+const WORDS = {
+  prepare: { part: 'preparato', notPart: 'non preparato', running: 'Preparazione in corso', done: 'Radio preparate', ok: 'Applicato', verified: 'Applicato e verificato', diff: 'Applicato, ma la configurazione riletta è diversa dal previsto', hint: ': riprova o ripristina' },
+  restore: { part: 'ripristinato', notPart: 'non ripristinato', running: 'Ripristino in corso', done: 'Configurazione ripristinata', ok: 'Ripristinato', verified: 'Ripristinato e verificato', diff: 'Ripristinato, ma la configurazione riletta è diversa dal previsto', hint: '' },
+}
 
-/** Stato per nodo di un piano (mobile, poi base) dagli esiti dei lavori. */
-export function prepareStatus(plan: { steps: { node_id: string }[]; jobs: (ConfigJob | null | undefined)[] }): PrepareStatus {
+/** Stato per nodo di un piano (mobile, poi base) dagli esiti dei lavori; il ruolo viene da `step.role`. */
+export function prepareStatus(
+  plan: { steps: { node_id: string; role?: string }[]; jobs: (ConfigJob | null | undefined)[] },
+  kind: 'prepare' | 'restore' = 'prepare',
+): PrepareStatus {
+  const w = WORDS[kind]
   const nodes: NodeStatus[] = plan.steps.map((s, i) => {
-    const role = ROLES[i] ?? `Nodo ${i + 1}`
+    const role = (s.role && ROLE_NAMES[s.role]) || `Nodo ${i + 1}`
     const j = plan.jobs[i]
     if (!j) return { node_id: s.node_id, role, state: 'waiting', text: 'In attesa' }
     if (j.status === 'running') return { node_id: s.node_id, role, state: 'running', text: `In corso: ${j.step || 'scrittura'}` }
     if (j.status === 'failed') {
       return { node_id: s.node_id, role, state: 'failed', text: `Non riuscito: ${j.error || 'errore sconosciuto'}` }
     }
-    if (j.verify === 'mismatch') {
-      return { node_id: s.node_id, role, state: 'mismatch', text: 'Applicato, ma la configurazione riletta è diversa dal previsto' }
-    }
-    return { node_id: s.node_id, role, state: 'ok', text: j.verify === 'verified' ? 'Applicato e verificato' : 'Applicato' }
+    if (j.verify === 'mismatch') return { node_id: s.node_id, role, state: 'mismatch', text: w.diff }
+    return { node_id: s.node_id, role, state: 'ok', text: j.verify === 'verified' ? w.verified : w.ok }
   })
   const applied = (n: NodeStatus) => n.state === 'ok' || n.state === 'mismatch'
   const failedAt = nodes.findIndex((n) => n.state === 'failed')
@@ -177,10 +183,13 @@ export function prepareStatus(plan: { steps: { node_id: string }[]; jobs: (Confi
   let summary: string
   if (failed) {
     const okNames = nodes.filter(applied).map((n) => n.role)
-    if (okNames.length === 0) summary = `${nodes[failedAt].role} non preparato, base non toccata`
-    else summary = `${okNames.join(' e ')} preparato, ${nodes[failedAt].role.toLowerCase()} no: riprova o ripristina`
-  } else if (running || (!allApplied && nodes.some(applied))) summary = 'Preparazione in corso'
-  else if (allApplied) summary = nodes.some((n) => n.state === 'mismatch') ? 'Applicato, ma controlla le differenze rilette' : 'Radio preparate'
-  else summary = 'In attesa'
+    const later = nodes.slice(failedAt + 1).map((n) => n.role.toLowerCase())
+    if (okNames.length === 0) {
+      summary = `${nodes[failedAt].role} ${w.notPart}` + (later.length ? `, ${later.join(' e ')} non toccata` : '')
+    } else summary = `${okNames.join(' e ')} ${w.part}, ${nodes[failedAt].role.toLowerCase()} no${w.hint}`
+  } else if (running || (!allApplied && nodes.some(applied))) summary = w.running
+  else if (allApplied) {
+    summary = nodes.some((n) => n.state === 'mismatch') ? 'Applicato, ma controlla le differenze rilette' : w.done
+  } else summary = 'In attesa'
   return { nodes, summary, finished: failed || allApplied, failed }
 }
