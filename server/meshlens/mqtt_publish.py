@@ -1,7 +1,7 @@
 """Invio di messaggi di testo via MQTT a nome del proprio nodo.
 Si pubblica SOLO TEXT_MESSAGE_APP: mai posizioni, nodeinfo o altro.
-La chiave di cifratura e' sempre quella predefinita (AQ== espansa): le chiavi per
-canale configurate in mqtt.extra_keys servono solo alla decodifica."""
+Chiave: quella che il decoder ha visto decifrare quel canale (extra_keys e' una lista
+piatta, non per canale); se ignota, la predefinita (AQ==) solo per i nomi dei preset."""
 import math
 import re
 import secrets
@@ -23,6 +23,9 @@ DEFAULT_REGION = "EU_868"
 CONFIRM_TEXT = ("Il messaggio sarà pubblico sul broker mqtt.meshtastic.org e potrà essere "
                 "ritrasmesso via radio dai gateway")
 UNKNOWN_NODE_TEXT = "Collega una radio o imposta il tuo id nodo in Impostazioni → MQTT"
+PRESET_CHANNELS = frozenset({"LongFast", "MediumFast", "MediumSlow", "ShortFast", "ShortSlow",
+                             "LongModerate", "LongSlow", "ShortTurbo"})
+_CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
 _NODE_ID = re.compile(r"!([0-9a-fA-F]{8})")
 
 
@@ -59,9 +62,10 @@ class MqttSender:
 
     def __init__(self, get_connector: Callable[[], object], get_settings: Callable[[], dict],
                  get_radios: Callable[[], list], clock: Callable[[], float],
-                 record: Callable[..., dict]):
+                 record: Callable[..., dict],
+                 key_for: Callable[[str], bytes | None] = lambda channel: None):
         self.get_connector, self.settings, self.radios = get_connector, get_settings, get_radios
-        self.clock, self.record = clock, record
+        self.clock, self.record, self.key_for = clock, record, key_for
         self._sent: deque[float] = deque()
 
     def _own_node(self, settings: dict) -> str:
@@ -69,8 +73,8 @@ class MqttSender:
         if configured:
             return "!" + configured[1:].lower()
         for r in self.radios():
-            if r.get("state") == "connected" and r.get("my_node_id"):
-                return r["my_node_id"]
+            if r.get("state") == "connected" and _NODE_ID.fullmatch(r.get("my_node_id") or ""):
+                return r["my_node_id"].lower()
         raise MqttSendError(400, "unknown_node", UNKNOWN_NODE_TEXT)
 
     def _check_rate(self) -> None:
@@ -87,7 +91,7 @@ class MqttSender:
 
     def send(self, text: str, channel: str, to: str | None, confirm_public: bool) -> dict:
         settings = self.settings()
-        if not text.strip() or len(text.encode("utf-8")) > MAX_TEXT_BYTES:
+        if not text.strip() or _CONTROL.search(text) or len(text.encode("utf-8")) > MAX_TEXT_BYTES:
             raise MqttSendError(400, "invalid_text",
                                 f"Il testo deve essere non vuoto e di al massimo {MAX_TEXT_BYTES} byte")
         if not channel or len(channel) > 32 or any(c in channel for c in "/#+"):
@@ -100,6 +104,13 @@ class MqttSender:
             to_num = int(m.group(1), 16)
         if not settings.get("mqtt_send_confirmed") and not confirm_public:
             raise MqttSendError(409, "confirm_required", CONFIRM_TEXT)
+        key = self.key_for(channel)  # chiave imparata dal traffico; altrimenti solo i preset
+        if key is None:
+            if channel not in PRESET_CHANNELS:
+                raise MqttSendError(400, "unknown_channel_key",
+                                    f"Non conosco la chiave del canale {channel}: aspetta di "
+                                    "ricevere almeno un messaggio su quel canale")
+            key = DEFAULT_KEY
         own = self._own_node(settings)
         connector = self.get_connector()
         if connector is None:
@@ -109,7 +120,7 @@ class MqttSender:
         packet_id = secrets.randbelow(2**32 - 1) + 1  # 32 bit, mai 0
         region = region_from_topics(settings["mqtt"].get("topics", []))
         topic = f"msh/{region}/2/e/{channel}/{own}"
-        payload = build_envelope(text, from_num, to_num, channel, DEFAULT_KEY, packet_id, own)
+        payload = build_envelope(text, from_num, to_num, channel, key, packet_id, own)
         if not connector.publish(topic, payload):
             raise MqttSendError(503, "mqtt_disconnected", "MQTT non connesso")
         self._sent.append(self.clock())

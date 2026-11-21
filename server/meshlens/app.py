@@ -67,13 +67,16 @@ class Runtime:
     updater: Updater | None = None
     auto_update: bool = False  # controllo automatico ogni 24 h (attivo solo nell'app reale)
     connector: object = None
+    learned_keys: dict = field(default_factory=dict)  # canale -> chiave vista decifrare
     ctx: object = None  # AppContext
     tasks: list = field(default_factory=list)
 
     def start_connector(self) -> None:
         cfg = self.settings["mqtt"]
+        decoder = _make_decoder(cfg)
+        decoder.channel_keys.update(self.learned_keys)  # sopravvivono al riavvio del connettore
         self.connector = self.connector_factory(
-            cfg, _make_decoder(cfg), self.loop, self.on_event or self.ingestor.handle)
+            cfg, decoder, self.loop, self.on_event or self.ingestor.handle)
         self.connector.start()
 
     def mqtt_status(self) -> dict:
@@ -86,6 +89,7 @@ class Runtime:
             return
         if self.connector is not None:
             old, self.connector = self.connector, None
+            self.learned_keys.update(getattr(getattr(old, "decoder", None), "channel_keys", {}))
             await asyncio.to_thread(old.stop)
         try:
             self.start_connector()
@@ -213,7 +217,8 @@ def build(data_dir: Path, connector_factory=MqttConnector,
     rt.ctx = ctx
     ctx.mqtt_sender = MqttSender(
         lambda: rt.connector, lambda: rt.settings, rt.radios.radios, time.time,
-        ingestor.record_outgoing_mqtt)
+        ingestor.record_outgoing_mqtt,
+        lambda ch: getattr(getattr(rt.connector, "decoder", None), "channel_keys", {}).get(ch))
     app = create_app(ctx)
 
     @contextlib.asynccontextmanager

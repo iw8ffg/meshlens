@@ -1,5 +1,6 @@
 """API REST e WebSocket. Tutti gli handler sono async: la connessione sqlite e
 condivisa e va usata solo dal thread dell'event loop."""
+import logging
 import asyncio
 import ipaddress
 import mimetypes
@@ -500,7 +501,11 @@ def create_app(ctx: AppContext) -> FastAPI:
             return JSONResponse(status_code=e.status, content={"detail": e.message, "code": e.code})
         if body.confirm_public and not load_settings(ctx.conn).get("mqtt_send_confirmed"):
             # la conferma si ricorda: la prossima volta non viene richiesta
-            await ctx.on_settings_changed(save_settings(ctx.conn, {"mqtt_send_confirmed": True}))
+            try:
+                await ctx.on_settings_changed(
+                    save_settings(ctx.conn, {"mqtt_send_confirmed": True}))
+            except Exception:  # il messaggio e' gia' partito: non si risponde con un errore
+                logging.getLogger(__name__).exception("Salvataggio di mqtt_send_confirmed fallito")
         return {"message": message}
 
     @app.get("/api/mqtt/channels", dependencies=[Depends(require_auth)])

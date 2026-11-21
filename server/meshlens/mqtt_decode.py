@@ -153,6 +153,8 @@ class EnvelopeDecoder:
     def __init__(self, keys: list[bytes]):
         self.keys = list(keys)
         self.stats: collections.Counter = collections.Counter()
+        # nome canale -> ultima chiave che ha decifrato un pacchetto (serve all'invio)
+        self.channel_keys: dict[str, bytes] = {}
 
     def decode(self, topic: str, payload: bytes, now: float) -> MeshEvent | None:
         """Non solleva mai: ogni scarto viene contato in `stats`."""
@@ -222,5 +224,7 @@ class EnvelopeDecoder:
             except Exception:
                 continue
             if data.portnum != 0:
+                if channel_name:
+                    self.channel_keys[channel_name] = key
                 return data
         return None

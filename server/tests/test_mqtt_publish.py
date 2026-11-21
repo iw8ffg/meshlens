@@ -283,3 +283,40 @@ async def test_connector_publish_qos0_and_false_when_disconnected():
     assert calls == []
     c._connected = True
     assert c.publish("t", b"x") is True and calls == [("t", b"x", 0)]
+
+
+def test_learned_extra_key_used_for_sending():
+    from meshlens.crypto import expand_psk
+    extra = expand_psk("AQ==")[:-1] + b"\x77"
+    dec = EnvelopeDecoder([DEFAULT_KEY, extra])
+    from helpers import make_envelope
+    from meshtastic.protobuf import mesh_pb2, portnums_pb2
+    raw = make_envelope(portnums_pb2.TEXT_MESSAGE_APP, b"hi", channel_id="Privato", key=extra)
+    assert dec.decode("msh/EU_868/2/e/Privato/!1", raw, 1.0) is not None
+    conn = FakeConnector()
+    s = make_sender(conn)
+    s.key_for = dec.channel_keys.get
+    s.send("segreto", "Privato", None, False)
+    ev = EnvelopeDecoder([extra]).decode("t", conn.published[0][1], 1.0)
+    assert ev.payload.text == "segreto"
+
+
+def test_unknown_custom_channel_refused_but_presets_ok():
+    conn = FakeConnector()
+    s = make_sender(conn)
+    e = expect(400, "unknown_channel_key", lambda: s.send("x", "Privato", None, False))
+    assert "Privato" in e.message and conn.published == []
+    s.send("x", "ShortTurbo", None, False)
+    assert len(conn.published) == 1
+
+
+def test_control_chars_and_bad_radio_node():
+    conn = FakeConnector()
+    s = make_sender(conn)
+    expect(400, "invalid_text", lambda: s.send("a\x00b", "LongFast", None, False))
+    expect(400, "invalid_text", lambda: s.send("a\x1bb", "LongFast", None, False))
+    s.send("a\nb\tc", "LongFast", None, False)
+    s2 = make_sender(conn, settings={"mqtt_node_id": ""},
+                     radios=[{"state": "connected", "my_node_id": "!zz"}])
+    expect(400, "unknown_node", lambda: s2.send("x", "LongFast", None, False))
+    assert len(conn.published) == 1
