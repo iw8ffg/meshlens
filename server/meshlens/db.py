@@ -4,7 +4,7 @@ import sqlite3
 from collections.abc import Callable
 from pathlib import Path
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS nodes(
@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS positions(
 CREATE TABLE IF NOT EXISTS messages(
   key TEXT PRIMARY KEY, from_num INTEGER, to_num INTEGER, channel TEXT, text TEXT,
   time REAL, country TEXT, source TEXT, direction TEXT DEFAULT 'in', radio_id TEXT,
-  channel_index INTEGER, packet_id INTEGER, status TEXT);
+  channel_index INTEGER, packet_id INTEGER, status TEXT, broker TEXT);
 CREATE TABLE IF NOT EXISTS telemetry(
   id INTEGER PRIMARY KEY AUTOINCREMENT, node_num INTEGER, time REAL, battery INTEGER,
   voltage REAL, channel_util REAL, air_util_tx REAL, uptime INTEGER);
@@ -97,6 +97,7 @@ _MIGRATIONS = (
     ("messages", "channel_index", "INTEGER"),
     ("messages", "packet_id", "INTEGER"),
     ("messages", "status", "TEXT"),
+    ("messages", "broker", "TEXT"),
     ("config_jobs", "error_code", "TEXT"),
     ("nodes", "is_favorite", "INTEGER DEFAULT 0"),
     ("nodes", "hops_min", "INTEGER"),
@@ -127,7 +128,12 @@ def _migration_2(conn: sqlite3.Connection) -> None:
         conn.execute(stmt)
 
 
-_STEPS = {1: _migration_1, 2: _migration_2}
+def _migration_3(conn: sqlite3.Connection) -> None:
+    """messages.broker: id del broker MQTT da cui e' arrivato il messaggio."""
+    _add_missing_columns(conn, (("messages", "broker", "TEXT"),))
+
+
+_STEPS = {1: _migration_1, 2: _migration_2, 3: _migration_3}
 
 
 log = logging.getLogger(__name__)

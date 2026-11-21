@@ -1,6 +1,7 @@
 """Deduplica i pacchetti Meshtastic gia' visti di recente, per (mittente, packet id).
 Unica per tutte le sorgenti (radio e broker): ricorda anche da quali sorgenti e' arrivato
 ogni pacchetto, cosi' chi conta i gateway MQTT non tiene un secondo registro."""
+import time
 from collections import OrderedDict
 
 MAX_KEYS = 200_000
@@ -10,7 +11,7 @@ SOURCE_BITS = {"rf": 1, "mqtt": 2}
 class Deduplicator:
     def __init__(self, window_s: float = 600):
         self.window_s = window_s
-        # chiave (from, id) -> [istante della prima vista, bit delle sorgenti];
+        # chiave (from, id) -> [istante della prima vista, bit delle sorgenti, insieme dei gateway (facoltativo)];
         # ordinato per prima vista crescente
         self._seen: OrderedDict[tuple[int, int], list] = OrderedDict()
 
@@ -31,6 +32,23 @@ class Deduplicator:
             self._seen.popitem(last=False)
         self._seen[key] = [now, bit]
         return True, False
+
+    def note_gateway(self, from_node: int, packet_id: int, gateway: str,
+                     now: float | None = None) -> bool:
+        """True se questo gateway non era ancora stato visto per il pacchetto.
+        L'insieme dei gateway vive nella voce della chiave e sparisce con essa."""
+        key = (from_node, packet_id)
+        entry = self._seen.get(key)
+        if entry is None:
+            if len(self._seen) >= MAX_KEYS:
+                self._seen.popitem(last=False)
+            entry = self._seen[key] = [time.time() if now is None else now, 0]
+        if len(entry) < 3:
+            entry.append(set())
+        if gateway in entry[2]:
+            return False
+        entry[2].add(gateway)
+        return True
 
     def is_new(self, from_node: int, packet_id: int, now: float) -> bool:
         return self.observe(from_node, packet_id, now, None)[0]

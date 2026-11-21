@@ -72,32 +72,49 @@ class Ingestor:
         self._telemetry_time: dict[int, float] = {}
         self._rf_hops_time: dict[int, float] = {}  # nodo -> istante dell'ultimo hops da RF
         self._radio_nodes: dict[str, int] = {}  # radio_id -> numero del nodo della radio
-        # canali visti da MQTT (anche se scartati): canale -> {minuto: conteggio}
-        self._channel_buckets: dict[str, dict[int, int]] = {}
+        # canali visti da MQTT (anche se scartati): (broker, canale) -> {minuto: conteggio}
+        self._channel_buckets: dict[tuple[str, str], dict[int, int]] = {}
         self.filtered_channel = 0  # eventi MQTT scartati dal filtro mqtt_channels
 
-    def _note_mqtt_channel(self, name: str, t: float) -> None:
-        buckets = self._channel_buckets.setdefault(name, {})
+    def _note_mqtt_channel(self, name: str, t: float, broker: str | None = None) -> None:
+        buckets = self._channel_buckets.setdefault((broker or "", name), {})
         minute = int(t // 60)
         buckets[minute] = buckets.get(minute, 0) + 1
         for m in [m for m in buckets if m < minute - 61]:
             del buckets[m]
 
-    def mqtt_channel_counts(self, now: float | None = None) -> dict[str, int]:
-        """Eventi MQTT per canale nell'ultima ora (compresi quelli scartati dal filtro)."""
+    def _channel_totals(self, now: float | None) -> dict[tuple[str, str], int]:
         minute = int((time.time() if now is None else now) // 60)
-        out: dict[str, int] = {}
-        for name, buckets in list(self._channel_buckets.items()):
+        out: dict[tuple[str, str], int] = {}
+        for key, buckets in list(self._channel_buckets.items()):
             total = sum(c for m, c in buckets.items() if minute - 60 < m <= minute)
             if total:
-                out[name] = total
+                out[key] = total
             elif all(m <= minute - 60 for m in buckets):
-                del self._channel_buckets[name]
+                del self._channel_buckets[key]
+        return out
+
+    def mqtt_channel_counts(self, now: float | None = None,
+                            broker: str | None = None) -> dict[str, int]:
+        """Eventi MQTT per canale nell'ultima ora (compresi quelli scartati dal filtro).
+        Senza broker e' la somma su tutti i broker."""
+        out: dict[str, int] = {}
+        for (b, name), total in self._channel_totals(now).items():
+            if broker is None or b == broker:
+                out[name] = out.get(name, 0) + total
+        return out
+
+    def mqtt_channel_brokers(self, now: float | None = None) -> dict[str, list[str]]:
+        """Canale -> broker che l'hanno visto nell'ultima ora (ordine di primo arrivo)."""
+        out: dict[str, list[str]] = {}
+        for (b, name) in self._channel_totals(now):
+            if b:
+                out.setdefault(name, []).append(b)
         return out
 
     def handle(self, ev: MeshEvent) -> None:
         if ev.source == "mqtt" and ev.channel:
-            self._note_mqtt_channel(ev.channel, ev.rx_time)
+            self._note_mqtt_channel(ev.channel, ev.rx_time, ev.broker)
             wanted = self.get_settings().get("mqtt_channels") or []
             if wanted and ev.channel not in wanted:
                 self.filtered_channel += 1
@@ -139,10 +156,14 @@ class Ingestor:
 
         if ev.source == "mqtt":
             if is_dup:
+                if ev.gateway_id and not self.dedup.note_gateway(num, ev.packet_id, ev.gateway_id):
+                    return  # stesso gateway gia' contato (es. su un altro broker)
                 # copia MQTT di un pacchetto gia' visto: se prima c'era solo l'RF e' il primo gateway
                 node["mqtt_gateways"] = 1 if not seen_mqtt else (node["mqtt_gateways"] or 0) + 1
                 return
             node["mqtt_gateways"] = 1
+            if ev.gateway_id:
+                self.dedup.note_gateway(num, ev.packet_id, ev.gateway_id)
         elif is_dup:
             self.store.upsert_node(node)  # copia RF: aggiorna solo "sentito da"
             if ev.kind == "text" and ev.radio_id:
@@ -301,7 +322,7 @@ class Ingestor:
                    "channel": str(channel_index), "text": text, "time": int(time.time()) if time_ is None else time_,
                    "country": mine["country"] if mine else None, "source": "rf",
                    "direction": "out", "radio_id": radio_id, "channel_index": channel_index,
-                   "packet_id": packet_id, "status": status}
+                   "packet_id": packet_id, "status": status, "broker": None}
         self.live.messages.append(message)
         self.store.add_message(message)
         # "replaces": il client sostituisce il messaggio provvisorio con questa chiave
@@ -309,7 +330,8 @@ class Ingestor:
         return message
 
     def record_outgoing_mqtt(self, from_num: int, to_num: int, packet_id: int, text: str,
-                             channel: str, now: float | None = None) -> dict:
+                             channel: str, now: float | None = None,
+                             broker: str | None = None) -> dict:
         """Registra un testo pubblicato via MQTT dal proprio nodo.
         (from, id) entra subito nel dedup: l'eco che il broker ci rimanda viene scartato
         e non genera un secondo messaggio."""
@@ -321,7 +343,7 @@ class Ingestor:
                    "channel": channel, "text": text, "time": int(t),
                    "country": mine["country"] if mine else None, "source": "mqtt",
                    "direction": "out", "via": "mqtt", "radio_id": None, "channel_index": None,
-                   "packet_id": packet_id, "status": "sent"}
+                   "packet_id": packet_id, "status": "sent", "broker": broker}
         self.live.messages.append(message)
         self.store.add_message(message)
         self.on_message(message)
@@ -369,4 +391,4 @@ class Ingestor:
                 "channel": ev.channel, "text": ev.payload.text, "time": int(ev.rx_time),
                 "country": node["country"], "source": ev.source, "direction": "in",
                 "radio_id": ev.radio_id, "channel_index": _channel_index(ev.channel),
-                "packet_id": ev.packet_id, "status": None}
+                "packet_id": ev.packet_id, "status": None, "broker": ev.broker}
