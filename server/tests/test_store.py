@@ -60,7 +60,8 @@ def test_messages_filter_and_shape(store):
                      "channel": "LongFast", "text": "ciao", "time": NOW + 2, "country": "IT",
                      "source": "mqtt", "direction": "in", "radio_id": None,
                      "channel_index": None, "packet_id": None, "status": None,
-                     "broker": None}
+                     "broker": None, "reply_id": None, "emoji": False, "pki": False,
+                     "error": None}
     assert store.messages(["SE"], None, 50)[0]["from_name"] is None
     assert [m["key"] for m in store.messages(None, NOW + 2, 50)] == ["1:2", "1:1"]
     assert len(store.messages(None, None, 1)) == 1
@@ -341,3 +342,51 @@ def test_purge_step_deletes_at_most_limit(store):
     assert step.deleted["messages"] == 1000 and step.done is True
     assert store.conn.execute("SELECT COUNT(*) FROM messages WHERE time < ?",
                               (NOW - 90 * DAY,)).fetchone()[0] == 0
+
+
+def test_message_reply_emoji_pki_roundtrip(store):
+    store.add_message({**msg("k1", NOW), "reply_id": 77, "emoji": True, "pki": True})
+    m = store.messages(None, None, 10)[0]
+    assert m["reply_id"] == 77 and m["emoji"] is True and m["pki"] is True and m["error"] is None
+    store.update_message_status("k1", "failed", "NO_ROUTE")
+    m = store.messages(None, None, 10)[0]
+    assert m["status"] == "failed" and m["error"] == "NO_ROUTE"
+
+
+def test_recent_radio_messages_only_radio(store):
+    store.add_message(msg("a", NOW))
+    store.add_message({**msg("b", NOW + 1), "radio_id": "r1"})
+    assert [m["key"] for m in store.recent_radio_messages()] == ["b"]
+
+
+def test_waypoints_active_and_purge(store):
+    def wp(i, expire, t):
+        return {"id": i, "from_num": 0xA1B2C3D4, "lat": 45.0, "lon": 9.0, "name": f"w{i}",
+                "description": "", "icon": 128205, "expire": expire, "locked_to": None,
+                "time": t, "source": "rf", "radio_id": "r1", "channel": "0", "country": "IT"}
+    store.upsert_waypoint(wp(1, None, NOW - 3))
+    store.upsert_waypoint(wp(2, int(NOW) - 10, NOW - 2))
+    store.upsert_waypoint(wp(3, 0, NOW - 1))
+    store.delete_waypoint(3)
+    assert [w["id"] for w in store.active_waypoints(NOW)] == [1]
+    assert store.get_waypoint(3)["deleted"] == 1 and store.get_waypoint(99) is None
+    store.upsert_waypoint(wp(1, None, NOW))  # aggiornamento, non duplicato
+    assert store.active_waypoints(NOW)[0]["time"] == NOW
+    store.purge_step(NOW, DEFAULTS)
+    assert store.get_waypoint(2) is None and store.get_waypoint(1) is not None
+
+
+def test_mark_read_keeps_max(store):
+    assert store.mark_read("ch:r1:0", 100) == 100
+    assert store.mark_read("ch:r1:0", 50) == 100
+    assert store.read_times() == {"ch:r1:0": 100}
+
+
+def test_read_baseline_and_purge_reads(store):
+    assert store.read_baseline() > 1_700_000_000
+    store.conn.execute("DELETE FROM settings WHERE key='conv_read_baseline'")
+    assert store.read_baseline() == 0
+    store.mark_read("old", NOW - 400 * DAY)
+    store.mark_read("new", NOW)
+    store.purge_step(NOW, DEFAULTS)
+    assert set(store.read_times()) == {"new"}

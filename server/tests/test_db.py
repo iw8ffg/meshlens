@@ -29,7 +29,7 @@ def _cols(conn, table):
 def test_new_db_has_current_version_and_incremental_vacuum(tmp_path):
     calls = []
     conn = connect(tmp_path / "n.db", lambda *a: calls.append(a))
-    assert schema_version(conn) == SCHEMA_VERSION == 3
+    assert schema_version(conn) == SCHEMA_VERSION == 4
     assert conn.execute("PRAGMA auto_vacuum").fetchone()[0] == 2
     assert calls == []
     assert "ip" in _cols(conn, "sessions")
@@ -44,10 +44,10 @@ def test_legacy_db_is_migrated_after_hook(tmp_path):
         calls.append((old, new, "radio_id" in _cols(conn, "messages")))
 
     conn = connect(path, hook)
-    assert calls == [(0, 3, False)]
+    assert calls == [(0, 4, False)]
     assert "radio_id" in _cols(conn, "messages")
     assert conn.execute("SELECT text FROM messages WHERE key='k'").fetchone()[0] == "ciao"
-    assert schema_version(conn) == 3
+    assert schema_version(conn) == 4
 
 
 def test_reopen_does_not_migrate_again(tmp_path):
@@ -95,8 +95,41 @@ def test_migration_3_adds_broker_column(tmp_path):
     assert "broker" not in _cols(sqlite3.connect(path), "messages")
     calls = []
     conn = connect(path, lambda *a: calls.append(a))
-    assert [c[1:] for c in calls] == [(2, 3)]
-    assert schema_version(conn) == 3
+    assert [c[1:] for c in calls] == [(2, 4)]
+    assert schema_version(conn) == 4
     assert "broker" in _cols(conn, "messages")
     row = conn.execute("SELECT text, broker FROM messages WHERE key='k'").fetchone()
     assert (row[0], row[1]) == ("ciao", None)
+
+
+def test_migration_4_columns_and_tables(tmp_path):
+    path = tmp_path / "v3.db"
+    conn = connect(path)
+    for table, col in (("messages", "reply_id"), ("messages", "emoji"), ("messages", "pki"),
+                       ("messages", "error"), ("nodes", "public_key"), ("nodes", "key_changed")):
+        conn.execute(f"ALTER TABLE {table} DROP COLUMN {col}")
+    conn.execute("DROP TABLE waypoints")
+    conn.execute("DROP TABLE conversation_reads")
+    conn.execute("DELETE FROM settings WHERE key='conv_read_baseline'")
+    conn.execute("PRAGMA user_version=3")
+    conn.commit()
+    conn.close()
+    calls = []
+    conn = connect(path, lambda *a: calls.append(a))
+    assert [c[1:] for c in calls] == [(3, 4)]
+    assert schema_version(conn) == 4
+    assert {"reply_id", "emoji", "pki", "error"} <= _cols(conn, "messages")
+    assert {"public_key", "key_changed"} <= _cols(conn, "nodes")
+    assert {"id", "from_num", "locked_to", "deleted"} <= _cols(conn, "waypoints")
+    assert _cols(conn, "conversation_reads") == {"conv", "read_time"}
+    assert conn.execute("SELECT 1 FROM sqlite_master WHERE name='idx_waypoints_time'").fetchone()
+    base = conn.execute("SELECT value FROM settings WHERE key='conv_read_baseline'").fetchone()
+    assert float(base[0]) > 1_700_000_000
+    conn.close()
+    connect(path).close()  # idempotente: nessun errore e baseline invariata
+
+
+def test_new_db_runs_migration_4():
+    conn = connect(":memory:")
+    assert schema_version(conn) == 4
+    assert _cols(conn, "waypoints") and _cols(conn, "conversation_reads")

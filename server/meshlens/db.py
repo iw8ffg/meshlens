@@ -1,10 +1,11 @@
 """Connessione SQLite e schema."""
 import logging
 import sqlite3
+import time
 from collections.abc import Callable
 from pathlib import Path
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS nodes(
@@ -133,7 +134,30 @@ def _migration_3(conn: sqlite3.Connection) -> None:
     _add_missing_columns(conn, (("messages", "broker", "TEXT"),))
 
 
-_STEPS = {1: _migration_1, 2: _migration_2, 3: _migration_3}
+def _migration_4(conn: sqlite3.Connection) -> None:
+    """Risposte, reazioni, PKI, chiavi pubbliche, waypoint e letture delle conversazioni."""
+    _add_missing_columns(conn, (
+        ("messages", "reply_id", "INTEGER"),
+        ("messages", "emoji", "INTEGER DEFAULT 0"),
+        ("messages", "pki", "INTEGER DEFAULT 0"),
+        ("messages", "error", "TEXT"),
+        ("nodes", "public_key", "TEXT"),
+        ("nodes", "key_changed", "REAL"),
+    ))
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS waypoints("
+        "id INTEGER PRIMARY KEY, from_num INTEGER, lat REAL, lon REAL, name TEXT, "
+        "description TEXT, icon INTEGER, expire INTEGER, locked_to INTEGER, time REAL, "
+        "source TEXT, radio_id TEXT, channel TEXT, country TEXT, deleted INTEGER DEFAULT 0)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_waypoints_time ON waypoints(time)")
+    conn.execute("CREATE TABLE IF NOT EXISTS conversation_reads("
+                 "conv TEXT PRIMARY KEY, read_time REAL NOT NULL)")
+    # lo storico esistente non diventa "non letto": conta solo cio' che arriva dopo
+    conn.execute("INSERT OR IGNORE INTO settings(key, value) VALUES('conv_read_baseline', ?)",
+                 (str(time.time()),))
+
+
+_STEPS = {1: _migration_1, 2: _migration_2, 3: _migration_3, 4: _migration_4}
 
 
 log = logging.getLogger(__name__)

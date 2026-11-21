@@ -9,7 +9,7 @@ from .events import TelemetryData
 _NODE_FIELDS = ("id", "long_name", "short_name", "hw_model", "role", "firmware", "lat", "lon",
                 "precision_bits", "position_source", "position_time", "country", "last_heard",
                 "battery", "voltage", "channel_util", "air_util_tx", "mqtt_gateways",
-                "last_snr", "hops", "hops_min")
+                "last_snr", "hops", "hops_min", "public_key", "key_changed")
 _DAY = 86400
 PURGE_CHUNK = 2000
 
@@ -65,15 +65,18 @@ class Store:
         self.conn.execute(
             "INSERT OR IGNORE INTO messages"
             "(key, from_num, to_num, channel, text, time, country, source, direction, radio_id, "
-            "channel_index, packet_id, status, broker) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "channel_index, packet_id, status, broker, reply_id, emoji, pki, error) "
+            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (msg["key"], _id_to_num(msg["from"]), _id_to_num(to) if to else None,
              msg.get("channel"), msg.get("text"), msg["time"], msg.get("country"),
              msg.get("source"), msg.get("direction") or "in", msg.get("radio_id"),
              msg.get("channel_index"), msg.get("packet_id"), msg.get("status"),
-             msg.get("broker")))
+             msg.get("broker"), msg.get("reply_id"), 1 if msg.get("emoji") else 0,
+             1 if msg.get("pki") else 0, msg.get("error")))
 
-    def update_message_status(self, key: str, status: str) -> None:
-        self.conn.execute("UPDATE messages SET status=? WHERE key=?", (status, key))
+    def update_message_status(self, key: str, status: str, error: str | None = None) -> None:
+        self.conn.execute("UPDATE messages SET status=?, error=? WHERE key=?",
+                          (status, error, key))
 
     def update_message_radio(self, key: str, radio_id: str, channel_index: int | None) -> None:
         self.conn.execute("UPDATE messages SET radio_id=?, channel_index=?, source='rf' "
@@ -393,15 +396,70 @@ class Store:
             params.append(before)
         sql += " ORDER BY m.time DESC LIMIT ?"
         params.append(limit)
-        return [{"key": r["key"], "from": _num_to_id(r["from_num"]), "from_name": r["from_name"],
-                 "to": _num_to_id(r["to_num"]), "channel": r["channel"], "text": r["text"],
-                 "time": r["time"], "country": r["country"], "source": r["source"],
-                 "direction": r["direction"] or "in", "radio_id": r["radio_id"],
-                 "channel_index": r["channel_index"], "packet_id": r["packet_id"],
-                 "status": r["status"], "broker": r["broker"],
-                 # "via" non e' una colonna: si ricava (uscita su MQTT = inviato via MQTT)
-                 **({"via": "mqtt"} if r["direction"] == "out" and r["source"] == "mqtt" else {})}
-                for r in self.conn.execute(sql, params)]
+        return [self._message_row(r) for r in self.conn.execute(sql, params)]
+
+    @staticmethod
+    def _message_row(r: sqlite3.Row) -> dict:
+        return {"key": r["key"], "from": _num_to_id(r["from_num"]), "from_name": r["from_name"],
+                "to": _num_to_id(r["to_num"]), "channel": r["channel"], "text": r["text"],
+                "time": r["time"], "country": r["country"], "source": r["source"],
+                "direction": r["direction"] or "in", "radio_id": r["radio_id"],
+                "channel_index": r["channel_index"], "packet_id": r["packet_id"],
+                "status": r["status"], "broker": r["broker"],
+                "reply_id": r["reply_id"], "emoji": bool(r["emoji"]), "pki": bool(r["pki"]),
+                "error": r["error"],
+                # "via" non e' una colonna: si ricava (uscita su MQTT = inviato via MQTT)
+                **({"via": "mqtt"} if r["direction"] == "out" and r["source"] == "mqtt" else {})}
+
+    def recent_radio_messages(self, limit: int = 5000) -> list[dict]:
+        """Ultimi messaggi passati da una radio locale (per il conteggio dei non letti)."""
+        return self.messages(None, None, limit, radio_only=True)
+
+    _WP_COLS = ("id", "from_num", "lat", "lon", "name", "description", "icon", "expire",
+                "locked_to", "time", "source", "radio_id", "channel", "country")
+
+    def upsert_waypoint(self, wp: dict) -> None:
+        cols = self._WP_COLS
+        updates = ", ".join(f"{c}=excluded.{c}" for c in cols[1:])
+        # un nuovo arrivo ripristina anche un waypoint eliminato prima
+        self.conn.execute(
+            f"INSERT INTO waypoints({', '.join(cols)}, deleted) "
+            f"VALUES({', '.join('?' * len(cols))}, 0) "
+            f"ON CONFLICT(id) DO UPDATE SET {updates}, deleted=0",
+            [wp.get(c) for c in cols])
+
+    def delete_waypoint(self, wid: int) -> None:
+        self.conn.execute("UPDATE waypoints SET deleted=1 WHERE id=?", (wid,))
+
+    def get_waypoint(self, wid: int) -> dict | None:
+        row = self.conn.execute("SELECT * FROM waypoints WHERE id=?", (wid,)).fetchone()
+        return dict(row) if row else None
+
+    def active_waypoints(self, now: float, limit: int = 500) -> list[dict]:
+        rows = self.conn.execute(
+            "SELECT * FROM waypoints WHERE deleted=0 AND (expire IS NULL OR expire=0 OR expire>?) "
+            "ORDER BY time DESC LIMIT ?", (now, limit))
+        return [dict(r) for r in rows]
+
+    def mark_read(self, conv: str, t: float) -> float:
+        self.conn.execute(
+            "INSERT INTO conversation_reads(conv, read_time) VALUES(?,?) "
+            "ON CONFLICT(conv) DO UPDATE SET read_time=MAX(read_time, excluded.read_time)",
+            (conv, t))
+        return self.conn.execute("SELECT read_time FROM conversation_reads WHERE conv=?",
+                                 (conv,)).fetchone()[0]
+
+    def read_times(self) -> dict[str, float]:
+        return {r["conv"]: r["read_time"]
+                for r in self.conn.execute("SELECT conv, read_time FROM conversation_reads")}
+
+    def read_baseline(self) -> float:
+        row = self.conn.execute(
+            "SELECT value FROM settings WHERE key='conv_read_baseline'").fetchone()
+        try:
+            return float(json.loads(row["value"])) if row else 0.0
+        except (TypeError, ValueError):
+            return 0.0
 
     def telemetry(self, num: int, since: float) -> list[dict]:
         rows = self.conn.execute(
@@ -448,6 +506,14 @@ class Store:
             (pos_cutoff, limit)).rowcount
         deleted["nodes"] = n
         full = full or n >= limit
+        n = self.conn.execute(
+            "DELETE FROM waypoints WHERE rowid IN (SELECT rowid FROM waypoints WHERE "
+            "(expire > 0 AND expire < ?) OR time < ? LIMIT ?)", (now, pos_cutoff, limit)).rowcount
+        full = full or n >= limit  # i waypoint non entrano nel conteggio restituito
+        self.conn.execute(
+            "DELETE FROM conversation_reads WHERE conv IN (SELECT conv FROM conversation_reads "
+            "WHERE read_time < ? LIMIT ?)",
+            (now - settings["retention_messages_days"] * _DAY, limit))
         if not full and self._used_bytes() > settings["storage_cap_mb"] * 1024 * 1024:
             for table in ("positions", "messages"):
                 removed = self.conn.execute(
