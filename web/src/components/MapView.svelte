@@ -203,7 +203,9 @@
     }
 
     const fetchStyle = async (signal: AbortSignal): Promise<void> => {
-      const res = await fetch(STYLE, { signal })
+      // no-cache: si rivalida sempre col server (304 se invariato), cosi' una copia in cache
+      // non fa credere online la mappa quando la rete e' giu'
+      const res = await fetch(STYLE, { signal, cache: 'no-cache' })
       if (!res.ok) throw new Error(String(res.status))
       styleJson = (await res.json()) as maplibregl.StyleSpecification
     }
