@@ -1,4 +1,5 @@
 """Prove di copertura: calcoli puri e registratore delle sessioni."""
+import bisect
 import math
 import time
 
@@ -63,8 +64,8 @@ def missing_points(points: list[dict], interval_s: int, track: list[dict]) -> li
         for s in range(seqs[0] + 1, seqs[-1]):
             if s in by_seq:
                 continue
-            before = max(q for q in seqs if q < s)
-            after = min(q for q in seqs if q > s)
+            i = bisect.bisect_left(seqs, s)  # seqs[i] e' il primo seq > s (s manca)
+            before, after = seqs[i - 1], seqs[i]
             tb, ta = by_seq[before]["time"], by_seq[after]["time"]
             t = tb + (ta - tb) * (s - before) / (after - before)
             pos = interpolate_position(track, t)
@@ -112,6 +113,7 @@ class CoverageRecorder:
         self._clock = clock
         self._radio_node = radio_node or (lambda radio_id: None)  # radio_id -> num del nodo
         self._rt_seen: dict[tuple[str | None, int], float] = {}
+        self._pos_seen: dict[int, tuple[float, int | None]] = {}  # num -> (ora, precision_bits)
         self._session: dict | None = None
         self._track: list[dict] = []
         self._segment = 0
@@ -150,8 +152,12 @@ class CoverageRecorder:
             self._session = s
         return self._summary(s)
 
-    def _publish(self, session: dict, point: dict | None = None) -> None:
-        self.bus.publish({"type": "coverage", "session": self._summary(session), "point": point})
+    def _publish(self, session: dict, point: dict | None = None,
+                 track_point: dict | None = None) -> None:
+        msg = {"type": "coverage", "session": self._summary(session), "point": point}
+        if track_point is not None:
+            msg["track_point"] = track_point
+        self.bus.publish(msg)
 
     def start_session(self, radio_id: str, mobile_num: int, mode: str = "rangetest",
                       interval_s: int = 30, name: str | None = None,
@@ -169,7 +175,7 @@ class CoverageRecorder:
         sid = self.store.create_session(
             name=name, radio_id=radio_id, mobile_num=mobile_num, mode=mode,
             channel_index=channel_index, interval_s=interval_s, started=now,
-            base_lat=base_lat, base_lon=base_lon)
+            base_lat=base_lat, base_lon=base_lon, notes='')
         self.store.commit()
         self._session = self.store.get_session(sid)
         self._track, self._segment, self._last_seq = [], 0, None
@@ -180,7 +186,9 @@ class CoverageRecorder:
         s = self._session
         if s is None:
             return None
-        self.store.update_session(s["id"], ended=self._clock(), end_reason=reason)
+        # dopo un fermo prolungato la prova e' finita comunque 8 h dopo l'inizio
+        ended = s["started"] + SESSION_MAX_S if reason == "timeout" else self._clock()
+        self.store.update_session(s["id"], ended=ended, end_reason=reason)
         self.store.commit()
         summary = self._summary(self.store.get_session(s["id"]))
         self._session = None
@@ -218,8 +226,19 @@ class CoverageRecorder:
         seen = self._rt_seen.get((radio_id, mobile_num))
         return None if seen is None else self._clock() - seen
 
+    def position_seen(self, num: int) -> tuple[float, int | None] | None:
+        """(ora, precision_bits) dell'ultima posizione reale del nodo, se nota."""
+        return self._pos_seen.get(num)
+
     # ---- eventi -------------------------------------------------------
     def handle(self, ev: MeshEvent) -> None:
+        if ev.source == "rf" and not ev.packet_id:
+            return  # rilettura del DB nodi della radio: non e' un pacchetto ricevuto ora
+        if (ev.kind == "position" and isinstance(ev.payload, PositionData)
+                and ev.rx_time and ev.rx_time > 0):
+            prev = self._pos_seen.get(ev.from_node)
+            if prev is None or ev.rx_time >= prev[0]:
+                self._pos_seen[ev.from_node] = (ev.rx_time, ev.payload.precision_bits)
         now = ev.rx_time if ev.rx_time and ev.rx_time > 0 else self._clock()
         if ev.kind == "rangetest":
             # anche con testo non valido o fuori sessione: dimostra che il modulo e' attivo
@@ -240,10 +259,23 @@ class CoverageRecorder:
 
     def _add_point(self, s: dict, ev: MeshEvent, seq: int | None, now: float, pos) -> None:
         lat, lon, bits = pos if pos else (None, None, None)
+        old = None
+        if seq is not None:
+            old = self.store.conn.execute(
+                "SELECT id, snr FROM coverage_points WHERE session_id=? AND segment=? AND seq=?",
+                (s["id"], self._segment, seq)).fetchone()
         new = self.store.add_point(s["id"], self._segment, seq, now, ev.snr, ev.rssi, ev.hops,
                                    lat, lon, bits)
+        if new and s.get("channel_index") is None and str(ev.channel).isdigit():
+            s["channel_index"] = int(ev.channel)
+            self.store.update_session(s["id"], channel_index=s["channel_index"])
         self.store.commit()  # scrittura durevole; un doppione puo' aver migliorato l'SNR
         if not new:
+            if old is not None and ev.snr is not None and (old["snr"] is None
+                                                           or ev.snr > old["snr"]):
+                row = dict(self.store.conn.execute(
+                    "SELECT * FROM coverage_points WHERE id=?", (old["id"],)).fetchone())
+                self._publish(s, self._point_json(s, row))  # SNR migliorato da un doppione
             return
         pid = self.store.conn.execute("SELECT last_insert_rowid()").fetchone()[0]
         row = {"id": pid, "segment": self._segment, "seq": seq, "time": now, "snr": ev.snr,
@@ -253,12 +285,14 @@ class CoverageRecorder:
     def _on_position(self, s: dict, ev: MeshEvent, now: float, mine: bool) -> None:
         p = ev.payload
         last = self._track[-1] if self._track else None
-        if last and (last["time"], last["lat"], last["lon"]) == (now, p.lat, p.lon):
-            return  # copia identica (MQTT + RF)
+        if (last and abs(last["lat"] - p.lat) < 1e-6 and abs(last["lon"] - p.lon) < 1e-6
+                and abs(last["time"] - now) <= 10):
+            return  # copia (MQTT + RF) o posizione ripetuta
         self.store.add_track(s["id"], now, p.lat, p.lon, p.precision_bits)
-        self._track.append({"time": now, "lat": p.lat, "lon": p.lon,
-                            "precision_bits": p.precision_bits})
+        tp = {"time": now, "lat": p.lat, "lon": p.lon, "precision_bits": p.precision_bits}
+        self._track.append(tp)
         self._track.sort(key=lambda t: t["time"])
+        self._publish(s, None, dict(tp))
         if s["mode"] == "position" and mine:
             self._add_point(s, ev, None, now, (p.lat, p.lon, p.precision_bits))
         # completa e affina i punti degli ultimi 120 s e li ripubblica

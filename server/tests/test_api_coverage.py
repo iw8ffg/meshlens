@@ -165,3 +165,42 @@ async def test_default_name(env):
         s = (await c.post("/api/coverage/sessions",
                           json={"radio_id": rid, "mobile_id": MOBILE_ID})).json()
         assert s["name"].startswith("Prova ")
+
+
+def real_pos(t, bits):
+    from meshlens.events import MeshEvent, PositionData
+    return MeshEvent("rf", MOBILE, 0xFFFFFFFF, 7, "0", t, None, None, 0, None, "r1", "position",
+                     PositionData(45.0, 11.0, None, bits, None))
+
+
+async def test_check_and_start_use_latest_position_not_best(env):
+    async with logged(make_ctx(env)) as c:
+        rid = await add_radio(c, env)
+        put_mobile(env, 3000, 32)  # la migliore, vecchia
+        env.coverage.handle(real_pos(time.time() - 30, 13))  # l'ultima, approssimata
+        r = (await c.get("/api/coverage/check",
+                         params={"radio_id": rid, "mobile_id": MOBILE_ID})).json()
+        assert r["precision_bits"] == 13 and r["gps_ok"] and r["position_age_s"] < 60
+        r = await c.post("/api/coverage/sessions", json={"radio_id": rid, "mobile_id": MOBILE_ID})
+        assert r.status_code == 400 and r.json()["code"] == "approx_position"
+        assert "km" in r.json()["detail"] and "," in r.json()["detail"]
+
+
+async def test_mobile_id_strict_and_name_and_coords(env):
+    async with logged(make_ctx(env)) as c:
+        rid = await add_radio(c, env)
+        put_mobile(env)
+        for bad in ("!-1234abc", "!1234abc", "!1234abcde", "!1234abcg"):
+            r = await c.post("/api/coverage/sessions", json={"radio_id": rid, "mobile_id": bad})
+            assert r.status_code == 400, bad
+        body = {"radio_id": rid, "mobile_id": MOBILE_ID}
+        r = await c.post("/api/coverage/sessions", json=body | {"base_lat": 91, "base_lon": 0})
+        assert r.status_code == 400
+        r = await c.post("/api/coverage/sessions", json=body | {"name": "   "})
+        assert r.status_code == 201 and r.json()["name"].startswith("Prova ")
+        url = f"/api/coverage/sessions/{r.json()['id']}"
+        assert (await c.patch(url, json={"name": " "})).status_code == 400
+        assert (await c.patch(url, json={"base_lat": 10, "base_lon": 181})).status_code == 400
+        q = env.bus.subscribe()
+        assert (await c.patch(url, json={"notes": "x"})).status_code == 200
+        assert q.get_nowait()["type"] == "coverage"

@@ -109,12 +109,21 @@ NO_GPS_MSG = ("Il nodo mobile non ha inviato una posizione negli ultimi 10 minut
 
 def _mobile_num(mobile_id: str) -> int:
     """'!hex' in qualunque maiuscola/minuscola -> num; 400 se non valido."""
-    try:
-        if not mobile_id.startswith("!"):
-            raise ValueError
-        return int(mobile_id[1:], 16)
-    except ValueError:
+    hexpart = mobile_id[1:] if mobile_id.startswith("!") else mobile_id
+    if len(hexpart) != 8 or any(c not in "0123456789abcdefABCDEF" for c in hexpart):
         raise HTTPException(400, "Identificativo del nodo mobile non valido")
+    return int(hexpart, 16)
+
+
+def _check_latlon(lat: float | None, lon: float | None) -> None:
+    if (lat is not None and not -90 <= lat <= 90) or (lon is not None and not -180 <= lon <= 180):
+        raise HTTPException(400, "Coordinate della base non valide")
+
+
+def _radius_text(radius: int) -> str:
+    if radius < 1000:
+        return f"{radius} m"
+    return f"{radius / 1000:.1f}".replace(".", ",") + " km"
 
 
 def _public(node: dict) -> dict:
@@ -456,14 +465,21 @@ def create_app(ctx: AppContext) -> FastAPI:
             return None
         return max(0.0, time.time() - node["position_time"])
 
+    def latest_position(num: int, node: dict | None) -> tuple[float | None, int | None]:
+        """(eta, precision_bits) dell'ultima posizione ricevuta, non della migliore."""
+        seen = ctx.coverage.position_seen(num)
+        if seen is not None:
+            return max(0.0, time.time() - seen[0]), seen[1]
+        age = position_age(node)
+        return age, (node.get("precision_bits") if node and age is not None else None)
+
     @app.get("/api/coverage/check", dependencies=[Depends(require_auth)])
     async def coverage_check(radio_id: str, mobile_id: str):
         num = _mobile_num(mobile_id)
         radio = radio_info(radio_id)
         connected = bool(radio and radio["state"] == "connected")
         node = ctx.live.nodes.get(num)
-        age = position_age(node)
-        bits = node.get("precision_bits") if node and age is not None else None
+        age, bits = latest_position(num, node)
         base = None
         if radio and radio.get("my_node_id"):
             b = ctx.live.nodes.get(_num_from_id(radio["my_node_id"]))
@@ -487,6 +503,7 @@ def create_app(ctx: AppContext) -> FastAPI:
     async def coverage_start(body: CoverageStartBody):
         if (body.base_lat is None) != (body.base_lon is None):
             raise HTTPException(400, "base_lat e base_lon vanno indicate insieme")
+        _check_latlon(body.base_lat, body.base_lon)
         num = _mobile_num(body.mobile_id)
         radio = radio_info(body.radio_id)
         if radio is None:
@@ -496,20 +513,20 @@ def create_app(ctx: AppContext) -> FastAPI:
         if radio["state"] != "connected":
             raise HTTPException(400, "La radio non è collegata")
         node = ctx.live.nodes.get(num)
-        age = position_age(node)
+        age, bits = latest_position(num, node)
         if age is None or age > GPS_MAX_AGE_S:
             raise HTTPException(400, NO_GPS_MSG)
-        radius = precision_m(node.get("precision_bits"))
+        radius = precision_m(bits)
         if radius is not None and not body.accept_approx:
             return JSONResponse(status_code=400, content={
                 "code": "approx_position",
-                "detail": (f"Le posizioni del nodo mobile sono approssimate (circa ±{radius} m): "
+                "detail": (f"Le posizioni del nodo mobile sono approssimate (circa ±{_radius_text(radius)}): "
                            "usa un canale privato con precisione piena oppure continua "
                            "sapendolo.")})
         try:
             return ctx.coverage.start_session(
-                body.radio_id, num, body.mode, body.interval_s, body.name,
-                body.base_lat, body.base_lon)
+                body.radio_id, num, body.mode, body.interval_s,
+                (body.name or "").strip() or None, body.base_lat, body.base_lon)
         except SessionActive as e:
             raise HTTPException(409, str(e))
 
@@ -526,7 +543,15 @@ def create_app(ctx: AppContext) -> FastAPI:
         coverage_session(sid)
         if (body.base_lat is None) != (body.base_lon is None):
             raise HTTPException(400, "base_lat e base_lon vanno indicate insieme")
-        return ctx.coverage.update_session(sid, **body.model_dump(exclude_none=True))
+        _check_latlon(body.base_lat, body.base_lon)
+        fields = body.model_dump(exclude_none=True)
+        if "name" in fields:
+            fields["name"] = fields["name"].strip()
+            if not fields["name"]:
+                raise HTTPException(400, "Il nome non può essere vuoto")
+        summary = ctx.coverage.update_session(sid, **fields)
+        ctx.bus.publish({"type": "coverage", "session": summary, "point": None})
+        return summary
 
     @app.delete("/api/coverage/sessions/{sid}", dependencies=[Depends(require_auth)])
     async def coverage_delete(sid: int):

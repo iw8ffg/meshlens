@@ -102,7 +102,7 @@ def test_recorder_ignores_other_nodes_and_radios(env):
     assert len(store.points(sid)) == 1
 
 
-def test_recorder_duplicate_seq_keeps_best_snr_and_publishes_once(env):
+def test_recorder_duplicate_seq_keeps_best_snr_and_republishes_improvement(env):
     rec, store, _, q, _ = env
     sid = begin(rec)["id"]
     rec.handle(pos(T0))
@@ -113,7 +113,8 @@ def test_recorder_duplicate_seq_keeps_best_snr_and_publishes_once(env):
     msgs = []
     while not q.empty():
         msgs.append(q.get_nowait())
-    assert sum(1 for m in msgs if m["type"] == "coverage" and m["point"]) == 1
+    snrs = [m["point"]["snr"] for m in msgs if m["type"] == "coverage" and m["point"]]
+    assert snrs == [-8.0, -2.0]  # nuovo punto, poi SNR migliorato
 
 
 def test_recorder_new_segment_on_seq_drop(env):
@@ -137,6 +138,8 @@ def test_point_without_position_then_backfilled(env):
     rec.handle(pos(T0 + 110, 45.2, 11.2))
     p = store.points(sid)[0]
     assert (p["lat"], p["lon"]) == (45.2, 11.2)
+    msg = q.get_nowait()
+    assert msg["point"] is None and msg["track_point"]["lat"] == 45.2
     msg = q.get_nowait()
     assert msg["type"] == "coverage" and msg["point"]["id"] == p["id"]
     assert msg["point"]["segment"] == 0 and msg["point"]["lat"] == 45.2
@@ -169,7 +172,7 @@ def test_position_mode_records_positions_as_points(env):
     rec, store, *_ = env
     sid = begin(rec, "position")["id"]
     rec.handle(pos(T0, 45.0, 11.0))
-    rec.handle(pos(T0 + 5, 45.0, 11.0, source="mqtt"))  # solo percorso
+    rec.handle(pos(T0 + 30, 45.0, 11.0, source="mqtt"))  # solo percorso
     assert len(store.points(sid)) == 1 and len(store.track(sid)) == 2
     assert rec.detail(sid)["missing_points"] == []
 
@@ -217,3 +220,67 @@ def test_rangetest_age_tracked_outside_session(env):
     rec.handle(rt(None, T0 - 30, text="rotto"))
     assert rec.rangetest_age("r1", MOBILE) == 30
     assert rec.rangetest_age("r2", MOBILE) is None
+
+
+def replayed(ev):
+    ev.packet_id = 0
+    return ev
+
+
+def test_nodedb_replay_ignored(env):
+    rec, store, *_ = env
+    sid = begin(rec, "position")["id"]
+    rec.handle(replayed(pos(0, 45.0, 11.0)))
+    rec.handle(replayed(pos(T0, 45.0, 11.0)))
+    assert store.points(sid) == [] and store.track(sid) == []
+    assert rec.position_seen(MOBILE) is None
+
+
+def test_position_seen_is_latest_not_best(env):
+    rec, *_ = env
+    rec.handle(pos(T0, bits=32))
+    rec.handle(pos(T0 + 60, bits=13))
+    assert rec.position_seen(MOBILE) == (T0 + 60, 13)
+    rec.handle(pos(T0 + 10, bits=32))  # in ritardo: non sostituisce
+    assert rec.position_seen(MOBILE) == (T0 + 60, 13)
+
+
+def test_channel_recorded_from_first_point(env):
+    rec, store, *_ = env
+    sid = begin(rec)["id"]
+    ev = rt(0, T0 + 5)
+    ev.channel = "2"
+    rec.handle(ev)
+    assert store.get_session(sid)["channel_index"] == 2
+    assert store.get_session(sid)["notes"] == ""
+
+
+def test_duplicate_better_snr_republished(env):
+    rec, _, _, q, _ = env
+    begin(rec)
+    rec.handle(rt(0, T0 + 5, snr=-10.0))
+    while not q.empty():
+        q.get_nowait()
+    rec.handle(rt(0, T0 + 6, snr=-2.0))
+    msg = q.get_nowait()
+    assert msg["point"]["snr"] == -2.0
+
+
+def test_track_point_published_and_near_duplicate_skipped(env):
+    rec, store, _, q, _ = env
+    sid = begin(rec)["id"]
+    while not q.empty():
+        q.get_nowait()
+    rec.handle(pos(T0, 45.0, 11.0))
+    msg = q.get_nowait()
+    assert msg["point"] is None and msg["track_point"]["lat"] == 45.0
+    rec.handle(pos(T0 + 8, 45.0, 11.0, source="mqtt"))
+    assert len(store.track(sid)) == 1
+
+
+def test_timeout_after_downtime_uses_started_plus_8h(env):
+    rec, store, _, _, clock = env
+    sid = begin(rec)["id"]
+    clock.t += 20 * 3600
+    rec.tick()
+    assert store.get_session(sid)["ended"] == T0 + 8 * 3600
