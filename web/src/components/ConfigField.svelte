@@ -36,6 +36,7 @@
   {:else if kind === 'number'}
     <input
       type="number"
+      step={field.type === 'float' ? 'any' : '1'}
       {disabled}
       value={value === null || value === undefined ? '' : Number(value)}
       onchange={(e) => {

@@ -22,7 +22,16 @@ export function fieldInput(f: SchemaField): InputKind {
   }
 }
 
-const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
+const NUMERIC = /^-?\d+(\.\d+)?$/
+
+/** Uguaglianza che tratta come uguali un int64 stringa e il numero corrispondente ("123" e 123). */
+function same(a: unknown, b: unknown): boolean {
+  if (typeof a !== typeof b) {
+    const [n, s] = typeof a === 'number' ? [a, b] : [b, a]
+    if (typeof n === 'number' && typeof s === 'string' && NUMERIC.test(s)) return Number(s) === n
+  }
+  return JSON.stringify(a) === JSON.stringify(b)
+}
 
 function diffSection(
   prefix: string,

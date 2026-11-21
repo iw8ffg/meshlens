@@ -53,6 +53,15 @@ describe('formChanges', () => {
     e.channels![1].psk = 'AAAA'
     expect(formChanges(orig(), e)).toEqual({ 'channels.1.psk': 'AAAA' })
   })
+  it('non segnala int64 stringa contro numero', () => {
+    const o = orig()
+    o.config!.lora.hop_limit = '123'
+    const e = orig()
+    e.config!.lora.hop_limit = 123
+    expect(formChanges(o, e)).toEqual({})
+    e.config!.lora.hop_limit = 124
+    expect(formChanges(o, e)).toEqual({ 'config.lora.hop_limit': 124 })
+  })
   it('gestisce channels.<i>.<campo> e owner', () => {
     const e = orig()
     e.channels![1].name = 'prova'

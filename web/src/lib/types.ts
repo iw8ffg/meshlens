@@ -257,6 +257,7 @@ export interface ConfigJob {
   step: string
   progress: [number, number] | null
   error: string | null
+  error_code: 'unauthorized' | 'timeout' | 'error' | null
   result_id: number | null
   verify: 'verified' | 'mismatch' | null
   started: number

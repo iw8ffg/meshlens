@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, untrack } from 'svelte'
+  import { onDestroy, onMount, untrack } from 'svelte'
   import {
     ApiError,
     applyConfig,
@@ -64,7 +64,7 @@
   const radios = $derived(app.radios.filter((r) => r.state === 'connected'))
 
   let tab = $state(untrack(() => initialTab) ?? 'general')
-  let radio = $state<string>(
+  let radioSel = $state<string>(
     untrack(
       () =>
         radioId ??
@@ -78,6 +78,8 @@
   let edited = $state<ConfigDict>({})
   let backups = $state<ConfigBackup[]>([])
   let preview = $state<ConfigPreview | null>(null)
+  let previewFrom = $state<{ kind: 'form'; key: string } | { kind: 'restore' } | null>(null)
+  let copyTimer: ReturnType<typeof setTimeout> | null = null
   let jobId = $state<number | null>(null)
   let err = $state('')
   let busy = $state(false)
@@ -89,25 +91,34 @@
   let lon = $state(untrack(() => (app.nodes.get(nodeId)?.lon ?? '').toString()))
   let alt = $state('')
 
+  // se la radio scelta si scollega si passa alla prima connessa
+  const radio = $derived(radios.some((r) => r.id === radioSel) ? radioSel : (radios[0]?.id ?? ''))
   const job = $derived(jobId === null ? null : (configJobs.get(jobId) ?? null))
   const running = $derived(job?.status === 'running')
   const lock = $derived(running || busy)
+  // anteprima del form: vale solo finche' il form non cambia
+  const formKey = $derived(saved ? JSON.stringify(formChanges(saved.config, edited)) : '')
+  const activePreview = $derived(
+    preview && previewFrom && (previewFrom.kind === 'restore' || previewFrom.key === formKey) ? preview : null,
+  )
   const local = $derived(app.radios.find((r) => r.id === radio)?.my_node_id === nodeId)
-  const keyMissing = $derived(!!job?.error && /chiave admin/i.test(job.error))
+  const keyMissing = $derived(job?.error_code === 'unauthorized' || (!!job?.error && !job.error_code && /chiave admin/i.test(job.error)))
 
   function msg(e: unknown): string {
     return e instanceof ApiError ? e.message : 'Operazione non riuscita'
   }
 
-  function takeSaved(s: ConfigSaved | null) {
+  function takeSaved(s: ConfigSaved | null, keepEdits = false) {
     saved = s
-    edited = s ? cloneConfig(s.config) : {}
-    revealed = {}
+    if (!keepEdits) {
+      edited = s ? cloneConfig(s.config) : {}
+      revealed = {}
+    }
   }
 
-  async function loadSaved() {
+  async function loadSaved(keepEdits = false) {
     try {
-      takeSaved(await savedConfig(nodeId))
+      takeSaved(await savedConfig(nodeId), keepEdits)
     } catch (e) {
       if (e instanceof ApiError && e.status === 404) takeSaved(null)
       else err = msg(e)
@@ -138,6 +149,10 @@
     loadKey()
   })
 
+  onDestroy(() => {
+    if (copyTimer) clearTimeout(copyTimer)
+  })
+
   // Un lavoro concluso: rilegge la lettura salvata e le copie (una sola volta per lavoro)
   const handled = new Set<number>()
   const finished = $derived(job && job.status !== 'running' ? job.id : null)
@@ -146,7 +161,8 @@
     if (id === null || handled.has(id)) return
     handled.add(id)
     untrack(() => {
-      loadSaved()
+      // le modifiche non salvate dell'utente non vengono mai sovrascritte in silenzio
+      loadSaved(dirty > 0)
       loadBackups()
     })
   })
@@ -197,6 +213,8 @@
 
   async function review() {
     if (!saved) return
+    preview = null
+    previewFrom = null
     busy = true
     err = ''
     try {
@@ -205,7 +223,9 @@
         err = 'Nessuna modifica da applicare'
         return
       }
-      preview = await previewConfig(nodeId, changes)
+      const p = await previewConfig(nodeId, changes)
+      preview = p
+      previewFrom = { kind: 'form', key: JSON.stringify(changes) }
     } catch (e) {
       err = msg(e)
     } finally {
@@ -214,10 +234,13 @@
   }
 
   async function restore(b: ConfigBackup) {
+    preview = null
+    previewFrom = null
     busy = true
     err = ''
     try {
       preview = await previewRestore(b.id)
+      previewFrom = { kind: 'restore' }
     } catch (e) {
       err = msg(e)
     } finally {
@@ -226,9 +249,10 @@
   }
 
   function apply(confirmRisky: boolean) {
-    if (!preview) return
-    const id = preview.preview_id
+    if (!activePreview) return
+    const id = activePreview.preview_id
     preview = null
+    previewFrom = null
     run(() => applyConfig(nodeId, id, confirmRisky))
   }
 
@@ -239,6 +263,11 @@
     const lo = Number(lon)
     if (lat === '' || lon === '' || !Number.isFinite(la) || !Number.isFinite(lo) || Math.abs(la) > 90 || Math.abs(lo) > 180) {
       err = 'Coordinate non valide'
+      pending = null
+      return
+    }
+    if (alt !== '' && !Number.isFinite(Number(alt))) {
+      err = 'Altitudine non valida'
       pending = null
       return
     }
@@ -258,7 +287,8 @@
     try {
       await navigator.clipboard.writeText(adminKey)
       copied = true
-      setTimeout(() => (copied = false), 2000)
+      if (copyTimer) clearTimeout(copyTimer)
+      copyTimer = setTimeout(() => (copied = false), 2000)
     } catch {
       err = 'Copia non riuscita: seleziona il testo a mano'
     }
@@ -280,6 +310,8 @@
   })
 </script>
 
+<svelte:window onkeydown={(e) => e.key === 'Escape' && onclose()} />
+
 <div class="overlay" role="dialog" aria-modal="true" aria-label="Configura nodo">
   <div class="box">
     <header>
@@ -291,7 +323,7 @@
     <div class="row">
       <label>
         Radio
-        <select bind:value={radio} disabled={lock} onchange={loadKey}>
+        <select value={radio} disabled={lock} onchange={(e) => { radioSel = e.currentTarget.value; loadKey() }}>
           {#if radios.length === 0}<option value="">Nessuna radio connessa</option>{/if}
           {#each radios as r (r.id)}<option value={r.id}>{r.name}</option>{/each}
         </select>
@@ -330,8 +362,10 @@
       {/each}
     </nav>
 
-    {#if preview}
-      <ConfigDiff {preview} {busy} onapply={apply} oncancel={() => (preview = null)} />
+    {#if activePreview}
+      {#key activePreview.preview_id}
+        <ConfigDiff preview={activePreview} {busy} onapply={apply} oncancel={() => (preview = null)} />
+      {/key}
     {/if}
 
     {#if tab === 'adminkey'}
@@ -358,7 +392,7 @@
             {formatDate(b.time)} · {backupReasonLabel(b.reason)}{b.label ? ` · ${b.label}` : ''}
             <small class="muted">({b.sections.join(', ')})</small>
           </span>
-          <button disabled={lock} onclick={() => restore(b)}>Ripristina</button>
+          <button disabled={lock || !!activePreview} onclick={() => restore(b)}>Ripristina</button>
         </div>
       {:else}
         <p class="muted">Nessuna copia.</p>
@@ -435,7 +469,7 @@
 
     {#if saved && schema && tab !== 'adminkey' && tab !== 'backups'}
       <div class="foot">
-        <button class="go" disabled={lock || dirty === 0 || !!preview} onclick={review}>Rivedi modifiche{dirty ? ` (${dirty})` : ''}</button>
+        <button class="go" disabled={lock || dirty === 0 || !!activePreview} onclick={review}>Rivedi modifiche{dirty ? ` (${dirty})` : ''}</button>
         {#if pending === 'reboot'}
           <span>Riavviare il nodo?</span>
           <button class="danger" disabled={lock} onclick={reboot}>Conferma</button>
