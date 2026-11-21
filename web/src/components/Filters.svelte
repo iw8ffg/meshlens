@@ -41,6 +41,10 @@
       <button class="chip" class:on={app.filter.maxAgeH === h} onclick={() => (app.filter.maxAgeH = h)}>{label}</button>
     {/each}
   </div>
+  <label class="sw">
+    <input type="checkbox" bind:checked={app.filter.links} />
+    <span>Collegamenti</span>
+  </label>
   <details>
     <summary>Nazioni ({app.filter.countries.length === 0 ? 'tutte' : app.filter.countries.length})</summary>
     {#if error}<p class="err">{error}</p>{/if}

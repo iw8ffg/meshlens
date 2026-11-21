@@ -5,6 +5,7 @@ export type NodeFilter = {
   maxAgeH: number | null
   sources: string[]
   text: string
+  links: boolean
 }
 
 export function matchNode(n: Node, f: NodeFilter, now: number): boolean {
@@ -34,7 +35,7 @@ export const FILTER_KEY = 'meshlens.filter'
 
 type FilterStorage = Pick<Storage, 'getItem' | 'setItem'>
 
-const defaultFilter = (): NodeFilter => ({ countries: ['IT'], maxAgeH: null, sources: [], text: '' })
+const defaultFilter = (): NodeFilter => ({ countries: ['IT'], maxAgeH: null, sources: [], text: '', links: false })
 
 // Ripristina il filtro salvato (default: solo Italia)
 export function loadFilter(storage: FilterStorage): NodeFilter {
@@ -46,6 +47,7 @@ export function loadFilter(storage: FilterStorage): NodeFilter {
       maxAgeH: typeof saved?.maxAgeH === 'number' ? saved.maxAgeH : null,
       sources: [],
       text: typeof saved?.text === 'string' ? saved.text : '',
+      links: saved?.links === true,
     }
   } catch {
     return defaultFilter()
@@ -54,7 +56,7 @@ export function loadFilter(storage: FilterStorage): NodeFilter {
 
 export function saveFilter(storage: FilterStorage, f: NodeFilter): void {
   try {
-    storage.setItem(FILTER_KEY, JSON.stringify({ countries: [...f.countries], maxAgeH: f.maxAgeH, text: f.text }))
+    storage.setItem(FILTER_KEY, JSON.stringify({ countries: [...f.countries], maxAgeH: f.maxAgeH, text: f.text, links: f.links }))
   } catch {
     // storage non disponibile: ignora
   }

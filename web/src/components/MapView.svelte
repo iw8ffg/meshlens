@@ -7,7 +7,9 @@
   import { app } from '../lib/stores.svelte'
   import { ageClass } from '../lib/filters'
   import { circlePolygon, precisionRadiusM } from '../lib/geo'
-  import type { Node } from '../lib/types'
+  import { links as fetchLinks } from '../lib/api'
+  import { linksToGeoJSON } from '../lib/links'
+  import type { Link, Node } from '../lib/types'
 
   let {
     nodes,
@@ -37,6 +39,8 @@
   let ready = false
   let lastPush = 0
   let timer: ReturnType<typeof setTimeout> | null = null
+  let linkList: Link[] = []
+  const SOURCE_LABEL: Record<string, string> = { neighborinfo: 'NeighborInfo', traceroute: 'traceroute', rf_direct: 'ricezione diretta' }
 
   const src = (id: string) => map?.getSource(id) as maplibregl.GeoJSONSource | undefined
 
@@ -118,6 +122,7 @@
       m.addSource('selected', { type: 'geojson', data: EMPTY })
       m.addSource('precision', { type: 'geojson', data: EMPTY })
       m.addSource('track', { type: 'geojson', data: EMPTY })
+      m.addSource('links', { type: 'geojson', data: EMPTY })
       m.addLayer({
         id: 'precision-fill',
         type: 'fill',
@@ -135,6 +140,21 @@
         type: 'line',
         source: 'track',
         paint: { 'line-color': '#2563eb', 'line-width': 3 },
+      })
+      const linkOpacity: maplibregl.ExpressionSpecification = ['interpolate', ['linear'], ['get', 'age_h'], 0, 1, 24, 0.35]
+      m.addLayer({
+        id: 'links',
+        type: 'line',
+        source: 'links',
+        filter: ['!=', ['get', 'source'], 'traceroute'],
+        paint: { 'line-color': ['get', 'color'], 'line-width': 2.5, 'line-opacity': linkOpacity },
+      })
+      m.addLayer({
+        id: 'links-trace',
+        type: 'line',
+        source: 'links',
+        filter: ['==', ['get', 'source'], 'traceroute'],
+        paint: { 'line-color': ['get', 'color'], 'line-width': 2.5, 'line-opacity': linkOpacity, 'line-dasharray': [3, 2] },
       })
       m.addLayer({
         id: 'clusters',
@@ -221,7 +241,14 @@
           // cluster scomparso nel frattempo: niente da fare
         }
       })
-      for (const l of ['points', 'clusters']) {
+      for (const l of ['links', 'links-trace']) {
+        m.on('click', l, (e: maplibregl.MapLayerMouseEvent) => {
+          if (m.queryRenderedFeatures(e.point, { layers: ['points', 'clusters'] }).length > 0) return
+          const p = e.features?.[0]?.properties
+          if (p) showLinkPopup(e.lngLat, p)
+        })
+      }
+      for (const l of ['points', 'clusters', 'links', 'links-trace']) {
         m.on('mouseenter', l, () => (m.getCanvas().style.cursor = 'pointer'))
         m.on('mouseleave', l, () => (m.getCanvas().style.cursor = ''))
       }
@@ -230,6 +257,7 @@
       pushNodes()
       pushSelection()
       pushTrack()
+      pushLinks()
     }
 
     // Solo se lo stile non e' davvero raggiungibile: niente timeout, il primo caricamento puo' essere lento
@@ -264,6 +292,40 @@
     }
   })
 
+  function nodeName(id: string): string {
+    const n = app.nodes.get(id)
+    return n?.short_name || n?.long_name || id
+  }
+
+  function showLinkPopup(at: maplibregl.LngLat, p: Record<string, unknown>) {
+    if (!map) return
+    const snr = typeof p.snr === 'number' ? `${String(Math.round(p.snr * 10) / 10).replace('.', ',')} dB` : 'sconosciuto'
+    const age = Number(p.age_h)
+    const eta = age < 1 ? 'meno di 1 h fa' : `${Math.round(age)} h fa`
+    const box = document.createElement('div')
+    const title = document.createElement('b')
+    title.textContent = `${nodeName(String(p.from_id))} ↔ ${nodeName(String(p.to_id))}`
+    box.append(title)
+    for (const line of [`SNR: ${snr}`, `Fonte: ${SOURCE_LABEL[String(p.source)] ?? String(p.source)}`, `Visto: ${eta}`]) {
+      box.append(document.createElement('br'), line)
+    }
+    new maplibregl.Popup({ closeButton: true }).setLngLat(at).setDOMContent(box).addTo(map)
+  }
+
+  function pushLinks() {
+    if (!ready) return
+    src('links')?.setData(app.filter.links ? linksToGeoJSON(linkList, app.nodes) : EMPTY)
+  }
+
+  async function loadLinks() {
+    try {
+      linkList = await fetchLinks(24)
+    } catch {
+      return // al prossimo giro
+    }
+    pushLinks()
+  }
+
   function pushTrack() {
     if (!ready) return
     src('track')?.setData(
@@ -287,6 +349,20 @@
     void app.selectedId
     void app.nodes.get(app.selectedId ?? '')
     if (ready) pushSelection()
+  })
+  // Collegamenti: caricati solo con l'interruttore acceso, aggiornati ogni 60 s
+  $effect(() => {
+    if (!app.filter.links) {
+      pushLinks()
+      return
+    }
+    void loadLinks()
+    const t = setInterval(loadLinks, 60_000)
+    return () => clearInterval(t)
+  })
+  $effect(() => {
+    void nodes // le posizioni dei nodi cambiano le estremita' delle linee
+    pushLinks()
   })
   $effect(() => {
     void track

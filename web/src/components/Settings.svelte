@@ -16,6 +16,8 @@
   let retTel = $state(365)
   let capMb = $state(2048)
   let lan = $state(false)
+  let batteryPct = $state(20)
+  let silentH = $state(6)
   let host = $state('')
   let port = $state(1883)
   let username = $state('')
@@ -35,6 +37,8 @@
     retTel = s.retention_telemetry_days
     capMb = s.storage_cap_mb
     lan = s.lan_access
+    batteryPct = s.battery_alert_pct
+    silentH = s.silent_alert_hours
     host = s.mqtt.host
     port = s.mqtt.port
     username = s.mqtt.username
@@ -81,6 +85,8 @@
         retention_telemetry_days: retTel,
         storage_cap_mb: capMb,
         lan_access: lan,
+        battery_alert_pct: batteryPct,
+        silent_alert_hours: silentH,
         mqtt: {
           host,
           port,
@@ -135,6 +141,12 @@
       <label>Posizioni (giorni) <input type="number" min="1" bind:value={retPos} /></label>
       <label>Telemetria (giorni) <input type="number" min="1" bind:value={retTel} /></label>
       <label>Limite spazio (MB) <input type="number" min="1" bind:value={capMb} /></label>
+    </fieldset>
+
+    <fieldset>
+      <legend>Avvisi (solo nodi miei)</legend>
+      <label>Avviso batteria sotto (%) <input type="number" min="1" max="99" bind:value={batteryPct} /></label>
+      <label>Avviso nodo silenzioso dopo (ore) <input type="number" min="1" max="168" bind:value={silentH} /></label>
     </fieldset>
 
     <fieldset>

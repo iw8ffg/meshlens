@@ -2,7 +2,7 @@ import { SvelteMap } from 'svelte/reactivity'
 import { loadFilter, saveFilter } from './filters'
 import type { NodeFilter } from './filters'
 import { MAX_REPLACED, insertMessage, removeByKey, mergeRadioMessages, pruneSet } from './chat'
-import type { Message, MessageStatus, Node, Radio, Status } from './types'
+import type { Alert, Message, MessageStatus, Node, Radio, Status, Traceroute } from './types'
 
 const MAX_MESSAGES = 500
 
@@ -15,6 +15,8 @@ export const app = $state({
   filter: loadFilter(localStorage) as NodeFilter,
   selectedId: null as string | null,
   chatConv: null as string | null,
+  alerts: [] as Alert[],
+  traceroutes: new SvelteMap<string, Traceroute>(),
 })
 
 export function upsertNodes(list: Node[]): void {
@@ -48,11 +50,20 @@ export function setRadios(list: Radio[]): void {
   app.radios = list
 }
 
+export function setAlerts(list: Alert[]): void {
+  app.alerts = list
+}
+
+/** Ultimo traceroute per nodo di destinazione. */
+export function setTraceroute(t: Traceroute): void {
+  app.traceroutes.set(t.target_id, t)
+}
+
 export function setStatus(s: Status): void {
   app.status = s
 }
 
 export function persistFilter(): void {
-  const { countries, maxAgeH, sources, text } = app.filter
-  saveFilter(localStorage, { countries: [...countries], maxAgeH, sources: [...sources], text })
+  const { countries, maxAgeH, sources, text, links } = app.filter
+  saveFilter(localStorage, { countries: [...countries], maxAgeH, sources: [...sources], text, links })
 }
