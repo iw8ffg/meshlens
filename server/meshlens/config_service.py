@@ -646,7 +646,11 @@ class ConfigService:
         """Lavori dell'ultimo piano di ripristino applicato per questo piano (None se non c'e')."""
         for r in self.store.applied_plans():  # dal piu' recente
             if r["steps"].get("kind") == "restore" and r["steps"].get("restore_of") == plan_id:
-                return self._plan_jobs(r)
+                jobs = self._plan_jobs(r)
+                # un passo senza lavoro (avvio interrotto) vale come ripristino incompleto
+                if len(jobs) < len(r["steps"]["steps"]):
+                    return jobs + [{"status": "failed"}]
+                return jobs
         return None
 
     def _sync_restored(self, plan: dict) -> bool:

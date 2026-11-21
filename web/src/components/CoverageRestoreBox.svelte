@@ -40,6 +40,8 @@
       plan = await restorePlan(last.plan_id)
     } catch (e) {
       error = e instanceof ApiError ? e.message : 'Operazione non riuscita'
+      // il server puo' aver segnato il piano come ripristinato (niente da rimettere)
+      if (e instanceof ApiError && e.status === 400) load()
     } finally {
       busy = false
     }
