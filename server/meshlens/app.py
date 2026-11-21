@@ -2,6 +2,7 @@
 import asyncio
 import contextlib
 import logging
+import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -30,7 +31,11 @@ from .settings import load_settings
 from .store import Store
 from .updater import Updater
 
-STATIC_DIR = Path(__file__).parents[2] / "web" / "dist"
+# installata: PyInstaller mette web/dist accanto alle librerie incluse (sys._MEIPASS)
+if getattr(sys, "frozen", False):
+    STATIC_DIR = Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent)) / "web" / "dist"
+else:
+    STATIC_DIR = Path(__file__).parents[2] / "web" / "dist"
 PURGE_INTERVAL_S = 24 * 3600
 LIVE_NODE_TTL_S = 7 * 24 * 3600
 log = logging.getLogger(__name__)

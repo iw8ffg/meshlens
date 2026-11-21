@@ -1,0 +1,104 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Dipendenze Python
+        run: pip install -e ".[tray,dev]" pyinstaller
+
+      - name: Versione e tag coincidono
+        id: ver
+        run: |
+          $ver = python -c "import meshlens; print(meshlens.__version__)"
+          if ($LASTEXITCODE) { throw "impossibile leggere la versione" }
+          if ("${{ github.ref_name }}" -ne "v$ver") {
+            throw "Il tag ${{ github.ref_name }} non coincide con __version__ (v$ver)"
+          }
+          "version=$ver" >> $env:GITHUB_OUTPUT
+
+      - name: Test server
+        run: python -m pytest
+
+      - name: Dipendenze web
+        working-directory: web
+        run: npm ci
+      - name: Test e controllo web
+        working-directory: web
+        run: |
+          npx vitest run
+          if ($LASTEXITCODE) { exit 1 }
+          npm run check
+          if ($LASTEXITCODE) { exit 1 }
+      - name: Build web
+        working-directory: web
+        run: npm run build
+
+      - name: PyInstaller
+        run: python -m PyInstaller packaging/meshlens.spec --noconfirm --clean --distpath dist --workpath build
+
+      - name: go-pmtiles (SHA-256 verificato)
+        run: python tools/fetch_pmtiles.py dist/MeshLens/tools
+
+      - name: Inno Setup
+        run: |
+          $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) {
+            choco install innosetup -y --no-progress
+            if ($LASTEXITCODE) { throw "installazione di Inno Setup fallita" }
+          }
+          & $iscc "/DAppVersion=${{ steps.ver.outputs.version }}" packaging\meshlens.iss
+          if ($LASTEXITCODE) { throw "ISCC fallito" }
+
+      - name: SHA-256
+        run: |
+          $name = "MeshLens-Setup-${{ steps.ver.outputs.version }}.exe"
+          $hash = (Get-FileHash "dist\$name" -Algorithm SHA256).Hash.ToLower()
+          [System.IO.File]::WriteAllText("$PWD\dist\$name.sha256", "$hash  $name`n", [System.Text.UTF8Encoding]::new($false))
+
+      - name: Note di rilascio dal CHANGELOG
+        run: |
+          $ver = "${{ steps.ver.outputs.version }}"
+          $lines = Get-Content CHANGELOG.md -Encoding UTF8
+          $out = @(); $in = $false
+          foreach ($l in $lines) {
+            if ($l -match '^## \[') {
+              if ($in) { break }
+              if ($l -match "^## \[$([regex]::Escape($ver))\]") { $in = $true; continue }
+            }
+            if ($in -and $l -match '^\[[^\]]+\]: ') { continue }
+            if ($in) { $out += $l }
+          }
+          if (-not $out) { throw "Sezione $ver non trovata in CHANGELOG.md" }
+          $out -join "`n" | Set-Content -Path notes.md -Encoding utf8
+
+      - name: Crea la release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ver = "${{ steps.ver.outputs.version }}"
+          $name = "MeshLens-Setup-$ver.exe"
+          gh release create "${{ github.ref_name }}" "dist\$name" "dist\$name.sha256" `
+            --title "MeshLens $ver" --notes-file notes.md
+          if ($LASTEXITCODE) { throw "gh release create fallito" }

@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Dipendenze Python
+        run: pip install -e ".[tray,dev]"
+      - name: Test server
+        run: python -m pytest
+      - name: Dipendenze web
+        working-directory: web
+        run: npm ci
+      - name: Test web
+        working-directory: web
+        run: npx vitest run
+      - name: Controllo tipi web
+        working-directory: web
+        run: npm run check
