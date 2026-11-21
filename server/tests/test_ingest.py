@@ -470,11 +470,11 @@ def test_public_key_change_detection(env):
     ing.handle(ev("nodeinfo", _ni(None), pid=4))
     ing.handle(ev("nodeinfo", _ni(b""), pid=5))
     assert n["public_key"] == a64 and n["key_changed"] is None
-    ing.handle(ev("nodeinfo", _ni(b"B" * 32), pid=6, t=1000))
+    ing.handle(ev("nodeinfo", _ni(b"B" * 32), pid=6, t=NOW + 1000))
     b64 = base64.b64encode(b"B" * 32).decode()
-    assert n["key_changed"] == 1000 and n["public_key"] == b64
+    assert n["key_changed"] == NOW + 1000 and n["public_key"] == b64
     saved = store.get_node(1)
-    assert saved["public_key"] == b64 and saved["key_changed"] == 1000
+    assert saved["public_key"] == b64 and saved["key_changed"] == NOW + 1000
 
 
 def test_new_node_has_no_public_key():
@@ -543,3 +543,52 @@ def test_set_status_with_error(env):
     assert calls == [("out:rA:5", "failed", "NO_ROUTE")]
     assert live.messages[-1]["status"] == "failed" and live.messages[-1]["error"] == "NO_ROUTE"
     assert store.messages(None, None, 10)[0]["error"] == "NO_ROUTE"
+
+
+def test_nodedb_replay_never_changes_key(env):
+    import base64
+    ing, live, store, *_ = env
+
+    def replay(key, t, pid=0):
+        return ev("nodeinfo", _ni(key), pid=pid, t=t, source="rf", radio_id="rA",
+                  gateway_id=None, channel="0", snr=None)
+
+    a64 = base64.b64encode(b"A" * 32).decode()
+    # replay senza orario su un nodo senza chiave: riempie il vuoto
+    ing.handle(replay(b"A" * 32, 0))
+    n = live.nodes[1]
+    assert n["public_key"] == a64 and n["key_changed"] is None
+    ing.handle(ev("nodeinfo", _ni(b"A" * 32), pid=2))  # chiave viva, uguale
+    # replay con chiave diversa: senza orario o con orario vecchio non cambia nulla
+    ing.handle(replay(b"B" * 32, 0))
+    ing.handle(replay(b"B" * 32, NOW - HOUR))
+    assert n["public_key"] == a64 and n["key_changed"] is None
+    ing.handle(ev("nodeinfo", _ni(b"A" * 32), pid=3, t=NOW + 1))
+    assert n["public_key"] == a64 and n["key_changed"] is None
+    assert store.get_node(1)["key_changed"] is None
+
+
+def test_waypoint_deleted_only_by_its_sender(env):
+    ing, live, store, *_ = env
+    wps = []
+    ing.on_waypoint = wps.append
+    ing.handle(ev("waypoint", _wp(), num=1, pid=1))
+    ing.handle(ev("waypoint", _wp(expire=1), num=2, pid=2))
+    assert [r["id"] for r in store.active_waypoints(NOW)] == [42]
+    assert wps[-1]["id"] == 42 and len(wps) == 1
+    ing.handle(ev("waypoint", _wp(expire=1), num=1, pid=3))
+    assert wps[-1] == {"deleted": 42} and store.active_waypoints(NOW) == []
+    # sconosciuto: l'eliminazione passa comunque
+    ing.handle(ev("waypoint", _wp(wid=50, expire=1), num=3, pid=4))
+    assert wps[-1] == {"deleted": 50}
+
+
+def test_waypoint_expiry_without_rx_time(env, monkeypatch):
+    import meshlens.ingest as ingmod
+    ing, live, store, *_ = env
+    wps = []
+    ing.on_waypoint = wps.append
+    monkeypatch.setattr(ingmod.time, "time", lambda: NOW)
+    ing.handle(ev("waypoint", _wp(expire=int(NOW) - 10), pid=1, t=0, source="rf",
+                  radio_id="rA", gateway_id=None, channel="0"))
+    assert wps == [{"deleted": 42}]

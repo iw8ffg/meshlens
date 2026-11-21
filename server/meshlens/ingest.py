@@ -195,9 +195,9 @@ class Ingestor:
             ev_pos = (p.lat, p.lon, p.precision_bits, ev.source)
             self._update_position(node, ev, *ev_pos)
         elif kind == "nodeinfo":
-            self._update_identity(node, p, ev.rx_time or time.time())
+            self._update_identity(node, p, ev.rx_time or time.time(), replay=stale or no_time)
         elif kind == "mapreport":
-            self._update_identity(node, p, ev.rx_time or time.time())
+            self._update_identity(node, p, ev.rx_time or time.time(), replay=stale or no_time)
             if p.firmware_version:
                 node["firmware"] = p.firmware_version
             if (p.lat is not None and p.lon is not None
@@ -388,7 +388,7 @@ class Ingestor:
                         country=self.locator.locate(lat, lon))
 
     @staticmethod
-    def _update_identity(node: dict, p, t: float) -> None:
+    def _update_identity(node: dict, p, t: float, replay: bool = False) -> None:
         for field in ("long_name", "short_name", "hw_model", "role"):
             value = getattr(p, field)
             if value:
@@ -396,6 +396,12 @@ class Ingestor:
         key = getattr(p, "public_key", None)  # mapreport non porta la chiave
         if key:  # vuota o assente (firmware vecchio): non e' un cambio
             b64 = base64.b64encode(key).decode()
+            if replay:
+                # replay del database nodi (orario vecchio o assente): riempie solo il vuoto,
+                # non scavalca una chiave piu' recente e non e' mai un cambio
+                if node.get("public_key") is None:
+                    node["public_key"] = b64
+                return
             if node.get("public_key") and node["public_key"] != b64:
                 node["key_changed"] = t
             node["public_key"] = b64
@@ -403,7 +409,11 @@ class Ingestor:
     def _handle_waypoint(self, node: dict, ev: MeshEvent) -> None:
         """Waypoint ricevuto: scaduto o senza coordinate vale come eliminazione."""
         p = ev.payload
-        if (p.expire and p.expire <= ev.rx_time) or p.lat is None or p.lon is None:
+        now = ev.rx_time or time.time()
+        if (p.expire and p.expire <= now) or p.lat is None or p.lon is None:
+            stored = self.store.get_waypoint(p.id)
+            if stored is not None and stored["from_num"] != ev.from_node:
+                return  # solo chi l'ha creato puo' eliminarlo
             self.store.delete_waypoint(p.id)
             if self.on_waypoint is not None:
                 self.on_waypoint({"deleted": p.id})
