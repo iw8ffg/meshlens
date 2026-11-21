@@ -11,13 +11,12 @@ from typing import Awaitable, Callable
 from fastapi import FastAPI
 
 from .api import AppContext, create_app
-from .backup import BackupManager, apply_pending_restore, quick_check
+from .backup import BackupManager, apply_pending_restore, open_db, quick_check_file
 from .auth import Auth
 from .bus import Bus
 from .config_service import ConfigService
 from .coverage import CoverageRecorder
 from .crypto import DEFAULT_KEY, expand_psk
-from .db import connect
 from .dedup import Deduplicator
 from .geo import CountryLocator
 from .ingest import Ingestor
@@ -44,6 +43,7 @@ PURGE_FIRST_DELAY_S = 60
 BACKUP_CHECK_S = 3600
 MQTT_SILENT_S = 300  # connesso ma muto da tanto: ricollega
 MQTT_WATCHDOG_EVERY_S = 30
+MQTT_RETRY_START_S = 60  # connettore non partito: nuovo tentativo al massimo ogni 60 s
 BACKUP_FIRST_DELAY_S = 300
 LIVE_NODE_TTL_S = 7 * 24 * 3600
 log = logging.getLogger(__name__)
@@ -80,12 +80,15 @@ class Runtime:
     last_purge: dict | None = None
     db_path: Path | None = None
     backups: BackupManager | None = None
-    db_health: str = "non controllata"
+    db_health: str = "in corso"  # quick_check in un thread all'avvio
     watchdog_restarts: int = 0
     queue_dropped_retired: int = 0  # scarti della coda dei connettori gia' fermati
     _connector_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    monotonic: Callable[[], float] = time.monotonic
+    _last_start_attempt: float = 0.0  # monotonic() dell'ultimo avvio del connettore
 
     def start_connector(self) -> None:
+        self._last_start_attempt = self.monotonic()
         cfg = self.settings["mqtt"]
         decoder = _make_decoder(cfg)
         decoder.channel_keys.update(self.learned_keys)  # sopravvivono al riavvio del connettore
@@ -132,17 +135,38 @@ class Runtime:
             note(reason)
 
     async def mqtt_watchdog(self) -> None:
-        """Se il broker risulta connesso ma tace da troppo, ricollega da zero."""
+        """Se il broker risulta connesso ma tace da troppo, ricollega da zero.
+
+        Solo se su questo connettore i messaggi arrivavano: un broker tranquillo (o un
+        filtro che non riceve nulla) non va ricollegato ogni 5 minuti. Se il connettore
+        non e' partito, ritenta l'avvio al massimo ogni MQTT_RETRY_START_S."""
         if self.connector is None:
+            await self._retry_start_connector()
             return
         st = self.connector.status()
         if not st.get("connected"):
             return
+        if not st.get("decoded") and st.get("last_msg_age_s") is None:
+            return  # mai arrivato nulla da quando si e' connesso: niente da ricollegare
         ages = [a for a in (st.get("last_msg_age_s"),
                             None if st.get("connected_since") is None
                             else time.time() - st["connected_since"]) if a is not None]
         if ages and min(ages) > MQTT_SILENT_S:
             await self.restart_connector(f"Nessun messaggio da {MQTT_SILENT_S} s: ricollegamento")
+
+    async def _retry_start_connector(self) -> None:
+        async with self._connector_lock:
+            if self.connector is not None:
+                return
+            if self.monotonic() - self._last_start_attempt < MQTT_RETRY_START_S:
+                return
+            try:
+                self.start_connector()
+            except Exception:
+                log.exception("Nuovo avvio del connettore MQTT fallito")
+                self.connector = None
+                return
+            log.info("MQTT: connettore avviato al nuovo tentativo")
 
     async def on_settings_changed(self, saved: dict) -> None:
         async with self._connector_lock:
@@ -228,6 +252,19 @@ class Runtime:
         log.info("Pulizia: %s", total)
         return total
 
+    async def check_integrity(self) -> None:
+        """PRAGMA quick_check fuori dal loop, con una connessione propria in sola lettura."""
+        if self.db_path is None:
+            self.db_health = "non controllata"
+            return
+        self.db_health = "in corso"
+        result = await asyncio.to_thread(quick_check_file, self.db_path)
+        self.db_health = result
+        if result == "ok":
+            log.info("Controllo d'integrità del database: ok")
+        else:
+            log.error("Controllo d'integrità del database fallito: %s", result)
+
     async def start(self) -> None:
         self.loop = asyncio.get_running_loop()
         if self.maps is not None:
@@ -236,10 +273,15 @@ class Runtime:
             self.updater.cleanup_tmp()
         if self.coverage is not None:
             self.coverage.start()
-        self.start_connector()
+        try:
+            self.start_connector()
+        except Exception:  # il watchdog ritenta l'avvio
+            log.exception("Avvio del connettore MQTT fallito")
+            self.connector = None
         if self.radios is not None:
             await self.radios.start()
         self.tasks = [
+            asyncio.create_task(self.check_integrity()),
             asyncio.create_task(self._every(2, self._publish_changed)),
             asyncio.create_task(self._every(5, self._publish_status)),
             asyncio.create_task(self._every(1, self.store.commit)),
@@ -284,13 +326,10 @@ def build(data_dir: Path, connector_factory=MqttConnector,
     if restored:
         log.warning("Ripristino completato dal backup %s", restored)
     backups = BackupManager(db_path, Path(data_dir) / "backups")
-    conn = connect(db_path, before_migrate=lambda c, old, new: backups.create_sync(c, "pre-migrazione"))
+    conn = open_db(Path(data_dir), backups)
     migrated = migrate_secrets(conn)
     if migrated:
         log.info("Segreti salvati in chiaro riscritti cifrati: %d", migrated)
-    db_health = quick_check(conn)
-    if db_health != "ok":
-        log.error("Controllo d'integrità del database fallito: %s", db_health)
     store = Store(conn)
     live = LiveState()
     live.load(store.load_nodes())
@@ -298,13 +337,18 @@ def build(data_dir: Path, connector_factory=MqttConnector,
     dedup = Deduplicator()
     locator = CountryLocator()
     auth = Auth(conn)
+    if restored:
+        # le sessioni e i blocchi del backup non valgono piu': il PIN torna quello di allora
+        auth.forget_sessions_and_locks()
+        log.warning("Dopo il ripristino: sessioni e blocchi dei tentativi azzerati, "
+                    "ogni dispositivo deve accedere di nuovo")
     ingestor = Ingestor(live, store, dedup, locator, lambda: rt.settings,
                         lambda msg: bus.publish({"type": "message", "message": msg}),
                         lambda key, status: bus.publish(
                             {"type": "message_status", "key": key, "status": status}))
     rt = Runtime(conn, store, live, auth, bus, dedup, ingestor, connector_factory,
                  settings=load_settings(conn), db_path=db_path,
-                 backups=backups, db_health=db_health)
+                 backups=backups)
     coverage = CoverageRecorder(store, live, bus,
                                 radio_node=ingestor.radio_node)
 

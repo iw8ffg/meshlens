@@ -1,10 +1,11 @@
+import asyncio
 import sqlite3
 
 import pytest
 
 from meshlens.app import build
 from meshlens.backup import (BACKUP_WEEKLY_S, BackupManager, apply_pending_restore,
-                             quick_check)
+                             KEEP_BY_REASON, quick_check, quick_check_file)
 from meshlens.db import connect
 
 
@@ -16,10 +17,10 @@ class Clock:
         return self.t
 
 
-def mgr(tmp_path, clock=None, keep=5):
+def mgr(tmp_path, clock=None):
     db = tmp_path / "meshlens.db"
     conn = connect(db)
-    return conn, BackupManager(db, tmp_path / "backups", clock or Clock(1_700_000_000), keep)
+    return conn, BackupManager(db, tmp_path / "backups", clock or Clock(1_700_000_000))
 
 
 def test_create_and_list_and_prune(tmp_path):
@@ -29,7 +30,7 @@ def test_create_and_list_and_prune(tmp_path):
         clock.t += 100
         m.create_sync(conn, "manuale" if i % 2 else "settimanale")
     items = m.list()
-    assert len(items) == 5
+    assert len(items) == 5  # 2 manuali + 3 settimanali
     assert [b["time"] for b in items] == sorted((b["time"] for b in items), reverse=True)
     assert items[0]["time"] > items[-1]["time"]
     assert {b["reason"] for b in items} == {"manuale", "settimanale"}
@@ -84,6 +85,8 @@ def test_premigration_backup_from_legacy_db(tmp_path):
     assert "heard_by" not in cols and "hops_min" not in cols
     assert old.execute("SELECT long_name FROM nodes WHERE num=7").fetchone()[0] == "Vecchio"
     old.close()
+    assert rt.db_health == "in corso"  # il controllo gira in un thread all'avvio
+    asyncio.run(rt.check_integrity())
     assert rt.db_health == "ok"
 
     _, rt2 = build(tmp_path, static_dir=None)  # gia' migrato: niente altro backup
@@ -177,7 +180,7 @@ def test_prune_keeps_special_backups_and_tolerates_vanishing(tmp_path):
         clock.t += 100
         m.create_sync(conn, "manuale")
     names = [b["reason"] for b in m.list()]
-    assert names.count("pre-migrazione") == 1 and names.count("manuale") == 5
+    assert names.count("pre-migrazione") == 1 and names.count("manuale") == 2
     for _ in range(5):
         clock.t += 100
         m.create_sync(conn, "pre-migrazione")
@@ -212,3 +215,97 @@ def test_wal_move_failure_keeps_original_db_and_wal(tmp_path, monkeypatch):
     assert cur.execute("SELECT value FROM settings WHERE key='marker'").fetchone()[0] == '"originale"'
     cur.close()
     assert not list((tmp_path / "backups").glob("*-prima-del-ripristino.db*"))
+
+
+def test_retention_is_per_reason(tmp_path):
+    clock = Clock(1_700_000_000)
+    conn, m = mgr(tmp_path, clock)
+    for reason in ("pre-migrazione", "pre-aggiornamento", "settimanale", "manuale"):
+        for _ in range(6):
+            clock.t += 100
+            m.create_sync(conn, reason)
+    items = m.list()
+    counts = {r: [b["reason"] for b in items].count(r) for r in KEEP_BY_REASON}
+    assert counts == {"manuale": 2, "pre-aggiornamento": 2, "settimanale": 3,
+                      "pre-migrazione": 3, "prima-del-ripristino": 0}
+    # restano le piu' recenti di ogni motivo
+    newest_manual = max(b["time"] for b in items if b["reason"] == "manuale")
+    assert newest_manual == clock.t
+    # tanti manuali non spingono fuori i settimanali
+    for _ in range(10):
+        clock.t += 100
+        m.create_sync(conn, "manuale")
+    assert [b["reason"] for b in m.list()].count("settimanale") == 3
+    conn.close()
+
+
+def _legacy_db(path):
+    legacy = sqlite3.connect(path)
+    legacy.executescript(
+        "CREATE TABLE nodes(num INTEGER PRIMARY KEY, id TEXT, long_name TEXT, hops INTEGER, sources TEXT, last_heard REAL, is_mine INTEGER DEFAULT 0);"
+        "CREATE TABLE messages(key TEXT PRIMARY KEY, text TEXT, time REAL, country TEXT);"
+        "CREATE TABLE settings(key TEXT PRIMARY KEY, value TEXT);")
+    legacy.commit()
+    legacy.close()
+
+
+def test_reset_pin_on_legacy_db_makes_premigration_backup(tmp_path, capsys):
+    from meshlens.__main__ import main
+    _legacy_db(tmp_path / "meshlens.db")
+    assert main(["reset-pin", "--data-dir", str(tmp_path)]) == 0
+    found = list((tmp_path / "backups").glob("*-pre-migrazione.db"))
+    assert len(found) == 1
+    old = sqlite3.connect(found[0])
+    assert old.execute("PRAGMA user_version").fetchone()[0] == 0
+    old.close()
+
+
+def test_restore_drops_sessions_and_locks_but_keeps_backup_pin(tmp_path, caplog):
+    from meshlens.auth import Auth
+    conn, m = mgr(tmp_path)
+    auth = Auth(conn)
+    auth.set_pin("111111")
+    token = auth.login("111111", "192.168.1.5")
+    conn.execute("INSERT INTO auth_failures(ip, failures, locked_until, last_failure) "
+                 "VALUES('10.0.0.9', 7, 9e12, 9e12)")
+    conn.execute("INSERT INTO auth_attempts(time, ip) VALUES(9e12, '10.0.0.9')")
+    conn.execute("INSERT INTO auth(key, value) VALUES('global_lock_until', '9e12')")
+    conn.commit()
+    name = m.create_sync(conn, "manuale")["name"]  # il backup contiene sessione e blocchi
+    auth.set_pin("222222")  # PIN cambiato dopo il backup
+    conn.close()
+    m.schedule_restore(name)
+    with caplog.at_level("WARNING"):
+        _, rt = build(tmp_path, static_dir=None)
+    try:
+        assert rt.auth.check(token) is False
+        assert rt.conn.execute("SELECT COUNT(*) FROM sessions").fetchone()[0] == 0
+        assert rt.conn.execute("SELECT COUNT(*) FROM auth_failures").fetchone()[0] == 0
+        assert rt.conn.execute("SELECT COUNT(*) FROM auth_attempts").fetchone()[0] == 0
+        assert rt.auth._get("global_lock_until") is None
+        assert rt.auth.pin_is_set()
+        rt.auth.login("111111", "127.0.0.1")  # il PIN e' quello del momento del backup
+        assert "sessioni e blocchi" in caplog.text
+    finally:
+        rt.conn.close()
+
+
+def test_build_without_restore_keeps_sessions(tmp_path):
+    _, rt = build(tmp_path, static_dir=None)
+    rt.auth.set_pin("111111")
+    token = rt.auth.login("111111", "127.0.0.1")
+    rt.conn.close()
+    _, rt2 = build(tmp_path, static_dir=None)
+    try:
+        assert rt2.auth.check(token) is True
+    finally:
+        rt2.conn.close()
+
+
+def test_quick_check_file_reports_unreadable(tmp_path):
+    db = tmp_path / "meshlens.db"
+    connect(db).close()
+    assert quick_check_file(db) == "ok"
+    bad = tmp_path / "rotto.db"
+    bad.write_bytes(b"non un database" * 100)
+    assert quick_check_file(bad) != "ok"

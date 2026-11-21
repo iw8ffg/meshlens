@@ -289,3 +289,89 @@ async def test_queue_dropped_accumulates_across_connector_restarts(tmp_path):
         saved = {**rt.settings, "mqtt": {**rt.settings["mqtt"], "host": "altro"}}
         await rt.on_settings_changed(saved)
         assert rt.mqtt_status()["queue_dropped"] == 10
+
+
+async def test_watchdog_leaves_quiet_broker_alone(tmp_path):
+    import time
+    # connesso da 10 minuti senza un solo messaggio: ricollegare non serve a nulla
+    rt = await _watchdog_rt(tmp_path, {"connected": True, "last_msg_age_s": None,
+                                       "decoded": 0, "connected_since": time.time() - 600})
+    old = rt.connector
+    await rt.mqtt_watchdog()
+    assert rt.connector is old and not old.stopped
+    assert rt.mqtt_status()["watchdog_restarts"] == 0
+
+
+async def test_watchdog_restarts_when_flowing_messages_stop(tmp_path):
+    import time
+    rt = await _watchdog_rt(tmp_path, {"connected": True, "last_msg_age_s": 400.0,
+                                       "decoded": 12, "connected_since": time.time() - 900})
+    old = rt.connector
+    await rt.mqtt_watchdog()
+    assert rt.connector is not old and old.stopped
+    assert rt.mqtt_status()["watchdog_restarts"] == 1
+
+
+async def test_watchdog_retries_failed_connector_start_every_60s(tmp_path):
+    import asyncio
+    state = {"fail": True, "attempts": 0}
+
+    class Flaky(FakeConnector):
+        def __init__(self, *a):
+            state["attempts"] += 1
+            if state["fail"]:
+                raise RuntimeError("no")
+            super().__init__(*a)
+
+    clock = {"t": 1000.0}
+    app, rt = build(tmp_path, connector_factory=Flaky, static_dir=None)
+    rt.monotonic = lambda: clock["t"]
+    async with app.router.lifespan_context(app):  # l'avvio fallito non ferma l'app
+        assert rt.connector is None and state["attempts"] == 1
+        clock["t"] += 30
+        await rt.mqtt_watchdog()
+        assert state["attempts"] == 1  # troppo presto
+        clock["t"] += 31
+        await rt.mqtt_watchdog()
+        assert state["attempts"] == 2 and rt.connector is None  # fallito di nuovo
+        state["fail"] = False
+        clock["t"] += 10
+        await rt.mqtt_watchdog()
+        assert state["attempts"] == 2
+        clock["t"] += 60
+        await asyncio.gather(rt.mqtt_watchdog(), rt.mqtt_watchdog())  # col lock: un solo avvio
+        assert state["attempts"] == 3 and rt.connector is not None and rt.connector.started
+
+
+async def test_integrity_check_runs_off_loop_at_start(tmp_path, monkeypatch):
+    import asyncio
+    import threading
+    import meshlens.app as app_mod
+    seen = {}
+
+    def fake_check(path):
+        seen["thread"] = threading.current_thread() is not threading.main_thread()
+        seen["path"] = path
+        return "ok"
+
+    monkeypatch.setattr(app_mod, "quick_check_file", fake_check)
+    app, rt = build(tmp_path, connector_factory=FakeConnector, static_dir=None)
+    assert rt.db_health == "in corso"
+    async with app.router.lifespan_context(app):
+        for _ in range(50):
+            if rt.db_health != "in corso":
+                break
+            await asyncio.sleep(0.01)
+        assert rt.db_health == "ok"
+    assert seen == {"thread": True, "path": tmp_path / "meshlens.db"}
+
+
+async def test_integrity_check_failure_is_logged(tmp_path, monkeypatch, caplog):
+    import meshlens.app as app_mod
+    monkeypatch.setattr(app_mod, "quick_check_file", lambda p: "*** in database main ***")
+    _, rt = build(tmp_path, connector_factory=FakeConnector, static_dir=None)
+    with caplog.at_level("ERROR"):
+        await rt.check_integrity()
+    assert rt.db_health == "*** in database main ***"
+    assert "integrità" in caplog.text
+    rt.conn.close()

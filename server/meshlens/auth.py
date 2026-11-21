@@ -294,7 +294,13 @@ class Auth:
 
     def reset(self) -> None:
         """`meshlens reset-pin`: toglie PIN, sessioni e ogni blocco."""
-        self.conn.execute("DELETE FROM auth WHERE key IN ('pin_hash', 'pin_len', 'global_lock_until')")
+        self.conn.execute("DELETE FROM auth WHERE key IN ('pin_hash', 'pin_len')")
+        self.forget_sessions_and_locks()
+
+    def forget_sessions_and_locks(self) -> None:
+        """Toglie sessioni e blocchi, non il PIN (dopo un ripristino: le sessioni del backup
+        potrebbero essere state revocate nel frattempo)."""
+        self.conn.execute("DELETE FROM auth WHERE key='global_lock_until'")
         self._drop("1", ())
         self.conn.execute("DELETE FROM auth_failures")
         self.conn.execute("DELETE FROM auth_attempts")

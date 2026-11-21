@@ -160,14 +160,20 @@ class ServerThread:
 
 
 APP_MUTEX = "MeshLensAppMutex"
+ERROR_ALREADY_EXISTS = 183
 
 
-def create_app_mutex():
-    """Mutex con nome: l'installer (AppMutex) aspetta che MeshLens sia chiuso. None se non Windows."""
+def create_app_mutex() -> tuple[object, bool]:
+    """Mutex con nome: l'installer (AppMutex) aspetta che MeshLens sia chiuso, e una seconda
+    istanza capisce che la prima sta gia' partendo (anche prima che la porta sia in ascolto).
+
+    Restituisce (handle, gia_esistente); (None, False) se non Windows."""
     if sys.platform != "win32":
-        return None
+        return None, False
     import ctypes
-    return ctypes.windll.kernel32.CreateMutexW(None, False, APP_MUTEX)  # handle tenuto finche' si vive
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    handle = kernel32.CreateMutexW(None, False, APP_MUTEX)  # handle tenuto finche' si vive
+    return handle, ctypes.get_last_error() == ERROR_ALREADY_EXISTS
 
 
 def _message_box(text: str) -> None:
@@ -189,20 +195,31 @@ def run_tray(data_dir: Path, port: int = PORT, open_browser: bool = True) -> int
                      "chiudilo e riavvia MeshLens.")
         return 1
 
+    # prima di build(): una migrazione o un backup lunghi tengono la porta libera a lungo
+    _mutex, already = create_app_mutex()  # noqa: F841 - resta aperto fino all'uscita del processo
+    if already:
+        log.info("MeshLens è già in esecuzione: si apre il browser sull'istanza attiva")
+        webbrowser.open(url)
+        return 0
+
     import pystray
     from PIL import Image
-
-    _mutex = create_app_mutex()  # noqa: F841 - resta aperto fino all'uscita del processo
 
     from .app import build
     from .settings import load_settings
 
     data_dir = Path(data_dir)
-    data_dir.mkdir(parents=True, exist_ok=True)
-    app, rt = build(data_dir, auto_update=True, log_dir=logs_dir())
-    settings = load_settings(rt.conn)
-    binds, cert, rt.ctx.tls = prepare_serving(data_dir, settings["lan_access"],
-                                              settings["lan_https"], port)
+    try:
+        data_dir.mkdir(parents=True, exist_ok=True)
+        app, rt = build(data_dir, auto_update=True, log_dir=logs_dir())
+        settings = load_settings(rt.conn)
+        binds, cert, rt.ctx.tls = prepare_serving(data_dir, settings["lan_access"],
+                                                  settings["lan_https"], port)
+    except Exception as e:  # noqa: BLE001 - mostrato all'utente: senza console non lo vedrebbe
+        log.exception("Avvio di MeshLens fallito")
+        _message_box(f"MeshLens non è riuscito ad avviarsi: {e}\n\n"
+                     f"I dettagli sono nel file di log in {logs_dir()}.")
+        return 1
     srv = ServerThread(app, binds, cert)
     rt.ctx.tls_errors = srv.errors  # GET /api/tls mostra anche la porta HTTPS occupata
     srv.start()

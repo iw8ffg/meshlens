@@ -172,4 +172,51 @@ def test_autostart_item_disabled_when_not_frozen():
 def test_app_mutex_noop_off_windows(monkeypatch):
     from meshlens import tray
     monkeypatch.setattr(tray.sys, "platform", "linux")
-    assert tray.create_app_mutex() is None
+    assert tray.create_app_mutex() == (None, False)
+
+
+@pytest.mark.skipif(__import__("sys").platform != "win32", reason="mutex con nome solo su Windows")
+def test_app_mutex_detects_second_instance(monkeypatch):
+    import ctypes
+    monkeypatch.setattr(tray, "APP_MUTEX", f"MeshLensTestMutex-{__import__('os').getpid()}")
+    first, existed = tray.create_app_mutex()
+    try:
+        assert first and existed is False
+        second, existed2 = tray.create_app_mutex()
+        assert existed2 is True
+        ctypes.windll.kernel32.CloseHandle(second)
+    finally:
+        ctypes.windll.kernel32.CloseHandle(first)
+
+
+def _no_build(*a, **k):
+    raise AssertionError("build() non deve partire")
+
+
+def test_second_instance_during_startup_opens_browser_without_build(tmp_path, monkeypatch):
+    import meshlens.app as app_mod
+    opened = []
+    monkeypatch.setattr(tray, "single_instance", lambda port: "free")  # la prima sta migrando
+    monkeypatch.setattr(tray, "create_app_mutex", lambda: (123, True))
+    monkeypatch.setattr(tray.webbrowser, "open", opened.append)
+    monkeypatch.setattr(app_mod, "build", _no_build)
+    assert tray.run_tray(tmp_path, 8686) == 0
+    assert opened == ["http://127.0.0.1:8686"]
+
+
+def test_build_failure_shows_message_and_exits(tmp_path, monkeypatch, caplog):
+    import meshlens.app as app_mod
+    shown = []
+
+    def broken(*a, **k):
+        raise RuntimeError("database bloccato")
+
+    monkeypatch.setattr(tray, "single_instance", lambda port: "free")
+    monkeypatch.setattr(tray, "create_app_mutex", lambda: (123, False))
+    monkeypatch.setattr(tray, "_message_box", shown.append)
+    monkeypatch.setattr(app_mod, "build", broken)
+    with caplog.at_level("ERROR"):
+        assert tray.run_tray(tmp_path, 8686) == 1
+    assert len(shown) == 1
+    assert "non è riuscito ad avviarsi" in shown[0] and "database bloccato" in shown[0]
+    assert "Avvio di MeshLens fallito" in caplog.text

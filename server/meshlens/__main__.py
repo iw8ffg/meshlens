@@ -40,8 +40,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.cmd == "reset-pin":
         from .auth import Auth
-        from .db import connect
-        conn = connect(Path(args.data_dir) / "meshlens.db")
+        from .backup import open_db
+        conn = open_db(Path(args.data_dir))  # un database 1.2.x si migra solo dopo il backup
         Auth(conn).reset()
         conn.close()
         print("PIN azzerato: al prossimo accesso dal PC potrai sceglierne uno nuovo.")

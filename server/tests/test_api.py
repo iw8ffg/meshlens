@@ -600,6 +600,7 @@ async def test_mqtt_channels_endpoint(ctx):
 async def test_db_endpoint_and_compact_requires_confirm(tmp_path):
     from meshlens.app import build
     app, rt = build(tmp_path, static_dir=None)
+    await rt.check_integrity()
     try:
         async with client_for_app(app) as c:
             assert (await c.post("/api/auth/setup", json={"pin": "1234"})).status_code == 200

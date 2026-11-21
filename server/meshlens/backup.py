@@ -10,14 +10,16 @@ import time
 from pathlib import Path
 from typing import Callable
 
-BACKUP_KEEP = 5
+from .db import connect
+
 BACKUP_WEEKLY_S = 7 * 86400
 REASONS = ("pre-migrazione", "pre-aggiornamento", "settimanale", "manuale")
 NAME_RE = re.compile(r"^meshlens-(\d{8}-\d{6})-([a-z-]+)\.db$")
 RESTORE_FILE = "restore.json"
 SAFETY_REASON = "prima-del-ripristino"
-KEEP_SPECIAL = 3  # pre-migrazione e prima-del-ripristino: copie di salvataggio, tenute a parte
-SPECIAL_REASONS = ("pre-migrazione", SAFETY_REASON)
+# copie tenute per motivo, ognuno potato per conto suo (le piu' recenti restano)
+KEEP_BY_REASON = {"manuale": 2, "pre-aggiornamento": 2, "settimanale": 3,
+                  "pre-migrazione": 3, SAFETY_REASON: 3}
 log = logging.getLogger(__name__)
 
 
@@ -27,6 +29,22 @@ def quick_check(conn: sqlite3.Connection) -> str:
     return str(row[0]) if row else "ok"
 
 
+def _open_ro(path: Path) -> sqlite3.Connection:
+    return sqlite3.connect(f"{Path(path).resolve().as_uri()}?mode=ro", uri=True, timeout=30)
+
+
+def quick_check_file(path: Path) -> str:
+    """quick_check con una connessione propria in sola lettura (adatta a to_thread)."""
+    try:
+        conn = _open_ro(path)
+        try:
+            return quick_check(conn)
+        finally:
+            conn.close()
+    except sqlite3.Error as e:
+        return f"non leggibile ({e})"
+
+
 class BackupUnusable(Exception):
     """Il backup scelto e' illeggibile o danneggiato."""
 
@@ -34,7 +52,7 @@ class BackupUnusable(Exception):
 def verify_backup(path: Path) -> None:
     """Controlla un backup con una connessione propria; solleva BackupUnusable se non e' sano."""
     try:
-        conn = sqlite3.connect(f"{Path(path).resolve().as_uri()}?mode=ro", uri=True, timeout=30)
+        conn = _open_ro(path)
         try:
             if conn.execute("SELECT 1 FROM sqlite_master WHERE name='nodes'").fetchone() is None:
                 raise BackupUnusable("il backup e' vuoto o non e' un database MeshLens")
@@ -56,10 +74,9 @@ def _valid(name) -> bool:
 
 
 class BackupManager:
-    def __init__(self, db_path: Path, backups_dir: Path, clock: Callable[[], float] = time.time,
-                 keep: int = BACKUP_KEEP):
+    def __init__(self, db_path: Path, backups_dir: Path, clock: Callable[[], float] = time.time):
         self.db_path, self.dir = Path(db_path), Path(backups_dir)
-        self.clock, self.keep = clock, keep
+        self.clock = clock
 
     # ---- creazione ----
     def _target(self, reason: str) -> Path:
@@ -122,10 +139,10 @@ class BackupManager:
         return out
 
     def prune(self) -> None:
-        items = self.list()
-        doomed = [b for b in items if b["reason"] not in SPECIAL_REASONS][self.keep:]
-        for reason in SPECIAL_REASONS:
-            doomed += [b for b in items if b["reason"] == reason][KEEP_SPECIAL:]
+        items = self.list()  # dal piu' recente
+        doomed = []
+        for reason, keep in KEEP_BY_REASON.items():
+            doomed += [b for b in items if b["reason"] == reason][keep:]
         for old in doomed:
             for suffix in ("", "-wal", "-shm"):
                 (self.dir / (old["name"] + suffix)).unlink(missing_ok=True)
@@ -143,6 +160,16 @@ class BackupManager:
         verify_backup(self.dir / name)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         (self.db_path.parent / RESTORE_FILE).write_text(json.dumps({"name": name}), encoding="utf-8")
+
+
+def open_db(data_dir: Path, backups: BackupManager | None = None) -> sqlite3.Connection:
+    """Apre (e se serve migra) il database di data_dir: prima di migrare un database
+    esistente ne fa il backup "pre-migrazione". Usata dall'app e da `meshlens reset-pin`."""
+    db_path = Path(data_dir) / "meshlens.db"
+    if backups is None:
+        backups = BackupManager(db_path, Path(data_dir) / "backups")
+    return connect(db_path,
+                   before_migrate=lambda c, old, new: backups.create_sync(c, "pre-migrazione"))
 
 
 def apply_pending_restore(data_dir: Path) -> str | None:
