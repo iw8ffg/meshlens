@@ -190,6 +190,7 @@ class Updater:
                 "notes": self.notes, "published_at": self.published_at,
                 "checked_at": self.checked_at, "error": self.error,
                 "job": dict(self.job) if self.job else None,
+                "frozen": bool(self.frozen),
                 "can_install": bool(self.frozen and self.available() and self._ready())}
 
     def _headers(self, accept: str) -> dict:
@@ -369,6 +370,11 @@ class Updater:
         if self.updates_dir and self.updates_dir.is_dir():
             for p in self.updates_dir.glob("*.tmp"):
                 _unlink(p)
+            # installer gia' applicati (o piu' vecchi): versione <= quella in esecuzione
+            for p in self.updates_dir.glob("MeshLens-Setup-*.exe*"):
+                m = re.fullmatch(r"MeshLens-Setup-(\d+\.\d+\.\d+)\.exe(\.sha256)?", p.name)
+                if m and not is_newer(m.group(1), self.current):
+                    _unlink(p)
 
     # ---- installazione ----
     async def install(self, confirm) -> dict:

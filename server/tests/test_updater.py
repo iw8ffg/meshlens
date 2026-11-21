@@ -345,3 +345,21 @@ async def test_download_size_cap_and_mismatch(tmp_path):
     await u.check()
     with pytest.raises(up.UpdateError):
         await u.start_download()
+
+
+def test_status_has_frozen(tmp_path):
+    assert make(tmp_path, frozen=True).status()["frozen"] is True
+    assert make(tmp_path, frozen=False).status()["frozen"] is False
+
+
+def test_cleanup_removes_old_installers(tmp_path):
+    u = make(tmp_path)
+    d = tmp_path / "updates"
+    d.mkdir()
+    old = ["MeshLens-Setup-0.9.0.exe", "MeshLens-Setup-0.9.0.exe.sha256",
+           "MeshLens-Setup-1.0.0.exe", "MeshLens-Setup-1.0.0.exe.sha256", "x.tmp"]
+    new = ["MeshLens-Setup-1.0.1.exe", "MeshLens-Setup-1.0.1.exe.sha256", "altro.txt"]
+    for n in old + new:
+        (d / n).write_bytes(b"x")
+    u.cleanup_tmp()
+    assert sorted(p.name for p in d.iterdir()) == sorted(new)

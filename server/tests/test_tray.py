@@ -147,3 +147,9 @@ def test_stop_timeout_logs_and_kills_children(caplog, monkeypatch):
 def test_autostart_item_disabled_when_not_frozen():
     assert tray.autostart_enabled(False) is False
     assert tray.autostart_enabled(True) is True
+
+
+def test_app_mutex_noop_off_windows(monkeypatch):
+    from meshlens import tray
+    monkeypatch.setattr(tray.sys, "platform", "linux")
+    assert tray.create_app_mutex() is None

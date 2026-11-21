@@ -156,6 +156,17 @@ class ServerThread:
             maps.kill_children()  # niente go-pmtiles orfano
 
 
+APP_MUTEX = "MeshLensAppMutex"
+
+
+def create_app_mutex():
+    """Mutex con nome: l'installer (AppMutex) aspetta che MeshLens sia chiuso. None se non Windows."""
+    if sys.platform != "win32":
+        return None
+    import ctypes
+    return ctypes.windll.kernel32.CreateMutexW(None, False, APP_MUTEX)  # handle tenuto finche' si vive
+
+
 def _message_box(text: str) -> None:
     if sys.platform == "win32":
         import ctypes
@@ -177,6 +188,8 @@ def run_tray(data_dir: Path, port: int = PORT, open_browser: bool = True) -> int
 
     import pystray
     from PIL import Image
+
+    _mutex = create_app_mutex()  # noqa: F841 - resta aperto fino all'uscita del processo
 
     from .app import build
     from .settings import load_settings
