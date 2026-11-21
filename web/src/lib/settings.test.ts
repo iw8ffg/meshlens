@@ -25,3 +25,17 @@ test('channelOptions: preset standard piu canali visti, ordinati per conteggio',
   expect(o.map((x) => x.name).filter((n) => n === 'LongFast')).toHaveLength(1)
   expect(o[0].name).toBe('Custom')
 })
+
+import { checkMqttNodeId } from './settings'
+
+describe('checkMqttNodeId', () => {
+  it('vuoto vale: si usa la radio collegata', () => {
+    expect(checkMqttNodeId('  ')).toEqual({ ok: true, value: '' })
+  })
+  it('accetta !8hex e normalizza in minuscolo', () => {
+    expect(checkMqttNodeId(' !A1B2c3d4 ')).toEqual({ ok: true, value: '!a1b2c3d4' })
+  })
+  it.each(['a1b2c3d4', '!a1b2c3d', '!a1b2c3d4e', '!g1b2c3d4', '!'])('rifiuta %s', (v) => {
+    expect(checkMqttNodeId(v).ok).toBe(false)
+  })
+})

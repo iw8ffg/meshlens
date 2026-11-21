@@ -7,6 +7,12 @@
   import type { CoverageSession } from '../lib/types'
   import CoverageSetup from './CoverageSetup.svelte'
   import CoverageRestoreBox from './CoverageRestoreBox.svelte'
+  import Banner from '../lib/ui/Banner.svelte'
+  import Button from '../lib/ui/Button.svelte'
+  import Card from '../lib/ui/Card.svelte'
+  import Empty from '../lib/ui/Empty.svelte'
+  import Field from '../lib/ui/Field.svelte'
+  import Modal from '../lib/ui/Modal.svelte'
 
   let { now }: { now: number } = $props()
 
@@ -92,55 +98,51 @@
 <div class="cov">
   {#if active}
     {@const last = coverage.last?.id === active.id ? coverage.last : null}
-    <div class="running">
-      <span>
-        In corso: <b>{active.name}</b> — {active.received} punti{#if active.missing !== null}, {active.missing}
-          mancanti ({formatLoss(active)}){/if}{#if last && last.snr !== null}, ultimo SNR {last.snr} dB{/if}, da {duration(active)}
-      </span>
-      <button class="stop" onclick={() => stop(active)}>Ferma</button>
-    </div>
+    <Banner kind="ok" title="Prova in corso: {active.name}">
+      {active.received} punti{#if active.missing !== null}, {active.missing} mancanti ({formatLoss(active)}){/if}{#if last && last.snr !== null}, ultimo SNR <span class="ui-mono">{last.snr}</span> dB{/if}, da {duration(active)}
+      {#snippet action()}
+        <Button kind="danger" icon="x" onclick={() => stop(active)}>Ferma</Button>
+      {/snippet}
+    </Banner>
   {/if}
   <CoverageRestoreBox reloadKey={coverage.sessions.filter((s) => s.ended !== null).length + (active ? 1000 : 0) + prepared * 10000} />
   <div class="bar">
-    <button disabled={!!active} onclick={() => (creating = !creating)}>Nuova prova</button>
+    <Button kind="primary" icon="plus" disabled={!!active} onclick={() => (creating = !creating)}>Nuova prova</Button>
   </div>
   {#if creating && !active}
     <CoverageSetup onprepared={() => prepared++} />
   {/if}
-  {#if error}<p class="err">{error}</p>{/if}
+  {#if error}<Banner kind="danger" title={error} />{/if}
 
   {#if opened}
-    <section class="detail">
-      <button class="ghost" onclick={closeDetail}>← Storico</button>
-      <label>
-        Nome
-        <input bind:value={name} />
-      </label>
-      <label>
-        Note
-        <textarea rows="3" bind:value={notes}></textarea>
-      </label>
-      <p class="meta">
-        {formatDate(opened.started)} · {duration(opened)} · {opened.received} punti · perdita {formatLoss(opened)} ·
-        distanza max {dist(opened)}
-      </p>
-      <div class="row">
-        <button onclick={save}>Salva</button>
-        {#if opened.ended !== null}
-          {#if confirmDelete}
-            <span>Eliminare definitivamente questa prova?</span>
-            <button class="stop" onclick={remove}>Elimina</button>
-            <button class="ghost" onclick={() => (confirmDelete = false)}>Annulla</button>
-          {:else}
-            <button class="stop" onclick={() => (confirmDelete = true)}>Elimina</button>
+    <Card>
+      <section class="detail">
+        <div><Button kind="ghost" icon="back" onclick={closeDetail}>Storico</Button></div>
+        <Field label="Nome" for="cov-name">
+          {#snippet children()}<input id="cov-name" class="ui-input" bind:value={name} />{/snippet}
+        </Field>
+        <Field label="Note" for="cov-notes">
+          {#snippet children()}<textarea id="cov-notes" class="ui-input area" rows="3" bind:value={notes}></textarea>{/snippet}
+        </Field>
+        <p class="meta">
+          {formatDate(opened.started)} · {duration(opened)} · {opened.received} punti · perdita {formatLoss(opened)} ·
+          distanza max {dist(opened)}
+        </p>
+        <div class="row">
+          <Button kind="primary" onclick={save}>Salva</Button>
+          {#if opened.ended !== null}
+            <Button kind="danger" icon="trash" onclick={() => (confirmDelete = true)}>Elimina</Button>
           {/if}
-        {/if}
-      </div>
-    </section>
+        </div>
+      </section>
+    </Card>
+    <Modal open={confirmDelete} title="Eliminare la prova?" danger confirmLabel="Elimina" onconfirm={remove} oncancel={() => (confirmDelete = false)}>
+      <p>Eliminare definitivamente questa prova? L'operazione non si può annullare.</p>
+    </Modal>
   {:else}
     <h3>Storico</h3>
     {#if coverage.sessions.length === 0}
-      <p class="empty">Nessuna prova registrata.</p>
+      <Empty icon="coverage" title="Nessuna prova registrata">Avvia una prova per vedere qui i risultati.</Empty>
     {:else}
       <ul class="hist">
         {#each coverage.sessions as s (s.id)}
@@ -159,106 +161,15 @@
 </div>
 
 <style>
-  .cov {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    padding: 8px 0;
-  }
-  .running {
-    margin: 0 12px;
-    padding: 8px;
-    border: 1px solid #2e9d4b;
-    border-radius: 6px;
-    display: flex;
-    gap: 8px;
-    align-items: center;
-    justify-content: space-between;
-    font-size: 0.9em;
-  }
-  .bar,
-  h3,
-  .empty,
-  .err,
-  .hist {
-    margin: 0 12px;
-  }
-  h3 {
-    font-size: 1em;
-  }
-  .empty {
-    color: #9ca3af;
-  }
-  .err {
-    color: #f87171;
-  }
-  button {
-    padding: 8px 10px;
-    border: 0;
-    border-radius: 6px;
-    background: #2563eb;
-    color: #fff;
-    font: inherit;
-    cursor: pointer;
-  }
-  button:disabled {
-    opacity: 0.5;
-    cursor: default;
-  }
-  .stop {
-    background: #c8382e;
-  }
-  .ghost {
-    background: #374151;
-  }
-  .hist {
-    list-style: none;
-    padding: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-  .hist button {
-    width: 100%;
-    text-align: left;
-    background: #1f2937;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-  .hist small {
-    color: #9ca3af;
-  }
-  .detail {
-    margin: 0 12px;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-  .detail label {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    font-size: 0.9em;
-  }
-  .detail input,
-  .detail textarea {
-    background: #1f2937;
-    color: inherit;
-    border: 1px solid #374151;
-    border-radius: 4px;
-    padding: 6px;
-    font: inherit;
-  }
-  .meta {
-    margin: 0;
-    font-size: 0.85em;
-    color: #9ca3af;
-  }
-  .row {
-    display: flex;
-    gap: 8px;
-    align-items: center;
-    flex-wrap: wrap;
-  }
+  .cov { display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-4); color: var(--ink); }
+  h3 { margin: 0; font: 600 15px/20px var(--font-sans); }
+  .hist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-2); }
+  .hist button { width: 100%; min-height: var(--touch-min); text-align: left; padding: var(--space-3); border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface-raised); color: var(--ink); font: 400 14px/20px var(--font-sans); cursor: pointer; display: flex; flex-direction: column; gap: 2px; }
+  .hist button:hover { border-color: var(--line-strong); }
+  .hist small { color: var(--ink-muted); font-size: 13px; }
+  .detail { display: flex; flex-direction: column; gap: var(--space-3); }
+  .area { height: auto; padding: var(--space-2) var(--space-3); resize: vertical; }
+  .meta { margin: 0; font: 400 13px/18px var(--font-sans); color: var(--ink-muted); }
+  .row { display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; }
+  :global(.vp-phone) .hist small, :global(.vp-phone) .meta { font-size: 14px; line-height: 20px; }
 </style>

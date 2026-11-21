@@ -1,7 +1,17 @@
 <script lang="ts">
   import { getJSON, send, ApiError } from '../lib/api'
   import { app, setRadios, openConfig } from '../lib/stores.svelte'
-  import { sortPorts, stateClass, stateLabel } from '../lib/radios'
+  import { sortPorts, stateLabel } from '../lib/radios'
+  import Button from '../lib/ui/Button.svelte'
+  import Card from '../lib/ui/Card.svelte'
+  import Badge from '../lib/ui/Badge.svelte'
+  import Banner from '../lib/ui/Banner.svelte'
+  import Empty from '../lib/ui/Empty.svelte'
+  import Field from '../lib/ui/Field.svelte'
+  import Select from '../lib/ui/Select.svelte'
+  import Segmented from '../lib/ui/Segmented.svelte'
+  import Modal from '../lib/ui/Modal.svelte'
+  import Icon from '../lib/ui/Icon.svelte'
   import type { BleDevice, Port, Radio } from '../lib/types'
 
   let adding = $state(false)
@@ -110,205 +120,141 @@
     }
   }
 
+  const removing = $derived(app.radios.find((r) => r.id === confirmId) ?? null)
+  const stateKind = (r: Radio): 'ok' | 'danger' | 'neutral' | 'warn' =>
+    r.state === 'connected' ? 'ok' : r.state === 'error' ? 'danger' : r.state === 'disconnected' ? 'neutral' : 'warn'
+
   const live = (r: Radio) =>
     r.state === 'connected' || r.state === 'connecting' || r.state === 'reconnecting'
 </script>
 
 <section>
-  <h3>Radio</h3>
-  {#if error}<p class="err" role="alert">{error}</p>{/if}
+  <header>
+    <h2>Radio</h2>
+    {#if !adding}<Button kind="primary" icon="plus" onclick={openAdd}>Aggiungi radio</Button>{/if}
+  </header>
+  {#if error}<Banner kind="danger" title={error} />{/if}
 
   {#each app.radios as r (r.id)}
-    <div class="radio">
-      <div class="head">
-        <span class="dot {stateClass(r.state)}" aria-hidden="true"></span>
-        <strong>{r.name}</strong>
-        <span class="muted">{r.kind === 'usb' ? 'USB' : 'Bluetooth'} · {r.address}</span>
+    <Card>
+      <div class="radio">
+        <div class="head">
+          <Icon name={r.kind === 'usb' ? 'usb' : 'bt'} size={20} />
+          <strong>{r.name}</strong>
+          <Badge kind={stateKind(r)}>{stateLabel(r.state)}</Badge>
+        </div>
+        <div class="muted">
+          {r.kind === 'usb' ? 'USB' : 'Bluetooth'} · <span class="ui-mono">{r.address}</span>{#if r.my_node_id}
+            · nodo locale {r.my_node_name ?? ''} <span class="ui-mono">{r.my_node_id}</span>{/if}
+        </div>
+        {#if r.error}<Banner kind="danger" title="Errore della radio">{r.error}</Banner>{/if}
+        <div class="btns">
+          {#if live(r)}
+            <Button disabled={acting} onclick={() => action(r, 'disconnect')}>Scollega</Button>
+          {:else}
+            <Button kind="primary" disabled={acting} onclick={() => action(r, 'connect')}>Connetti</Button>
+          {/if}
+          {#if r.state === 'connected' && r.my_node_id}
+            <Button icon="settings" onclick={() => openConfig(r.my_node_id!, r.id)}>Configura</Button>
+            <Button icon="key" onclick={() => openConfig(r.my_node_id!, r.id, 'adminkey')}>Chiave admin</Button>
+          {/if}
+          <Button kind="ghost" icon="trash" disabled={acting} onclick={() => (confirmId = r.id)}>Rimuovi</Button>
+        </div>
       </div>
-      <div class="muted">
-        {stateLabel(r.state)}{#if r.my_node_id}
-          · nodo locale {r.my_node_name ?? ''} {r.my_node_id}{/if}
-      </div>
-      {#if r.error}<div class="err">{r.error}</div>{/if}
-      <div class="btns">
-        {#if live(r)}
-          <button disabled={acting} onclick={() => action(r, 'disconnect')}>Scollega</button>
-        {:else}
-          <button disabled={acting} onclick={() => action(r, 'connect')}>Connetti</button>
-        {/if}
-        {#if r.state === 'connected' && r.my_node_id}
-          <button onclick={() => openConfig(r.my_node_id!, r.id)}>Configura</button>
-          <button onclick={() => openConfig(r.my_node_id!, r.id, 'adminkey')}>Chiave admin</button>
-        {/if}
-        {#if confirmId === r.id}
-          <span>Rimuovere "{r.name}"?</span>
-          <button class="danger" disabled={acting} onclick={() => remove(r)}>Conferma</button>
-          <button onclick={() => (confirmId = null)}>Annulla</button>
-        {:else}
-          <button class="danger" disabled={acting} onclick={() => (confirmId = r.id)}>Rimuovi</button>
-        {/if}
-      </div>
-    </div>
+    </Card>
   {:else}
-    <p class="muted">Nessuna radio configurata.</p>
+    {#if !adding}
+      <Empty icon="radio" title="Nessuna radio configurata">Collega una radio via USB o Bluetooth per vedere la rete locale.</Empty>
+    {/if}
   {/each}
 
-  {#if !adding}
-    <button onclick={openAdd}>Aggiungi radio</button>
-  {:else}
-    <form
-      class="add"
-      onsubmit={(e) => {
-        e.preventDefault()
-        add()
-      }}
-    >
-      <h4>Aggiungi radio</h4>
-      <div class="btns">
-        <button type="button" class:on={kind === 'usb'} onclick={() => pickKind('usb')}>USB</button>
-        <button type="button" class:on={kind === 'ble'} onclick={() => pickKind('ble')}>Bluetooth</button>
-      </div>
+  {#if adding}
+    <Card>
+      <form
+        class="add"
+        onsubmit={(e) => {
+          e.preventDefault()
+          add()
+        }}
+      >
+        <h3>Aggiungi radio</h3>
+        <Segmented
+          label="Tipo di collegamento"
+          items={[
+            { value: 'usb', label: 'USB' },
+            { value: 'ble', label: 'Bluetooth' },
+          ]}
+          value={kind}
+          onchange={pickKind}
+        />
 
-      {#if kind === 'usb'}
-        <label>
-          Porta
-          <select bind:value={address}>
-            <option value="">Scegli una porta…</option>
-            {#each sortedPorts as p (p.device)}
-              <option value={p.device} disabled={p.in_use_by !== null}>
-                {p.device} — {p.description || 'sconosciuta'}{p.likely_meshtastic
-                  ? ' (Meshtastic?)'
-                  : ''}{p.in_use_by !== null ? ' (in uso)' : ''}
-              </option>
-            {/each}
-          </select>
-        </label>
-        <button type="button" onclick={loadPorts}>Aggiorna elenco</button>
-      {:else}
-        <button type="button" onclick={scan} disabled={scanning}>
-          {scanning ? 'Ricerca in corso… ~10 s' : 'Cerca'}
-        </button>
-        {#if scanned && ble.length === 0 && !scanning}<p class="muted">Nessuna radio trovata.</p>{/if}
-        {#if ble.length > 0}
-          <label>
-            Radio trovata
-            <select bind:value={address}>
-              <option value="">Scegli una radio…</option>
-              {#each ble as d (d.address)}
-                <option value={d.address}>{d.name} ({d.address})</option>
-              {/each}
-            </select>
-          </label>
+        {#if kind === 'usb'}
+          <Field label="Porta" for="radio-port">
+            {#snippet children()}
+              <Select id="radio-port" bind:value={address}>
+                <option value="">Scegli una porta…</option>
+                {#each sortedPorts as p (p.device)}
+                  <option value={p.device} disabled={p.in_use_by !== null}>
+                    {p.device} — {p.description || 'sconosciuta'}{p.likely_meshtastic
+                      ? ' (Meshtastic?)'
+                      : ''}{p.in_use_by !== null ? ' (in uso)' : ''}
+                  </option>
+                {/each}
+              </Select>
+            {/snippet}
+          </Field>
+          <div><Button icon="refresh" onclick={loadPorts}>Aggiorna elenco</Button></div>
+        {:else}
+          <div>
+            <Button icon="bt" onclick={scan} disabled={scanning}>
+              {scanning ? 'Ricerca in corso… circa 10 s' : 'Cerca'}
+            </Button>
+          </div>
+          {#if scanned && ble.length === 0 && !scanning}<p class="muted">Nessuna radio trovata.</p>{/if}
+          {#if ble.length > 0}
+            <Field label="Radio trovata" for="radio-ble">
+              {#snippet children()}
+                <Select id="radio-ble" bind:value={address}>
+                  <option value="">Scegli una radio…</option>
+                  {#each ble as d (d.address)}
+                    <option value={d.address}>{d.name} ({d.address})</option>
+                  {/each}
+                </Select>
+              {/snippet}
+            </Field>
+          {/if}
+          <p class="muted">
+            Se Windows chiede un PIN, inserisci quello mostrato sullo schermo della radio. Se la radio non
+            viene trovata, abbinala prima da Impostazioni Windows → Bluetooth.
+          </p>
         {/if}
-        <p class="muted">
-          Se Windows chiede un PIN, inserisci quello mostrato sullo schermo della radio. Se la radio non
-          viene trovata, abbinala prima da Impostazioni Windows → Bluetooth.
-        </p>
-      {/if}
 
-      <label>
-        Nome
-        <input bind:value={name} maxlength="40" placeholder="Es. Heltec base" />
-      </label>
-      <div class="btns">
-        <button type="submit" disabled={busy || !address || !name.trim()}>Aggiungi</button>
-        <button type="button" onclick={() => (adding = false)}>Annulla</button>
-      </div>
-    </form>
+        <Field label="Nome" for="radio-name">
+          {#snippet children()}
+            <input id="radio-name" class="ui-input" bind:value={name} maxlength="40" placeholder="Es. Heltec base" />
+          {/snippet}
+        </Field>
+        <div class="btns">
+          <Button type="submit" kind="primary" disabled={busy || !address || !name.trim()}>Aggiungi</Button>
+          <Button onclick={() => (adding = false)}>Annulla</Button>
+        </div>
+      </form>
+    </Card>
   {/if}
 </section>
 
+<Modal open={removing !== null} title="Rimuovere la radio?" danger confirmLabel="Rimuovi" onconfirm={() => removing && remove(removing)} oncancel={() => (confirmId = null)}>
+  <p>La radio "{removing?.name ?? ''}" verrà scollegata e rimossa dall'elenco. I dati già salvati restano.</p>
+</Modal>
+
 <style>
-  section {
-    padding: 12px;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-  }
-  h3,
-  h4 {
-    margin: 0;
-  }
-  .radio,
-  .add {
-    border: 1px solid #1f2937;
-    border-radius: 6px;
-    padding: 8px;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-  .head {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex-wrap: wrap;
-  }
-  .muted {
-    color: #9ca3af;
-    font-size: 0.85em;
-  }
-  .err {
-    color: #f87171;
-  }
-  .dot {
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
-    flex: none;
-  }
-  .green {
-    background: #22c55e;
-  }
-  .yellow {
-    background: #eab308;
-  }
-  .red {
-    background: #ef4444;
-  }
-  .gray {
-    background: #6b7280;
-  }
-  .btns {
-    display: flex;
-    gap: 6px;
-    flex-wrap: wrap;
-    align-items: center;
-  }
-  button,
-  select,
-  input {
-    font: inherit;
-    padding: 6px 10px;
-    background: #1f2937;
-    color: inherit;
-    border: 1px solid #374151;
-    border-radius: 4px;
-  }
-  button {
-    cursor: pointer;
-  }
-  button:disabled {
-    opacity: 0.5;
-    cursor: default;
-  }
-  button.on {
-    border-color: #2563eb;
-    color: #93c5fd;
-  }
-  button.danger {
-    color: #f87171;
-  }
-  label {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
-  @media (max-width: 767px) {
-    button,
-    select,
-    input:not([type='checkbox']) {
-      min-height: 40px;
-    }
-  }
+  section { padding: var(--space-4); display: flex; flex-direction: column; gap: var(--space-3); color: var(--ink); }
+  header { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; }
+  h2 { margin: 0; font: 600 18px/24px var(--font-sans); }
+  h3 { margin: 0; font: 600 15px/20px var(--font-sans); }
+  .radio, .add { display: flex; flex-direction: column; gap: var(--space-3); }
+  .head { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+  .muted { color: var(--ink-muted); font: 400 13px/18px var(--font-sans); margin: 0; }
+  .btns { display: flex; gap: var(--space-2); flex-wrap: wrap; align-items: center; }
+  :global(.vp-phone) .muted { font-size: 14px; line-height: 20px; }
 </style>

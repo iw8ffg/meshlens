@@ -25,6 +25,10 @@ export interface AppSettings {
   update_auto_check?: boolean
   /** Vuoto = tutti i canali MQTT. */
   mqtt_channels?: string[]
+  /** Id nodo per l'invio MQTT: "" = id della prima radio collegata, altrimenti "!xxxxxxxx". */
+  mqtt_node_id?: string
+  /** Conferma di pubblicazione già data: la gestisce il server, non va riscritta da qui. */
+  mqtt_send_confirmed?: boolean
 }
 
 // Una voce per riga: spazi tolti, righe vuote scartate
@@ -59,4 +63,14 @@ export function channelOptions(seen: MqttChannel[], selected: string[]): { name:
   return [...counts.entries()]
     .map(([name, count]) => ({ name, count }))
     .sort((a, b) => b.count - a.count || order.get(a.name)! - order.get(b.name)!)
+}
+
+export type NodeIdCheck = { ok: true; value: string } | { ok: false; error: string }
+
+/** Id nodo per l'invio MQTT: vuoto (= id della radio collegata) oppure "!" e 8 cifre esadecimali. */
+export function checkMqttNodeId(text: string): NodeIdCheck {
+  const v = text.trim()
+  if (v === '') return { ok: true, value: '' }
+  if (/^![0-9a-fA-F]{8}$/.test(v)) return { ok: true, value: v.toLowerCase() }
+  return { ok: false, error: 'Formato non valido: usa il punto esclamativo e 8 cifre esadecimali, per esempio !a1b2c3d4' }
 }
