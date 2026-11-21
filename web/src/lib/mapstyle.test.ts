@@ -49,6 +49,10 @@ describe('offlineStyle', () => {
 describe('offlineStyle in tema', () => {
   beforeEach(() => vi.stubGlobal('location', { origin: 'http://localhost:8000' }))
   afterEach(() => vi.unstubAllGlobals())
+  it('lo sprite segue il tema', () => {
+    expect(offlineStyle({ maxzoom: 14 }, 'dark').sprite).toBe('http://localhost:8000/map-assets/sprites/dark')
+    expect(offlineStyle({ maxzoom: 14 }, 'light').sprite).toBe('http://localhost:8000/map-assets/sprites/light')
+  })
   it('scuro e chiaro hanno fondo diverso; i token ricolorano il fondo', () => {
     const bg = (s: ReturnType<typeof offlineStyle>) => (s.layers[0] as { paint: { 'background-color': string } }).paint['background-color']
     expect(bg(offlineStyle({ maxzoom: 14 }, 'dark'))).not.toBe(bg(offlineStyle({ maxzoom: 14 }, 'light')))

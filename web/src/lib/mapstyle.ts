@@ -14,7 +14,7 @@ export interface StyleInfo {
 
 export const SWITCH_MIN_MS = 30_000
 
-/** Stile offline Protomaps; `theme` sceglie il flavor, `tokens` ne ricolora il fondo. Lo sprite resta quello chiaro (unico servito). */
+/** Stile offline Protomaps; `theme` sceglie il flavor, `tokens` ne ricolora il fondo. Lo sprite segue il tema (light/dark). */
 export function offlineStyle(info: Pick<StyleInfo, 'maxzoom'>, theme: 'dark' | 'light' = 'light', tokens?: MapTokens): StyleSpecification {
   return {
     version: 8,
@@ -28,7 +28,7 @@ export function offlineStyle(info: Pick<StyleInfo, 'maxzoom'>, theme: 'dark' | '
     },
     layers: layers('protomaps', themedFlavor(theme, tokens), { lang: 'it' }) as StyleSpecification['layers'],
     glyphs: location.origin + '/map-assets/fonts/{fontstack}/{range}.pbf',
-    sprite: location.origin + '/map-assets/sprites/light',
+    sprite: location.origin + `/map-assets/sprites/${theme === 'dark' ? 'dark' : 'light'}`,
   }
 }
 

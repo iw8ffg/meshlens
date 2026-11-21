@@ -114,6 +114,7 @@
     let theme: Theme = themeCtl.theme()
     let appliedTheme: Theme = theme // tema dello stile attualmente sulla mappa
     let lastSwitch = 0 // 0: l'avvio non conta come cambio
+    let boot = true // il primo passaggio dallo stile provvisorio a quello online non conta come cambio
     let onlineOk = false // stile online precaricato con successo (usato solo con mappe offline presenti)
     let onlineFailed = false // stile online non raggiungibile (usato senza mappe offline)
     let styleJson: maplibregl.StyleSpecification | null = null // stile OpenFreeMap grezzo, ricolorato per tema
@@ -202,7 +203,7 @@
     }
 
     const fetchStyle = async (signal: AbortSignal): Promise<void> => {
-      const res = await fetch(STYLE, { signal, cache: 'no-store' })
+      const res = await fetch(STYLE, { signal })
       if (!res.ok) throw new Error(String(res.status))
       styleJson = (await res.json()) as maplibregl.StyleSpecification
     }
@@ -255,7 +256,8 @@
         }
         return
       }
-      if (current !== null && (t !== current || !themeChanged)) lastSwitch = Date.now()
+      if (current !== null && (t !== current || !themeChanged) && !boot) lastSwitch = Date.now()
+      boot = false
       current = t
       appliedTheme = theme
       offlineBadge = t === 'offline'
@@ -342,21 +344,21 @@
 
     // Cambio di tema: una sola ricreazione dello stile (nessun setStyle in cascata)
     const offTheme = themeCtl.subscribe((t) => {
+      const changed = t !== appliedTheme
       theme = t
-      evaluate(true)
+      evaluate(changed)
     })
 
     const start = async () => {
       if (!(await readCfg())) return
-      current = target()
-      if (current === 'online' && !styleJson) {
-        await loadStyle()
-        if (disposed) return
-        current = target()
-      }
       theme = themeCtl.theme()
       appliedTheme = theme
-      notice = noticeFor(current)
+      // la mappa nasce subito: se lo stile online non e' ancora scaricato parte con quello offline (se c'e') o di base
+      const wanted = target()
+      const needsStyle = wanted === 'online' && !styleJson
+      current = needsStyle ? (info.has_offline ? 'offline' : 'fallback') : wanted
+      boot = needsStyle
+      notice = noticeFor(needsStyle ? wanted : current)
       offlineBadge = current === 'offline'
       map = new maplibregl.Map({ container: el, style: styleFor(current), center: [12.5, 42.5], zoom: 5, attributionControl: { compact: true }, fadeDuration: 0 })
       map.on('style.load', () => setup(current !== 'fallback'))
@@ -365,6 +367,7 @@
       window.addEventListener('online', onOnline)
       window.addEventListener('offline', onOffline)
       void verifyOnline()
+      if (needsStyle) void loadStyle().then(() => evaluate(true))
     }
     void start()
 
