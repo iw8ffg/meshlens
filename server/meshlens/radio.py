@@ -1,10 +1,14 @@
 """Ciclo di vita di una radio: connessione, riconnessione, invio testo, ACK."""
 import asyncio
+import base64
+import contextlib
+import io
 import logging
 import threading
 import time
 from typing import Any, Callable
 
+from .config_model import CONFIG_SECTIONS, node_to_dict
 from .events import MeshEvent, node_id
 from .rf_convert import nodedb_to_events, packet_to_event
 
@@ -24,6 +28,29 @@ MSG_BLE_PAIR = ("Radio Bluetooth non abbinata: abbinala da Impostazioni Windows 
 MSG_BLE_CONNECT = "Connessione Bluetooth non riuscita: avvicina la radio e riprova"
 CLOSE_TIMEOUT = 12.0
 SEND_TIMEOUT = 30.0
+
+# operazioni admin: 60 s per richiesta (mai i 300 s di default della libreria)
+ADMIN_TIMEOUT = 60
+SESSION_MAX_AGE = 240.0  # la chiave di sessione dura 300 s: oltre 240 se ne chiede una nuova
+SETTLE = 0.05  # attesa per dare tempo al pacchetto ROUTING di arrivare dal hub
+MSG_ADMIN_UNAUTH = ("Il nodo non ha la chiave admin di questa radio: aggiungila seguendo la "
+                    "guida")
+MSG_ADMIN_TIMEOUT = "Nessuna risposta dal nodo entro 60 s"
+UNAUTH_REASONS = {"ADMIN_PUBLIC_KEY_UNAUTHORIZED", "NOT_AUTHORIZED", "37", "33"}
+TIMEOUT_REASONS = {"MAX_RETRANSMIT", "TIMEOUT", "NO_RESPONSE"}
+# moduli leggibili/scrivibili con Node.writeConfig della libreria
+MODULE_SECTIONS = ("mqtt", "serial", "external_notification", "store_forward", "range_test",
+                   "telemetry", "canned_message", "audio", "remote_hardware", "neighbor_info",
+                   "detection_sensor", "ambient_lighting", "paxcounter", "traffic_management")
+
+
+class AdminError(Exception):
+    """Errore di un'operazione admin: code = "unauthorized" | "timeout" | "error"."""
+
+    def __init__(self, code: str, message: str):
+        super().__init__(message)
+        self.code = code
+        self.message = message
 
 
 def describe_error(exc: BaseException) -> str:
@@ -130,6 +157,13 @@ class RadioConnector:
         self._my_node_num: int | None = None
         self._my_node_name: str | None = None
         self._channels: list[dict] = []
+        # operazioni admin
+        self._connected_count = 0  # quante volte lo stato e' diventato "connected"
+        self._reboot_mark: int | None = None
+        self._admin_target: int | None = None  # nodo remoto di cui ascoltiamo gli errori
+        self._admin_abort = asyncio.Event()
+        self._admin_reason: str | None = None
+        self._remote_nodes: dict[int, tuple[Any, float]] = {}
 
     # ---- stato -------------------------------------------------------
     @property
@@ -146,6 +180,8 @@ class RadioConnector:
 
     def _set_state(self, state: str, error: str | None = None) -> None:
         self._state, self._error = state, error
+        if state == "connected":
+            self._connected_count += 1
         self._emit(self._on_state, self.state())
 
     def _emit(self, fn, *args) -> None:
@@ -387,6 +423,9 @@ class RadioConnector:
             return
         reason = (decoded.get("routing") or {}).get("errorReason")
         ok = reason in (None, "NONE")
+        if (not ok and self._admin_target is not None
+                and packet.get("from") in (self._admin_target, self._my_node_num)):
+            self._admin_fail(str(reason))  # errore per un'operazione admin in corso
         if rid in self._traces:
             self._handle_trace_routing(rid, ok, reason)
             return
@@ -410,3 +449,259 @@ class RadioConnector:
         for pid in [p for p, t in self._pending.items() if now - t >= ACK_TIMEOUT]:
             del self._pending[pid]
             self._emit(self._on_ack, self.radio_id, pid, False, "TIMEOUT")
+
+    # ---- operazioni admin --------------------------------------------
+    def _admin_fail(self, reason: str) -> None:
+        if self._admin_reason is None:
+            self._admin_reason = reason
+            self._admin_abort.set()
+
+    @staticmethod
+    def _error_for_reason(reason: str) -> AdminError:
+        if reason in UNAUTH_REASONS:
+            return AdminError("unauthorized", MSG_ADMIN_UNAUTH)
+        if reason in TIMEOUT_REASONS:
+            return AdminError("timeout", MSG_ADMIN_TIMEOUT)
+        return AdminError("error", f"Il nodo ha rifiutato la richiesta ({reason})")
+
+    @staticmethod
+    def _error_for_exception(exc: BaseException) -> AdminError:
+        if "imed out" in str(exc):
+            return AdminError("timeout", MSG_ADMIN_TIMEOUT)
+        return AdminError("error", f"Operazione fallita: {type(exc).__name__}")
+
+    @contextlib.asynccontextmanager
+    async def _admin_op(self, node_num: int | None):
+        """Sezione esclusiva: lock di invio, timeout a 60 s, ascolto errori del nodo remoto."""
+        async with self._send_lock:
+            iface = self._iface
+            if iface is None or self._state != "connected":
+                raise AdminError("error", "Radio non connessa")
+            old = iface._timeout.expireTimeout
+            iface._timeout.expireTimeout = ADMIN_TIMEOUT
+            self._admin_reason = None
+            self._admin_abort.clear()
+            self._admin_target = node_num
+            try:
+                yield iface
+            finally:
+                self._admin_target = None
+                iface._timeout.expireTimeout = old
+
+    async def _admin_call(self, fn, *, watch: bool, timeout: float = ADMIN_TIMEOUT + 15):
+        """Esegue fn in thread. Con watch esce subito se arriva un errore ROUTING dal nodo."""
+        def quiet():  # la libreria stampa anche le config (segreti compresi)
+            with contextlib.redirect_stdout(io.StringIO()):
+                return fn()
+        task = asyncio.ensure_future(self._call(quiet))
+        task.add_done_callback(lambda t: t.cancelled() or t.exception())
+        waiters = {task}
+        abort = None
+        if watch:
+            abort = asyncio.ensure_future(self._admin_abort.wait())
+            waiters.add(abort)
+        try:
+            done, _ = await asyncio.wait(waiters, timeout=timeout,
+                                         return_when=asyncio.FIRST_COMPLETED)
+        except asyncio.CancelledError:
+            task.cancel()
+            raise
+        finally:
+            if abort is not None:
+                abort.cancel()
+        if watch and task in done:
+            await asyncio.sleep(SETTLE)  # il ROUTING puo' arrivare poco dopo l'uscita del thread
+        if watch and self._admin_reason is not None:
+            raise self._error_for_reason(self._admin_reason)
+        if task not in done:
+            raise AdminError("timeout", MSG_ADMIN_TIMEOUT)
+        try:
+            return task.result()
+        except _LibraryError as err:
+            raise self._error_for_exception(err.original) from err
+
+    def _owner_of(self, node_num: int | None) -> dict:
+        nid = self._my_node_id if node_num is None else node_id(node_num)
+        user = ((self._iface.nodes or {}).get(nid) or {}).get("user") or {}
+        return {"long_name": user.get("longName", ""), "short_name": user.get("shortName", ""),
+                "is_licensed": bool(user.get("isLicensed", False))}
+
+    async def admin_public_key(self) -> str | None:
+        """Chiave pubblica della radio locale in base64 (per il campo "Admin key" dei nodi)."""
+        async with self._admin_op(None) as iface:
+            def work():
+                key = iface.localNode.localConfig.security.public_key
+                return base64.b64encode(key).decode() if key else None
+            return await self._admin_call(work, watch=False)
+
+    async def read_local(self) -> dict:
+        async with self._admin_op(None) as iface:
+            def work():
+                n = iface.localNode
+                return node_to_dict(n.localConfig, n.moduleConfig, n.channels or [],
+                                    self._owner_of(None))
+            return await self._admin_call(work, watch=False)
+
+    @staticmethod
+    def _step(on_step, text: str, done: int, total: int) -> None:
+        if on_step is not None:
+            try:
+                on_step(text, done, total)
+            except Exception:
+                log.exception("on_step fallita")
+
+    async def read_remote(self, node_num: int, sections: list[str] | None, on_step) -> dict:
+        nid = node_id(node_num)
+        names = list(sections) if sections else list(CONFIG_SECTIONS) + list(MODULE_SECTIONS)
+        total = 1 + len(names)  # canali + una richiesta per sezione
+        async with self._admin_op(node_num) as iface:
+            self._step(on_step, "Contatto il nodo", 0, total)
+            node = await self._admin_call(
+                lambda: iface.getNode(nid, requestChannels=True, timeout=ADMIN_TIMEOUT),
+                watch=True, timeout=3 * ADMIN_TIMEOUT + 15)
+            self._step(on_step, "Canali letti", 1, total)
+            for i, name in enumerate(names):
+                field = (node.localConfig.DESCRIPTOR.fields_by_name.get(name)
+                         or node.moduleConfig.DESCRIPTOR.fields_by_name.get(name))
+                if field is None:
+                    raise AdminError("error", f"Sezione sconosciuta: {name}")
+                await self._admin_call(lambda f=field: node.requestConfig(f), watch=True)
+                self._step(on_step, f"Letta la sezione {name}", i + 2, total)
+            self._remote_nodes[node_num] = (node, self._clock())
+            return node_to_dict(node.localConfig, node.moduleConfig, node.channels or [],
+                                self._owner_of(node_num))
+
+    @staticmethod
+    def _ser(msg) -> bytes:
+        return msg.SerializeToString(deterministic=True)
+
+    def _plan_write(self, node, protos: dict, owner_now: dict):
+        """Sezioni cambiate rispetto al Node; copia i protobuf modificati nel Node."""
+        cfg = [n for n in CONFIG_SECTIONS
+               if self._ser(getattr(protos["config"], n)) != self._ser(getattr(node.localConfig, n))]
+        mods = [n for n in MODULE_SECTIONS
+                if n in protos["module_config"].DESCRIPTOR.fields_by_name
+                and self._ser(getattr(protos["module_config"], n))
+                != self._ser(getattr(node.moduleConfig, n))]
+        chans = []
+        for c in protos.get("channels", []):
+            cur = next((x for x in (node.channels or []) if x.index == c.index), None)
+            if cur is None or self._ser(c) != self._ser(cur):
+                chans.append(c.index)
+        owner = protos.get("owner") or {}
+        owner_changed = bool(owner) and any(
+            owner.get(k, owner_now[k]) != owner_now[k] for k in owner_now)
+        for n in cfg:
+            getattr(node.localConfig, n).CopyFrom(getattr(protos["config"], n))
+        for n in mods:
+            getattr(node.moduleConfig, n).CopyFrom(getattr(protos["module_config"], n))
+        for i in chans:
+            c = next(x for x in protos["channels"] if x.index == i)
+            if node.channels is None:
+                node.channels = []
+            cur = next((x for x in node.channels if x.index == i), None)
+            if cur is None:
+                node.channels.append(c)
+            else:
+                cur.CopyFrom(c)
+        return cfg, mods, chans, owner_changed
+
+    def _node_for(self, node_num: int | None, *, need_read: bool):
+        """Node della libreria: locale, oppure il remoto restituito da getNode in lettura."""
+        iface = self._iface
+        if node_num is None:
+            return iface.localNode
+        cached = self._remote_nodes.get(node_num)
+        if cached is not None:
+            return cached[0]
+        if need_read:
+            raise AdminError("error", "Leggi prima la configurazione del nodo")
+        return iface.getNode(node_id(node_num), requestChannels=False)
+
+    def _renew_session_if_old(self, node_num: int) -> None:
+        cached = self._remote_nodes.get(node_num)
+        if cached is not None and self._clock() - cached[1] > SESSION_MAX_AGE:
+            entry = (getattr(self._iface, "nodesByNum", None) or {}).get(node_num)
+            if entry is not None:
+                entry.pop("adminSessionPassKey", None)
+
+    async def write(self, node_num: int | None, protos_changed: dict, on_step) -> None:
+        """Scrive le sezioni cambiate in un'unica transazione (la radio si riavvia una volta)."""
+        remote = node_num is not None
+        async with self._admin_op(node_num) as iface:
+            node = self._node_for(node_num, need_read=True)
+            cfg, mods, chans, owner = self._plan_write(
+                node, protos_changed, self._owner_of(node_num))
+            todo = ([("writeConfig", n) for n in cfg + mods]
+                    + [("writeChannel", i) for i in chans])
+            if owner:
+                todo.append(("setOwner", None))
+            if not todo:
+                return
+            total = len(todo) + 2
+            done = 0
+
+            async def step(text, fn):
+                nonlocal done
+                await self._admin_call(fn, watch=remote)
+                done += 1
+                self._step(on_step, text, done, total)
+
+            if remote:
+                self._renew_session_if_old(node_num)
+                await self._admin_call(node.ensureSessionKey, watch=True)
+            await step("Apro la transazione", node.beginSettingsTransaction)
+            for kind, arg in todo:
+                if kind == "writeConfig":
+                    await step(f"Scrivo {arg}", lambda a=arg: node.writeConfig(a))
+                elif kind == "writeChannel":
+                    await step(f"Scrivo il canale {arg}", lambda a=arg: node.writeChannel(a))
+                else:
+                    o = protos_changed["owner"]
+                    await step("Scrivo il nome", lambda: node.setOwner(
+                        o.get("long_name"), o.get("short_name"), bool(o.get("is_licensed"))))
+            if remote:
+                await self._admin_call(lambda: iface._acknowledgment.reset(), watch=False)
+            await step("Confermo le modifiche", node.commitSettingsTransaction)
+            if remote:
+                await self._admin_call(iface.waitForAckNak, watch=True)
+                # la chiave di sessione del nodo si azzera al riavvio
+                self._remote_nodes.pop(node_num, None)
+            else:
+                self._reboot_mark = self._connected_count
+
+    async def _simple_admin(self, node_num: int | None, call, reboots: bool = False) -> None:
+        remote = node_num is not None
+        async with self._admin_op(node_num) as iface:
+            node = self._node_for(node_num, need_read=False)
+            if remote:
+                await self._admin_call(lambda: iface._acknowledgment.reset(), watch=False)
+            await self._admin_call(lambda: call(node), watch=remote)
+            if remote:
+                await self._admin_call(iface.waitForAckNak, watch=True)
+            elif reboots:
+                self._reboot_mark = self._connected_count
+
+    async def reboot(self, node_num: int | None, secs: int = 5) -> None:
+        await self._simple_admin(node_num, lambda n: n.reboot(secs), reboots=True)
+
+    async def set_fixed_position(self, node_num: int | None, lat: float, lon: float,
+                                 alt: int = 0) -> None:
+        # float in gradi: un int sarebbe interpretato come gia' in unita' di 1e-7
+        await self._simple_admin(
+            node_num, lambda n: n.setFixedPosition(float(lat), float(lon), int(alt)))
+
+    async def remove_fixed_position(self, node_num: int | None) -> None:
+        await self._simple_admin(node_num, lambda n: n.removeFixedPosition())
+
+    async def wait_reconnected(self, timeout: float = 90) -> bool:
+        """Attende che la radio torni "connected" dopo un riavvio (anche con interfaccia nuova)."""
+        mark = self._reboot_mark if self._reboot_mark is not None else self._connected_count
+        deadline = self._clock() + timeout
+        while self._clock() < deadline:
+            if self._connected_count > mark and self._state == "connected":
+                self._reboot_mark = None
+                return True
+            await self._sleep(0.5)
+        self._reboot_mark = None
+        return False

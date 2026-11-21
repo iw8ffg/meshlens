@@ -526,3 +526,252 @@ async def test_traceroute_early_error_during_send_is_reported():
     pid = await h.conn.send_traceroute(0x42)
     assert h.acks == [(CFG["id"], pid, False, "NO_ROUTE")]
     await h.conn.stop()
+
+
+# ---- operazioni admin (fase 5) -------------------------------------------------
+import base64  # noqa: E402
+import copy  # noqa: E402
+
+from meshtastic.protobuf import channel_pb2, localonly_pb2  # noqa: E402
+
+from meshlens.radio import AdminError  # noqa: E402
+
+REMOTE_NUM = 0x42
+
+
+class FakeNode:
+    """Registra le chiamate admin; i protobuf sono reali."""
+
+    def __init__(self, iface, calls):
+        self.iface, self.calls = iface, calls
+        self.localConfig = localonly_pb2.LocalConfig()
+        self.moduleConfig = localonly_pb2.LocalModuleConfig()
+        self.channels = [channel_pb2.Channel(index=i) for i in range(3)]
+        self.channels[0].role = channel_pb2.Channel.PRIMARY
+        self.request_hook = None  # funzione(configType) chiamata da requestConfig
+
+    def _rec(self, *a):
+        self.calls.append(a)
+
+    def beginSettingsTransaction(self):
+        self._rec("begin")
+
+    def commitSettingsTransaction(self):
+        self._rec("commit")
+
+    def writeConfig(self, name):
+        self._rec("writeConfig", name, self.localConfig.lora.hop_limit)
+
+    def writeChannel(self, i):
+        self._rec("writeChannel", i)
+
+    def setOwner(self, long_name=None, short_name=None, is_licensed=False):
+        self._rec("setOwner", long_name, short_name, is_licensed)
+
+    def ensureSessionKey(self):
+        self._rec("ensureSessionKey")
+
+    def requestConfig(self, cfg):
+        self._rec("requestConfig", getattr(cfg, "name", cfg))
+        if self.request_hook:
+            self.request_hook(cfg)
+
+    def reboot(self, secs=10):
+        self._rec("reboot", secs)
+
+    def setFixedPosition(self, lat, lon, alt):
+        self._rec("setFixedPosition", lat, lon, alt)
+
+    def removeFixedPosition(self):
+        self._rec("removeFixedPosition")
+
+
+class AdminIface(FakeIface):
+    def __init__(self):
+        super().__init__()
+        self.calls = []
+        self.local = FakeNode(self, self.calls)
+        self.localNode = self.local
+        self.local.localConfig.security.public_key = bytes(range(32))
+        self.local.localConfig.security.private_key = b"segretissimo"
+        self.remote = FakeNode(self, self.calls)
+        self.nodesByNum = {}
+        self._timeout = SimpleNamespace(expireTimeout=300)
+        self.timeouts_seen = []
+        self.get_node_hook = None
+        self._acknowledgment = SimpleNamespace(reset=lambda: self.calls.append(("ack_reset",)))
+
+    def getNode(self, nid, requestChannels=True, requestChannelAttempts=3, timeout=300):
+        self.calls.append(("getNode", nid, requestChannels, timeout))
+        self.timeouts_seen.append(self._timeout.expireTimeout)
+        if self.get_node_hook:
+            self.get_node_hook()
+        return self.remote
+
+    def waitForAckNak(self):
+        self.calls.append(("waitForAckNak", self._timeout.expireTimeout))
+
+
+async def admin_connected():
+    iface = AdminIface()
+    h = Harness(lambda cfg, n: iface)
+    await connected(h)
+    return h, iface
+
+
+def changed(iface, hop=4, channel1="prova", owner="Nuovo", node=None):
+    node = node or iface.local
+    protos = {"config": copy.deepcopy(node.localConfig),
+              "module_config": copy.deepcopy(node.moduleConfig),
+              "channels": [copy.deepcopy(c) for c in node.channels],
+              "owner": {"long_name": owner, "short_name": "HB", "is_licensed": False}}
+    protos["config"].lora.hop_limit = hop
+    protos["channels"][1].settings.name = channel1
+    return protos
+
+
+async def test_read_local_returns_masked_dict():
+    h, iface = await admin_connected()
+    cfg = await h.conn.read_local()
+    assert cfg["config"]["security"]["private_key"] == "••••"
+    assert cfg["owner"]["long_name"] == "Heltec base"
+    assert len(cfg["channels"]) == 3
+    assert "segretissimo" not in str(cfg)
+    assert await h.conn.admin_public_key() == base64.b64encode(bytes(range(32))).decode()
+    await h.conn.stop()
+
+
+async def test_read_remote_unauthorized_fails_fast():
+    h, iface = await admin_connected()
+
+    def deny():  # il nodo risponde ROUTING 37 e la libreria uscirebbe con SystemExit
+        h.loop.call_soon_threadsafe(h.conn.on_packet, ack_pkt(77, REMOTE_NUM, "ADMIN_PUBLIC_KEY_UNAUTHORIZED"))
+        raise SystemExit(1)
+    iface.get_node_hook = deny
+    t0 = asyncio.get_running_loop().time()
+    with pytest.raises(AdminError) as ei:
+        await h.conn.read_remote(REMOTE_NUM, None, lambda *a: None)
+    assert ei.value.code == "unauthorized"
+    assert "chiave admin" in ei.value.message
+    assert asyncio.get_running_loop().time() - t0 < 1
+    assert iface._timeout.expireTimeout == 300  # ripristinato
+    await h.conn.stop()
+
+
+async def test_read_remote_unauthorized_on_request_config():
+    h, iface = await admin_connected()
+    iface.remote.request_hook = lambda cfg: h.loop.call_soon_threadsafe(h.conn.on_packet, ack_pkt(5, REMOTE_NUM, "NOT_AUTHORIZED"))
+    with pytest.raises(AdminError) as ei:
+        await h.conn.read_remote(REMOTE_NUM, ["lora"], lambda *a: None)
+    assert ei.value.code == "unauthorized"
+    await h.conn.stop()
+
+
+async def test_read_remote_ok_steps_and_timeout_60():
+    h, iface = await admin_connected()
+    steps = []
+    cfg = await h.conn.read_remote(REMOTE_NUM, ["lora", "telemetry"], lambda *a: steps.append(a))
+    assert iface.timeouts_seen == [60]
+    assert ("getNode", "!00000042", True, 60) in iface.calls
+    assert [c[1] for c in iface.calls if c[0] == "requestConfig"] == ["lora", "telemetry"]
+    assert steps[0][1:] == (0, 3) and steps[-1][1:] == (3, 3)
+    assert "lora" in cfg["config"]
+    await h.conn.stop()
+
+
+async def test_read_remote_timeout():
+    h, iface = await admin_connected()
+
+    def boom(cfg):
+        raise RuntimeError("Timed out waiting for an acknowledgment")
+    iface.remote.request_hook = boom
+    with pytest.raises(AdminError) as ei:
+        await h.conn.read_remote(REMOTE_NUM, ["lora"], lambda *a: None)
+    assert ei.value.code == "timeout"
+    assert ei.value.message == "Nessuna risposta dal nodo entro 60 s"
+    await h.conn.stop()
+
+
+async def test_write_uses_single_transaction():
+    h, iface = await admin_connected()
+    steps = []
+    await h.conn.write(None, changed(iface), lambda *a: steps.append(a))
+    seq = [c for c in iface.calls if c[0] != "ack_reset"]
+    assert seq == [("begin",), ("writeConfig", "lora", 4), ("writeChannel", 1),
+                   ("setOwner", "Nuovo", "HB", False), ("commit",)]
+    assert iface.local.localConfig.lora.hop_limit == 4  # copiato nel Node prima di scrivere
+    assert steps[-1][1] == steps[-1][2]
+    await h.conn.stop()
+
+
+async def test_write_remote_calls_ensure_session_key_and_waits_ack():
+    h, iface = await admin_connected()
+    await h.conn.read_remote(REMOTE_NUM, ["lora"], lambda *a: None)
+    iface.calls.clear()
+    await h.conn.write(REMOTE_NUM, changed(iface, node=iface.remote), lambda *a: None)
+    names = [c[0] for c in iface.calls]
+    assert names[0] == "ensureSessionKey"
+    assert names.index("ack_reset") < names.index("commit") < names.index("waitForAckNak")
+    assert ("waitForAckNak", 60) in iface.calls
+    assert iface._timeout.expireTimeout == 300
+    await h.conn.stop()
+
+
+async def test_write_remote_without_prior_read_fails():
+    h, iface = await admin_connected()
+    with pytest.raises(AdminError) as ei:
+        await h.conn.write(REMOTE_NUM, changed(iface), lambda *a: None)
+    assert ei.value.code == "error"
+    await h.conn.stop()
+
+
+async def test_admin_ops_hold_send_lock():
+    h, iface = await admin_connected()
+    gate = threading.Event()
+    orig = iface.local.beginSettingsTransaction
+    iface.local.beginSettingsTransaction = lambda: (gate.wait(3), orig())
+    w = asyncio.create_task(h.conn.write(None, changed(iface), lambda *a: None))
+    await h.until(lambda: h.conn._send_lock.locked())
+    s = asyncio.create_task(h.conn.send_text("ciao", 0, None))
+    await asyncio.sleep(0.1)
+    assert iface.sent == [] and not s.done()
+    gate.set()
+    await w
+    await s
+    assert len(iface.sent) == 1
+    await h.conn.stop()
+
+
+async def test_reboot_and_fixed_position_local():
+    h, iface = await admin_connected()
+    await h.conn.reboot(None, 7)
+    await h.conn.set_fixed_position(None, 45.5, 9.25, 120)
+    await h.conn.remove_fixed_position(None)
+    assert ("reboot", 7) in iface.calls
+    assert ("setFixedPosition", 45.5, 9.25, 120) in iface.calls
+    assert ("removeFixedPosition",) in iface.calls
+    await h.conn.stop()
+
+
+async def test_wait_reconnected_ok_after_reboot():
+    h, iface = await admin_connected()
+    await h.conn.write(None, changed(iface), lambda *a: None)
+    waiter = asyncio.create_task(h.conn.wait_reconnected(5))
+    await asyncio.sleep(0.05)
+    assert not waiter.done()
+    h.conn.on_established()  # la libreria ripubblica established dopo il riavvio
+    assert await waiter is True
+    await h.conn.stop()
+
+
+async def test_wait_reconnected_times_out():
+    h, iface = await admin_connected()
+    await h.conn.write(None, changed(iface), lambda *a: None)
+
+    async def fake_sleep(d):
+        h.now += d
+        await asyncio.sleep(0)
+    h.conn._sleep = fake_sleep
+    assert await h.conn.wait_reconnected(90) is False
+    assert h.now >= 1000.0 + 90
+    await h.conn.stop()
