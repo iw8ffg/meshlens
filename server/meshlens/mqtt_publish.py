@@ -1,7 +1,8 @@
-"""Invio di messaggi di testo via MQTT a nome del proprio nodo.
+"""Invio di messaggi di testo via MQTT a nome del proprio nodo, sul broker scelto.
 Si pubblica SOLO TEXT_MESSAGE_APP: mai posizioni, nodeinfo o altro.
-Chiave: quella che il decoder ha visto decifrare quel canale (extra_keys e' una lista
-piatta, non per canale); se ignota, la predefinita (AQ==) solo per i nomi dei preset."""
+Chiave: quella del canale personalizzato del broker; poi quella che il decoder del broker
+ha visto decifrare quel canale; se ignota, la predefinita (AQ==) solo per i nomi dei preset.
+Con la crittografia del broker spenta il pacchetto esce in chiaro (decoded)."""
 import math
 import re
 import secrets
@@ -10,8 +11,9 @@ from typing import Callable
 
 from meshtastic.protobuf import mesh_pb2, mqtt_pb2, portnums_pb2
 
-from .crypto import DEFAULT_KEY, decrypt
+from .crypto import DEFAULT_KEY, decrypt, expand_psk
 from .mqtt_decode import channel_hash
+from .settings import DEFAULT_BROKER_ID, enabled_brokers, find_broker
 
 MAX_TEXT_BYTES = 200
 MIN_INTERVAL_S = 10
@@ -20,8 +22,14 @@ HOUR_S = 3600
 BROADCAST = 0xFFFFFFFF
 HOP_LIMIT = 3
 DEFAULT_REGION = "EU_868"
-CONFIRM_TEXT = ("Il messaggio sarà pubblico sul broker mqtt.meshtastic.org e potrà essere "
-                "ritrasmesso via radio dai gateway")
+
+
+def confirm_text(host: str) -> str:
+    return (f"Il messaggio sarà pubblico sul broker {host} e potrà essere "
+            "ritrasmesso via radio dai gateway")
+
+
+CONFIRM_TEXT = confirm_text("mqtt.meshtastic.org")
 UNKNOWN_NODE_TEXT = "Collega una radio o imposta il tuo id nodo in Impostazioni → MQTT"
 PRESET_CHANNELS = frozenset({"LongFast", "MediumFast", "MediumSlow", "ShortFast", "ShortSlow",
                              "LongModerate", "LongSlow", "ShortTurbo"})
@@ -36,13 +44,17 @@ class MqttSendError(Exception):
 
 
 def build_envelope(text: str, from_num: int, to_num: int, channel_name: str, key: bytes,
-                   packet_id: int, gateway_id: str) -> bytes:
-    """ServiceEnvelope con un TEXT_MESSAGE_APP cifrato (AES-CTR e' simmetrico)."""
+                   packet_id: int, gateway_id: str, encrypted: bool = True) -> bytes:
+    """ServiceEnvelope con un TEXT_MESSAGE_APP cifrato (AES-CTR e' simmetrico), oppure in
+    chiaro (decoded) se encrypted e' falso o il canale non ha chiave."""
     data = mesh_pb2.Data(portnum=portnums_pb2.TEXT_MESSAGE_APP, payload=text.encode("utf-8"))
     packet = mesh_pb2.MeshPacket(**{"from": from_num}, to=to_num, id=packet_id,
                                  channel=channel_hash(channel_name, key),
                                  hop_limit=HOP_LIMIT, hop_start=HOP_LIMIT, want_ack=False)
-    packet.encrypted = decrypt(key, packet_id, from_num, data.SerializeToString())
+    if encrypted and key:
+        packet.encrypted = decrypt(key, packet_id, from_num, data.SerializeToString())
+    else:
+        packet.decoded.CopyFrom(data)
     return mqtt_pb2.ServiceEnvelope(packet=packet, channel_id=channel_name,
                                     gateway_id=gateway_id).SerializeToString()
 
@@ -71,17 +83,39 @@ def region_from_topics(topics: list[str]) -> str:
     return DEFAULT_REGION
 
 
-class MqttSender:
-    """Connettore, impostazioni e radio sono funzioni: il connettore cambia a ogni modifica
-    delle impostazioni MQTT."""
+def pick_broker(settings: dict, broker_id: str | None) -> dict:
+    """Il broker su cui inviare: quello indicato se esiste ed e' attivo, altrimenti
+    (None) il primo attivo."""
+    if broker_id is None:
+        active = enabled_brokers(settings)
+        broker = active[0] if active else None
+    else:
+        broker = find_broker(settings, broker_id)
+    if broker is None or not broker.get("enabled"):
+        raise MqttSendError(400, "unknown_broker", "Broker non trovato o disattivato")
+    return broker
 
-    def __init__(self, get_connector: Callable[[], object], get_settings: Callable[[], dict],
+
+def is_confirmed(settings: dict, broker_id: str) -> bool:
+    """Conferma della prima volta gia' data per questo broker (mqtt_send_confirmed vale per
+    il predefinito, come nelle versioni con un solo broker)."""
+    return (broker_id in (settings.get("mqtt_send_confirmed_brokers") or [])
+            or (broker_id == DEFAULT_BROKER_ID and bool(settings.get("mqtt_send_confirmed"))))
+
+
+class MqttSender:
+    """Connettore, impostazioni e radio sono funzioni: i connettori cambiano a ogni modifica
+    delle impostazioni MQTT. get_connector(id broker) -> connettore o None;
+    key_for(id broker, canale) -> chiave imparata dal decoder di quel broker o None."""
+
+    def __init__(self, get_connector: Callable[[str], object | None],
+                 get_settings: Callable[[], dict],
                  get_radios: Callable[[], list], clock: Callable[[], float],
                  record: Callable[..., dict],
-                 key_for: Callable[[str], bytes | None] = lambda channel: None):
+                 key_for: Callable[[str, str], bytes | None] = lambda broker, channel: None):
         self.get_connector, self.settings, self.radios = get_connector, get_settings, get_radios
         self.clock, self.record, self.key_for = clock, record, key_for
-        self._sent: deque[float] = deque()
+        self._sent: dict[str, deque[float]] = {}  # id broker -> istanti degli invii
 
     def _own_node(self, settings: dict) -> str:
         configured = (settings.get("mqtt_node_id") or "").strip()
@@ -92,19 +126,34 @@ class MqttSender:
                 return r["my_node_id"].lower()
         raise MqttSendError(400, "unknown_node", UNKNOWN_NODE_TEXT)
 
-    def _check_rate(self) -> None:
+    def _check_rate(self, broker_id: str) -> None:
         now = self.clock()
-        while self._sent and now - self._sent[0] >= HOUR_S:
-            self._sent.popleft()
+        sent = self._sent.setdefault(broker_id, deque())
+        while sent and now - sent[0] >= HOUR_S:
+            sent.popleft()
         wait = 0.0
-        if self._sent:
-            wait = self._sent[-1] + MIN_INTERVAL_S - now
-        if len(self._sent) >= MAX_PER_HOUR:
-            wait = max(wait, self._sent[0] + HOUR_S - now)
+        if sent:
+            wait = sent[-1] + MIN_INTERVAL_S - now
+        if len(sent) >= MAX_PER_HOUR:
+            wait = max(wait, sent[0] + HOUR_S - now)
         if wait > 0:
             raise MqttSendError(429, "rate_limited", f"Attendi {math.ceil(wait)} s")
 
-    def send(self, text: str, channel: str, to: str | None, confirm_public: bool) -> dict:
+    def _channel_key(self, broker: dict, channel: str) -> bytes:
+        for ch in broker.get("channels", []):
+            if ch.get("name") == channel:
+                return expand_psk(ch["psk"])
+        key = self.key_for(broker["id"], channel)  # imparata dal traffico di quel broker
+        if key is not None:
+            return key
+        if channel in PRESET_CHANNELS:
+            return DEFAULT_KEY
+        raise MqttSendError(400, "unknown_channel_key",
+                            f"Non conosco la chiave del canale {channel} su {broker['name']}: "
+                            "aggiungilo ai canali del broker in Impostazioni")
+
+    def send(self, text: str, channel: str, to: str | None, confirm_public: bool,
+             broker: str | None = None) -> dict:
         settings = self.settings()
         if not text.strip() or _CONTROL.search(text) or len(text.encode("utf-8")) > MAX_TEXT_BYTES:
             raise MqttSendError(400, "invalid_text",
@@ -117,27 +166,24 @@ class MqttSender:
             if not m:
                 raise MqttSendError(400, "invalid_target", "Destinatario non valido")
             to_num = int(m.group(1), 16)
-        if not settings.get("mqtt_send_confirmed") and not confirm_public:
-            raise MqttSendError(409, "confirm_required", CONFIRM_TEXT)
-        key = self.key_for(channel)  # chiave imparata dal traffico; altrimenti solo i preset
-        if key is None:
-            if channel not in PRESET_CHANNELS:
-                raise MqttSendError(400, "unknown_channel_key",
-                                    f"Non conosco la chiave del canale {channel}: aspetta di "
-                                    "ricevere almeno un messaggio su quel canale")
-            key = DEFAULT_KEY
+        b = pick_broker(settings, broker)
+        bid = b["id"]
+        if not is_confirmed(settings, bid) and not confirm_public:
+            raise MqttSendError(409, "confirm_required", confirm_text(b["host"]))
+        key = self._channel_key(b, channel)
         own = self._own_node(settings)
-        connector = self.get_connector()
+        connector = self.get_connector(bid)
         if connector is None:
             raise MqttSendError(503, "mqtt_disconnected", "MQTT non connesso")
-        self._check_rate()
+        self._check_rate(bid)
         from_num = int(own[1:], 16)
         packet_id = secrets.randbelow(2**32 - 1) + 1  # 32 bit, mai 0
-        root = root_from_topics(settings["mqtt"].get("topics", []))
+        root = root_from_topics(b.get("topics", []))
         topic = f"{root}/2/e/{channel}/{own}"
-        payload = build_envelope(text, from_num, to_num, channel, key, packet_id, own)
+        payload = build_envelope(text, from_num, to_num, channel, key, packet_id, own,
+                                 encrypted=b.get("encryption", True))
         if not connector.publish(topic, payload):
             raise MqttSendError(503, "mqtt_disconnected", "MQTT non connesso")
-        self._sent.append(self.clock())
+        self._sent[bid].append(self.clock())
         return self.record(from_num=from_num, to_num=to_num, packet_id=packet_id, text=text,
-                           channel=channel)
+                           channel=channel, broker=bid)

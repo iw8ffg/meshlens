@@ -593,9 +593,95 @@ async def test_mqtt_channels_endpoint(ctx):
         r = await c.put("/api/settings", json={"mqtt_channels": ["LongFast", "Gone"]})
         assert r.status_code == 200 and r.json()["mqtt_channels"] == ["LongFast", "Gone"]
         got = (await c.get("/api/mqtt/channels")).json()
-        assert got == [{"name": "MediumFast", "count_1h": 9, "enabled": False},
-                       {"name": "LongFast", "count_1h": 5, "enabled": True},
-                       {"name": "Zed", "count_1h": 1, "enabled": False}]
+        assert got == [
+            {"name": "MediumFast", "count_1h": 9, "enabled": False, "custom": False, "brokers": []},
+            {"name": "LongFast", "count_1h": 5, "enabled": True, "custom": False, "brokers": []},
+            {"name": "Zed", "count_1h": 1, "enabled": False, "custom": False, "brokers": []}]
+
+
+_B1 = {"id": "b1", "name": "Broker uno", "enabled": True, "host": "broker.esempio.it",
+       "port": 1883, "topics": ["msh/EU_868/IT/#"],
+       "channels": [{"name": "Squadra", "psk": "ESIzRFVmd4iZqrvM3e7/ABEiM0RVZneImaq7zN3u/wA="}]}
+
+
+def _with_b1(conn):
+    from meshlens.settings import load_settings
+    default = load_settings(conn)["mqtt_brokers"][0]
+    return save_settings(conn, {"mqtt_brokers": [default, dict(_B1)]})
+
+
+async def test_send_route_with_broker_and_confirmation_saved(ctx):
+    from meshlens.mqtt_publish import MqttSender
+    from meshlens.settings import load_settings
+
+    class Conn:
+        def __init__(self):
+            self.published = []
+
+        def publish(self, topic, payload):
+            self.published.append(topic)
+            return True
+
+    conns = {"default": Conn(), "b1": Conn()}
+    save_settings(ctx.conn, {"mqtt_node_id": "!a1b2c3d4"})
+    _with_b1(ctx.conn)
+    recorded = []
+    ctx.mqtt_sender = MqttSender(
+        conns.get, lambda: load_settings(ctx.conn), lambda: [], lambda: 1000.0,
+        lambda **kw: recorded.append(kw) or {"key": "k", "text": kw["text"],
+                                             "broker": kw["broker"]})
+    async with logged(ctx) as c:
+        body = {"text": "ciao", "channel": "Squadra", "broker": "b1"}
+        r = await c.post("/api/mqtt/send", json=body)
+        assert r.status_code == 409 and "broker.esempio.it" in r.json()["detail"]
+        r = await c.post("/api/mqtt/send", json={**body, "confirm_public": True})
+        assert r.status_code == 202 and r.json()["message"]["broker"] == "b1"
+        saved = load_settings(ctx.conn)
+        assert saved["mqtt_send_confirmed_brokers"] == ["b1"]
+        assert saved["mqtt_send_confirmed"] is False  # vale solo per il predefinito
+        assert conns["b1"].published == ["msh/EU_868/IT/2/e/Squadra/!a1b2c3d4"]
+        r = await c.post("/api/mqtt/send", json={**body, "broker": "x" * 25})
+        assert r.status_code == 422
+        r = await c.post("/api/mqtt/send", json={**body, "broker": "nessuno"})
+        assert r.status_code == 400 and r.json()["code"] == "unknown_broker"
+        # sul predefinito la conferma imposta anche mqtt_send_confirmed
+        r = await c.post("/api/mqtt/send", json={"text": "x", "broker": "default",
+                                                 "confirm_public": True})
+        assert r.status_code == 202
+        saved = load_settings(ctx.conn)
+        assert saved["mqtt_send_confirmed_brokers"] == ["b1", "default"]
+        assert saved["mqtt_send_confirmed"] is True
+    assert [kw["broker"] for kw in recorded] == ["b1", "default"]
+
+
+async def test_channels_route_includes_custom_with_zero_count(ctx):
+    _with_b1(ctx.conn)
+    seen = {"default": {"LongFast": 4, "Squadra": 2}, "b1": {"LongFast": 3}}
+
+    def counts(broker=None):
+        if broker is None:
+            return {"LongFast": 7, "Squadra": 2}
+        return seen.get(broker, {})
+
+    ctx.mqtt_channel_counts = counts
+    ctx.mqtt_channel_brokers = lambda: {"LongFast": ["default", "b1"], "Squadra": ["default"]}
+    async with logged(ctx) as c:
+        got = (await c.get("/api/mqtt/channels?broker=b1")).json()
+        assert got == [
+            {"name": "LongFast", "count_1h": 3, "enabled": True, "custom": False,
+             "brokers": ["default", "b1"]},
+            {"name": "Squadra", "count_1h": 0, "enabled": True, "custom": True,
+             "brokers": ["default", "b1"]}]
+        allb = (await c.get("/api/mqtt/channels")).json()
+        assert allb == [
+            {"name": "LongFast", "count_1h": 7, "enabled": True, "custom": False,
+             "brokers": ["default", "b1"]},
+            {"name": "Squadra", "count_1h": 2, "enabled": True, "custom": True,
+             "brokers": ["default", "b1"]}]
+        dflt = (await c.get("/api/mqtt/channels?broker=default")).json()
+        assert [(r["name"], r["count_1h"], r["custom"]) for r in dflt] == [
+            ("LongFast", 4, False), ("Squadra", 2, False)]
+        assert (await c.get("/api/mqtt/channels?broker=nessuno")).status_code == 404
 
 
 async def test_db_endpoint_and_compact_requires_confirm(tmp_path):

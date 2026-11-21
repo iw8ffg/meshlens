@@ -480,17 +480,23 @@ def build(data_dir: Path, connector_factory=MqttConnector,
     ctx = AppContext(live=live, store=store, auth=auth, bus=bus, locator=locator, conn=conn,
                      mqtt_status=rt.mqtt_status,
                      mqtt_channel_counts=ingestor.mqtt_channel_counts,
+                     mqtt_channel_brokers=ingestor.mqtt_channel_brokers,
                      on_settings_changed=rt.on_settings_changed,
                      static_dir=static_dir, radios=rt.radios, coverage=coverage,
                      config=rt.config, maps=rt.maps, updater=rt.updater, data_dir=Path(data_dir),
                      db_path=rt.db_path, last_purge=lambda: rt.last_purge,
                      backups=backups, db_health=lambda: rt.db_health, log_dir=log_dir)
     rt.ctx = ctx
+    def key_for(bid: str, channel: str) -> bytes | None:
+        """Chiave del canale vista dal decoder del broker (personalizzata o imparata);
+        altrimenti quella imparata prima dell'ultimo arresto del suo connettore."""
+        decoder = getattr(rt.connectors.get(bid), "decoder", None)
+        key = decoder.channel_keys.get(channel) if decoder is not None else None
+        return key if key is not None else rt.learned_keys.get(bid, {}).get(channel)
+
     ctx.mqtt_sender = MqttSender(
-        lambda: rt.connectors.get("default"), lambda: rt.settings, rt.radios.radios, time.time,
-        ingestor.record_outgoing_mqtt,
-        lambda ch: getattr(getattr(rt.connectors.get("default"), "decoder", None),
-                           "channel_keys", {}).get(ch))
+        lambda bid: rt.connectors.get(bid), lambda: rt.settings, rt.radios.radios, time.time,
+        ingestor.record_outgoing_mqtt, key_for)
     app = create_app(ctx)
 
     @contextlib.asynccontextmanager

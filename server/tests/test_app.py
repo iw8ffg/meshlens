@@ -591,12 +591,18 @@ async def test_stop_stops_all_connectors(tmp_path):
     assert all(c.stopped for c in conns)
 
 
-async def test_mqtt_sender_uses_default_broker_connector(tmp_path):
+async def test_mqtt_sender_uses_connector_and_keys_of_each_broker(tmp_path):
     rt = await _multi_rt(tmp_path, KeyedConnector, _broker("b1"))
     sender = rt.ctx.mqtt_sender
-    assert sender.get_connector() is rt.connectors["default"]
+    assert sender.get_connector("default") is rt.connectors["default"]
+    assert sender.get_connector("b1") is rt.connectors["b1"]
+    assert sender.get_connector("nessuno") is None
     rt.connectors["default"].decoder.channel_keys["X"] = KEY_A
-    assert sender.key_for("X") == KEY_A
+    assert sender.key_for("default", "X") == KEY_A
+    assert sender.key_for("b1", "X") is None  # le chiavi non passano da un broker all'altro
+    # broker senza connettore: la chiave imparata prima dell'arresto
+    rt.learned_keys["spento"] = {"Y": KEY_A}
+    assert sender.key_for("spento", "Y") == KEY_A and sender.key_for("spento", "Z") is None
 
 
 async def test_stop_interrupts_running_integrity_check(tmp_path, monkeypatch):

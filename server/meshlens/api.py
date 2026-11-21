@@ -33,11 +33,12 @@ from .diagnostics import build_bundle
 from .maintenance import compact, read_db_stats
 from .maps import MapsError
 from .updater import UpdateError
-from .mqtt_publish import MqttSendError
+from .mqtt_publish import MqttSendError, pick_broker
 from .radio_manager import NoRadioConnected, TracerouteThrottled
 from .backup import NAME_RE, BackupUnusable
-from .settings import (MASK, export_settings, load_settings, mask_secrets, prepare_import,
-                       resolve_broker_secrets, resolve_extra_keys, save_settings)
+from .settings import (DEFAULT_BROKER_ID, MASK, export_settings, find_broker, load_settings,
+                       mask_secrets, prepare_import, resolve_broker_secrets,
+                       resolve_extra_keys, save_settings)
 from .serving import tls_status
 from .store import Store
 
@@ -80,7 +81,9 @@ class AppContext:
     config: object | None = None  # ConfigService
     maps: object | None = None  # MapsManager
     updater: object | None = None  # Updater
-    mqtt_channel_counts: Callable[[], dict] = lambda: {}  # canali MQTT visti nell'ultima ora
+    # canali MQTT visti nell'ultima ora (broker=id per uno solo) e broker che li hanno visti
+    mqtt_channel_counts: Callable[..., dict] = lambda: {}
+    mqtt_channel_brokers: Callable[[], dict] = lambda: {}
     mqtt_sender: object | None = None  # MqttSender
     db_path: Path | None = None
     last_purge: Callable[[], dict | None] = lambda: None
@@ -133,6 +136,7 @@ class MqttSendBody(BaseModel):
     channel: str = "LongFast"
     to: str | None = None
     confirm_public: bool = False
+    broker: str | None = Field(None, max_length=24)  # None = primo broker attivo
 
 
 class UpdateInstallBody(BaseModel):
@@ -657,24 +661,49 @@ def create_app(ctx: AppContext) -> FastAPI:
         if ctx.mqtt_sender is None:
             raise HTTPException(503, "Invio MQTT non disponibile")
         try:
-            message = ctx.mqtt_sender.send(body.text, body.channel, body.to, body.confirm_public)
+            message = ctx.mqtt_sender.send(body.text, body.channel, body.to, body.confirm_public,
+                                           broker=body.broker)
         except MqttSendError as e:
             return JSONResponse(status_code=e.status, content={"detail": e.message, "code": e.code})
-        if body.confirm_public and not load_settings(ctx.conn).get("mqtt_send_confirmed"):
-            # la conferma si ricorda: la prossima volta non viene richiesta
+        if body.confirm_public:
+            # la conferma si ricorda per quel broker: la prossima volta non viene richiesta
             try:
-                await ctx.on_settings_changed(
-                    save_settings(ctx.conn, {"mqtt_send_confirmed": True}))
+                current = load_settings(ctx.conn)
+                bid = pick_broker(current, body.broker)["id"]
+                confirmed = current.get("mqtt_send_confirmed_brokers") or []
+                changes: dict = {}
+                if bid not in confirmed:
+                    changes["mqtt_send_confirmed_brokers"] = [*confirmed, bid]
+                if bid == DEFAULT_BROKER_ID and not current.get("mqtt_send_confirmed"):
+                    changes["mqtt_send_confirmed"] = True
+                if changes:
+                    await ctx.on_settings_changed(save_settings(ctx.conn, changes))
             except Exception:  # il messaggio e' gia' partito: non si risponde con un errore
-                logging.getLogger(__name__).exception("Salvataggio di mqtt_send_confirmed fallito")
+                logging.getLogger(__name__).exception("Salvataggio della conferma MQTT fallito")
         return {"message": message}
 
     @app.get("/api/mqtt/channels", dependencies=[Depends(require_auth)])
-    async def mqtt_channels():
-        wanted = load_settings(ctx.conn)["mqtt_channels"]
-        counts = ctx.mqtt_channel_counts()
-        rows = [{"name": n, "count_1h": c, "enabled": not wanted or n in wanted}
-                for n, c in counts.items()]
+    async def mqtt_channels(broker: str | None = Query(None, max_length=24)):
+        settings = load_settings(ctx.conn)
+        if broker is not None and find_broker(settings, broker) is None:
+            raise HTTPException(404, "Broker non trovato")
+        wanted = settings["mqtt_channels"]
+        counts = ctx.mqtt_channel_counts(broker=broker) if broker else ctx.mqtt_channel_counts()
+        custom_on: dict[str, list[str]] = {}  # canale personalizzato -> broker che lo hanno
+        custom: set[str] = set()  # personalizzati del broker scelto (o di tutti)
+        for b in settings["mqtt_brokers"]:
+            for ch in b.get("channels", []):
+                custom_on.setdefault(ch["name"], []).append(b["id"])
+                if broker is None or b["id"] == broker:
+                    custom.add(ch["name"])
+        seen_on = ctx.mqtt_channel_brokers()
+        rows = []
+        for n in {*counts, *custom}:
+            brokers = list(seen_on.get(n, []))
+            brokers += [b for b in custom_on.get(n, []) if b not in brokers]
+            rows.append({"name": n, "count_1h": counts.get(n, 0),
+                         "enabled": not wanted or n in wanted, "custom": n in custom,
+                         "brokers": brokers})
         rows.sort(key=lambda r: (-r["count_1h"], r["name"]))
         return rows
 
