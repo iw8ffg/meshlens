@@ -3,6 +3,56 @@
 Il formato segue [Keep a Changelog](https://keepachangelog.com/it-IT/1.1.0/) e il progetto usa il [versionamento semantico](https://semver.org/lang/it/).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [1.3.0] - 2026-11-21
+
+### Italiano
+
+#### Aggiunto
+- **Più broker MQTT insieme:** puoi collegare più broker contemporaneamente (fino a 8) dalla nuova sezione "Broker MQTT" in Impostazioni. Ogni broker ha il proprio stato, i propri interruttori **Crittografia** e **TLS** (spenti per i broker nuovi; il broker predefinito mantiene la crittografia) e i propri limiti di invio.
+- **Canali personalizzati per broker:** aggiungili a mano, importali dalla **radio collegata** o da un **link meshtastic.org/e/#…**. La chiave (PSK) si può mostrare solo dal PC.
+- **Scelta del broker nella chat:** il campo "Invia via" ti fa scegliere il broker e il canale; sui messaggi compare un'etichetta con il broker di provenienza.
+- **Stato MQTT spiegato e ricollegamento automatico:** MeshLens mostra se il broker è collegato, da quanto, quanti messaggi arrivano, quanti non si possono decodificare e l'ultimo errore, e si ricollega da solo se la connessione si blocca.
+- **Backup automatici:** copia del database prima di ogni aggiornamento e di ogni migrazione, e una volta a settimana (ne restano 5), con elenco e **ripristino** da Impostazioni. Esportazione e importazione delle impostazioni (senza segreti, salvo richiesta dal PC).
+- **Diagnostica:** log con rotazione e **pacchetto diagnostico** scaricabile (zip, senza password né chiavi).
+- **Manutenzione del database:** indici per velocità, pulizia a blocchi che non rallenta l'app, statistiche e pulsante **"Compatta database"**.
+- **Accesso più sicuro:** il blocco dopo troppi PIN errati resiste al riavvio (e il PC locale non resta mai chiuso fuori); elenco di sessioni e dispositivi con possibilità di **disconnetterli**; cambio PIN; con l'accesso dalla rete locale il PIN ha almeno **6 cifre** (i PIN già impostati continuano a funzionare).
+- **HTTPS facoltativo per la rete locale** sulla porta 8687, con certificato generato da MeshLens (spento di default); su `127.0.0.1:8686` resta HTTP.
+- **Token GitHub cifrato** con Windows DPAPI.
+- **Interfaccia:** barra "connessione persa"; filtri attivi visibili come chip con **"Azzera filtri"**; **Riprova** e suggerimenti negli stati vuoti o di errore; ordinamento dei nodi e ricerca per modello e ruolo; la vista (scheda, mappa, ordinamento) viene ricordata; **link diretti ai nodi** (`#/nodes/!id`) con pulsante "Copia link".
+- **Mappa:** distanze e azioni rapide nei popup, **righello**, raggruppamento dei nodi attivabile/disattivabile, **ricerca di un nodo** e **"Dove sono"**.
+- **Nuovi avvisi** per i tuoi nodi: canale saturo, nodo tornato online, firmware vecchio.
+- **Icona della scheda** del browser con il logo di MeshLens.
+
+#### Modificato
+- **Prima dell'aggiornamento MeshLens crea da solo un backup** del database.
+- Dopo l'aggiornamento, la vecchia impostazione con un solo broker MQTT viene **migrata nell'elenco dei broker** (diventa il broker predefinito, che si può disattivare e modificare ma non eliminare).
+- **Attenzione al ritorno alla 1.2.x:** dopo l'aggiornamento un downgrade fa perdere i broker personalizzati; in tal caso ripristina un backup precedente all'aggiornamento.
+- I messaggi MQTT scartati per eccesso di traffico sono ora contati e visibili; se la connessione dell'interfaccia perde dati, si risincronizza da sola.
+
+### English
+
+#### Added
+- **Several MQTT brokers at once:** connect multiple brokers (up to 8) from the new "MQTT brokers" section in Settings. Each broker has its own status, its own **Encryption** and **TLS** toggles (off for new brokers; the default broker keeps encryption) and its own send limits.
+- **Custom channels per broker:** add them manually, import them from the **connected radio** or from a **meshtastic.org/e/#… link**. The key (PSK) can only be shown from the PC.
+- **Broker picker in chat:** the "Send via" field lets you choose the broker and channel; messages carry a badge with the broker they came from.
+- **MQTT status explained and automatic reconnection:** MeshLens shows whether the broker is connected, since when, how many messages arrive, how many cannot be decoded and the last error, and reconnects by itself if the connection stalls.
+- **Automatic backups:** a database copy before every update and migration and once a week (kept separately by type: the most recent copies of each kind), with a list and **restore** in Settings. Settings export and import (without secrets unless requested from the PC).
+- **Diagnostics:** rotating logs and a downloadable **diagnostic bundle** (zip, without passwords or keys).
+- **Database maintenance:** indexes for speed, chunked purge that does not slow the app down, statistics and a **"Compact database"** button.
+- **Safer access:** the lockout after too many wrong PINs survives restarts (and the local PC is never locked out); list of sessions and devices with the option to **sign them out**; change PIN; with LAN access the PIN has at least **6 digits** (existing PINs keep working).
+- **Optional HTTPS for the local network** on port 8687, with a certificate generated by MeshLens (off by default); `127.0.0.1:8686` stays plain HTTP.
+- **GitHub token encrypted** with Windows DPAPI.
+- **Interface:** "connection lost" bar; active filters shown as chips with **"Clear filters"**; **Retry** and hints in empty or error states; node sorting and search by model and role; remembered view (tab, map, sorting); **direct node links** (`#/nodes/!id`) with a "Copy link" button.
+- **Map:** distances and quick actions in popups, a **ruler**, optional node clustering, **node search** and **"Where am I"**.
+- **New alerts** for your nodes: channel saturated, node back online, old firmware.
+- **Browser tab icon** with the MeshLens logo.
+
+#### Changed
+- **MeshLens automatically takes a database backup before updating.**
+- After updating, the old single-MQTT setting is **migrated to the broker list** (it becomes the default broker, which can be disabled and edited but not deleted).
+- **Downgrading to 1.2.x after the update** loses custom brokers; restore a pre-update backup instead.
+- MQTT messages dropped under heavy traffic are now counted and visible; if the interface connection misses data it resynchronises by itself.
+
 ## [1.2.3] - 2026-11-21
 
 ### Italiano
@@ -147,3 +197,4 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 [1.2.1]: https://github.com/iw8ffg/meshlens/releases/tag/v1.2.1
 [1.2.2]: https://github.com/iw8ffg/meshlens/releases/tag/v1.2.2
 [1.2.3]: https://github.com/iw8ffg/meshlens/releases/tag/v1.2.3
+[1.3.0]: https://github.com/iw8ffg/meshlens/releases/tag/v1.3.0

@@ -5,7 +5,7 @@
 <p align="center">
   <img alt="Licenza GPL-3.0" src="https://img.shields.io/badge/licenza-GPL--3.0-blue">
   <img alt="Piattaforma Windows" src="https://img.shields.io/badge/piattaforma-Windows%2010%2F11-0078D6">
-  <img alt="Versione 1.2.3" src="https://img.shields.io/badge/versione-1.2.3-brightgreen">
+  <img alt="Versione 1.3.0" src="https://img.shields.io/badge/versione-1.3.0-brightgreen">
 </p>
 
 **MeshLens** è un'applicazione locale per Windows che riunisce in un'unica mappa interattiva tutto ciò che accade su una rete [Meshtastic](https://meshtastic.org): i nodi sentiti da **Internet (MQTT)** e dalle **tue radio** collegate via USB o Bluetooth. Osservi la rete, gestisci i tuoi nodi e chatti via radio, anche senza Internet. Si usa dal PC e dal telefono sulla stessa Wi-Fi.
@@ -24,19 +24,27 @@
 
 ### 🗺️ Mappa e osservazione
 - Nodi da MQTT e da radio fusi in un'unica vista, con colore per fonte e per ultimo contatto.
-- Filtri per nazione, fonte, radio, ultimo contatto, ruolo e testo.
-- Dettaglio nodo: hardware, ruolo, firmware, posizione e precisione, batteria, SNR/RSSI/hop, traccia dei percorsi.
-- Feed dei messaggi pubblici MQTT, filtrabile per nazione.
+- Filtri per nazione, fonte, radio, ultimo contatto, ruolo e testo; i filtri attivi restano visibili come chip, con **"Azzera filtri"**.
+- Dettaglio nodo: hardware, ruolo, firmware, posizione e precisione, batteria, SNR/RSSI/hop, traccia dei percorsi; **link diretto** al nodo (`#/nodes/!id`).
+- Mappa: distanze e azioni rapide nei popup, **righello**, raggruppamento dei nodi attivabile, **ricerca di un nodo** e **"Dove sono"**.
+- Ordinamento dei nodi e ricerca anche per modello e ruolo; la vista viene ricordata.
+- Feed dei messaggi pubblici MQTT, filtrabile per nazione, con l'indicazione del broker di provenienza.
 
 ### 📻 Radio e chat
 - Più radio insieme, via **USB** e **Bluetooth**, con riconnessione automatica.
-- Messaggi su canali e diretti, con stato di consegna e un unico campo **"Invia via"**: radio oppure **MQTT** (solo testo, a nome del tuo nodo, con conferma la prima volta).
+- Messaggi su canali e diretti, con stato di consegna e un unico campo **"Invia via"**: radio oppure **MQTT** (solo testo, a nome del tuo nodo, con conferma la prima volta), con scelta del **broker** e del canale.
 - Interfaccia con tema **scuro e chiaro**, pensata anche per il telefono.
 
+### 🌐 Più broker MQTT e canali personalizzati
+- Collega **più broker MQTT insieme**, ognuno con il proprio stato e i propri interruttori **Crittografia** e **TLS** (spenti per i broker nuovi; il broker predefinito mantiene la crittografia).
+- **Canali personalizzati** per broker: aggiunti a mano, importati dalla radio collegata o da un link `meshtastic.org/e/#…`. La chiave si può mostrare solo dal PC.
+- Stato MQTT spiegato (connessione, messaggi al secondo, non decodificabili, ultimo errore) e **ricollegamento automatico**.
+
 ### 📊 Gestione della rete
-- Stato dei nodi, **batteria con grafico storico** e avvisi (soglia configurabile, nodi silenziosi).
+- Stato dei nodi, **batteria con grafico storico** e avvisi: batteria bassa, nodi silenziosi, **canale saturo**, **nodo tornato online**, **firmware vecchio**.
 - "I miei nodi": marca i tuoi, viste e avvisi si concentrano su di loro.
 - Mappa dei collegamenti colorata per SNR e **traceroute** a richiesta.
+- Barra "connessione persa" e pulsanti **Riprova** quando qualcosa non risponde.
 
 ### 📡 Copertura sul campo
 - Prove di copertura con il modulo Range Test: punti colorati per qualità del segnale, percorso, punti mancanti e storico delle sessioni.
@@ -49,6 +57,19 @@
 ### 🌍 Offline
 - Mappe PMTiles scaricabili con un passo guidato: mondo a basso dettaglio, Italia e aree a scelta.
 - Passaggio automatico tra mappa online e offline.
+
+### 🔒 Accesso dalla rete locale e HTTPS
+- Di default MeshLens ascolta solo sul PC (`http://127.0.0.1:8686`). L'accesso dalla rete locale si attiva in Impostazioni ed è protetto dal PIN.
+- Con l'accesso dalla rete locale il PIN ha almeno **6 cifre** (i PIN già impostati continuano a funzionare). Dopo troppi errori scatta un blocco che resiste al riavvio; il PC locale non resta mai chiuso fuori.
+- In Impostazioni vedi **sessioni e dispositivi** collegati e puoi disconnetterli; puoi anche cambiare il PIN.
+- **HTTPS facoltativo** (spento di default) sulla porta **8687**, con certificato autofirmato generato da MeshLens: la prima volta il browser mostrerà un avviso da accettare. Su `127.0.0.1:8686` resta HTTP.
+- Il token GitHub per gli aggiornamenti è salvato cifrato con Windows DPAPI.
+
+### 🧰 Backup e diagnostica
+- **Backup automatici** del database: prima di ogni aggiornamento e migrazione e una volta a settimana (ne restano 5). Elenco e **ripristino** da Impostazioni.
+- **Esporta e importa le impostazioni** (i segreti restano esclusi salvo richiesta dal PC).
+- **Pacchetto diagnostico** scaricabile (zip, senza password né chiavi) e log con rotazione.
+- **Manutenzione del database:** pulizia a blocchi, statistiche e pulsante **"Compatta database"**.
 
 ## Requisiti
 
@@ -73,7 +94,7 @@ Al primo avvio il browser si apre su `http://127.0.0.1:8686` e ti chiede di sceg
 1. In **Impostazioni** attiva l'accesso dalla rete locale (di default MeshLens ascolta solo sul PC).
 2. Dal telefono, collegato alla stessa Wi-Fi, apri `http://<indirizzo-del-PC>:8686` e inserisci il PIN.
 
-L'accesso avviene in HTTP semplice: usalo solo su una rete di cui ti fidi. Niente HTTPS significa anche niente GPS del telefono né notifiche push del browser.
+L'accesso avviene di default in HTTP semplice: usalo solo su una rete di cui ti fidi. Senza HTTPS non sono disponibili il GPS del telefono né le notifiche push del browser. Per l'accesso dalla rete locale puoi attivare HTTPS facoltativo in **Impostazioni → Rete** (porta 8687, con certificato autofirmato generato da MeshLens: il browser chiederà di accettarlo).
 
 ## Mappe offline
 
