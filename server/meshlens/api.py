@@ -98,6 +98,21 @@ class CoverageStartBody(BaseModel):
     accept_approx: bool = False
 
 
+class CoveragePrepareBody(BaseModel):
+    radio_id: str
+    mobile_id: str
+    interval_s: int = Field(30, ge=10, le=600)
+    private_channel: bool = False
+
+
+class CoveragePlanBody(BaseModel):
+    plan_id: int
+
+
+class CoveragePlanApplyBody(BaseModel):
+    confirm_risky: bool = False
+
+
 class CoveragePatchBody(BaseModel):
     name: str | None = None
     notes: str | None = None
@@ -600,6 +615,24 @@ def create_app(ctx: AppContext) -> FastAPI:
                 "gps_ok": age is not None and age <= GPS_MAX_AGE_S,
                 "rangetest_age_s": ctx.coverage.rangetest_age(radio_id, num),
                 "base_position": base}
+
+    @app.post("/api/coverage/prepare", dependencies=[Depends(require_auth), Depends(require_json)])
+    async def coverage_prepare(body: CoveragePrepareBody):
+        return await config_call(ctx.config.prepare(
+            body.radio_id, body.mobile_id, body.interval_s, body.private_channel))
+
+    @app.post("/api/coverage/restore", dependencies=[Depends(require_auth), Depends(require_json)])
+    async def coverage_restore(body: CoveragePlanBody):
+        return await config_call(ctx.config.restore_plan(body.plan_id))
+
+    @app.get("/api/coverage/prepare/last", dependencies=[Depends(require_auth)])
+    async def coverage_prepare_last():
+        return ctx.config.last_plan()
+
+    @app.post("/api/coverage/prepare/{plan_id}/apply", status_code=202,
+              dependencies=[Depends(require_auth), Depends(require_json)])
+    async def coverage_prepare_apply(plan_id: int, body: CoveragePlanApplyBody):
+        return cfg(ctx.config.apply_plan, plan_id, body.confirm_risky)
 
     @app.get("/api/coverage/sessions", dependencies=[Depends(require_auth)])
     async def coverage_sessions():

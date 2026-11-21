@@ -52,6 +52,9 @@ CREATE TABLE IF NOT EXISTS config_jobs(
   id INTEGER PRIMARY KEY AUTOINCREMENT, node_num INTEGER, radio_id TEXT, kind TEXT,
   status TEXT, step TEXT, done INTEGER, total INTEGER, error TEXT, result_id INTEGER,
   verify TEXT, started REAL, ended REAL);
+CREATE TABLE IF NOT EXISTS coverage_prepare(
+  id INTEGER PRIMARY KEY AUTOINCREMENT, radio_id TEXT, mobile_num INTEGER, created REAL,
+  applied REAL, restored REAL, steps TEXT);
 CREATE INDEX IF NOT EXISTS idx_config_reads_node ON config_reads(node_num, time);
 CREATE INDEX IF NOT EXISTS idx_config_backups_node ON config_backups(node_num, time);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_cov_points_seq

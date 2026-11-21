@@ -282,6 +282,37 @@ class Store:
                                 (backup_id,)).fetchone()
         return self._backup_row(row, True) if row else None
 
+    # --- piani "Prepara le radio" (steps: JSON con le copie e i lavori per nodo) ---
+    def add_plan(self, radio_id: str, mobile_num: int, created: float, steps: dict) -> int:
+        cur = self.conn.execute(
+            "INSERT INTO coverage_prepare(radio_id, mobile_num, created, steps) VALUES(?,?,?,?)",
+            (radio_id, mobile_num, created, json.dumps(steps)))
+        return cur.lastrowid
+
+    @staticmethod
+    def _plan_row(r) -> dict:
+        return {"id": r["id"], "radio_id": r["radio_id"], "mobile_num": r["mobile_num"],
+                "created": r["created"], "applied": r["applied"], "restored": r["restored"],
+                "steps": json.loads(r["steps"] or "{}")}
+
+    def get_plan(self, plan_id: int) -> dict | None:
+        row = self.conn.execute("SELECT * FROM coverage_prepare WHERE id=?",
+                                (plan_id,)).fetchone()
+        return self._plan_row(row) if row else None
+
+    def update_plan(self, plan_id: int, **fields) -> None:
+        if "steps" in fields:
+            fields["steps"] = json.dumps(fields["steps"])
+        self.conn.execute(
+            f"UPDATE coverage_prepare SET {', '.join(k + '=?' for k in fields)} WHERE id=?",
+            (*fields.values(), plan_id))
+
+    def applied_plans(self) -> list[dict]:
+        rows = self.conn.execute(
+            "SELECT * FROM coverage_prepare WHERE applied IS NOT NULL AND restored IS NULL "
+            "ORDER BY id DESC")
+        return [self._plan_row(r) for r in rows]
+
     _JOB_FIELDS = ("node_num", "radio_id", "kind", "status", "step", "done", "total", "error",
                    "result_id", "verify", "started", "ended", "error_code")
 

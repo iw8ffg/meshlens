@@ -16,6 +16,32 @@ def precision_m(bits: int | None) -> int | None:
     return round(2 ** (32 - bits) * 1e-7 * 111320 / 2)
 
 
+def prepare_changes(role: str, interval_s: int, private_channel: dict | None) -> dict:
+    """Modifiche (percorso -> valore) per preparare una radio alla prova di copertura.
+
+    role: "mobile" (invia posizione e range test) oppure "base" (riceve soltanto).
+    private_channel: {"name", "psk"(base64)} se la prova usa un canale privato temporaneo:
+    la stessa psk va su entrambe le radio, a precisione piena.
+    """
+    if role == "mobile":
+        out = {"module_config.range_test.enabled": True,
+               "module_config.range_test.sender": interval_s,
+               "config.position.position_broadcast_secs": interval_s,
+               "config.position.position_broadcast_smart_enabled": True,
+               "config.position.broadcast_smart_minimum_interval_secs": interval_s,
+               "config.position.gps_mode": "ENABLED"}
+    elif role == "base":
+        out = {"module_config.range_test.enabled": True,
+               "module_config.range_test.sender": 0}
+    else:
+        raise ValueError(f"ruolo sconosciuto: {role}")
+    if private_channel:
+        out["channels.0.name"] = private_channel["name"]
+        out["channels.0.psk"] = private_channel["psk"]
+        out["channels.0.position_precision"] = 32
+    return out
+
+
 def haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     p1, p2 = math.radians(lat1), math.radians(lat2)
     a = (math.sin((p2 - p1) / 2) ** 2

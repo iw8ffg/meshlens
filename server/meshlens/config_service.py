@@ -14,6 +14,7 @@ import time
 from .config_model import (CHANNEL_FIELDS, CONFIG_SECTIONS, MASK, OWNER_FIELDS, _current,
                            _is_secret, _split, apply_to_protos, diff, mask_config,
                            node_to_dict, parse_changes, schema, touched_sections)
+from .coverage import prepare_changes
 from .events import node_id as make_node_id
 from .radio import MODULE_SECTIONS, AdminError
 from .radio_manager import NoRadioConnected
@@ -28,6 +29,8 @@ ALL_SECTIONS = list(CONFIG_SECTIONS) + list(MODULE_SECTIONS) + ["channels", "own
 MSG_READ_FIRST = "Leggi prima la configurazione"
 MSG_NOT_BACK = "La radio non è tornata dopo il riavvio"
 MSG_CHANGED = "La configurazione del nodo è cambiata: rivedi le modifiche"
+MSG_SKIPPED = "Non eseguito: il passo precedente non è riuscito"
+PRIVATE_CHANNEL_NAME = "MLprova"  # canale privato temporaneo della prova (max 11 caratteri)
 
 
 class ConfigError(Exception):
@@ -135,20 +138,26 @@ class ConfigService:
         self.bus.publish({"type": "config_job", "job": job})
         return job
 
-    def _start_job(self, num: int, radio_id: str, kind: str, work, total: int = 1) -> dict:
+    def _start_job(self, num: int, radio_id: str, kind: str, work, total: int = 1,
+                   after: int | None = None) -> dict:
         jid = self.store.add_job(node_num=num, radio_id=radio_id, kind=kind, status="running",
                                  step="In coda", done=0, total=total, started=self._clock())
         self.store.commit()
         job = self.job(jid)
         self.bus.publish({"type": "config_job", "job": job})
-        task = asyncio.create_task(self._run_job(jid, radio_id, work))
+        task = asyncio.create_task(self._run_job(jid, radio_id, work, after))
         self._tasks[jid] = task
         task.add_done_callback(lambda _t, j=jid: self._tasks.pop(j, None))
         return job
 
-    async def _run_job(self, jid: int, radio_id: str, work) -> None:
+    async def _run_job(self, jid: int, radio_id: str, work, after: int | None = None) -> None:
         lock = self._locks.setdefault(radio_id, asyncio.Lock())  # un lavoro alla volta per radio
         try:
+            if after is not None:  # passo di un piano: parte solo se il precedente e' riuscito
+                await self.join(after)
+                prev = self.store.get_job(after)
+                if prev is None or prev["status"] != "done":
+                    raise _JobFailed(MSG_SKIPPED, "skipped")
             async with lock:
                 await work(jid)
         except _JobFailed as err:
@@ -337,7 +346,9 @@ class ConfigService:
         return self._build_preview(b["node_num"], changes)
 
     # ---- applicazione --------------------------------------------------------
-    def apply(self, node_id: str, preview_id: str, confirm_risky: bool = False) -> dict:
+    def apply(self, node_id: str, preview_id: str, confirm_risky: bool = False,
+              reason: str = "before_apply", label: str | None = None,
+              after: int | None = None, on_backup=None) -> dict:
         num = _num(node_id)
         self._prune_previews()
         p = self._previews.get(preview_id)
@@ -374,7 +385,9 @@ class ConfigService:
                 phase(1, "Controllo la radio")
             current = await conn.current_protos(None if local else num)
             phase(2, "Salvo la copia di sicurezza")
-            self._save_backup(num, current, sections, "before_apply")
+            bid = self._save_backup(num, current, sections, reason, label)
+            if on_backup is not None:
+                on_backup(bid)
             phase(3, "Scrivo la configurazione")
             await conn.write(None if local else num, apply_to_protos(current, changes), cb)
             phase(4, "Attendo la radio e verifico" if local else "Verifico")
@@ -397,7 +410,7 @@ class ConfigService:
             self.store.commit()
             self._done(jid, verify=verify, result_id=saved, step="Fatto")
 
-        return self._start_job(num, rid, "apply", work, total=TOTAL)
+        return self._start_job(num, rid, "apply", work, total=TOTAL, after=after)
 
     def _check_unchanged(self, fresh: dict, p: dict) -> None:
         """I valori toccati devono essere quelli su cui si basa l'anteprima."""
@@ -502,6 +515,159 @@ class ConfigService:
             self._done(jid, step="Fatto", done=1, total=1)
 
         return self._start_job(num, rid, "fixed_position", work)
+
+    # ---- "Prepara le radio" per la prova di copertura -----------------------------
+    async def _read_and_wait(self, reads: list[tuple[str, str | None, list[str]]]) -> None:
+        """Avvia le letture fresche e le attende; fallisce col messaggio del primo lavoro fallito."""
+        jobs = [self.start_read(nid, rid, secs) for nid, rid, secs in reads]
+        for j in jobs:
+            await self.join(j["id"])
+        for j in jobs:
+            done = self.job(j["id"])
+            if done["status"] != "done":
+                raise ConfigError(409, done["error"] or "Lettura non riuscita")
+
+    def _node_radio(self, num: int, base_radio: str) -> str | None:
+        """Radio per un nodo del piano: nessuna (= locale) se il nodo e' una radio collegata."""
+        return None if self.radios.local_radio_for(num) else base_radio
+
+    def _plan_set(self, plan_id: int, node_id: str, **fields) -> None:
+        plan = self.store.get_plan(plan_id)
+        if plan is None:
+            return
+        for st in plan["steps"]["steps"]:
+            if st["node_id"] == node_id:
+                st.update(fields)
+        self.store.update_plan(plan_id, steps=plan["steps"])
+        self.store.commit()
+
+    @staticmethod
+    def _plan_view(plan_id: int, previews: list[tuple[str, dict]]) -> dict:
+        return {"plan_id": plan_id,
+                "steps": [{"node_id": nid, "preview": pv} for nid, pv in previews]}
+
+    @staticmethod
+    def _plan_steps(previews: list[tuple[str, dict]]) -> list[dict]:
+        return [{"node_id": nid, "preview_id": pv["preview_id"], "backup_id": None,
+                 "job_id": None} for nid, pv in previews]
+
+    async def prepare(self, radio_id: str, mobile_id: str, interval_s: int,
+                      private_channel: bool) -> dict:
+        mnum = _num(mobile_id)
+        mobile_id = make_node_id(mnum)
+        st = self._connector(radio_id).state()
+        if st["state"] != "connected" or not st.get("my_node_id"):
+            raise ConfigError(409, "La radio non è collegata")
+        base_id = st["my_node_id"]
+        if base_id == mobile_id:
+            raise ConfigError(400, "Il nodo mobile coincide con la radio di base")
+        pc = None
+        if private_channel:  # una sola psk per piano, uguale sulle due radio
+            pc = {"name": PRIVATE_CHANNEL_NAME,
+                  "psk": base64.b64encode(secrets.token_bytes(32)).decode()}
+        wanted = {"mobile": (mobile_id, self._node_radio(mnum, radio_id)),
+                  "base": (base_id, radio_id)}
+        changes = {r: prepare_changes(r, interval_s, pc) for r in wanted}
+        # lettura fresca di entrambi i nodi: le anteprime la richiedono (<= 10 minuti)
+        reads = []
+        for role, (nid, rid) in wanted.items():
+            secs = sorted({".".join(p.split(".")[:2]) for p in changes[role]
+                           if not p.startswith("channels.")})
+            reads.append((nid, rid, secs))
+        await self._read_and_wait(reads)
+        previews = []
+        for role in ("mobile", "base"):  # ordine di esecuzione: prima il mobile
+            pv = self.preview(wanted[role][0], changes[role])
+            if pv["changes"]:
+                previews.append((wanted[role][0], pv))
+        if not previews:
+            raise ConfigError(400, "Le radio sono già pronte per la prova")
+        plan_id = self.store.add_plan(radio_id, mnum, self._clock(), {
+            "kind": "prepare", "restore_of": None, "steps": self._plan_steps(previews)})
+        self.store.commit()
+        return self._plan_view(plan_id, previews)
+
+    def apply_plan(self, plan_id: int, confirm_risky: bool = False) -> dict:
+        plan = self.store.get_plan(plan_id)
+        if plan is None:
+            raise ConfigError(404, "Piano non trovato")
+        if plan["applied"] is not None:
+            raise ConfigError(409, "Piano già applicato")
+        data = plan["steps"]
+        self._prune_previews()
+        risky = False
+        for stp in data["steps"]:  # tutto o niente: controlli prima di avviare il primo lavoro
+            p = self._previews.get(stp["preview_id"])
+            if p is None or make_node_id(p["num"]) != stp["node_id"]:
+                raise ConfigError(400, "Anteprima sconosciuta o scaduta: ripeti la preparazione")
+            risky = risky or any(e["risky"] for e in p["entries"])
+        if risky and not confirm_risky:
+            raise ConfigError(400, "Conferma richiesta per modifiche a rischio")
+        restore = data["kind"] == "restore"
+        reason = "before_apply" if restore else "coverage_prepare"
+        label = (f"Ripristino del piano {data['restore_of']}" if restore
+                 else f"Prepara le radio (piano {plan_id})")
+        jobs, prev = [], None
+        try:
+            for stp in data["steps"]:  # mobile -> base: la base deve raggiungere il mobile
+                nid = stp["node_id"]
+                job = self.apply(nid, stp["preview_id"], confirm_risky, reason, label, prev,
+                                 lambda bid, n=nid: self._plan_set(plan_id, n, backup_id=bid))
+                self._plan_set(plan_id, nid, job_id=job["id"])
+                jobs.append(job)
+                prev = job["id"]
+        finally:
+            if jobs:
+                self.store.update_plan(plan_id, applied=self._clock())
+                if restore:
+                    self.store.update_plan(data["restore_of"], restored=self._clock())
+                self.store.commit()
+        return {"jobs": jobs}
+
+    async def restore_plan(self, plan_id: int) -> dict:
+        """Anteprime che rimettono le copie salvate dal piano, solo per i nodi modificati."""
+        plan = self.store.get_plan(plan_id)
+        if plan is None or plan["steps"].get("kind") != "prepare":
+            raise ConfigError(404, "Piano non trovato")
+        if plan["applied"] is None:
+            raise ConfigError(409, "Il piano non è stato applicato")
+        if plan["restored"] is not None:
+            raise ConfigError(409, "Piano già ripristinato")
+        radio_id = plan["radio_id"]
+        todo = [(s["node_id"], s["backup_id"]) for s in plan["steps"]["steps"]
+                if s.get("backup_id")]
+        if not todo:
+            raise ConfigError(400, "Nessuna modifica da ripristinare")
+        reads = []
+        for nid, bid in todo:
+            b = self.store.get_backup(bid)
+            if b is None:
+                raise ConfigError(404, "Copia non trovata")
+            reads.append((nid, self._node_radio(_num(nid), radio_id), list(b["sections"])))
+        await self._read_and_wait(reads)
+        previews = []
+        for nid, bid in todo:  # ordine del piano: mobile prima, base dopo
+            pv = self.preview_restore(bid)
+            if pv["changes"]:  # nodo gia' com'era: niente da rimettere
+                previews.append((nid, pv))
+        if not previews:
+            raise ConfigError(400, "Nessuna modifica da ripristinare")
+        rid = self.store.add_plan(radio_id, plan["mobile_num"], self._clock(), {
+            "kind": "restore", "restore_of": plan_id, "steps": self._plan_steps(previews)})
+        self.store.commit()
+        return self._plan_view(rid, previews)
+
+    def last_plan(self) -> dict | None:
+        """Ultimo piano "Prepara" applicato e non ancora ripristinato."""
+        for plan in self.store.applied_plans():
+            if plan["steps"].get("kind") != "prepare":
+                continue
+            steps = plan["steps"]["steps"]
+            return {"plan_id": plan["id"],
+                    "steps": [{"node_id": s["node_id"], "backup_id": s["backup_id"]}
+                              for s in steps],
+                    "jobs": [self.job(s["job_id"]) for s in steps if s.get("job_id")]}
+        return None
 
     # ---- segreti su richiesta esplicita ------------------------------------------
     async def reveal_psk(self, node_id: str, index: int) -> dict:
