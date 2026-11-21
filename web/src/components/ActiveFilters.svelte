@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { getJSON } from '../lib/api'
+  import { getCountries } from '../lib/api'
   import { app } from '../lib/stores.svelte'
   import { activeFilters, clearFilter, clearAllFilters } from '../lib/filters'
   import Icon from '../lib/ui/Icon.svelte'
@@ -11,7 +11,7 @@
 
   onMount(async () => {
     try {
-      const list = await getJSON<{ code: string; name: string }[]>('/countries')
+      const list = await getCountries()
       names = Object.fromEntries(list.map((c) => [c.code, c.name]))
     } catch {
       // senza nomi si mostra il codice

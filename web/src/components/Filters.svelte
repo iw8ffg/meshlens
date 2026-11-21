@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { getJSON } from '../lib/api'
+  import { getCountries } from '../lib/api'
   import { app } from '../lib/stores.svelte'
   import { AGE_OPTIONS, SOURCE_OPTIONS, toggleIn } from '../lib/nodes'
   import Flag from '../lib/ui/Flag.svelte'
@@ -16,7 +16,7 @@
   async function loadCountries() {
     error = ''
     try {
-      const list = await getJSON<Country[]>('/countries')
+      const list = await getCountries()
       countries = [...list].sort((a, b) => {
         if (a.code === 'none') return 1
         if (b.code === 'none') return -1

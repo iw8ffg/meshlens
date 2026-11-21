@@ -17,16 +17,18 @@ describe('navigate', () => {
 
 describe('emptyFeedHint', () => {
   it('MQTT non connesso propone Impostazioni', () => {
-    const h = emptyFeedHint({ connected: false }, 0)
+    const h = emptyFeedHint({ connected: false })
     expect(h.action?.tab).toBe('settings')
     expect(h.action?.label).toBe('Apri Impostazioni')
     expect(h.text).toBe('MQTT non è connesso: controlla broker e argomento.')
   })
-  it('stato nullo come non connesso', () => {
-    expect(emptyFeedHint(null, 0).action?.tab).toBe('settings')
+  it('stato nullo: messaggio neutro senza azione', () => {
+    const h = emptyFeedHint(null)
+    expect(h.action).toBeNull()
+    expect(h.title).toBe('Nessun messaggio')
   })
   it('MQTT connesso senza azione', () => {
-    const h = emptyFeedHint({ connected: true }, 0)
+    const h = emptyFeedHint({ connected: true })
     expect(h.action).toBeNull()
     expect(h.text).toBe('Nessun messaggio ricevuto finora con i filtri attuali.')
   })

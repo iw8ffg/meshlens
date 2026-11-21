@@ -19,6 +19,8 @@ export interface WSHandlers {
   resync?(): void
   /** true a ogni apertura, false a ogni chiusura imprevista (non 4401, non voluta). */
   connection?(online: boolean): void
+  /** Chiusura 4401: serve un nuovo accesso; lo stato di connessione va azzerato. */
+  authLost?(): void
 }
 
 const RECONNECT_MS = 3000
@@ -74,6 +76,7 @@ export function connectWS(handlers: WSHandlers): () => void {
       ws = null
       if (stopped) return
       if (ev.code === 4401) {
+        handlers.authLost?.()
         emitAuthRequired()
         return // niente riconnessione: serve prima l'accesso
       }

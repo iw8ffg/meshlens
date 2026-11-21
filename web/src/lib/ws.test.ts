@@ -66,6 +66,14 @@ describe('connectWS: connessione', () => {
     expect(connection).toHaveBeenCalledWith(false)
     stop()
   })
+  it('onclose 4401: chiama authLost', () => {
+    const authLost = vi.fn()
+    const stop = connectWS({ ...handlers(), authLost })
+    FakeWebSocket.instances[0].onclose?.({ code: 4401 })
+    expect(authLost).toHaveBeenCalledOnce()
+    stop()
+  })
+
   it('onclose 4401: nessun connection(false)', () => {
     const { connection, stop } = make()
     FakeWebSocket.instances[0].onclose?.({ code: 4401 })

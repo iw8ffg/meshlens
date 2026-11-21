@@ -17,6 +17,14 @@ export function markOnline(now: number): void {
   conn.attempts = 0
 }
 
+/** Azzera lo stato (nuovo accesso): nessun "Connessione ripristinata" spurio. */
+export function resetConn(): void {
+  conn.online = true
+  conn.lostAt = null
+  conn.attempts = 0
+  conn.restoredAt = null
+}
+
 export function markOffline(now: number): void {
   conn.online = false
   if (conn.lostAt === null) conn.lostAt = now

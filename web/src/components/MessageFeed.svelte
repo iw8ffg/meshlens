@@ -38,7 +38,7 @@
 
   const qs = (extra: string) => `limit=${LIMIT}${extra}`
 
-  const hint = $derived(emptyFeedHint(app.status?.mqtt ?? null, app.radios.length))
+  const hint = $derived(emptyFeedHint(app.status?.mqtt ?? null))
 
   function loadFirst() {
     error = ''
@@ -57,7 +57,7 @@
 
   onMount(() => {
     loadFirst()
-    getJSON<Country[]>('/countries')
+    getCountries()
       .then((list) => (countries = list.filter((c) => c.code !== 'none')))
       .catch(() => {})
   })

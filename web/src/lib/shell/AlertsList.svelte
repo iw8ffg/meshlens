@@ -6,9 +6,10 @@
 
   interface Props {
     alerts: Alert[]
+    now: number
     onpick: (nodeId: string) => void
   }
-  let { alerts, onpick }: Props = $props()
+  let { alerts, now, onpick }: Props = $props()
 </script>
 
 <ul class="alerts-list">
@@ -19,7 +20,7 @@
         <span class="ico {tone}"><Icon name={alertIcon(a.kind)} size={18} /></span>
         <span class="txt">
           <span class="main">{alertLabel(a)} — {a.node_name}</span>
-          <span class="since">da {ago((Date.now() / 1000 - a.since) / 60)}</span>
+          <span class="since">{ago((now - a.since) / 60)}</span>
         </span>
       </button>
     </li>
@@ -30,6 +31,7 @@
   .alerts-list { list-style: none; margin: 0; padding: 0; }
   .row { display: flex; align-items: flex-start; gap: var(--space-2); width: 100%; min-height: var(--touch-min); box-sizing: border-box; text-align: left; padding: var(--space-2) var(--space-3); background: none; border: 0; border-radius: var(--radius-md); color: var(--ink); font: 400 14px/20px var(--font-sans); cursor: pointer; }
   .row:hover { background: var(--accent-soft); }
+  .row:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
   .ico { display: inline-flex; flex: none; margin-top: 1px; color: var(--warn); }
   .ico.ok { color: var(--ok); }
   .txt { display: flex; flex-direction: column; min-width: 0; }

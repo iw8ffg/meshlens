@@ -34,7 +34,7 @@
   import { loadView, saveView } from './lib/viewstate'
   import { ApiError, getJSON, alerts as fetchAlerts, coverageSessions, coverageSession, updateStatus, AUTH_REQUIRED } from './lib/api'
   import { connectWS } from './lib/ws'
-  import { markOnline, markOffline } from './lib/connection.svelte'
+  import { markOnline, markOffline, resetConn } from './lib/connection.svelte'
   import { serialRunner } from './lib/serial'
   import { app, upsertNodes, addMessage, addRadioHistory, setMessageStatus, setStatus, setRadios, setAlerts, setTraceroute, persistFilter, persistFeedFilter, coverage, setCoverageSessions, applyCoverage, configUi, setConfigJob, setMapJob, setUpdateStatus, setUpdateJob, openChat } from './lib/stores.svelte'
   import type { AuthStatus, Message, Node, Radio } from './lib/types'
@@ -204,6 +204,7 @@
         app.reconnects++
       },
       resync: load,
+      authLost: resetConn,
       connection: (on) => (on ? markOnline(Date.now()) : markOffline(Date.now())),
       nodes: upsertNodes,
       message: addMessage,
@@ -263,7 +264,7 @@
   <Login status={auth} onsuccess={refresh} />
 {:else}
   <div class="app">
-    <TopBar visible={visible.length} tab={activeTab} onselect={goTab} onupdate={() => goTab('settings')} onpickalert={pickId} />
+    <TopBar visible={visible.length} {now} tab={activeTab} onselect={goTab} onupdate={() => goTab('settings')} onpickalert={pickId} />
     <ConnectionBar />
     <div class="main">
       {#if routeError}

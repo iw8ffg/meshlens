@@ -78,6 +78,25 @@ export function getJSON<T>(path: string): Promise<T> {
   return request<T>('GET', path)
 }
 
+export interface CountryEntry {
+  code: string
+  name: string
+  nodes: number
+}
+
+let countriesPromise: Promise<CountryEntry[]> | null = null
+
+/** Elenco nazioni: una sola richiesta per sessione (un errore non resta in cache). */
+export function getCountries(): Promise<CountryEntry[]> {
+  if (!countriesPromise) {
+    countriesPromise = getJSON<CountryEntry[]>('/countries').catch((e) => {
+      countriesPromise = null
+      throw e
+    })
+  }
+  return countriesPromise
+}
+
 export function send<T>(method: string, path: string, body?: unknown): Promise<T> {
   return request<T>(method, path, body)
 }

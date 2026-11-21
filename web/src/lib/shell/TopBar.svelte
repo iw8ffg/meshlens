@@ -15,12 +15,13 @@
 
   interface Props {
     visible: number
+    now: number
     tab: Tab
     onselect: (t: Tab) => void
     onupdate: () => void
     onpickalert: (nodeId: string) => void
   }
-  let { visible, tab, onselect, onupdate, onpickalert }: Props = $props()
+  let { visible, now, tab, onselect, onupdate, onpickalert }: Props = $props()
 
   const mqtt = $derived(app.status?.mqtt ?? null)
   const mqttSum = $derived(mqttSummary(mqtt, Date.now() / 1000))
@@ -107,6 +108,7 @@
           <div class="pop alerts" role="dialog" aria-label="Avvisi">
             <AlertsList
               alerts={app.alerts}
+              {now}
               onpick={(id) => {
                 open = null
                 onpickalert(id)

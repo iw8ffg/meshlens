@@ -20,8 +20,9 @@ export interface EmptyHint {
   action: { label: string; tab: Tab } | null
 }
 
-export function emptyFeedHint(mqtt: { connected: boolean } | null, _radios: number): EmptyHint {
-  if (!mqtt?.connected) {
+export function emptyFeedHint(mqtt: { connected: boolean } | null): EmptyHint {
+  if (mqtt === null) return { title: 'Nessun messaggio', text: 'Nessun messaggio ricevuto finora.', action: null }
+  if (!mqtt.connected) {
     return {
       title: 'Nessun messaggio',
       text: 'MQTT non è connesso: controlla broker e argomento.',
