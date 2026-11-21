@@ -34,9 +34,9 @@
   import { locate } from '../lib/map/geolocate'
   import { addTrackLayer, trackData } from '../lib/map/TrackLayer'
   import { addCoverageLayers } from '../lib/map/CoverageLayer'
-import { addRulerLayers } from '../lib/map/RulerLayer'
-import { addRulerPoint, rulerGeoJSON, rulerText } from '../lib/map/ruler'
-import type { RulerPoint } from '../lib/map/ruler'
+  import { addRulerLayers } from '../lib/map/RulerLayer'
+  import { addRulerPoint, rulerGeoJSON, rulerText } from '../lib/map/ruler'
+  import type { RulerPoint } from '../lib/map/ruler'
   import Legend from '../lib/map/Legend.svelte'
   import MapControls from '../lib/map/MapControls.svelte'
   import MapSearch from '../lib/map/MapSearch.svelte'
@@ -564,8 +564,9 @@ import type { RulerPoint } from '../lib/map/ruler'
   const restCursor = () => (picking || tool === 'ruler' ? 'crosshair' : '')
 
   function pushRuler() {
+    const pts = rulerPts // letto prima della guardia: l'effetto dipende sempre da rulerPts
     if (!ready) return
-    src('ruler')?.setData(rulerGeoJSON(rulerPts))
+    src('ruler')?.setData(rulerGeoJSON(pts))
   }
 
   function closeRuler() {
@@ -819,30 +820,30 @@ import type { RulerPoint } from '../lib/map/ruler'
 {/if}
 {#if notice}<div class="notice" role="status">{notice}</div>{/if}
 <div class="topleft">
-{#if searchOpen}
-  <MapSearch onpick={pickFromSearch} onclose={() => (searchOpen = false)} />
-{/if}
-{#if coverage.detail}
-  <div class="covbar">
-    <div class="row">
-      <b>{coverage.detail.name}</b>
-      <Button onclick={closeTest}>Chiudi prova</Button>
+  {#if searchOpen}
+    <MapSearch onpick={pickFromSearch} onclose={() => (searchOpen = false)} />
+  {/if}
+  {#if coverage.detail}
+    <div class="covbar">
+      <div class="row">
+        <b>{coverage.detail.name}</b>
+        <Button onclick={closeTest}>Chiudi prova</Button>
+      </div>
+      {#if coverage.detail.base_lat === null}
+        <p>Posizione della base sconosciuta: tocca la mappa per impostarla</p>
+      {/if}
+      {#if picking}
+        <p>Tocca la mappa nel punto in cui si trova la base.</p>
+        <Button kind="ghost" onclick={cancelPick}>Annulla</Button>
+      {:else}
+        <Button onclick={startPick}>Imposta posizione base</Button>
+      {/if}
+      {#if pickError}<p class="err">{pickError}</p>{/if}
     </div>
-    {#if coverage.detail.base_lat === null}
-      <p>Posizione della base sconosciuta: tocca la mappa per impostarla</p>
-    {/if}
-    {#if picking}
-      <p>Tocca la mappa nel punto in cui si trova la base.</p>
-      <Button kind="ghost" onclick={cancelPick}>Annulla</Button>
-    {:else}
-      <Button onclick={startPick}>Imposta posizione base</Button>
-    {/if}
-    {#if pickError}<p class="err">{pickError}</p>{/if}
-  </div>
-{/if}
-{#if tool === 'ruler'}
-  <RulerBar text={rulerText(rulerPts, nodeName)} onclear={() => (rulerPts = [])} onclose={closeRuler} />
-{/if}
+  {/if}
+  {#if tool === 'ruler'}
+    <RulerBar text={rulerText(rulerPts, nodeName)} onclear={() => (rulerPts = [])} onclose={closeRuler} />
+  {/if}
 </div>
 
 <style>

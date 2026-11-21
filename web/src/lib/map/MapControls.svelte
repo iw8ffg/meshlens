@@ -1,5 +1,5 @@
 <script lang="ts">
-  // Controlli della mappa (zoom, adatta ai nodi): 44 px su telefono.
+  // Controlli della mappa: zoom e adatta ai nodi, poi gli strumenti (cerca, Dove sono, righello, raggruppa); 44 px su telefono.
   import Icon from '../ui/Icon.svelte'
 
   interface Props {
@@ -18,17 +18,17 @@
 </script>
 
 <div class="stack">
-<div class="controls" role="group" aria-label="Controlli mappa">
-  <button type="button" aria-label="Ingrandisci" title="Ingrandisci" onclick={onzoomin}><Icon name="plus" size={18} /></button>
-  <button type="button" aria-label="Riduci" title="Riduci" onclick={onzoomout}><Icon name="minus" size={18} /></button>
-  <button type="button" aria-label="Mostra tutti i nodi" title="Mostra tutti i nodi" onclick={onfit}><Icon name="globe" size={18} /></button>
-</div>
-<div class="controls" role="group" aria-label="Strumenti mappa">
-  <button type="button" aria-label="Cerca nodo" title="Cerca nodo" onclick={onsearch}><Icon name="search" size={18} /></button>
-  <button type="button" aria-label="Dove sono" title="Dove sono" aria-busy={locating} disabled={locating} onclick={onlocate}><Icon name={locating ? 'spinner' : 'locate'} size={18} /></button>
-  <button type="button" class:on={ruler} aria-pressed={ruler} aria-label="Righello" title="Righello" onclick={onruler}><Icon name="ruler" size={18} /></button>
-  <button type="button" class:on={cluster} aria-pressed={cluster} aria-label="Raggruppa nodi" title="Raggruppa nodi" onclick={oncluster}><Icon name="cluster" size={18} /></button>
-</div>
+  <div class="controls" role="group" aria-label="Controlli mappa">
+    <button type="button" aria-label="Ingrandisci" title="Ingrandisci" onclick={onzoomin}><Icon name="plus" size={18} /></button>
+    <button type="button" aria-label="Riduci" title="Riduci" onclick={onzoomout}><Icon name="minus" size={18} /></button>
+    <button type="button" aria-label="Mostra tutti i nodi" title="Mostra tutti i nodi" onclick={onfit}><Icon name="globe" size={18} /></button>
+  </div>
+  <div class="controls" role="group" aria-label="Strumenti mappa">
+    <button type="button" aria-label="Cerca nodo" title="Cerca nodo" onclick={onsearch}><Icon name="search" size={18} /></button>
+    <button type="button" aria-label="Dove sono" title="Dove sono" aria-busy={locating} disabled={locating} onclick={onlocate}><Icon name={locating ? 'spinner' : 'locate'} size={18} /></button>
+    <button type="button" class:on={ruler} aria-pressed={ruler} aria-label="Righello" title="Righello" onclick={onruler}><Icon name="ruler" size={18} /></button>
+    <button type="button" class:on={cluster} aria-pressed={cluster} aria-label="Raggruppa nodi" title="Raggruppa nodi" onclick={oncluster}><Icon name="cluster" size={18} /></button>
+  </div>
 </div>
 
 <style>
