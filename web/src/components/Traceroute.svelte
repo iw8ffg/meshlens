@@ -1,7 +1,10 @@
 <script lang="ts">
   import { untrack } from 'svelte'
   import { ApiError, traceroute, traceroutes } from '../lib/api'
-  import { formatDate } from '../lib/format'
+  import { formatDate, signed } from '../lib/format'
+  import Banner from '../lib/ui/Banner.svelte'
+  import Button from '../lib/ui/Button.svelte'
+  import Select from '../lib/ui/Select.svelte'
   import { app, setTraceroute } from '../lib/stores.svelte'
   import { mergeHistory } from '../lib/traceroute'
   import type { Node, Traceroute, TracerouteHop } from '../lib/types'
@@ -93,7 +96,7 @@
 
   function snr(v: number | null): string {
     if (v === null) return '? dB'
-    return `${String(Math.round(v * 10) / 10).replace('.', ',').replace('-', '−')} dB`
+    return `${signed(v, 1)} dB`
   }
 
   /** `Base → Rip1 (6 dB) → Nodo (−1 dB)`: SNR con cui ogni salto e' stato ricevuto. */
@@ -113,31 +116,31 @@
 
 <h3>Traceroute</h3>
 <div class="row">
-  <button class="tr" disabled={connected.length === 0 || pending} onclick={run}>Traceroute</button>
+  <Button icon="route" disabled={connected.length === 0 || pending} onclick={run}>{pending ? 'In corso…' : 'Traceroute'}</Button>
   {#if connected.length > 1}
-    <select bind:value={radioId} aria-label="Radio per il traceroute">
-      <option value="">automatica</option>
+    <Select bind:value={radioId} aria-label="Radio per il traceroute">
+      <option value="">Radio automatica</option>
       {#each connected as r (r.id)}<option value={r.id}>{r.name}</option>{/each}
-    </select>
+    </Select>
   {/if}
 </div>
 {#if connected.length === 0}<p class="none">Collega una radio</p>{/if}
-{#if error}<p class="msg">{error}</p>{/if}
+{#if error}<div class="gap"><Banner kind="danger" title={error} /></div>{/if}
 {#if pending}
-  <p class="none">In corso… (max 60 s)</p>
+  <p class="none" role="status">In corso… (max 60 s)</p>
 {:else if current}
   {#if current.status === 'ok'}
     <p class="res"><b>Andata</b> {path(current.forward)}</p>
     <p class="res"><b>Ritorno</b> {path(current.back)}</p>
   {:else}
-    <p class="msg">{failure(current)}</p>
+    <div class="gap"><Banner kind="warn" title={failure(current)} /></div>
   {/if}
 {/if}
 {#if older.length > 0}
   <ul class="hist">
     {#each older as t (t.id)}
       <li>
-        <span class="when">{formatDate(t.time)}</span>
+        <span class="when ui-mono">{formatDate(t.time)}</span>
         {#if t.status === 'ok'}
           {path(t.forward)}
         {:else if t.status === 'pending'}
@@ -152,59 +155,49 @@
 
 <style>
   h3 {
-    font-size: 14px;
-    margin: 10px 0 4px;
+    font: 600 14px/20px var(--font-sans);
+    margin: var(--space-4) 0 var(--space-2);
   }
   .row {
     display: flex;
-    gap: 6px;
+    gap: var(--space-2);
     align-items: center;
+    flex-wrap: wrap;
   }
-  .tr {
-    background: #1f2937;
-    color: inherit;
-    border: 1px solid #374151;
-    border-radius: 6px;
-    padding: 6px 12px;
-    cursor: pointer;
+  .row :global(.ui-select) {
+    width: auto;
+    min-width: 160px;
   }
-  .tr:disabled {
-    opacity: 0.5;
-    cursor: default;
-  }
-  select {
-    background: #1f2937;
-    color: inherit;
-    border: 1px solid #374151;
-    border-radius: 6px;
-    padding: 5px;
+  .gap {
+    margin: var(--space-2) 0;
   }
   .none {
-    margin: 4px 0;
+    margin: var(--space-2) 0;
     font-size: 13px;
-    color: #9ca3af;
-  }
-  .msg {
-    color: #fbbf24;
-    font-size: 13px;
-    margin: 4px 0;
+    color: var(--ink-muted);
   }
   .res {
     font-size: 13px;
-    margin: 4px 0;
+    margin: var(--space-2) 0;
     word-break: break-word;
+    color: var(--ink);
   }
   .hist {
     list-style: none;
-    margin: 6px 0;
+    margin: var(--space-2) 0;
     padding: 0;
     font-size: 12px;
-    color: #9ca3af;
+    color: var(--ink-muted);
   }
   .hist li {
-    margin-bottom: 2px;
+    margin-bottom: var(--space-1);
   }
   .when {
-    margin-right: 6px;
+    margin-right: var(--space-2);
+  }
+  :global(.vp-phone) .none,
+  :global(.vp-phone) .res,
+  :global(.vp-phone) .hist {
+    font-size: 14px;
   }
 </style>
