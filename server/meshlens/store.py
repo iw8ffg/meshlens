@@ -236,6 +236,78 @@ class Store:
                  "forward": json.loads(r["forward"] or "[]"),
                  "back": json.loads(r["back"] or "[]")} for r in rows]
 
+    # --- configurazione del nodo (letture, copie di sicurezza, lavori): non scadono ---
+    def add_read(self, node_num: int, radio_id: str | None, time: float, sections: list,
+                 data: dict) -> int:
+        cur = self.conn.execute(
+            "INSERT INTO config_reads(node_num, radio_id, time, sections, data) VALUES(?,?,?,?,?)",
+            (node_num, radio_id, time, json.dumps(sections), json.dumps(data)))
+        return cur.lastrowid
+
+    def last_read(self, node_num: int) -> dict | None:
+        row = self.conn.execute(
+            "SELECT * FROM config_reads WHERE node_num=? ORDER BY time DESC, id DESC LIMIT 1",
+            (node_num,)).fetchone()
+        if not row:
+            return None
+        return {"id": row["id"], "node_num": row["node_num"], "radio_id": row["radio_id"],
+                "time": row["time"], "sections": json.loads(row["sections"] or "[]"),
+                "data": json.loads(row["data"] or "{}")}
+
+    def add_backup(self, node_num: int, time: float, reason: str, label: str | None,
+                   sections: list, data: dict) -> int:
+        # data contiene i segreti in chiaro: serve a ripristinare, non esce mai senza maschera
+        cur = self.conn.execute(
+            "INSERT INTO config_backups(node_num, time, reason, label, sections, data) "
+            "VALUES(?,?,?,?,?,?)",
+            (node_num, time, reason, label, json.dumps(sections), json.dumps(data)))
+        return cur.lastrowid
+
+    @staticmethod
+    def _backup_row(r, with_data: bool) -> dict:
+        d = {"id": r["id"], "node_num": r["node_num"], "time": r["time"], "reason": r["reason"],
+             "label": r["label"], "sections": json.loads(r["sections"] or "[]")}
+        if with_data:
+            d["data"] = json.loads(r["data"] or "{}")
+        return d
+
+    def backups(self, node_num: int) -> list[dict]:
+        rows = self.conn.execute(
+            "SELECT * FROM config_backups WHERE node_num=? ORDER BY time DESC, id DESC",
+            (node_num,))
+        return [self._backup_row(r, False) for r in rows]
+
+    def get_backup(self, backup_id: int) -> dict | None:
+        row = self.conn.execute("SELECT * FROM config_backups WHERE id=?",
+                                (backup_id,)).fetchone()
+        return self._backup_row(row, True) if row else None
+
+    _JOB_FIELDS = ("node_num", "radio_id", "kind", "status", "step", "done", "total", "error",
+                   "result_id", "verify", "started", "ended")
+
+    def _check_job(self, fields: dict) -> None:
+        bad = set(fields) - set(self._JOB_FIELDS)
+        if bad:
+            raise ValueError(f"campi lavoro sconosciuti: {sorted(bad)}")
+
+    def add_job(self, **fields) -> int:
+        self._check_job(fields)
+        cur = self.conn.execute(
+            f"INSERT INTO config_jobs({', '.join(fields)}) VALUES({', '.join('?' * len(fields))})",
+            tuple(fields.values()))
+        return cur.lastrowid
+
+    def update_job(self, job_id: int, **fields) -> None:
+        self._check_job(fields)
+        if fields:
+            self.conn.execute(
+                f"UPDATE config_jobs SET {', '.join(k + '=?' for k in fields)} WHERE id=?",
+                (*fields.values(), job_id))
+
+    def get_job(self, job_id: int) -> dict | None:
+        row = self.conn.execute("SELECT * FROM config_jobs WHERE id=?", (job_id,)).fetchone()
+        return dict(row) if row else None
+
     def positions(self, num: int, since: float) -> list[dict]:
         rows = self.conn.execute(
             "SELECT time, lat, lon, precision_bits, source FROM positions "

@@ -42,6 +42,18 @@ CREATE TABLE IF NOT EXISTS coverage_points(
 CREATE TABLE IF NOT EXISTS coverage_track(
   id INTEGER PRIMARY KEY AUTOINCREMENT, session_id INTEGER, time REAL, lat REAL, lon REAL,
   precision_bits INTEGER);
+CREATE TABLE IF NOT EXISTS config_reads(
+  id INTEGER PRIMARY KEY AUTOINCREMENT, node_num INTEGER, radio_id TEXT, time REAL,
+  sections TEXT, data TEXT);
+CREATE TABLE IF NOT EXISTS config_backups(
+  id INTEGER PRIMARY KEY AUTOINCREMENT, node_num INTEGER, time REAL, reason TEXT, label TEXT,
+  sections TEXT, data TEXT);
+CREATE TABLE IF NOT EXISTS config_jobs(
+  id INTEGER PRIMARY KEY AUTOINCREMENT, node_num INTEGER, radio_id TEXT, kind TEXT,
+  status TEXT, step TEXT, done INTEGER, total INTEGER, error TEXT, result_id INTEGER,
+  verify TEXT, started REAL, ended REAL);
+CREATE INDEX IF NOT EXISTS idx_config_reads_node ON config_reads(node_num, time);
+CREATE INDEX IF NOT EXISTS idx_config_backups_node ON config_backups(node_num, time);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_cov_points_seq
   ON coverage_points(session_id, segment, seq) WHERE seq IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_cov_points_session ON coverage_points(session_id);

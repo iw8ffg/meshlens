@@ -225,3 +225,31 @@ def test_purge_keeps_coverage(store):
     store.purge(NOW, {**DEFAULTS, "storage_cap_mb": 0.0001})
     assert len(store.sessions()) == 1 and len(store.points(sid)) == 1
     assert len(store.track(sid)) == 1
+
+
+def test_store_config_tables_roundtrip(store):
+    num = 0xA1B2C3D4
+    assert store.last_read(num) is None
+    store.add_read(num, "r1", 100.0, ["config.lora"], {"a": 1})
+    rid = store.add_read(num, "r1", 200.0, ["config.lora", "owner"], {"a": 2})
+    last = store.last_read(num)
+    assert last["id"] == rid and last["data"] == {"a": 2}
+    assert last["sections"] == ["config.lora", "owner"] and last["radio_id"] == "r1"
+
+    bid = store.add_backup(num, 150.0, "before_apply", "prima", ["config.lora"],
+                           {"config": {"security": {"private_key": "SEGRETO"}}})
+    store.add_backup(99, 160.0, "manual", None, [], {})
+    lst = store.backups(num)
+    assert [b["id"] for b in lst] == [bid] and "data" not in lst[0]
+    got = store.get_backup(bid)
+    assert got["data"]["config"]["security"]["private_key"] == "SEGRETO"
+    assert got["reason"] == "before_apply" and store.get_backup(999) is None
+
+    jid = store.add_job(node_num=num, radio_id="r1", kind="apply", status="running",
+                        step="avvio", done=0, total=3, started=1.0)
+    store.update_job(jid, status="done", done=3, verify="verified", ended=2.0)
+    job = store.get_job(jid)
+    assert job["status"] == "done" and job["verify"] == "verified" and job["total"] == 3
+    with pytest.raises(ValueError):
+        store.update_job(jid, bogus=1)
+    assert store.get_job(999) is None
