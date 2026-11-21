@@ -426,3 +426,10 @@ async def test_shutdown_during_source_lookup_creates_no_task(tmp_path):
     with pytest.raises(MapsError):
         await t
     assert mgr._task is None and mgr.job is None
+
+
+def test_user_agent_is_meshlens_not_python_urllib():
+    from meshlens.maps import user_agent
+    from meshlens import __version__
+    ua = user_agent()
+    assert ua.startswith(f"MeshLens/{__version__}") and "Python-urllib" not in ua

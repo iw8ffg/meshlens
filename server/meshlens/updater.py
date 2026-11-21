@@ -84,7 +84,8 @@ class UrllibHttp:
 
     def _open_once(self, url: str, headers: dict):
         """Una richiesta senza redirect: restituisce una risposta (anche 3xx/4xx)."""
-        req = urllib.request.Request(url, headers=headers)
+        from .maps import user_agent
+        req = urllib.request.Request(url, headers={"User-Agent": user_agent(), **headers})
         try:
             return self._opener.open(req, timeout=self.timeout)
         except urllib.error.HTTPError as e:

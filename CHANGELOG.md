@@ -3,6 +3,18 @@
 Il formato segue [Keep a Changelog](https://keepachangelog.com/it-IT/1.1.0/) e il progetto usa il [versionamento semantico](https://semver.org/lang/it/).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [1.2.1] - 2026-11-21
+
+### Italiano
+
+#### Corretto
+- **Mappe offline:** lo scaricamento diceva "Nessuna mappa Protomaps disponibile negli ultimi 7 giorni" perché il server di Protomaps rifiuta le richieste con il nome di client predefinito di Python. Ora MeshLens si presenta con il proprio nome e la mappa del giorno viene trovata.
+
+### English
+
+#### Fixed
+- **Offline maps:** downloading said "No Protomaps map available in the last 7 days" because the Protomaps server rejects Python's default client name. MeshLens now identifies itself by name and the daily map is found.
+
 ## [1.2.0] - 2026-11-21
 
 ### Italiano
@@ -106,3 +118,4 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 [1.0.2]: https://github.com/iw8ffg/meshlens/releases/tag/v1.0.2
 [1.1.0]: https://github.com/iw8ffg/meshlens/releases/tag/v1.1.0
 [1.2.0]: https://github.com/iw8ffg/meshlens/releases/tag/v1.2.0
+[1.2.1]: https://github.com/iw8ffg/meshlens/releases/tag/v1.2.1

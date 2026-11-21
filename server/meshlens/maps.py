@@ -110,8 +110,15 @@ def find_source(head: Callable[[str], int], today: date,
     raise MapsError("Nessuna mappa Protomaps disponibile negli ultimi 7 giorni", 502)
 
 
+def user_agent() -> str:
+    """Nome del client nelle richieste HTTP: alcuni server (build.protomaps.com) rifiutano
+    con 403 l'agente predefinito "Python-urllib"."""
+    from . import __version__
+    return f"MeshLens/{__version__} (+https://github.com/iw8ffg/meshlens)"
+
+
 def default_head(url: str) -> int:
-    req = urllib.request.Request(url, method="HEAD")
+    req = urllib.request.Request(url, method="HEAD", headers={"User-Agent": user_agent()})
     try:
         with urllib.request.urlopen(req, timeout=5) as r:
             return r.status
@@ -123,7 +130,8 @@ def default_downloader(url: str, dest: Path, progress: Callable[[int, int | None
     """Download a blocchi (da eseguire in un thread); progress puo' sollevare per interrompere."""
     if urlsplit(url).scheme != "https":
         raise MapsError("Sono ammessi solo download https")
-    with urllib.request.urlopen(url, timeout=30) as r, open(dest, "wb") as f:
+    req = urllib.request.Request(url, headers={"User-Agent": user_agent()})
+    with urllib.request.urlopen(req, timeout=30) as r, open(dest, "wb") as f:
         total = int(r.headers.get("Content-Length") or 0) or None
         done = 0
         while chunk := r.read(256 * 1024):
