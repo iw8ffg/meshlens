@@ -1,3 +1,5 @@
+import type { Alert, Link, Node, TelemetryPoint, Traceroute } from './types'
+
 export class ApiError extends Error {
   status: number
   retryAfter: number | null
@@ -47,3 +49,14 @@ export function getJSON<T>(path: string): Promise<T> {
 export function send<T>(method: string, path: string, body?: unknown): Promise<T> {
   return request<T>(method, path, body)
 }
+
+const nodePath = (id: string) => `/nodes/${encodeURIComponent(id)}`
+
+export const telemetry = (id: string, hours = 168) =>
+  getJSON<TelemetryPoint[]>(`${nodePath(id)}/telemetry?hours=${hours}`)
+export const setMine = (id: string, mine: boolean) => send<Node>('PUT', `${nodePath(id)}/mine`, { mine })
+export const links = (hours = 24) => getJSON<Link[]>(`/links?hours=${hours}`)
+export const alerts = () => getJSON<Alert[]>('/alerts')
+export const traceroute = (id: string, radioId?: string) =>
+  send<Traceroute>('POST', `${nodePath(id)}/traceroute`, radioId ? { radio_id: radioId } : {})
+export const traceroutes = (id: string) => getJSON<Traceroute[]>(`${nodePath(id)}/traceroutes`)

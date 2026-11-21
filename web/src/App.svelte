@@ -9,18 +9,21 @@
   import Chat from './components/Chat.svelte'
   import Radios from './components/Radios.svelte'
   import Settings from './components/Settings.svelte'
+  import Network from './components/Network.svelte'
+  import Alerts from './components/Alerts.svelte'
   import { matchNode } from './lib/filters'
-  import { getJSON, AUTH_REQUIRED } from './lib/api'
+  import { getJSON, alerts as fetchAlerts, AUTH_REQUIRED } from './lib/api'
   import { connectWS } from './lib/ws'
-  import { app, upsertNodes, addMessage, addRadioHistory, setMessageStatus, setStatus, setRadios, persistFilter } from './lib/stores.svelte'
+  import { app, upsertNodes, addMessage, addRadioHistory, setMessageStatus, setStatus, setRadios, setAlerts, setTraceroute, persistFilter } from './lib/stores.svelte'
   import type { AuthStatus, Message, Node, Radio } from './lib/types'
 
   let auth = $state<AuthStatus | null>(null)
   let error = $state('')
-  type Tab = 'map' | 'nodes' | 'chat' | 'radio' | 'settings'
+  type Tab = 'map' | 'nodes' | 'network' | 'chat' | 'radio' | 'settings'
   const TABS: [Tab, string][] = [
     ['map', 'Mappa'],
     ['nodes', 'Nodi'],
+    ['network', 'Rete'],
     ['chat', 'Chat'],
     ['radio', 'Radio'],
     ['settings', 'Impostazioni'],
@@ -98,6 +101,9 @@
       getJSON<Radio[]>('/radios')
         .then(setRadios)
         .catch(() => {})
+      fetchAlerts()
+        .then(setAlerts)
+        .catch(() => {})
     }
     load()
     return connectWS({
@@ -106,6 +112,8 @@
       message: addMessage,
       status: setStatus,
       radios: setRadios,
+      alerts: setAlerts,
+      traceroute: setTraceroute,
       messageStatus: setMessageStatus,
     })
   })
@@ -120,6 +128,7 @@
 {:else}
   <div class="app" class:mobile>
     <StatusBar visible={visible.length} />
+    <Alerts onpick={pickId} />
     <div class="main">
       <div class="mapwrap"><MapView nodes={visible} {now} {track} {focus} /></div>
       <aside class="panel" class:open={panelOpen || !!selected}>
@@ -137,6 +146,8 @@
           {#if activeTab === 'nodes'}
             <Filters />
             <NodeList nodes={visible} {now} onpick={pick} />
+          {:else if activeTab === 'network'}
+            <Network nodes={[...app.nodes.values()]} {now} onpick={pick} />
           {:else if activeTab === 'chat'}
             <Chat {now} onpick={pickId} />
           {:else if activeTab === 'radio'}

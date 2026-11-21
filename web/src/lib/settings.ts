@@ -14,6 +14,8 @@ export interface AppSettings {
   retention_telemetry_days: number
   storage_cap_mb: number
   lan_access: boolean
+  battery_alert_pct: number
+  silent_alert_hours: number
   mqtt: MqttSettings
 }
 

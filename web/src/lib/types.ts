@@ -23,6 +23,7 @@ export interface Node {
   hops: number | null
   heard_by?: Record<string, { snr: number | null; rssi: number | null; hops: number | null; time: number }>
   is_local_radio?: boolean
+  is_mine?: boolean
 }
 
 export type MessageStatus = 'sending' | 'sent' | 'acked' | 'failed'
@@ -85,4 +86,48 @@ export interface Port {
 export interface BleDevice {
   address: string
   name: string
+}
+
+export interface Link {
+  from_id: string
+  to_id: string
+  source: 'neighborinfo' | 'traceroute' | 'rf_direct'
+  snr: number | null
+  time: number
+}
+
+export interface Alert {
+  key: string
+  kind: 'battery_low' | 'silent'
+  node_id: string
+  node_name: string
+  /** Percentuale per battery_low, ore di silenzio per silent. */
+  value: number
+  since: number
+}
+
+export interface TelemetryPoint {
+  time: number
+  battery: number | null
+  voltage: number | null
+  channel_util: number | null
+  air_util_tx: number | null
+}
+
+export interface TracerouteHop {
+  id: string
+  snr: number | null
+}
+
+export type TracerouteStatus = 'pending' | 'ok' | 'failed' | 'timeout'
+
+export interface Traceroute {
+  id: number
+  radio_id: string
+  target_id: string
+  time: number
+  status: TracerouteStatus
+  error: string | null
+  forward: TracerouteHop[]
+  back: TracerouteHop[]
 }
