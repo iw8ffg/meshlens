@@ -22,6 +22,11 @@ HOUR_S = 3600
 BROADCAST = 0xFFFFFFFF
 HOP_LIMIT = 3
 DEFAULT_REGION = "EU_868"
+MAX_REACTION_BYTES = 16
+MAX_PACKET_ID = 2**32 - 1
+REACTION_NEEDS_REPLY = "La reazione richiede il messaggio a cui reagire"
+INVALID_REACTION = "Reazione non valida"
+INVALID_REPLY = "Messaggio di riferimento non valido"
 
 
 def confirm_text(host: str) -> str:
@@ -37,6 +42,20 @@ _CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
 _NODE_ID = re.compile(r"!([0-9a-fA-F]{8})")
 
 
+def reply_problem(text: str, reply_id: int | None, emoji: bool) -> str | None:
+    """Motivo per cui risposta o reazione non sono valide (None se valide). Condiviso
+    dall'invio via radio e via MQTT."""
+    if emoji and reply_id is None:
+        return REACTION_NEEDS_REPLY
+    if reply_id is not None and (not isinstance(reply_id, int) or isinstance(reply_id, bool)
+                                 or not 1 <= reply_id <= MAX_PACKET_ID):
+        return INVALID_REPLY
+    if emoji and (len(text.encode("utf-8")) > MAX_REACTION_BYTES
+                  or any(c.isspace() for c in text)):
+        return INVALID_REACTION
+    return None
+
+
 class MqttSendError(Exception):
     def __init__(self, status: int, code: str, message: str):
         super().__init__(message)
@@ -44,10 +63,13 @@ class MqttSendError(Exception):
 
 
 def build_envelope(text: str, from_num: int, to_num: int, channel_name: str, key: bytes,
-                   packet_id: int, gateway_id: str, encrypted: bool = True) -> bytes:
+                   packet_id: int, gateway_id: str, encrypted: bool = True,
+                   reply_id: int | None = None, emoji: bool = False) -> bytes:
     """ServiceEnvelope con un TEXT_MESSAGE_APP cifrato (AES-CTR e' simmetrico), oppure in
-    chiaro (decoded) se encrypted e' falso o il canale non ha chiave."""
-    data = mesh_pb2.Data(portnum=portnums_pb2.TEXT_MESSAGE_APP, payload=text.encode("utf-8"))
+    chiaro (decoded) se encrypted e' falso o il canale non ha chiave. Risposte e reazioni
+    restano TEXT_MESSAGE_APP: cambiano solo Data.reply_id e Data.emoji."""
+    data = mesh_pb2.Data(portnum=portnums_pb2.TEXT_MESSAGE_APP, payload=text.encode("utf-8"),
+                         reply_id=reply_id or 0, emoji=1 if emoji else 0)
     packet = mesh_pb2.MeshPacket(**{"from": from_num}, to=to_num, id=packet_id,
                                  channel=channel_hash(channel_name, key),
                                  hop_limit=HOP_LIMIT, hop_start=HOP_LIMIT, want_ack=False)
@@ -157,11 +179,15 @@ class MqttSender:
                             "aggiungilo ai canali del broker in Impostazioni")
 
     def send(self, text: str, channel: str, to: str | None, confirm_public: bool,
-             broker: str | None = None) -> dict:
+             broker: str | None = None, reply_id: int | None = None,
+             emoji: bool = False) -> dict:
         settings = self.settings()
         if not text.strip() or _CONTROL.search(text) or len(text.encode("utf-8")) > MAX_TEXT_BYTES:
             raise MqttSendError(400, "invalid_text",
                                 f"Il testo deve essere non vuoto e di al massimo {MAX_TEXT_BYTES} byte")
+        problem = reply_problem(text, reply_id, emoji)
+        if problem is not None:
+            raise MqttSendError(400, "invalid_reaction", problem)
         if not channel or len(channel) > 32 or any(c in channel for c in "/#+"):
             raise MqttSendError(400, "invalid_channel", "Nome del canale non valido")
         to_num = BROADCAST
@@ -185,9 +211,10 @@ class MqttSender:
         root = root_from_topics(b.get("topics", []))
         topic = f"{root}/2/e/{channel}/{own}"
         payload = build_envelope(text, from_num, to_num, channel, key, packet_id, own,
-                                 encrypted=b.get("encryption", True))
+                                 encrypted=b.get("encryption", True),
+                                 reply_id=reply_id, emoji=emoji)
         if not connector.publish(topic, payload):
             raise MqttSendError(503, "mqtt_disconnected", "MQTT non connesso")
         self._sent[bid].append(self.clock())
         return self.record(from_num=from_num, to_num=to_num, packet_id=packet_id, text=text,
-                           channel=channel, broker=bid)
+                           channel=channel, broker=bid, reply_id=reply_id, emoji=emoji)

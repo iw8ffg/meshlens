@@ -80,6 +80,26 @@ async def test_send_endpoint(env):
         assert (await c.post("/api/radios/rnope/send", json={"text": "a"})).status_code == 404
 
 
+async def test_send_body_reply_fields(env):
+    async with logged(make_ctx(env)) as c:
+        rid = (await c.post("/api/radios", json={"kind": "usb", "address": "COM5",
+                                                 "name": "H"})).json()["id"]
+        url = f"/api/radios/{rid}/send"
+        assert (await c.post(url, json={"text": "ok", "reply_id": 0})).status_code == 422
+        assert (await c.post(url, json={"text": "ok",
+                                        "reply_id": 4294967296})).status_code == 422
+        r = await c.post(url, json={"text": "👍", "emoji": True})
+        assert r.status_code == 400
+        assert r.json()["detail"] == "La reazione richiede il messaggio a cui reagire"
+        r = await c.post(url, json={"text": "👍", "to": "!00000042", "reply_id": 42,
+                                    "emoji": True})
+        assert r.status_code == 202
+        body = r.json()
+        assert body["reply_id"] == 42 and body["emoji"] is True and body["pki"] is False
+        await settle()
+        assert FakeConnector.instances[0].sent_reply == [(42, True)]
+
+
 async def test_radio_messages_endpoint(env):
     async with logged(make_ctx(env)) as c:
         rid = (await c.post("/api/radios", json={"kind": "usb", "address": "COM5",

@@ -25,6 +25,7 @@ class FakeConnector:
         self.on_traceroute, self.traces = on_traceroute, []
         self.state_name, self.starts, self.stops = "disconnected", 0, 0
         self.sent, self.next_id, self.fail = [], 500, None
+        self.sent_reply = []
         self.gate = None
         FakeConnector.instances.append(self)
 
@@ -47,12 +48,13 @@ class FakeConnector:
         self.state_name = name
         self.on_state(self.state())
 
-    async def send_text(self, text, channel_index, dest):
+    async def send_text(self, text, channel_index, dest, reply_id=None, emoji=False):
         if self.gate is not None:
             await self.gate.wait()
         if self.fail:
             raise RuntimeError(self.fail)
         self.sent.append((text, channel_index, dest))
+        self.sent_reply.append((reply_id, emoji))
         self.next_id += 1
         return self.next_id
 
@@ -86,7 +88,7 @@ class Env:
             lambda: {"saved_countries": []},
             lambda m: self.bus.publish({"type": "message", "message": m}),
             lambda k, s, e=None: self.bus.publish(
-                {"type": "message_status", "key": k, "status": s}))
+                {"type": "message_status", "key": k, "status": s, "error": e}))
         self.now = 1000.0
         self.ports = [SimpleNamespace(device="COM5", description="CP210x", vid=0x10C4, pid=0xEA60),
                       SimpleNamespace(device="COM1", description="Porta", vid=None, pid=None)]
@@ -198,7 +200,8 @@ async def test_send_provisional_then_definitive_then_ack():
     assert "replaces" not in e.live.messages[0]
     assert fc.sent == [("ciao", 0, "!00000042")]
     fc.on_ack(r["id"], 501, True, None)
-    assert e.drain() == [{"type": "message_status", "key": final["key"], "status": "acked"}]
+    assert e.drain() == [{"type": "message_status", "key": final["key"], "status": "acked",
+                          "error": None}]
     assert e.live.messages[0]["status"] == "acked"
     fc.on_ack(r["id"], 501, False, "TIMEOUT")
     assert e.drain()[0]["status"] == "failed"
@@ -221,8 +224,89 @@ async def test_send_failure_marks_failed():
     msg = await e.mgr.send(r["id"], "ciao", 0, None)
     e.drain()
     await settle()
-    assert e.drain() == [{"type": "message_status", "key": msg["key"], "status": "failed"}]
+    assert e.drain() == [{"type": "message_status", "key": msg["key"], "status": "failed",
+                          "error": "SEND_FAILED"}]
     assert e.live.messages[0]["status"] == "failed"
+    assert e.live.messages[0]["error"] == "SEND_FAILED"
+
+
+async def test_failed_ack_carries_reason():
+    e = Env()
+    r = await e.mgr.add("usb", "COM5", "A")
+    fc = FakeConnector.instances[0]
+    await e.mgr.send(r["id"], "ciao", 0, "!00000042")
+    await settle()
+    e.drain()
+    key = f"out:{r['id']}:501"
+    fc.on_ack(r["id"], 501, False, "NO_ROUTE")
+    assert e.drain() == [{"type": "message_status", "key": key, "status": "failed",
+                          "error": "NO_ROUTE"}]
+    assert e.store.radio_messages(None, 5)[0]["error"] == "NO_ROUTE"
+    assert e.live.messages[0]["error"] == "NO_ROUTE"
+    fc.on_ack(r["id"], 501, False, None)  # senza motivo: scaduto
+    assert e.drain()[0]["error"] == "TIMEOUT"
+    # lo stesso esito arrivato mentre send_text era ancora in corso
+    orig = fc.send_text
+
+    async def send_with_early_nak(text, ch, dest, **kw):
+        pid = await orig(text, ch, dest, **kw)
+        fc.on_ack(r["id"], pid, False, "NO_ROUTE")
+        return pid
+
+    fc.send_text = send_with_early_nak
+    await e.mgr.send(r["id"], "di nuovo", 0, "!00000042")
+    e.drain()
+    await settle()
+    key2 = f"out:{r['id']}:502"
+    assert {"type": "message_status", "key": key2, "status": "failed",
+            "error": "NO_ROUTE"} in e.drain()
+    stored = {m["key"]: m for m in e.store.radio_messages(None, 5)}
+    assert stored[key2]["status"] == "failed" and stored[key2]["error"] == "NO_ROUTE"
+    assert e.mgr._early_acks == {}
+
+
+async def test_reaction_validation():
+    e = Env()
+    r = await e.mgr.add("usb", "COM5", "A")
+    with pytest.raises(ValueError, match="^La reazione richiede il messaggio a cui reagire$"):
+        await e.mgr.send(r["id"], "👍", 0, None, emoji=True)
+    with pytest.raises(ValueError, match="^Reazione non valida$"):
+        await e.mgr.send(r["id"], "ciao a tutti", 0, None, reply_id=42, emoji=True)
+    with pytest.raises(ValueError, match="^Reazione non valida$"):
+        await e.mgr.send(r["id"], "x" * 17, 0, None, reply_id=42, emoji=True)
+    for bad in (0, -1, 2**32):
+        with pytest.raises(ValueError, match="^Messaggio di riferimento non valido$"):
+            await e.mgr.send(r["id"], "ok", 0, None, reply_id=bad)
+    assert FakeConnector.instances[0].sent == []
+
+
+async def test_reply_and_reaction_reach_connector_and_message():
+    e = Env()
+    r = await e.mgr.add("usb", "COM5", "A")
+    fc = FakeConnector.instances[0]
+    e.drain()
+    msg = await e.mgr.send(r["id"], "👍", 0, "!00000042", reply_id=42, emoji=True)
+    assert (msg["reply_id"], msg["emoji"], msg["pki"]) == (42, True, False)
+    await settle()
+    assert fc.sent_reply == [(42, True)]
+    final = [x["message"] for x in e.drain() if x["type"] == "message"][-1]
+    assert final["reply_id"] == 42 and final["emoji"] is True
+    stored = e.store.radio_messages(None, 5)[0]
+    assert stored["reply_id"] == 42 and stored["emoji"] is True
+    await e.mgr.send(r["id"], "risposta", 0, None, reply_id=4294967295)
+    await settle()
+    assert fc.sent_reply[-1] == (4294967295, False)
+
+
+async def test_routing_errors_cover_all_codes():
+    from meshtastic.protobuf import mesh_pb2
+    from meshlens.radio_manager import MSG_TRACE_TIMEOUT, ROUTING_ERRORS, _routing_text
+    assert set(ROUTING_ERRORS) >= set(mesh_pb2.Routing.Error.keys()) - {"NONE"}
+    assert ROUTING_ERRORS["TIMEOUT"] == MSG_TRACE_TIMEOUT
+    assert ROUTING_ERRORS["PKI_UNKNOWN_PUBKEY"] == (
+        "Il destinatario non conosce ancora la tua chiave pubblica: "
+        "attendi che riceva le info del tuo nodo")
+    assert _routing_text("NUOVO_CODICE") == "Errore di consegna (NUOVO_CODICE)"
 
 
 async def test_state_change_publishes_radios_and_marks_local():
@@ -282,8 +366,8 @@ async def test_early_ack_during_send_is_applied_to_definitive_message():
     fc = FakeConnector.instances[0]
     orig = fc.send_text
 
-    async def send_with_early_ack(text, ch, dest):
-        pid = await orig(text, ch, dest)
+    async def send_with_early_ack(text, ch, dest, **kw):
+        pid = await orig(text, ch, dest, **kw)
         fc.on_ack(r["id"], pid, True, None)
         return pid
 
@@ -293,7 +377,7 @@ async def test_early_ack_during_send_is_applied_to_definitive_message():
     await settle()
     events = e.drain()
     key = f"out:{r['id']}:501"
-    assert {"type": "message_status", "key": key, "status": "acked"} in events
+    assert {"type": "message_status", "key": key, "status": "acked", "error": None} in events
     assert e.live.messages[0]["status"] == "acked"
     assert e.store.radio_messages(None, 5)[0]["status"] == "acked"
     assert e.live.messages[0]["time"] == msg["time"]

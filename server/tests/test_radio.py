@@ -28,6 +28,8 @@ class FakeIface:
         ])
         self.sent = []
         self.sent_data = []
+        self.sent_kw = []
+        self.packets = []
         self.closed = 0
         self.send_thread = None
         self.next_id = 1000
@@ -37,6 +39,7 @@ class FakeIface:
     def sendText(self, text, destinationId="^all", wantAck=False, channelIndex=0, **kw):
         self.send_thread = threading.current_thread()
         self.sent.append((text, destinationId, wantAck, channelIndex))
+        self.sent_kw.append(kw)
         self.next_id += 1
         if self.on_send:
             self.on_send(self.next_id)
@@ -50,6 +53,17 @@ class FakeIface:
         if self.on_send:
             self.on_send(self.next_id)
         return SimpleNamespace(id=self.next_id)
+
+    def _generatePacketId(self):
+        self.next_id += 1
+        return self.next_id
+
+    def _sendPacket(self, meshPacket, destinationId="^all", wantAck=False, **kw):
+        self.send_thread = threading.current_thread()
+        self.packets.append((meshPacket, destinationId, wantAck))
+        if self.on_send:
+            self.on_send(meshPacket.id)
+        return meshPacket
 
     def close(self):
         self.closed += 1
@@ -219,6 +233,41 @@ async def test_send_text_runs_in_thread_and_returns_id():
     h.conn.check_acks()
     assert [a[1] for a in h.acks] == [pid]  # il broadcast non scade
     assert pid2 not in [a[1] for a in h.acks]
+    await h.conn.stop()
+
+
+async def test_send_text_reply_uses_reply_id():
+    iface = FakeIface()
+    h = Harness(lambda cfg, n: iface)
+    await connected(h)
+    pid = await h.conn.send_text("ok", 0, "!0000abcd", reply_id=42)
+    assert iface.sent == [("ok", "!0000abcd", True, 0)]
+    assert iface.sent_kw == [{"replyId": 42}]
+    assert pid == 1001 and iface.packets == []
+    await h.conn.send_text("senza", 0, None)
+    assert iface.sent_kw[-1] == {"replyId": None}
+    await h.conn.stop()
+
+
+async def test_send_reaction_builds_emoji_packet():
+    from meshtastic.protobuf import portnums_pb2
+    iface = FakeIface()
+    h = Harness(lambda cfg, n: iface)
+    await connected(h)
+    pid = await h.conn.send_text("👍", 1, None, reply_id=42, emoji=True)
+    assert iface.sent == []
+    ((pkt, dest, want_ack),) = iface.packets
+    assert pkt.decoded.emoji == 1 and pkt.decoded.reply_id == 42 and pkt.channel == 1
+    assert pkt.decoded.portnum == portnums_pb2.TEXT_MESSAGE_APP
+    assert pkt.decoded.payload == "👍".encode()
+    assert dest == "^all" and want_ack is True
+    assert pid == pkt.id == 1001
+    assert iface.send_thread is not threading.main_thread()
+    pid2 = await h.conn.send_text("👍", 0, PEER, reply_id=7, emoji=True)
+    assert iface.packets[-1][1] == PEER
+    h.now += 100
+    h.conn.check_acks()
+    assert [a[1] for a in h.acks] == [pid2]  # la reazione in DM attende l'ack
     await h.conn.stop()
 
 

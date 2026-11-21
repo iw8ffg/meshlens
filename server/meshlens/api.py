@@ -144,6 +144,8 @@ class MqttSendBody(BaseModel):
     to: str | None = None
     confirm_public: bool = False
     broker: str | None = Field(None, max_length=24)  # None = primo broker attivo
+    reply_id: int | None = Field(None, ge=1, le=4294967295)
+    emoji: bool = False
 
 
 class ImportLinkBody(BaseModel):
@@ -197,6 +199,8 @@ class SendBody(BaseModel):
     text: str
     channel_index: int = 0
     to: str | None = None
+    reply_id: int | None = Field(None, ge=1, le=4294967295)
+    emoji: bool = False
 
 
 class CoverageStartBody(BaseModel):
@@ -677,7 +681,8 @@ def create_app(ctx: AppContext) -> FastAPI:
             raise HTTPException(503, "Invio MQTT non disponibile")
         try:
             message = ctx.mqtt_sender.send(body.text, body.channel, body.to, body.confirm_public,
-                                           broker=body.broker)
+                                           broker=body.broker, reply_id=body.reply_id,
+                                           emoji=body.emoji)
         except MqttSendError as e:
             return JSONResponse(status_code=e.status, content={"detail": e.message, "code": e.code})
         if body.confirm_public:
@@ -921,7 +926,8 @@ def create_app(ctx: AppContext) -> FastAPI:
               dependencies=[Depends(require_auth), Depends(require_json)])
     async def send_radio(radio_id: str, body: SendBody):
         return await radio_call(
-            ctx.radios.send(radio_id, body.text, body.channel_index, body.to))
+            ctx.radios.send(radio_id, body.text, body.channel_index, body.to,
+                            reply_id=body.reply_id, emoji=body.emoji))
 
     @app.post("/api/nodes/{node_id}/traceroute", status_code=202,
               dependencies=[Depends(require_auth), Depends(require_json)])

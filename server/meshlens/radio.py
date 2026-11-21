@@ -414,16 +414,31 @@ class RadioConnector:
             self._emit(self._on_event, ev)  # l'ingest registra comunque i collegamenti
 
     # ---- invio e conferme -------------------------------------------
-    async def send_text(self, text: str, channel_index: int, dest: str | None) -> int:
+    async def send_text(self, text: str, channel_index: int, dest: str | None,
+                        reply_id: int | None = None, emoji: bool = False) -> int:
         iface = self._iface
         if iface is None or self._state != "connected":
             raise RuntimeError("Radio non connessa")
+
+        def send():
+            if not emoji:
+                return iface.sendText(text, destinationId=dest or BROADCAST, wantAck=True,
+                                      channelIndex=channel_index, replyId=reply_id)
+            # sendText non espone Data.emoji: si costruisce il pacchetto a mano
+            # (API privata della libreria 2.7.11: _generatePacketId e _sendPacket)
+            from meshtastic.protobuf import mesh_pb2, portnums_pb2
+            pkt = mesh_pb2.MeshPacket(channel=channel_index)
+            pkt.decoded.portnum = portnums_pb2.TEXT_MESSAGE_APP
+            pkt.decoded.payload = text.encode("utf-8")
+            pkt.decoded.reply_id = reply_id or 0
+            pkt.decoded.emoji = 1
+            pkt.id = iface._generatePacketId()
+            iface._sendPacket(pkt, dest or BROADCAST, wantAck=True)
+            return pkt
+
         async with self._send_lock:  # un invio alla volta per radio
             try:
-                packet = await asyncio.wait_for(self._call(
-                    lambda: iface.sendText(
-                        text, destinationId=dest or BROADCAST, wantAck=True,
-                        channelIndex=channel_index)), SEND_TIMEOUT)
+                packet = await asyncio.wait_for(self._call(send), SEND_TIMEOUT)
             except asyncio.TimeoutError:
                 raise RuntimeError("Invio scaduto") from None
             except _LibraryError as err:

@@ -9,6 +9,7 @@ from typing import Any
 
 from .events import MeshEvent, node_id
 from .ingest import traceroute_chains
+from .mqtt_publish import reply_problem
 from .radio import RadioConnector
 
 log = logging.getLogger(__name__)
@@ -22,17 +23,33 @@ MAX_EARLY_ACKS = 100
 TRACEROUTE_INTERVAL = 30.0  # il firmware scarta i traceroute piu' frequenti
 TRACEROUTE_TIMEOUT = 60.0
 MSG_TRACE_TIMEOUT = "Nessuna risposta entro 60 s"
+# testi dei codici di mesh_pb2.Routing.Error (gli stessi in web/src/lib/strings/messaggi.ts)
 ROUTING_ERRORS = {
-    "NO_RESPONSE": "Nessuna risposta dal nodo",
     "NO_ROUTE": "Nessun percorso verso il nodo",
+    "GOT_NAK": "Rifiutato da un nodo lungo il percorso",
+    "TIMEOUT": MSG_TRACE_TIMEOUT,  # testo dei traceroute; per i messaggi lo da' l'interfaccia
+    "NO_INTERFACE": "Nessuna interfaccia disponibile per l'invio",
     "MAX_RETRANSMIT": "Nessuna conferma dopo i tentativi",
-    "NO_CHANNEL": "Canale non disponibile",
-    "TIMEOUT": MSG_TRACE_TIMEOUT,
+    "NO_CHANNEL": "Canale non disponibile sul destinatario",
+    "TOO_LARGE": "Messaggio troppo grande",
+    "NO_RESPONSE": "Nessuna risposta dal nodo",
+    "DUTY_CYCLE_LIMIT": "Limite di tempo di trasmissione raggiunto: riprova più tardi",
+    "BAD_REQUEST": "Richiesta non valida",
+    "NOT_AUTHORIZED": "Non autorizzato",
+    "PKI_FAILED": "Cifratura a chiave pubblica non riuscita",
+    "PKI_UNKNOWN_PUBKEY": "Il destinatario non conosce ancora la tua chiave pubblica: "
+                          "attendi che riceva le info del tuo nodo",
+    "ADMIN_BAD_SESSION_KEY": "Sessione di amministrazione scaduta",
+    "ADMIN_PUBLIC_KEY_UNAUTHORIZED": "Chiave admin non autorizzata sul nodo",
+    "RATE_LIMIT_EXCEEDED": "Troppi messaggi: il nodo ha applicato un limite, riprova più tardi",
+    "PKI_SEND_FAIL_PUBLIC_KEY": "La tua radio non conosce la chiave pubblica del destinatario",
+    "SEND_FAILED": "Invio alla radio non riuscito",
 }
+SEND_FAILED = "SEND_FAILED"  # errore del messaggio quando la radio rifiuta l'invio
 
 
 def _routing_text(reason: str | None) -> str:
-    return ROUTING_ERRORS.get(reason or "", f"Errore di instradamento ({reason})")
+    return ROUTING_ERRORS.get(reason or "", f"Errore di consegna ({reason})")
 
 
 class NoRadioConnected(Exception):
@@ -95,7 +112,8 @@ class RadioManager:
         self._connectors: dict[str, Any] = {}
         self._tasks: set[asyncio.Task] = set()
         self._pending_seq = 0
-        self._early_acks: dict[tuple[str, int], str] = {}
+        # esiti arrivati durante send_text: (radio, id) -> (stato, motivo dell'errore)
+        self._early_acks: dict[tuple[str, int], tuple[str, str | None]] = {}
         self._clock = clock
         # traceroute in attesa: (radio, id pacchetto) -> risultato parziale
         self._traces: dict[tuple[str, int], dict] = {}
@@ -158,10 +176,11 @@ class RadioManager:
                 self._finish_trace(key, "failed", _routing_text(reason))
             return
         status = "acked" if ok else "failed"
+        error = None if ok else (reason or "TIMEOUT")
         msg_key = f"out:{radio_id}:{packet_id}"
         if any(m["key"] == msg_key for m in self.ingestor.live.messages):
             # ack di un messaggio gia' registrato, anche se arriva durante un traceroute
-            self.ingestor.set_status(msg_key, status)
+            self.ingestor.set_status(msg_key, status, error)
             return
         if radio_id in self._tracing:
             # id sconosciuto durante l'invio di un traceroute (il lock esclude invii chat
@@ -170,7 +189,7 @@ class RadioManager:
                 self._buffer_early_trace(key, None, reason)
             return
         # ack arrivato durante send_text: il messaggio definitivo non esiste ancora
-        self._early_acks[(radio_id, packet_id)] = status
+        self._early_acks[(radio_id, packet_id)] = (status, error)
         while len(self._early_acks) > MAX_EARLY_ACKS:
             del self._early_acks[next(iter(self._early_acks))]
 
@@ -308,7 +327,8 @@ class RadioManager:
 
     # ---- invio --------------------------------------------------------
     async def send(self, radio_id: str, text: str, channel_index: int = 0,
-                   to: str | None = None) -> dict:
+                   to: str | None = None, reply_id: int | None = None,
+                   emoji: bool = False) -> dict:
         self._get(radio_id)
         if not text or not text.strip():
             raise ValueError("Messaggio vuoto")
@@ -318,6 +338,9 @@ class RadioManager:
             raise ValueError("Destinatario non valido")
         if not isinstance(channel_index, int) or not 0 <= channel_index <= 7:
             raise ValueError("Canale non valido")
+        problem = reply_problem(text, reply_id, emoji)
+        if problem is not None:
+            raise ValueError(problem)
         conn = self._connectors[radio_id]
         st = conn.state()
         if st["state"] != "connected" or not st["my_node_id"]:
@@ -330,35 +353,39 @@ class RadioManager:
                    "to": to or BROADCAST_ID, "channel": str(channel_index), "text": text,
                    "time": int(time.time()), "country": mine["country"] if mine else None,
                    "source": "rf", "direction": "out", "radio_id": radio_id,
-                   "channel_index": channel_index, "packet_id": None, "status": "sending"}
+                   "channel_index": channel_index, "packet_id": None, "status": "sending",
+                   "reply_id": reply_id, "emoji": emoji, "pki": False, "error": None}
         self.ingestor.live.messages.append(message)
         self.ingestor.on_message(dict(message))
         task = asyncio.create_task(
-            self._finish_send(conn, message, my_id, text, channel_index, to))
+            self._finish_send(conn, message, my_id, text, channel_index, to, reply_id, emoji))
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
         return dict(message)
 
     async def _finish_send(self, conn, message: dict, my_id: str, text: str,
-                           channel_index: int, to: str | None) -> None:
+                           channel_index: int, to: str | None, reply_id: int | None = None,
+                           emoji: bool = False) -> None:
         try:
-            packet_id = await conn.send_text(text, channel_index, to)
+            packet_id = await conn.send_text(text, channel_index, to, reply_id=reply_id,
+                                             emoji=emoji)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
             log.warning("invio radio %s fallito: %r", message["radio_id"], exc)
-            message["status"] = "failed"
+            message["status"], message["error"] = "failed", SEND_FAILED
             if self.ingestor.on_status is not None:
-                self.ingestor.on_status(message["key"], "failed")
+                self.ingestor.on_status(message["key"], "failed", SEND_FAILED)
             return
         with contextlib.suppress(ValueError):
             self.ingestor.live.messages.remove(message)
         self.ingestor.record_outgoing(message["radio_id"], my_id, packet_id, text,
                                       channel_index, to or BROADCAST_ID, status="sent",
-                                      replaces=message["key"], time_=message["time"])
+                                      replaces=message["key"], time_=message["time"],
+                                      reply_id=reply_id, emoji=emoji)
         early = self._early_acks.pop((message["radio_id"], packet_id), None)
         if early is not None:
-            self.ingestor.set_status(f"out:{message['radio_id']}:{packet_id}", early)
+            self.ingestor.set_status(f"out:{message['radio_id']}:{packet_id}", *early)
 
     # ---- accesso per la configurazione ---------------------------------
     def connector(self, radio_id: str):

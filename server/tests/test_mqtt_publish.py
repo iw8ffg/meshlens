@@ -503,3 +503,83 @@ def test_send_with_lost_channel_psk_refused_never_clear():
     s = make_sender(conn, settings={"mqtt_brokers": [b]})
     e = expect(400, "unknown_channel_key", lambda: s.send("x", "Privato", None, False))
     assert "non leggibile" in e.message and conn.published == []
+
+
+def test_reply_roundtrip():
+    raw = build_envelope("\U0001f44d", NUM, 0xFFFFFFFF, "LongFast", DEFAULT_KEY, 555, ME,
+                         reply_id=99, emoji=True)
+    ev = EnvelopeDecoder([DEFAULT_KEY]).decode("msh/EU_868/2/e/LongFast/" + ME, raw, 1.0)
+    assert ev.kind == "text" and ev.payload.text == "\U0001f44d"
+    assert ev.payload.reply_id == 99 and ev.payload.emoji is True
+    env = mqtt_pb2.ServiceEnvelope.FromString(
+        build_envelope("ok", NUM, 0x42, "LongFast", b"", 556, ME, reply_id=99, emoji=True))
+    from meshtastic.protobuf import portnums_pb2
+    d = env.packet.decoded
+    assert d.portnum == portnums_pb2.TEXT_MESSAGE_APP and d.reply_id == 99 and d.emoji == 1
+    plain = mqtt_pb2.ServiceEnvelope.FromString(
+        build_envelope("ok", NUM, 0x42, "LongFast", b"", 557, ME)).packet.decoded
+    assert plain.reply_id == 0 and plain.emoji == 0
+
+
+def test_reply_and_reaction_are_recorded():
+    conn, rec = FakeConnector(), []
+    s = make_sender(conn, recorded=rec, clock=Clock())
+    s.send("risposta", "LongFast", "!00000042", False, reply_id=7)
+    assert rec[0]["reply_id"] == 7 and rec[0]["emoji"] is False
+    env = mqtt_pb2.ServiceEnvelope.FromString(conn.published[0][1])
+    ev = EnvelopeDecoder([DEFAULT_KEY]).decode(conn.published[0][0], conn.published[0][1], 1.0)
+    assert env.packet.encrypted and ev.payload.reply_id == 7 and ev.payload.emoji is False
+
+
+def test_reaction_validation_no_publish():
+    conn = FakeConnector()
+    s = make_sender(conn)
+    e = expect(400, "invalid_reaction", lambda: s.send("\U0001f44d", "LongFast", None, False,
+                                                        emoji=True))
+    assert e.message == "La reazione richiede il messaggio a cui reagire"
+    e = expect(400, "invalid_reaction", lambda: s.send("ciao a tutti", "LongFast", None, False,
+                                                        reply_id=5, emoji=True))
+    assert e.message == "Reazione non valida"
+    expect(400, "invalid_reaction", lambda: s.send("x" * 17, "LongFast", None, False,
+                                                   reply_id=5, emoji=True))
+    e = expect(400, "invalid_reaction", lambda: s.send("ok", "LongFast", None, False,
+                                                        reply_id=2**32))
+    assert e.message == "Messaggio di riferimento non valido"
+    assert conn.published == []
+
+
+def test_reaction_counts_for_rate_limit():
+    conn, clock = FakeConnector(), Clock()
+    s = make_sender(conn, clock=clock)
+    s.send("\U0001f44d", "LongFast", None, False, reply_id=5, emoji=True)
+    clock.t += 9
+    e = expect(429, "rate_limited", lambda: s.send("testo", "LongFast", None, False))
+    assert e.message == "Attendi 1 s" and len(conn.published) == 1
+
+
+def test_reaction_needs_first_time_confirmation():
+    conn = FakeConnector()
+    s = make_sender(conn, settings={"mqtt_send_confirmed": False})
+    expect(409, "confirm_required",
+           lambda: s.send("\U0001f44d", "LongFast", None, False, reply_id=5, emoji=True))
+    assert conn.published == []
+
+
+async def test_route_forwards_reply_fields():
+    db, conn, rec = connect(":memory:"), FakeConnector(), []
+    save_settings(db, {"mqtt_node_id": ME, "mqtt_send_confirmed": True})
+
+    def record(**kw):
+        rec.append(kw)
+        return {"key": "k", "text": kw["text"]}
+
+    s = MqttSender(lambda bid: conn, lambda: load_settings(db), lambda: [], Clock(), record)
+    async with logged(make_ctx(db, s)) as c:
+        r = await c.post("/api/mqtt/send", json={"text": "x", "reply_id": 0})
+        assert r.status_code == 422
+        r = await c.post("/api/mqtt/send", json={"text": "x", "emoji": True})
+        assert r.status_code == 400 and r.json()["code"] == "invalid_reaction"
+        r = await c.post("/api/mqtt/send", json={"text": "\U0001f44d", "reply_id": 9,
+                                                 "emoji": True})
+        assert r.status_code == 202
+        assert rec[0]["reply_id"] == 9 and rec[0]["emoji"] is True
