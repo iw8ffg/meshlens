@@ -32,12 +32,13 @@ from .maps import MapsError
 from .updater import UpdateError
 from .mqtt_publish import MqttSendError
 from .radio_manager import NoRadioConnected, TracerouteThrottled
-from .settings import load_settings, save_settings
+from .backup import NAME_RE
+from .settings import (MASK, export_settings, load_settings, mask_secrets, prepare_import,
+                       save_settings)
 from .store import Store
 
 COOKIE = "meshlens_session"
 COOKIE_MAX_AGE = 365 * 24 * 3600
-MASK = "••••"
 LOCAL_HOSTS = ("127.0.0.1", "::1", "localhost")
 INTERNAL_KEYS = ()
 
@@ -63,6 +64,8 @@ class AppContext:
     mqtt_sender: object | None = None  # MqttSender
     db_path: Path | None = None
     last_purge: Callable[[], dict | None] = lambda: None
+    backups: object | None = None  # BackupManager
+    db_health: Callable[[], str] = lambda: "non controllata"
     exit_callback: Callable[[], None] | None = None  # impostata dal lanciatore
     _alerts: list = field(default_factory=list)
 
@@ -112,6 +115,10 @@ class UpdateInstallBody(BaseModel):
 
 
 class CompactBody(BaseModel):
+    confirm: bool = False
+
+
+class RestoreBody(BaseModel):
     confirm: bool = False
 
 
@@ -514,6 +521,25 @@ def create_app(ctx: AppContext) -> FastAPI:
         ctx.alerts()  # soglie cambiate: pubblica subito gli avvisi aggiornati
         return _mask_settings(saved)
 
+    @app.get("/api/settings/export", dependencies=[Depends(require_auth)])
+    async def export_settings_file(request: Request, secrets: int = Query(0, ge=0, le=1)):
+        if secrets and not is_local(request):
+            raise HTTPException(403, "I segreti si esportano solo da questo PC")
+        doc = export_settings(load_settings(ctx.conn), bool(secrets))
+        fname = f"meshlens-impostazioni-{time.strftime('%Y%m%d')}.json"
+        return JSONResponse(doc, headers={"Content-Disposition": f'attachment; filename="{fname}"'})
+
+    @app.post("/api/settings/import", dependencies=[Depends(require_auth), Depends(require_json)])
+    async def import_settings(body: dict):
+        try:
+            changes, skipped = prepare_import(body)
+            saved = save_settings(ctx.conn, changes)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+        await ctx.on_settings_changed(saved)
+        ctx.alerts()
+        return {"settings": mask_secrets(saved), "skipped": skipped}
+
     @app.post("/api/mqtt/send", status_code=202,
               dependencies=[Depends(require_auth), Depends(require_json)])
     async def mqtt_send(body: MqttSendBody):
@@ -551,7 +577,7 @@ def create_app(ctx: AppContext) -> FastAPI:
         if ctx.db_path is None:
             raise HTTPException(503, "Database non disponibile")
         stats = await asyncio.to_thread(read_db_stats, ctx.db_path)
-        return {**stats, "integrity": "non controllata", "last_purge": ctx.last_purge()}
+        return {**stats, "integrity": ctx.db_health(), "last_purge": ctx.last_purge()}
 
     @app.post("/api/db/compact", dependencies=[Depends(require_auth), Depends(require_json)])
     async def db_compact(body: CompactBody):
@@ -560,6 +586,36 @@ def create_app(ctx: AppContext) -> FastAPI:
         # VACUUM e' bloccante: gira sul loop (la connessione e' solo sua), su richiesta esplicita
         before, after = compact(ctx.conn)
         return {"before_bytes": before, "after_bytes": after}
+
+    # ---- backup ----
+    def backup_mgr():
+        if ctx.backups is None:
+            raise HTTPException(503, "Backup non disponibili")
+        return ctx.backups
+
+    @app.get("/api/backups", dependencies=[Depends(require_auth)])
+    async def list_backups():
+        return await asyncio.to_thread(backup_mgr().list)
+
+    @app.post("/api/backups", dependencies=[Depends(require_auth)])
+    async def create_backup():
+        try:
+            return await backup_mgr().create("manuale")
+        except (OSError, sqlite3.Error) as e:
+            raise HTTPException(500, f"Backup non riuscito: {e}")
+
+    @app.post("/api/backups/{name}/restore",
+              dependencies=[Depends(require_auth), Depends(require_json)])
+    async def restore_backup(name: str, body: RestoreBody):
+        if not NAME_RE.fullmatch(name):
+            raise HTTPException(404, "Backup non trovato")
+        if body.confirm is not True:
+            raise HTTPException(400, "Conferma richiesta")
+        try:
+            backup_mgr().schedule_restore(name)
+        except (ValueError, FileNotFoundError):
+            raise HTTPException(404, "Backup non trovato")
+        return {"ok": True, "restart_required": True}
 
     # ---- radio ----
     async def radio_call(coro):

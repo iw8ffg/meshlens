@@ -11,6 +11,7 @@ from typing import Awaitable, Callable
 from fastapi import FastAPI
 
 from .api import AppContext, create_app
+from .backup import BackupManager, apply_pending_restore, quick_check
 from .auth import Auth
 from .bus import Bus
 from .config_service import ConfigService
@@ -40,6 +41,8 @@ else:
     STATIC_DIR = Path(__file__).parents[2] / "web" / "dist"
 PURGE_INTERVAL_S = 3600
 PURGE_FIRST_DELAY_S = 60
+BACKUP_CHECK_S = 3600
+BACKUP_FIRST_DELAY_S = 300
 LIVE_NODE_TTL_S = 7 * 24 * 3600
 log = logging.getLogger(__name__)
 
@@ -74,6 +77,8 @@ class Runtime:
     tasks: list = field(default_factory=list)
     last_purge: dict | None = None
     db_path: Path | None = None
+    backups: BackupManager | None = None
+    db_health: str = "non controllata"
 
     def start_connector(self) -> None:
         cfg = self.settings["mqtt"]
@@ -120,6 +125,10 @@ class Runtime:
             except Exception:
                 log.exception("Task periodico fallito")  # il task resta vivo
             await asyncio.sleep(seconds)
+
+    async def _backup_if_due(self) -> None:
+        if self.backups is not None and self.backups.due(time.time()):
+            await self.backups.create("settimanale")
 
     def _publish_changed(self) -> None:
         changed = self.live.take_changed()
@@ -177,6 +186,8 @@ class Runtime:
             asyncio.create_task(self._every(5, self._check_traceroutes)),
             asyncio.create_task(self._every(60, lambda: self.ctx.alerts())),
             asyncio.create_task(self._every(60, self._coverage_tick)),
+            asyncio.create_task(self._every_async(BACKUP_CHECK_S, self._backup_if_due,
+                                                  BACKUP_FIRST_DELAY_S)),
         ]
         if self.updater is not None and self.auto_update:
             self.tasks.append(asyncio.create_task(self.updater.run()))
@@ -204,7 +215,15 @@ def build(data_dir: Path, connector_factory=MqttConnector,
           static_dir: Path | None = STATIC_DIR,
           radio_connector_factory=RadioConnector, update_http=None,
           auto_update: bool = False) -> tuple[FastAPI, Runtime]:
-    conn = connect(Path(data_dir) / "meshlens.db")
+    db_path = Path(data_dir) / "meshlens.db"
+    restored = apply_pending_restore(Path(data_dir))
+    if restored:
+        log.warning("Ripristino completato dal backup %s", restored)
+    backups = BackupManager(db_path, Path(data_dir) / "backups")
+    conn = connect(db_path, before_migrate=lambda c, old, new: backups.create_sync(c, "pre-migrazione"))
+    db_health = quick_check(conn)
+    if db_health != "ok":
+        log.error("Controllo d'integrità del database fallito: %s", db_health)
     store = Store(conn)
     live = LiveState()
     live.load(store.load_nodes())
@@ -217,7 +236,8 @@ def build(data_dir: Path, connector_factory=MqttConnector,
                         lambda key, status: bus.publish(
                             {"type": "message_status", "key": key, "status": status}))
     rt = Runtime(conn, store, live, auth, bus, dedup, ingestor, connector_factory,
-                 settings=load_settings(conn), db_path=Path(data_dir) / "meshlens.db")
+                 settings=load_settings(conn), db_path=db_path,
+                 backups=backups, db_health=db_health)
     coverage = CoverageRecorder(store, live, bus,
                                 radio_node=ingestor.radio_node)
 
@@ -233,7 +253,8 @@ def build(data_dir: Path, connector_factory=MqttConnector,
     rt.maps = MapsManager(data_dir, lambda: rt.settings, bus)
     rt.updater = Updater(lambda: rt.settings, bus, update_http, frozen=is_frozen(),
                          updates_dir=updates_dir(),
-                         launcher_exit=lambda d: rt.ctx.request_exit(d))
+                         launcher_exit=lambda d: rt.ctx.request_exit(d),
+                         before_install=lambda: rt.backups.create("pre-aggiornamento"))
     rt.auto_update = auto_update
     ctx = AppContext(live=live, store=store, auth=auth, bus=bus, locator=locator, conn=conn,
                      mqtt_status=rt.mqtt_status,
@@ -241,7 +262,8 @@ def build(data_dir: Path, connector_factory=MqttConnector,
                      on_settings_changed=rt.on_settings_changed,
                      static_dir=static_dir, radios=rt.radios, coverage=coverage,
                      config=rt.config, maps=rt.maps, updater=rt.updater, data_dir=Path(data_dir),
-                     db_path=rt.db_path, last_purge=lambda: rt.last_purge)
+                     db_path=rt.db_path, last_purge=lambda: rt.last_purge,
+                     backups=backups, db_health=lambda: rt.db_health)
     rt.ctx = ctx
     ctx.mqtt_sender = MqttSender(
         lambda: rt.connector, lambda: rt.settings, rt.radios.radios, time.time,

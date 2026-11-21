@@ -10,7 +10,7 @@ import subprocess
 import time
 import urllib.error
 import urllib.request
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from urllib.parse import urljoin, urlsplit
 
@@ -175,12 +175,14 @@ class Updater:
     def __init__(self, settings: Callable[[], dict], bus, http=None, clock=time.time,
                  frozen: bool = False, updates_dir=None, launcher_exit=None,
                  launcher=default_launcher, current: str = __version__,
-                 progress_interval: float = 0.5):
+                 progress_interval: float = 0.5,
+                 before_install: Callable[[], Awaitable[None]] | None = None):
         self.settings, self.bus = settings, bus
         self.http = http or UrllibHttp()
         self.clock, self.frozen = clock, frozen
         self.updates_dir = Path(updates_dir) if updates_dir else None
         self.launcher_exit, self.launcher = launcher_exit, launcher
+        self.before_install = before_install
         self.current = current
         self.progress_interval = progress_interval
         self.latest: str | None = None
@@ -433,6 +435,11 @@ class Updater:
                 _unlink(final)
                 _unlink(sidecar)
                 raise UpdateError(BAD_HASH_MSG, 409)
+            if self.before_install is not None:
+                try:
+                    await self.before_install()
+                except Exception as e:
+                    raise UpdateError(f"Backup del database non riuscito: {e}", 409) from e
             await asyncio.to_thread(self.launcher, [str(final), *INSTALLER_ARGS])
         except BaseException:
             self._installing = False  # a lancio riuscito resta True: un secondo install e' 409

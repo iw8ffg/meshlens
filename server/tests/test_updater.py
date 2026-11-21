@@ -7,7 +7,7 @@ import pytest
 from meshlens import updater as up
 from meshlens.bus import Bus
 from meshlens.settings import DEFAULTS
-from meshlens.updater import NetworkError, Updater, is_newer, parse_version
+from meshlens.updater import NetworkError, UpdateError, Updater, is_newer, parse_version
 
 TOKEN = "ghp_SEGRETISSIMO123"
 EXE = b"MZ" + b"x" * 5000
@@ -374,3 +374,33 @@ def test_wait_then_run_command_waits_for_pid_and_quotes():
     assert r"'C:\Users\O''Brien\updates\MeshLens-Setup-1.0.2.exe'" in script
     assert "-ArgumentList '/VERYSILENT','/NORESTART'" in script
     assert script.index("Wait-Process") < script.index("Start-Process")
+
+
+async def test_install_runs_backup_first(tmp_path):
+    order = []
+
+    async def backup():
+        order.append("backup")
+
+    u = make(tmp_path, before_install=backup)
+    u.launcher = lambda argv: order.append("launcher")
+    await u.check()
+    await u.start_download()
+    await u._task
+    assert await u.install(True) == {"ok": True}
+    assert order == ["backup", "launcher"]
+
+
+async def test_install_aborts_if_backup_fails(tmp_path):
+    async def backup():
+        raise OSError("disco pieno")
+
+    u = make(tmp_path, before_install=backup)
+    await u.check()
+    await u.start_download()
+    await u._task
+    with pytest.raises(UpdateError) as e:
+        await u.install(True)
+    assert e.value.status == 409 and "Backup del database non riuscito: disco pieno" in str(e.value)
+    assert u.launched == [] and u.exits == []
+    assert u._installing is False

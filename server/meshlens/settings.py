@@ -3,10 +3,15 @@ import copy
 import json
 import re
 import sqlite3
+from datetime import datetime, timezone
 
 from urllib.parse import urlsplit
 
+from . import __version__
 from .crypto import expand_psk
+
+MASK = "••••"
+EXPORT_FORMAT = 1
 
 DEFAULTS: dict = {
     "saved_countries": ["IT"],
@@ -162,3 +167,54 @@ def save_settings(conn: sqlite3.Connection, changes: dict) -> dict:
                      (key, json.dumps(value)))
     conn.commit()
     return load_settings(conn)
+
+
+def mask_secrets(s: dict) -> dict:
+    """Copia senza segreti in chiaro: password MQTT, token di aggiornamento, chiavi PSK extra."""
+    out = copy.deepcopy(s)
+    mqtt = out.get("mqtt")
+    if isinstance(mqtt, dict):
+        if mqtt.get("password"):
+            mqtt["password"] = MASK
+        mqtt["extra_keys"] = [MASK for _ in mqtt.get("extra_keys", [])]
+    if out.get("update_token"):
+        out["update_token"] = MASK
+    return out
+
+
+def export_settings(s: dict, include_secrets: bool) -> dict:
+    """Documento di esportazione (format 1)."""
+    return {
+        "app": "meshlens",
+        "format": EXPORT_FORMAT,
+        "version": __version__,
+        "exported_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "settings": copy.deepcopy(s) if include_secrets else mask_secrets(s),
+    }
+
+
+def prepare_import(data: dict) -> tuple[dict, list[str]]:
+    """Da un documento esportato ricava le modifiche da salvare e le chiavi scartate."""
+    if not isinstance(data, dict) or data.get("format") != EXPORT_FORMAT:
+        raise ValueError("Formato del file di impostazioni non supportato")
+    settings = data.get("settings")
+    if not isinstance(settings, dict):
+        raise ValueError("Il file non contiene le impostazioni")
+    changes = copy.deepcopy(settings)
+    skipped: list[str] = []
+    if "mqtt_send_confirmed" in changes:
+        del changes["mqtt_send_confirmed"]  # la conferma resta una scelta di questo PC
+        skipped.append("mqtt_send_confirmed")
+    if changes.get("update_token") == MASK:
+        del changes["update_token"]
+        skipped.append("update_token")
+    mqtt = changes.get("mqtt")
+    if isinstance(mqtt, dict):
+        if mqtt.get("password") == MASK:
+            del mqtt["password"]
+            skipped.append("mqtt.password")
+        keys = mqtt.get("extra_keys")
+        if isinstance(keys, list) and MASK in keys:
+            del mqtt["extra_keys"]
+            skipped.append("mqtt.extra_keys")
+    return changes, skipped

@@ -24,3 +24,24 @@ export const TABLE_LABELS: Record<string, string> = {
   coverage_points: 'Punti di copertura',
   sessions: 'Sessioni',
 }
+
+export type BackupInfo = { name: string; time: number; reason: string; size_bytes: number }
+
+const REASON_LABELS: Record<string, string> = {
+  'pre-migrazione': 'Prima della migrazione',
+  'pre-aggiornamento': "Prima dell'aggiornamento",
+  settimanale: 'Settimanale',
+  manuale: 'Manuale',
+  'prima-del-ripristino': 'Prima del ripristino',
+}
+
+/** Motivo del backup in italiano; un motivo sconosciuto resta com'è. */
+export function reasonLabel(r: string): string {
+  return REASON_LABELS[r] ?? r
+}
+
+export type ImportResult = { settings: Record<string, unknown>; skipped: string[] }
+
+export function exportUrl(withSecrets: boolean): string {
+  return `/api/settings/export?secrets=${withSecrets ? 1 : 0}`
+}

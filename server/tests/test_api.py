@@ -400,7 +400,7 @@ async def test_db_endpoint_and_compact_requires_confirm(tmp_path):
             r = await c.get("/api/db")
             assert r.status_code == 200
             body = r.json()
-            assert "messages" in body["rows"] and body["integrity"] == "non controllata"
+            assert "messages" in body["rows"] and body["integrity"] == "ok"
             assert body["last_purge"] is None
             assert (await c.post("/api/db/compact", json={})).status_code == 400
             r = await c.post("/api/db/compact", json={"confirm": True})
@@ -412,3 +412,94 @@ async def test_db_endpoint_and_compact_requires_confirm(tmp_path):
 def client_for_app(app):
     return httpx.AsyncClient(transport=ASGITransport(app=app, client=("127.0.0.1", 1234)),
                              base_url="http://127.0.0.1")
+
+
+def client_from(ctx, host):
+    return httpx.AsyncClient(transport=ASGITransport(app=create_app(ctx), client=(host, 1234)),
+                             base_url="http://127.0.0.1")
+
+
+async def _setup_secrets(c):
+    r = await c.put("/api/settings", json={
+        "update_token": "ghp_SECRETTOKEN",
+        "mqtt": {"password": "hunter2pw", "extra_keys": ["AQ=="]}})
+    assert r.status_code == 200
+
+
+async def test_settings_export_masks_secrets_by_default(ctx):
+    async with logged(ctx) as c:
+        await _setup_secrets(c)
+        r = await c.get("/api/settings/export")
+        assert r.status_code == 200
+        assert "attachment" in r.headers["content-disposition"]
+        assert ".json" in r.headers["content-disposition"]
+        doc = r.json()
+        assert doc["app"] == "meshlens" and doc["format"] == 1 and doc["settings"]
+        for secret in ("hunter2pw", "ghp_SECRETTOKEN", "AQ=="):
+            assert secret not in r.text
+        assert doc["settings"]["update_token"] == "••••"
+        assert doc["settings"]["mqtt"]["password"] == "••••"
+        r = await c.get("/api/settings/export?secrets=1")
+        assert r.json()["settings"]["mqtt"]["password"] == "hunter2pw"
+
+
+async def test_settings_export_with_secrets_only_local(ctx):
+    async with logged(ctx) as c:
+        await _setup_secrets(c)
+        cookie = c.cookies.get("meshlens_session")
+    async with client_from(ctx, "192.168.1.5") as lan:
+        lan.cookies.set("meshlens_session", cookie)
+        assert (await lan.get("/api/settings/export?secrets=1")).status_code == 403
+        r = await lan.get("/api/settings/export")
+        assert r.status_code == 200 and "hunter2pw" not in r.text
+
+
+async def test_settings_import_skips_masked(ctx):
+    async with logged(ctx) as c:
+        await _setup_secrets(c)
+        doc = (await c.get("/api/settings/export")).json()
+        doc["settings"]["retention_messages_days"] = 30
+        doc["settings"]["mqtt_send_confirmed"] = True
+        r = await c.post("/api/settings/import", json=doc)
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert set(body["skipped"]) == {"update_token", "mqtt.password", "mqtt.extra_keys",
+                                        "mqtt_send_confirmed"}
+        assert "hunter2pw" not in r.text and "AQ==" not in r.text
+        assert body["settings"]["retention_messages_days"] == 30
+        from meshlens.settings import load_settings
+        s = load_settings(ctx.conn)
+        assert s["mqtt"]["password"] == "hunter2pw" and s["update_token"] == "ghp_SECRETTOKEN"
+        assert s["mqtt"]["extra_keys"] == ["AQ=="] and s["mqtt_send_confirmed"] is False
+        assert ctx.changed  # on_settings_changed chiamata
+        # chiave sconosciuta: 400 e nulla salvato
+        bad = {"format": 1, "settings": {"retention_messages_days": 11, "nope": 1}}
+        assert (await c.post("/api/settings/import", json=bad)).status_code == 400
+        assert load_settings(ctx.conn)["retention_messages_days"] == 30
+        assert (await c.post("/api/settings/import",
+                             json={"format": 2, "settings": {}})).status_code == 400
+
+
+async def test_backup_routes(tmp_path):
+    from meshlens.app import build
+    app, rt = build(tmp_path, static_dir=None)
+    try:
+        async with client_for_app(app) as c:
+            assert (await c.post("/api/auth/setup", json={"pin": "1234"})).status_code == 200
+            assert (await c.get("/api/backups")).json() == []
+            r = await c.post("/api/backups")
+            assert r.status_code == 200 and r.json()["reason"] == "manuale"
+            name = r.json()["name"]
+            lst = (await c.get("/api/backups")).json()
+            assert [b["name"] for b in lst] == [name] and lst[0]["size_bytes"] > 0
+            assert (await c.post(f"/api/backups/{name}/restore", json={})).status_code == 400
+            assert (await c.post("/api/backups/x.db/restore",
+                                 json={"confirm": True})).status_code == 404
+            assert (await c.post("/api/backups/meshlens-20200101-000000-manuale.db/restore",
+                                 json={"confirm": True})).status_code == 404
+            r = await c.post(f"/api/backups/{name}/restore", json={"confirm": True})
+            assert r.status_code == 200
+            assert r.json() == {"ok": True, "restart_required": True}
+            assert (tmp_path / "restore.json").exists()
+    finally:
+        rt.conn.close()
