@@ -93,7 +93,7 @@ async def test_purge_evicts_live_nodes_not_heard_for_7_days(tmp_path):
     now = time.time()
     rt.live.nodes[1] = {"num": 1, "last_heard": now - 8 * 86400}
     rt.live.nodes[2] = {"num": 2, "last_heard": now - 3600}
-    rt._purge()
+    await rt.purge_once()
     assert list(rt.live.nodes) == [2]
 
 
@@ -140,3 +140,45 @@ async def test_events_reach_coverage_recorder_from_mqtt_connector(tmp_path):
                    RangeTestData(0, "seq 0"))
     rt.on_event(ev)
     assert rt.coverage.rangetest_age("r1", 5) is not None
+
+
+async def test_purge_once_yields_to_loop(tmp_path, monkeypatch):
+    import asyncio
+    import meshlens.app as appmod
+    monkeypatch.setattr(appmod, "PURGE_CHUNK", 1000)
+    _, rt = build(tmp_path, connector_factory=FakeConnector, static_dir=None)
+    old = time.time() - 400 * 86400
+    rt.conn.executemany(
+        "INSERT INTO positions(node_num, time, lat, lon, source) VALUES(1, ?, 45, 9, 'mqtt')",
+        [(old - i,) for i in range(5000)])
+    rt.conn.commit()
+    ticks = 0
+
+    async def ticker():
+        nonlocal ticks
+        while True:
+            ticks += 1
+            await asyncio.sleep(0)
+
+    t = asyncio.create_task(ticker())
+    before = ticks
+    deleted = await rt.purge_once()
+    t.cancel()
+    assert deleted["positions"] == 5000
+    assert ticks - before >= 4
+    assert rt.last_purge["deleted"]["positions"] == 5000
+
+
+async def test_first_purge_is_delayed(tmp_path, monkeypatch):
+    import asyncio
+    import meshlens.app as appmod
+    monkeypatch.setattr(appmod, "PURGE_FIRST_DELAY_S", 0.2)
+    app, rt = build(tmp_path, connector_factory=FakeConnector, static_dir=None)
+    old = time.time() - 400 * 86400
+    rt.conn.execute(
+        "INSERT INTO positions(node_num, time, lat, lon, source) VALUES(1, ?, 45, 9, 'mqtt')", (old,))
+    rt.conn.commit()
+    async with app.router.lifespan_context(app):
+        assert rt.conn.execute("SELECT COUNT(*) FROM positions").fetchone()[0] == 1
+        await asyncio.sleep(0.5)
+        assert rt.conn.execute("SELECT COUNT(*) FROM positions").fetchone()[0] == 0

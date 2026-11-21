@@ -2,6 +2,7 @@
 import json
 import sqlite3
 import time
+from dataclasses import dataclass
 
 from .events import TelemetryData
 
@@ -10,6 +11,13 @@ _NODE_FIELDS = ("id", "long_name", "short_name", "hw_model", "role", "firmware",
                 "battery", "voltage", "channel_util", "air_util_tx", "mqtt_gateways",
                 "last_snr", "hops", "hops_min")
 _DAY = 86400
+PURGE_CHUNK = 2000
+
+
+@dataclass
+class PurgeStep:
+    deleted: dict[str, int]
+    done: bool
 
 
 def _id_to_num(node_id: str) -> int:
@@ -401,35 +409,52 @@ class Store:
         page_size = self.conn.execute("PRAGMA page_size").fetchone()[0]
         return (pages - free) * page_size
 
-    def purge(self, now: float, settings: dict) -> dict[str, int]:
-        """Applica la retention, poi riduce positions/messages se si supera il limite spazio."""
-        deleted = {}
-        for table, key in (("messages", "retention_messages_days"),
-                           ("positions", "retention_positions_days"),
-                           ("telemetry", "retention_telemetry_days")):
-            cutoff = now - settings[key] * _DAY
-            deleted[table] = self.conn.execute(
-                f"DELETE FROM {table} WHERE time < ?", (cutoff,)).rowcount
-        # i collegamenti scadono come le posizioni (non entrano nel conteggio restituito)
-        self.conn.execute("DELETE FROM links WHERE time < ?",
-                          (now - settings["retention_positions_days"] * _DAY,))
-        deleted["nodes"] = self.conn.execute(
-            "DELETE FROM nodes WHERE (last_heard < ? OR last_heard IS NULL) AND is_mine = 0 AND is_favorite = 0",
-            (now - settings["retention_positions_days"] * _DAY,)).rowcount
-        cap = settings["storage_cap_mb"] * 1024 * 1024
-        while self._used_bytes() > cap:
-            removed_round = 0
+    def purge_step(self, now: float, settings: dict, limit: int = PURGE_CHUNK) -> PurgeStep:
+        """Un passo di pulizia: al massimo `limit` righe per tabella. `done` quando non resta
+        nulla di scaduto e lo spazio e' entro il limite. Non fa commit."""
+        deleted: dict[str, int] = {}
+        full = False  # una tabella ha cancellato `limit` righe: potrebbe averne ancora
+        pos_cutoff = now - settings["retention_positions_days"] * _DAY
+        for table, cutoff in (("messages", now - settings["retention_messages_days"] * _DAY),
+                              ("positions", pos_cutoff),
+                              ("telemetry", now - settings["retention_telemetry_days"] * _DAY),
+                              ("links", pos_cutoff)):
+            n = self.conn.execute(
+                f"DELETE FROM {table} WHERE rowid IN "
+                f"(SELECT rowid FROM {table} WHERE time < ? LIMIT ?)", (cutoff, limit)).rowcount
+            full = full or n >= limit
+            if table != "links":  # i collegamenti non entrano nel conteggio restituito
+                deleted[table] = n
+        n = self.conn.execute(
+            "DELETE FROM nodes WHERE rowid IN (SELECT rowid FROM nodes WHERE "
+            "(last_heard < ? OR last_heard IS NULL) AND is_mine = 0 AND is_favorite = 0 LIMIT ?)",
+            (pos_cutoff, limit)).rowcount
+        deleted["nodes"] = n
+        full = full or n >= limit
+        if not full and self._used_bytes() > settings["storage_cap_mb"] * 1024 * 1024:
             for table in ("positions", "messages"):
-                n = self.conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-                if n == 0:
-                    continue
                 removed = self.conn.execute(
                     f"DELETE FROM {table} WHERE rowid IN "
-                    f"(SELECT rowid FROM {table} ORDER BY time LIMIT ?)",
-                    (max(1, n // 10),)).rowcount
+                    f"(SELECT rowid FROM {table} ORDER BY time LIMIT ?)", (limit,)).rowcount
                 deleted[table] += removed
-                removed_round += removed
-            if removed_round == 0:
+                full = full or removed > 0
+        return PurgeStep(deleted, not full)
+
+    def purge(self, now: float, settings: dict) -> dict[str, int]:
+        """Applica la retention e il limite spazio, ripetendo `purge_step` fino a `done`."""
+        total = {"messages": 0, "positions": 0, "telemetry": 0, "nodes": 0}
+        while True:
+            step = self.purge_step(now, settings)
+            for k, v in step.deleted.items():
+                total[k] += v
+            if step.done:
                 break
         self.conn.commit()
-        return deleted
+        return total
+
+    def incremental_vacuum(self, pages: int = 1000) -> None:
+        """Restituisce al disco le pagine libere (solo con auto_vacuum=INCREMENTAL)."""
+        if self.conn.execute("PRAGMA auto_vacuum").fetchone()[0] != 2:
+            return
+        self.conn.commit()
+        self.conn.execute(f"PRAGMA incremental_vacuum({int(pages)})").fetchall()

@@ -389,3 +389,26 @@ async def test_mqtt_channels_endpoint(ctx):
         assert got == [{"name": "MediumFast", "count_1h": 9, "enabled": False},
                        {"name": "LongFast", "count_1h": 5, "enabled": True},
                        {"name": "Zed", "count_1h": 1, "enabled": False}]
+
+
+async def test_db_endpoint_and_compact_requires_confirm(tmp_path):
+    from meshlens.app import build
+    app, rt = build(tmp_path, static_dir=None)
+    try:
+        async with client_for_app(app) as c:
+            assert (await c.post("/api/auth/setup", json={"pin": "1234"})).status_code == 200
+            r = await c.get("/api/db")
+            assert r.status_code == 200
+            body = r.json()
+            assert "messages" in body["rows"] and body["integrity"] == "non controllata"
+            assert body["last_purge"] is None
+            assert (await c.post("/api/db/compact", json={})).status_code == 400
+            r = await c.post("/api/db/compact", json={"confirm": True})
+            assert r.status_code == 200 and "before_bytes" in r.json()
+    finally:
+        rt.conn.close()
+
+
+def client_for_app(app):
+    return httpx.AsyncClient(transport=ASGITransport(app=app, client=("127.0.0.1", 1234)),
+                             base_url="http://127.0.0.1")

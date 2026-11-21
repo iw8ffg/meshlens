@@ -317,3 +317,17 @@ def test_migration_clears_stale_mqtt_only_hops(tmp_path):
     conn.close()
     got = {n["num"]: n["hops"] for n in Store(connect(path)).load_nodes()}
     assert got[1] == 5  # eseguita una volta sola
+
+
+def test_purge_step_deletes_at_most_limit(store):
+    store.conn.executemany(
+        "INSERT INTO messages(key, from_num, text, time, source) VALUES(?, 1, 'x', ?, 'mqtt')",
+        [(f"1:{i}", NOW - 100 * DAY - i) for i in range(5000)])
+    store.commit()
+    step = store.purge_step(NOW, DEFAULTS, limit=2000)
+    assert step.deleted["messages"] == 2000 and step.done is False
+    store.purge_step(NOW, DEFAULTS, limit=2000)
+    step = store.purge_step(NOW, DEFAULTS, limit=2000)
+    assert step.deleted["messages"] == 1000 and step.done is True
+    assert store.conn.execute("SELECT COUNT(*) FROM messages WHERE time < ?",
+                              (NOW - 90 * DAY,)).fetchone()[0] == 0

@@ -6,6 +6,7 @@ import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Awaitable, Callable
 
 from fastapi import FastAPI
 
@@ -29,7 +30,7 @@ from .pubsub_hub import PubSubHub
 from .radio import RadioConnector
 from .radio_manager import RadioManager
 from .settings import load_settings
-from .store import Store
+from .store import PURGE_CHUNK, Store
 from .updater import Updater
 
 # installata: PyInstaller mette web/dist accanto alle librerie incluse (sys._MEIPASS)
@@ -37,7 +38,8 @@ if getattr(sys, "frozen", False):
     STATIC_DIR = Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent)) / "web" / "dist"
 else:
     STATIC_DIR = Path(__file__).parents[2] / "web" / "dist"
-PURGE_INTERVAL_S = 24 * 3600
+PURGE_INTERVAL_S = 3600
+PURGE_FIRST_DELAY_S = 60
 LIVE_NODE_TTL_S = 7 * 24 * 3600
 log = logging.getLogger(__name__)
 
@@ -70,6 +72,8 @@ class Runtime:
     learned_keys: dict = field(default_factory=dict)  # canale -> chiave vista decifrare
     ctx: object = None  # AppContext
     tasks: list = field(default_factory=list)
+    last_purge: dict | None = None
+    db_path: Path | None = None
 
     def start_connector(self) -> None:
         cfg = self.settings["mqtt"]
@@ -107,6 +111,16 @@ class Runtime:
                 log.exception("Task periodico fallito")  # il task resta vivo
             await asyncio.sleep(seconds)
 
+    async def _every_async(self, seconds: float, fn: Callable[[], Awaitable[None]],
+                           first_delay: float) -> None:
+        await asyncio.sleep(first_delay)
+        while True:
+            try:
+                await fn()
+            except Exception:
+                log.exception("Task periodico fallito")  # il task resta vivo
+            await asyncio.sleep(seconds)
+
     def _publish_changed(self) -> None:
         changed = self.live.take_changed()
         if changed:
@@ -124,11 +138,24 @@ class Runtime:
     def _publish_status(self) -> None:
         self.bus.publish({"type": "status", "mqtt": self.mqtt_status()})
 
-    def _purge(self) -> None:
+    async def purge_once(self) -> dict:
+        """Pulizia a blocchi: tra un blocco e l'altro il loop resta libero."""
         now = time.time()
-        self.store.purge(now, self.settings)
+        total: dict[str, int] = {}
+        while True:
+            step = self.store.purge_step(now, self.settings, limit=PURGE_CHUNK)
+            self.store.commit()
+            for k, v in step.deleted.items():
+                total[k] = total.get(k, 0) + v
+            if step.done:
+                break
+            await asyncio.sleep(0.05)
+        self.store.incremental_vacuum()
         ttl = min(LIVE_NODE_TTL_S, self.settings["retention_positions_days"] * 86400)
         self.live.evict_older_than(now - ttl)
+        self.last_purge = {"time": now, "deleted": total}
+        log.info("Pulizia: %s", total)
+        return total
 
     async def start(self) -> None:
         self.loop = asyncio.get_running_loop()
@@ -145,7 +172,7 @@ class Runtime:
             asyncio.create_task(self._every(2, self._publish_changed)),
             asyncio.create_task(self._every(5, self._publish_status)),
             asyncio.create_task(self._every(1, self.store.commit)),
-            asyncio.create_task(self._every(PURGE_INTERVAL_S, self._purge, first_now=True)),
+            asyncio.create_task(self._every_async(PURGE_INTERVAL_S, self.purge_once, PURGE_FIRST_DELAY_S)),
             asyncio.create_task(self._every(60, lambda: self.dedup.prune(time.time()))),
             asyncio.create_task(self._every(5, self._check_traceroutes)),
             asyncio.create_task(self._every(60, lambda: self.ctx.alerts())),
@@ -190,7 +217,7 @@ def build(data_dir: Path, connector_factory=MqttConnector,
                         lambda key, status: bus.publish(
                             {"type": "message_status", "key": key, "status": status}))
     rt = Runtime(conn, store, live, auth, bus, dedup, ingestor, connector_factory,
-                 settings=load_settings(conn))
+                 settings=load_settings(conn), db_path=Path(data_dir) / "meshlens.db")
     coverage = CoverageRecorder(store, live, bus,
                                 radio_node=ingestor.radio_node)
 
@@ -213,7 +240,8 @@ def build(data_dir: Path, connector_factory=MqttConnector,
                      mqtt_channel_counts=ingestor.mqtt_channel_counts,
                      on_settings_changed=rt.on_settings_changed,
                      static_dir=static_dir, radios=rt.radios, coverage=coverage,
-                     config=rt.config, maps=rt.maps, updater=rt.updater, data_dir=Path(data_dir))
+                     config=rt.config, maps=rt.maps, updater=rt.updater, data_dir=Path(data_dir),
+                     db_path=rt.db_path, last_purge=lambda: rt.last_purge)
     rt.ctx = ctx
     ctx.mqtt_sender = MqttSender(
         lambda: rt.connector, lambda: rt.settings, rt.radios.radios, time.time,

@@ -14,6 +14,7 @@
   import Flag from '../lib/ui/Flag.svelte'
   import OfflineMaps from './OfflineMaps.svelte'
   import Updates from './Updates.svelte'
+  import Maintenance from './settings/Maintenance.svelte'
   import { channelOptions, checkMqttNodeId, joinLines, parseLines, type AppSettings, type MqttChannel } from '../lib/settings'
 
   let { onlogout }: { onlogout: () => void } = $props()
@@ -210,6 +211,8 @@
           </div>
         </section>
       </Card>
+
+      <Maintenance />
 
       <Card>
         <section class="sec">

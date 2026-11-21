@@ -27,6 +27,7 @@ from .config_service import ConfigError
 from .coverage import SessionActive, precision_m
 from .geo import CountryLocator
 from .live import LiveState
+from .maintenance import compact, read_db_stats
 from .maps import MapsError
 from .updater import UpdateError
 from .mqtt_publish import MqttSendError
@@ -60,6 +61,8 @@ class AppContext:
     updater: object | None = None  # Updater
     mqtt_channel_counts: Callable[[], dict] = lambda: {}  # canali MQTT visti nell'ultima ora
     mqtt_sender: object | None = None  # MqttSender
+    db_path: Path | None = None
+    last_purge: Callable[[], dict | None] = lambda: None
     exit_callback: Callable[[], None] | None = None  # impostata dal lanciatore
     _alerts: list = field(default_factory=list)
 
@@ -105,6 +108,10 @@ class MqttSendBody(BaseModel):
 
 
 class UpdateInstallBody(BaseModel):
+    confirm: bool = False
+
+
+class CompactBody(BaseModel):
     confirm: bool = False
 
 
@@ -537,6 +544,22 @@ def create_app(ctx: AppContext) -> FastAPI:
     @app.get("/api/status", dependencies=[Depends(require_auth)])
     async def status():
         return ctx.mqtt_status()
+
+    # ---- database ----
+    @app.get("/api/db", dependencies=[Depends(require_auth)])
+    async def db_info():
+        if ctx.db_path is None:
+            raise HTTPException(503, "Database non disponibile")
+        stats = await asyncio.to_thread(read_db_stats, ctx.db_path)
+        return {**stats, "integrity": "non controllata", "last_purge": ctx.last_purge()}
+
+    @app.post("/api/db/compact", dependencies=[Depends(require_auth), Depends(require_json)])
+    async def db_compact(body: CompactBody):
+        if body.confirm is not True:
+            raise HTTPException(400, "Conferma richiesta")
+        # VACUUM e' bloccante: gira sul loop (la connessione e' solo sua), su richiesta esplicita
+        before, after = compact(ctx.conn)
+        return {"before_bytes": before, "after_bytes": after}
 
     # ---- radio ----
     async def radio_call(coro):
