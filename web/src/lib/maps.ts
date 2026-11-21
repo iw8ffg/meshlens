@@ -36,3 +36,12 @@ export function bboxFromBounds(b: BoundsLike | number[]): Bbox {
   const [w, s, e, n] = Array.isArray(b) ? b : [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()]
   return [r4(clamp(w, 180)), r4(clamp(s, 85)), r4(clamp(e, 180)), r4(clamp(n, 85))]
 }
+
+/** Un'istantanea "running" di un lavoro gia' terminato nello store e' vecchia: va ignorata. */
+export function isStaleSnapshot(
+  current: Pick<MapJob, 'id' | 'status'> | null | undefined,
+  snap: Pick<MapJob, 'id' | 'status'> | null | undefined,
+): boolean {
+  return !!current && !!snap && current.id === snap.id
+    && current.status !== 'running' && snap.status === 'running'
+}

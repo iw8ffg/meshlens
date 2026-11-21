@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { bboxFromBounds, formatBytes, jobPercent } from './maps'
+import { bboxFromBounds, formatBytes, isStaleSnapshot, jobPercent } from './maps'
 import type { MapJob } from './types'
 
 const job = (over: Partial<MapJob>): MapJob => ({
@@ -52,5 +52,18 @@ describe('bboxFromBounds', () => {
   })
   it('limita longitudine a ±180 e latitudine a ±85', () => {
     expect(bboxFromBounds([-200, -89.9, 250, 90])).toEqual([-180, -85, 180, 85])
+  })
+})
+
+describe('isStaleSnapshot', () => {
+  it('stesso lavoro gia terminato ma istantanea running: vecchia', () => {
+    expect(isStaleSnapshot(job({ status: 'done' }), job({ status: 'running' }))).toBe(true)
+    expect(isStaleSnapshot(job({ status: 'failed' }), job({ status: 'running' }))).toBe(true)
+  })
+  it('altri casi: valida', () => {
+    expect(isStaleSnapshot(job({ status: 'running' }), job({ status: 'done' }))).toBe(false)
+    expect(isStaleSnapshot(job({ id: 1, status: 'done' }), job({ id: 2, status: 'running' }))).toBe(false)
+    expect(isStaleSnapshot(null, job({ status: 'running' }))).toBe(false)
+    expect(isStaleSnapshot(job({ status: 'done' }), null)).toBe(false)
   })
 })

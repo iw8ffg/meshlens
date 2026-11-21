@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount, untrack } from 'svelte'
   import { ApiError, cancelMapJob, deleteMap, downloadMap, estimateMap, getJSON, mapsState, send } from '../lib/api'
-  import { bboxFromBounds, formatBytes, jobPercent } from '../lib/maps'
+  import { bboxFromBounds, formatBytes, isStaleSnapshot, jobPercent } from '../lib/maps'
   import { app, bumpMaps, maps, setMapJob } from '../lib/stores.svelte'
   import type { AppSettings } from '../lib/settings'
   import type { Bbox, MapEstimate, MapKind, MapsState, OfflineMap } from '../lib/types'
@@ -36,7 +36,8 @@
       mode = snap.mode
       const j = snap.job
       // il lavoro dell'istantanea e' piu' recente se id o stato differiscono (WS perso)
-      if (j && (maps.job?.id !== j.id || maps.job?.status !== j.status)) setMapJob(j)
+      if (j && !isStaleSnapshot(maps.job, j)
+          && (maps.job?.id !== j.id || maps.job?.status !== j.status)) setMapJob(j)
       loadError = ''
     } catch {
       loadError = 'Mappe offline non disponibili'
