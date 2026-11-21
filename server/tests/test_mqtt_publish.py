@@ -13,8 +13,9 @@ from meshlens.geo import CountryLocator
 from meshlens.ingest import Ingestor
 from meshlens.live import LiveState
 from meshlens.mqtt_decode import EnvelopeDecoder, channel_hash
-from meshlens.mqtt_publish import MqttSendError, MqttSender, build_envelope, region_from_topics
-from meshlens.settings import DEFAULTS, load_settings, save_settings
+from meshlens.mqtt_publish import (MqttSendError, MqttSender, build_envelope, confirm_text,
+                                   region_from_topics)
+from meshlens.settings import DEFAULTS, default_broker, load_settings, save_settings
 from meshlens.store import Store
 from test_api import client, logged
 
@@ -42,16 +43,39 @@ class Clock:
         return self.t
 
 
-def make_sender(conn=None, settings=None, radios=None, clock=None, recorded=None):
+def make_sender(conn=None, settings=None, radios=None, clock=None, recorded=None,
+                connectors=None):
+    """connectors: id broker -> connettore; senza, ogni broker usa conn."""
     s = {**DEFAULTS, "mqtt_send_confirmed": True, "mqtt_node_id": ME}
     s.update(settings or {})
+    if "mqtt_brokers" not in (settings or {}):  # broker predefinito migrato dal vecchio mqtt
+        s["mqtt_brokers"] = [default_broker(s["mqtt"])]
     rec = [] if recorded is None else recorded
 
     def record(**kw):
         rec.append(kw)
         return {"key": "k", "text": kw["text"], "via": "mqtt"}
 
-    return MqttSender(lambda: conn, lambda: s, lambda: radios or [], clock or Clock(), record)
+    get = (lambda bid: connectors.get(bid)) if connectors is not None else (lambda bid: conn)
+    return MqttSender(get, lambda: s, lambda: radios or [], clock or Clock(), record)
+
+
+SQUADRA_PSK = "ESIzRFVmd4iZqrvM3e7/ABEiM0RVZneImaq7zN3u/wA="  # 32 byte
+
+
+def b1(**over):
+    b = {"id": "b1", "name": "Broker uno", "enabled": True, "host": "broker.esempio.it",
+         "port": 1883, "tls": False, "encryption": True, "username": "", "password": "",
+         "topics": ["msh/EU_868/IT/#"], "channels": [{"name": "Squadra", "psk": SQUADRA_PSK}],
+         "extra_keys": []}
+    b.update(over)
+    return b
+
+
+def two_brokers(**over):
+    """Broker predefinito + b1, con la conferma della prima volta gia' data per entrambi."""
+    return {"mqtt_brokers": [default_broker(DEFAULTS["mqtt"]), b1(**over)],
+            "mqtt_send_confirmed_brokers": ["b1"]}
 
 
 def expect(status, code, fn):
@@ -229,7 +253,7 @@ async def test_route_requires_auth():
 async def test_route_flow():
     db, conn = connect(":memory:"), FakeConnector()
     save_settings(db, {"mqtt_node_id": ME})
-    s = MqttSender(lambda: conn, lambda: load_settings(db), lambda: [], Clock(),
+    s = MqttSender(lambda bid: conn, lambda: load_settings(db), lambda: [], Clock(),
                    lambda **kw: {"key": "k", "direction": "out", "via": "mqtt",
                                  "status": "sent", "text": kw["text"]})
     async with logged(make_ctx(db, s)) as c:
@@ -295,7 +319,7 @@ def test_learned_extra_key_used_for_sending():
     assert dec.decode("msh/EU_868/2/e/Privato/!1", raw, 1.0) is not None
     conn = FakeConnector()
     s = make_sender(conn)
-    s.key_for = dec.channel_keys.get
+    s.key_for = lambda broker, channel: dec.channel_keys.get(channel)
     s.send("segreto", "Privato", None, False)
     ev = EnvelopeDecoder([extra]).decode("t", conn.published[0][1], 1.0)
     assert ev.payload.text == "segreto"
@@ -329,3 +353,153 @@ def test_root_from_topics_uses_subscribed_root():
     assert root_from_topics(["msh/EU_868/IT/2/e/LongFast/#"]) == "msh/EU_868/IT"
     assert root_from_topics(["msh/+/2/e/#"]) == "msh/EU_868"
     assert root_from_topics([]) == "msh/EU_868"
+
+
+# ---- broker multipli ----
+
+def test_send_on_custom_channel_without_traffic():
+    from meshlens.crypto import expand_psk
+    conn, rec = FakeConnector(), []
+    s = make_sender(conn, settings=two_brokers(), recorded=rec)
+    s.send("Ciao squadra", "Squadra", None, False, broker="b1")
+    topic, payload = conn.published[0]
+    assert topic == f"msh/EU_868/IT/2/e/Squadra/{ME}"
+    k = expand_psk(SQUADRA_PSK)
+    env = mqtt_pb2.ServiceEnvelope.FromString(payload)
+    assert env.packet.WhichOneof("payload_variant") == "encrypted"
+    assert env.packet.channel == channel_hash("Squadra", k)
+    ev = EnvelopeDecoder([DEFAULT_KEY, k]).decode(topic, payload, 1.0)
+    assert ev.payload.text == "Ciao squadra"
+    assert rec[0]["broker"] == "b1" and rec[0]["channel"] == "Squadra"
+
+
+def test_encryption_off_publishes_decoded():
+    from meshlens.crypto import expand_psk
+    conn = FakeConnector()
+    make_sender(conn, settings=two_brokers(encryption=False)).send(
+        "ciao", "Squadra", None, False, broker="b1")
+    topic, payload = conn.published[0]
+    p = mqtt_pb2.ServiceEnvelope.FromString(payload).packet
+    assert p.WhichOneof("payload_variant") == "decoded"
+    assert p.decoded.payload == b"ciao" and not p.encrypted
+    assert p.channel == channel_hash("Squadra", expand_psk(SQUADRA_PSK))
+    ev = EnvelopeDecoder([DEFAULT_KEY]).decode(topic, payload, 1.0)
+    assert ev.payload.text == "ciao"
+
+
+def test_envelope_with_empty_key_is_decoded():
+    raw = build_envelope("x", NUM, 0xFFFFFFFF, "Aperto", b"", 9, ME)
+    p = mqtt_pb2.ServiceEnvelope.FromString(raw).packet
+    assert p.WhichOneof("payload_variant") == "decoded" and p.channel == channel_hash("Aperto", b"")
+
+
+def test_default_broker_still_encrypted():
+    conn, rec = FakeConnector(), []
+    make_sender(conn, settings=two_brokers(), recorded=rec).send(
+        "x", "LongFast", None, False, broker="default")
+    p = mqtt_pb2.ServiceEnvelope.FromString(conn.published[0][1]).packet
+    assert p.WhichOneof("payload_variant") == "encrypted"
+    assert conn.published[0][0] == f"msh/EU_868/2/e/LongFast/{ME}"
+    assert rec[0]["broker"] == "default"
+
+
+def test_no_broker_uses_first_enabled():
+    conn, rec = FakeConnector(), []
+    st = two_brokers()
+    st["mqtt_brokers"][0]["enabled"] = False
+    make_sender(conn, settings={**st, "mqtt_send_confirmed_brokers": ["b1"]},
+                recorded=rec).send("x", "LongFast", None, False)
+    assert rec[0]["broker"] == "b1" and conn.published[0][0].startswith("msh/EU_868/IT/2/e/")
+
+
+def test_unknown_or_disabled_broker_400():
+    conn = FakeConnector()
+    s = make_sender(conn, settings=two_brokers(enabled=False))
+    e = expect(400, "unknown_broker", lambda: s.send("x", "LongFast", None, False, broker="b1"))
+    assert e.message == "Broker non trovato o disattivato"
+    expect(400, "unknown_broker", lambda: s.send("x", "LongFast", None, False, broker="nessuno"))
+    st = {"mqtt_brokers": [{**default_broker(DEFAULTS["mqtt"]), "enabled": False}]}
+    expect(400, "unknown_broker", lambda: make_sender(conn, settings=st).send(
+        "x", "LongFast", None, False))
+    assert conn.published == []
+
+
+def test_unknown_channel_key_names_broker():
+    s = make_sender(FakeConnector(), settings={**two_brokers(),
+                                               "mqtt_send_confirmed_brokers": ["b1"]})
+    e = expect(400, "unknown_channel_key",
+               lambda: s.send("x", "Privato", None, False, broker="b1"))
+    assert e.message == ("Non conosco la chiave del canale Privato su Broker uno: aggiungilo "
+                         "ai canali del broker in Impostazioni")
+
+
+def test_key_for_receives_broker_id():
+    from meshlens.crypto import expand_psk
+    k = expand_psk("Aw==")
+    asked = []
+
+    def key_for(broker, channel):
+        asked.append((broker, channel))
+        return k if (broker, channel) == ("b1", "Imparato") else None
+
+    conn = FakeConnector()
+    s = make_sender(conn, settings={**two_brokers(), "mqtt_send_confirmed_brokers": ["b1"]})
+    s.key_for = key_for
+    s.send("x", "Imparato", None, False, broker="b1")
+    assert asked == [("b1", "Imparato")]
+    assert EnvelopeDecoder([k]).decode("t", conn.published[0][1], 1.0).payload.text == "x"
+
+
+def test_rate_limit_is_per_broker():
+    conn = FakeConnector()
+    s = make_sender(conn, settings={**two_brokers(), "mqtt_send_confirmed_brokers": ["b1"]})
+    s.send("1", "LongFast", None, False, broker="default")
+    s.send("2", "LongFast", None, False, broker="b1")
+    expect(429, "rate_limited", lambda: s.send("3", "LongFast", None, False, broker="default"))
+    assert len(conn.published) == 2
+
+
+def test_disconnected_broker_does_not_consume_other_limits():
+    conn, rec = FakeConnector(), []
+    s = make_sender(settings={**two_brokers(), "mqtt_send_confirmed_brokers": ["b1"]},
+                    recorded=rec, connectors={"default": conn, "b1": None})
+    expect(503, "mqtt_disconnected", lambda: s.send("x", "LongFast", None, False, broker="b1"))
+    s.send("x", "LongFast", None, False, broker="default")
+    assert len(conn.published) == 1 and [r["broker"] for r in rec] == ["default"]
+
+
+def test_confirmation_per_broker():
+    conn = FakeConnector()
+    s = make_sender(conn, settings={**two_brokers(), "mqtt_send_confirmed": True,
+                                    "mqtt_send_confirmed_brokers": []})
+    s.send("x", "LongFast", None, False, broker="default")
+    e = expect(409, "confirm_required", lambda: s.send("x", "LongFast", None, False, broker="b1"))
+    assert e.message == confirm_text("broker.esempio.it")
+    assert "broker.esempio.it" in e.message and len(conn.published) == 1
+    s2 = make_sender(conn, settings={**two_brokers(), "mqtt_send_confirmed": False,
+                                     "mqtt_send_confirmed_brokers": ["b1"]})
+    s2.send("x", "LongFast", None, False, broker="b1")
+    expect(409, "confirm_required", lambda: s2.send("x", "LongFast", None, False, broker="default"))
+
+
+def test_confirm_text_default_unchanged():
+    from meshlens.mqtt_publish import CONFIRM_TEXT
+    assert CONFIRM_TEXT == confirm_text("mqtt.meshtastic.org") == (
+        "Il messaggio sarà pubblico sul broker mqtt.meshtastic.org e potrà essere "
+        "ritrasmesso via radio dai gateway")
+
+
+def test_root_from_selected_broker_topics():
+    conn = FakeConnector()
+    make_sender(conn, settings={**two_brokers(topics=["msh/US/#"]),
+                                "mqtt_send_confirmed_brokers": ["b1"]}).send(
+        "x", "LongFast", None, False, broker="b1")
+    assert conn.published[0][0].startswith("msh/US/2/e/")
+
+
+def test_send_with_lost_channel_psk_refused_never_clear():
+    conn = FakeConnector()
+    b = {**default_broker(DEFAULTS["mqtt"]), "channels": [{"name": "Privato", "psk": ""}]}
+    s = make_sender(conn, settings={"mqtt_brokers": [b]})
+    e = expect(400, "unknown_channel_key", lambda: s.send("x", "Privato", None, False))
+    assert "non leggibile" in e.message and conn.published == []

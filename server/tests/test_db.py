@@ -29,7 +29,7 @@ def _cols(conn, table):
 def test_new_db_has_current_version_and_incremental_vacuum(tmp_path):
     calls = []
     conn = connect(tmp_path / "n.db", lambda *a: calls.append(a))
-    assert schema_version(conn) == SCHEMA_VERSION == 2
+    assert schema_version(conn) == SCHEMA_VERSION == 3
     assert conn.execute("PRAGMA auto_vacuum").fetchone()[0] == 2
     assert calls == []
     assert "ip" in _cols(conn, "sessions")
@@ -44,10 +44,10 @@ def test_legacy_db_is_migrated_after_hook(tmp_path):
         calls.append((old, new, "radio_id" in _cols(conn, "messages")))
 
     conn = connect(path, hook)
-    assert calls == [(0, 2, False)]
+    assert calls == [(0, 3, False)]
     assert "radio_id" in _cols(conn, "messages")
     assert conn.execute("SELECT text FROM messages WHERE key='k'").fetchone()[0] == "ciao"
-    assert schema_version(conn) == 2
+    assert schema_version(conn) == 3
 
 
 def test_reopen_does_not_migrate_again(tmp_path):
@@ -82,3 +82,21 @@ def test_query_plans_use_indexes(tmp_path):
             "EXPLAIN QUERY PLAN SELECT * FROM messages WHERE country=? "
             "ORDER BY time DESC LIMIT 50", ("IT",)))
     assert "idx_messages_country_time" in plan
+
+
+def test_migration_3_adds_broker_column(tmp_path):
+    path = tmp_path / "v2.db"
+    conn = connect(path)
+    conn.execute("ALTER TABLE messages DROP COLUMN broker")
+    conn.execute("INSERT INTO messages(key, text, time) VALUES('k', 'ciao', 1.0)")
+    conn.execute("PRAGMA user_version=2")
+    conn.commit()
+    conn.close()
+    assert "broker" not in _cols(sqlite3.connect(path), "messages")
+    calls = []
+    conn = connect(path, lambda *a: calls.append(a))
+    assert [c[1:] for c in calls] == [(2, 3)]
+    assert schema_version(conn) == 3
+    assert "broker" in _cols(conn, "messages")
+    row = conn.execute("SELECT text, broker FROM messages WHERE key='k'").fetchone()
+    assert (row[0], row[1]) == ("ciao", None)

@@ -181,3 +181,52 @@ async def test_status_reports_queue_counters():
     assert st["queue_dropped"] == 1 and st["queue_size"] == 2
     await asyncio.sleep(0)
     assert got == [1, 2] and c.status()["queue_size"] == 0
+
+
+class TlsClient(FakeClient):
+    def __init__(self, client_id=None, fail=False):
+        super().__init__(client_id, fail)
+        self.calls = []
+
+    def tls_set_context(self, ctx):
+        self.calls.append("tls")
+
+    def connect_async(self, *a, **k):
+        self.calls.append("connect")
+        super().connect_async(*a, **k)
+
+
+async def _start(cfg, client):
+    c = MqttConnector(cfg, EnvelopeDecoder([DEFAULT_KEY]), asyncio.get_running_loop(),
+                      lambda ev: None, client_factory=lambda cid: client)
+    c.start()
+    return c
+
+
+async def test_tls_context_set_only_when_enabled():
+    on = TlsClient()
+    await _start({**CFG, "tls": True}, on)
+    assert on.calls == ["tls", "connect"]
+    off = TlsClient()
+    await _start({**CFG, "tls": False}, off)
+    assert off.calls == ["connect"]
+
+
+async def test_connect_fail_sets_error_without_secrets():
+    cfg = {**CFG, "password": "segreta", "username": "mario"}
+    client = TlsClient()
+    c = await _start(cfg, client)
+    client.on_connect_fail(client, None)
+    err = c.status()["last_error"]
+    assert err == "Connessione non riuscita: controlla host, porta e TLS"
+    assert "segreta" not in err
+    c.set_error("boom segreta mario")  # il segreto del broker stesso viene tolto
+    assert "segreta" not in c.status()["last_error"] and "mario" not in c.status()["last_error"]
+
+
+async def test_log_lines_use_broker_label(caplog):
+    caplog.set_level("INFO")
+    c = await _start({**CFG, "name": "Mio broker"}, FakeClient())
+    c._on_connect(c._client, None, None, 0, None)
+    assert any("Mio broker" in r.getMessage() and "connesso" in r.getMessage()
+               for r in caplog.records)

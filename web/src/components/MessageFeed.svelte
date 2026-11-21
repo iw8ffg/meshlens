@@ -5,6 +5,7 @@
   import { statusIcon } from '../lib/chat'
   import { statusAria } from '../lib/send'
   import Badge from '../lib/ui/Badge.svelte'
+  import BrokerBadge from '../lib/ui/BrokerBadge.svelte'
   import Banner from '../lib/ui/Banner.svelte'
   import Button from '../lib/ui/Button.svelte'
   import Check from '../lib/ui/Check.svelte'
@@ -101,6 +102,7 @@
           {/if}
           {#if m.channel}<Badge>{m.channel}</Badge>{/if}
           {#if out}<Badge kind="info">via MQTT</Badge>{/if}
+          <BrokerBadge id={m.broker} />
           <span class="t">{ago((now - m.time) / 60)}</span>
           {#if out && m.status}
             <span class="st" role="img" title={statusAria(m.status, m.via)} aria-label={statusAria(m.status, m.via)}>{statusIcon(m.status)}</span>

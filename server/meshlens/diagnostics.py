@@ -12,13 +12,24 @@ LOG_PARTS = ((LOG_FILE, 512 * 1024), (f"{LOG_FILE}.1", 256 * 1024), ("console.lo
 
 
 def _scrub_mqtt(info: dict, settings: dict) -> dict:
-    """Difesa in profondita': nessun testo dello stato MQTT contiene utente o password."""
+    """Difesa in profondita': nessun testo dello stato MQTT (totale e di ogni broker)
+    contiene l'utente o la password di uno qualsiasi dei broker."""
     mqtt = info.get("mqtt")
-    if not isinstance(mqtt, dict) or not isinstance(mqtt.get("last_error"), str):
+    if not isinstance(mqtt, dict):
         return info
-    cfg = settings.get("mqtt") or {}
-    text = scrub_text(mqtt["last_error"], cfg.get("password"), cfg.get("username"))
-    return {**info, "mqtt": {**mqtt, "last_error": text}}
+    secrets = []
+    for cfg in [settings.get("mqtt") or {}, *(settings.get("mqtt_brokers") or [])]:
+        if isinstance(cfg, dict):
+            secrets += [cfg.get("password"), cfg.get("username")]
+
+    def clean(entry: dict) -> dict:
+        text = entry.get("last_error")
+        return {**entry, "last_error": scrub_text(text, *secrets)} if isinstance(text, str) else entry
+
+    out = clean(mqtt)
+    if isinstance(mqtt.get("brokers"), list):
+        out["brokers"] = [clean(b) if isinstance(b, dict) else b for b in mqtt["brokers"]]
+    return {**info, "mqtt": out}
 
 
 def build_bundle(info: dict, settings: dict, log_dir: Path | None) -> bytes:

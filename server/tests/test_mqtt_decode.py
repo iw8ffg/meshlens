@@ -1,5 +1,5 @@
 import pytest
-from meshtastic.protobuf import mesh_pb2, mqtt_pb2, telemetry_pb2
+from meshtastic.protobuf import mesh_pb2, mqtt_pb2, portnums_pb2, telemetry_pb2
 
 from helpers import make_envelope
 from meshlens.crypto import DEFAULT_KEY
@@ -198,3 +198,55 @@ def test_mqtt_traceroute_decoded_snr_scaled():
     ev = EnvelopeDecoder([DEFAULT_KEY]).decode(T, make_envelope(70, rd), now=1.0)
     assert ev.kind == "traceroute" and ev.payload.snr_towards == [6.0, None]
     assert ev.payload.request_id is None
+
+
+def test_custom_channel_key_decodes_and_preloads():
+    k = bytes(range(32))
+    dec = EnvelopeDecoder([DEFAULT_KEY, k], channel_keys={"Squadra": k})
+    assert dec.channel_keys["Squadra"] == k
+    raw = make_envelope(portnums_pb2.TEXT_MESSAGE_APP, b"ciao", channel_id="Squadra", key=k)
+    ev = dec.decode("msh/EU_868/2/e/Squadra/!00000001", raw, 1.0)
+    assert ev is not None and ev.kind == "text" and ev.payload.text == "ciao"
+    assert dec.channel_keys["Squadra"] == k
+
+
+def test_decoded_packet_has_broker():
+    dec = EnvelopeDecoder([DEFAULT_KEY], broker="b1")
+    raw = make_envelope(portnums_pb2.TEXT_MESSAGE_APP, b"ciao", encrypted=False)
+    ev = dec.decode(T, raw, 1.0)
+    assert ev is not None and ev.broker == "b1"
+
+
+def test_set_keys_keeps_learned_and_custom_wins():
+    dec = EnvelopeDecoder([DEFAULT_KEY])
+    dec.channel_keys["A"], dec.channel_keys["B"] = b"a" * 16, b"b" * 16
+    k2 = b"c" * 16
+    dec.set_keys([DEFAULT_KEY, k2], {"A": k2})
+    assert dec.keys == [DEFAULT_KEY, k2]
+    assert dict(dec.channel_keys) == {"A": k2, "B": b"b" * 16}
+
+
+def test_custom_key_not_in_keys_still_decodes():
+    k = bytes(range(1, 33))
+    dec = EnvelopeDecoder([DEFAULT_KEY], channel_keys={"Squadra": k})
+    raw = make_envelope(portnums_pb2.TEXT_MESSAGE_APP, b"x", channel_id="Squadra", key=k)
+    assert dec.decode("msh/EU_868/2/e/Squadra/!00000001", raw, 1.0) is not None
+
+
+def test_learned_key_never_overwrites_custom():
+    k = bytes(range(1, 33))
+    dec = EnvelopeDecoder([DEFAULT_KEY], channel_keys={"Squadra": k})
+    # pacchetto sul canale personalizzato cifrato con un'altra chiave (hash non verificabile: 0)
+    raw = make_envelope(portnums_pb2.TEXT_MESSAGE_APP, b"x", channel_id="Squadra",
+                        channel_hash_value=0)
+    assert dec.decode("msh/EU_868/2/e/Squadra/!00000001", raw, 1.0) is not None
+    assert dec.channel_keys["Squadra"] == k
+
+
+def test_set_keys_removing_custom_channel_stops_using_its_key():
+    k = bytes(range(1, 33))
+    dec = EnvelopeDecoder([DEFAULT_KEY], channel_keys={"Squadra": k})
+    dec.set_keys([DEFAULT_KEY], {})
+    assert "Squadra" not in dec.channel_keys
+    raw = make_envelope(portnums_pb2.TEXT_MESSAGE_APP, b"x", channel_id="Squadra", key=k)
+    assert dec.decode("msh/EU_868/2/e/Squadra/!00000001", raw, 1.0) is None

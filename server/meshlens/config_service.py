@@ -11,6 +11,7 @@ import math
 import secrets
 import time
 
+from .channel_link import preset_name
 from .config_model import (CHANNEL_FIELDS, CONFIG_SECTIONS, MASK, OWNER_FIELDS, _current,
                            _is_secret, _split, apply_to_protos, diff, mask_config,
                            node_to_dict, parse_changes, schema, touched_sections)
@@ -737,6 +738,27 @@ class ConfigService:
         if ch is None:
             raise ConfigError(404, "Canale non trovato")
         return {"psk": base64.b64encode(ch.settings.psk).decode()}
+
+    async def channel_secrets(self, radio_id: str) -> list[dict]:
+        """Canali attivi del nodo locale della radio con la PSK in chiaro (uso interno: non
+        esce mai dal server senza maschera). Il primario senza nome prende il nome del preset."""
+        conn = self._connector(radio_id)
+        if conn.state()["state"] != "connected":
+            raise ConfigError(409, "Radio non collegata")
+        try:
+            protos = await conn.current_protos(None)
+        except AdminError as err:
+            raise ConfigError(409, err.message) from None
+        preset = preset_name(protos["config"].lora.modem_preset)
+        out = []
+        for ch in protos["channels"]:
+            if ch.role == ch.DISABLED:
+                continue
+            name = ch.settings.name
+            if not name and ch.role == ch.PRIMARY:
+                name = preset
+            out.append({"name": name, "psk": base64.b64encode(ch.settings.psk).decode()})
+        return out
 
     async def admin_key(self, radio_id: str) -> dict:
         conn = self._connector(radio_id)

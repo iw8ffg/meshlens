@@ -19,13 +19,14 @@
   import Maintenance from './settings/Maintenance.svelte'
   import Diagnostics from './settings/Diagnostics.svelte'
   import Devices from './settings/Devices.svelte'
-  import { channelOptions, checkMqttNodeId, httpsNote, joinLines, maskedKeyLines, parseLines, type AppSettings, type MqttChannel, type TlsInfo } from '../lib/settings'
+  import Brokers from './settings/Brokers.svelte'
+  import { channelOptions, checkMqttNodeId, httpsNote, type AppSettings, type Broker, type MqttChannel, type TlsInfo } from '../lib/settings'
+  import { channelNameError, fromServer, pskError } from '../lib/brokers'
   import { formatDate } from '../lib/format'
 
   let { onlogout }: { onlogout: () => void } = $props()
 
   type Country = { code: string; name: string; nodes: number }
-  const MASK = '••••'
 
   let countries = $state<Country[]>([])
   let saved = $state<string[]>([])
@@ -38,12 +39,8 @@
   let tls = $state<TlsInfo | null>(null)
   let batteryPct = $state(20)
   let silentH = $state(6)
-  let host = $state('')
-  let port = $state(1883)
-  let username = $state('')
-  let password = $state('')
-  let topics = $state('')
-  let keys = $state('')
+  let brokers = $state<Broker[]>([])
+  let brokersSnap = $state('[]')
   let onlyChosen = $state(false)
   let chosen = $state<string[]>([])
   let seenChannels = $state<MqttChannel[]>([])
@@ -52,11 +49,25 @@
   let themePref = $state<ThemePref>('auto')
   const themeItems = (Object.keys(THEME_LABELS) as ThemePref[]).map((v) => ({ value: v, label: THEME_LABELS[v] }))
   const nodeIdCheck = $derived(checkMqttNodeId(nodeId))
+  const dirty = $derived(JSON.stringify(brokers) !== brokersSnap)
+  const brokersOk = $derived(
+    brokers.every((b) =>
+      b.channels.every(
+        (c, i) => c.psk !== '' && !pskError(c.psk) && !channelNameError(c.name, b.channels.filter((_, j) => j !== i).map((x) => x.name.trim())),
+      ),
+    ),
+  )
   let loaded = $state(false)
   let loadError = $state('')
   let error = $state('')
   let ok = $state('')
   let busy = $state(false)
+
+  // Dopo un'importazione si aggiornano solo i broker: le altre modifiche non salvate restano.
+  function applyBrokers(s: AppSettings) {
+    brokers = fromServer(s.mqtt_brokers ?? [])
+    brokersSnap = JSON.stringify(brokers)
+  }
 
   function apply(s: AppSettings) {
     saved = [...s.saved_countries]
@@ -68,12 +79,7 @@
     lanHttps = s.lan_https ?? false
     batteryPct = s.battery_alert_pct
     silentH = s.silent_alert_hours
-    host = s.mqtt.host
-    port = s.mqtt.port
-    username = s.mqtt.username
-    password = s.mqtt.password
-    topics = joinLines(s.mqtt.topics)
-    keys = joinLines(maskedKeyLines(s.mqtt.extra_keys))
+    applyBrokers(s)
     chosen = [...(s.mqtt_channels ?? [])]
     nodeId = s.mqtt_node_id ?? ''
     onlyChosen = chosen.length > 0
@@ -131,7 +137,7 @@
   async function save(e: Event) {
     e.preventDefault()
     error = ok = ''
-    if (!nodeIdCheck.ok) return
+    if (!nodeIdCheck.ok || !brokersOk) return
     busy = true
     try {
       const res = await send<AppSettings>('PUT', '/settings', {
@@ -146,16 +152,9 @@
         mqtt_node_id: nodeIdCheck.value,
         battery_alert_pct: batteryPct,
         silent_alert_hours: silentH,
-        mqtt: {
-          host,
-          port,
-          username,
-          password: password === '' ? MASK : password,
-          topics: parseLines(topics),
-          extra_keys: parseLines(keys),
-        },
+        mqtt_brokers: brokers,
       })
-      if (res && typeof res === 'object' && 'mqtt' in res) apply(res)
+      if (res && typeof res === 'object' && 'mqtt_brokers' in res) apply(res)
       ok = 'Impostazioni salvate'
     } catch (err) {
       error = err instanceof ApiError ? err.message : 'Salvataggio non riuscito'
@@ -260,14 +259,7 @@
         <section class="sec">
           <h3>MQTT</h3>
           <MqttStatusDetail status={app.status?.mqtt ?? null} />
-          <div class="grid">
-            <Field label="Host" for="set-host">{#snippet children()}<input id="set-host" class="ui-input" type="text" bind:value={host} />{/snippet}</Field>
-            <Field label="Porta" for="set-port">{#snippet children()}<input id="set-port" class="ui-input ui-mono" type="number" min="1" max="65535" bind:value={port} />{/snippet}</Field>
-            <Field label="Utente" for="set-user">{#snippet children()}<input id="set-user" class="ui-input" type="text" autocomplete="off" bind:value={username} />{/snippet}</Field>
-            <Field label="Password" for="set-pass">{#snippet children()}<input id="set-pass" class="ui-input" type="password" autocomplete="new-password" bind:value={password} />{/snippet}</Field>
-          </div>
-          <Field label="Topic (uno per riga)" for="set-topics" hint="Esempio: msh/EU_868/IT/# per il traffico italiano (se manca, /# viene aggiunto da solo). I messaggi inviati via MQTT usano la radice del primo topic, per esempio msh/EU_868/IT, così arrivano ai gateway che la ascoltano.">{#snippet children()}<textarea id="set-topics" class="ui-input area" rows="3" bind:value={topics}></textarea>{/snippet}</Field>
-          <Field label="Chiavi aggiuntive base64 (una per riga; ••••#n = chiave salvata, cancella la riga per rimuoverla)" for="set-keys">{#snippet children()}<textarea id="set-keys" class="ui-input area" rows="3" bind:value={keys}></textarea>{/snippet}</Field>
+          <Brokers bind:brokers {dirty} onimported={applyBrokers} />
           <Field
             label="Il tuo id nodo per MQTT"
             for="set-nodeid"
@@ -311,7 +303,7 @@
 
       {#if error}<Banner kind="danger" title={error} />{/if}
       {#if ok}<Banner kind="ok" title={ok} />{/if}
-      <div><Button type="submit" kind="primary" disabled={busy || !nodeIdCheck.ok}>Salva</Button></div>
+      <div><Button type="submit" kind="primary" disabled={busy || !nodeIdCheck.ok || !brokersOk}>Salva</Button></div>
     </form>
 
     <OfflineMaps />
@@ -347,7 +339,6 @@
   .countries { list-style: none; margin: 0; padding: 0; max-height: 240px; overflow: auto; }
   .chan { width: 100%; }
   .n { margin-left: auto; color: var(--ink-muted); font-size: 13px; }
-  .area { height: auto; padding: var(--space-2) var(--space-3); resize: vertical; font-family: var(--font-mono); }
   .fp { font-size: 14px; line-height: 20px; overflow-wrap: anywhere; word-break: break-all; }
   .line { margin: 0; font: 400 14px/20px var(--font-sans); }
   p { margin: 0; }

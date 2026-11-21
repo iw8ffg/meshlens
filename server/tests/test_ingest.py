@@ -86,7 +86,7 @@ def test_duplicate_mqtt_packet(env):
     ing.handle(ev("position", pos(MILAN), pid=1))
     e = ev("text", TextData("ciao"), pid=2)
     ing.handle(e)
-    ing.handle(e)
+    ing.handle(ev("text", TextData("ciao"), pid=2, gateway_id="!gw2"))
     assert len(got) == 1 and len(live.messages) == 1
     assert live.nodes[1]["mqtt_gateways"] == 2
 
@@ -365,7 +365,7 @@ def test_mqtt_gateways_after_rf_copy_use_shared_dedup(env):
     ing.handle(rf)
     ing.handle(ev("text", TextData("ciao"), pid=9))  # prima copia MQTT: primo gateway
     assert live.nodes[1]["mqtt_gateways"] == 1
-    ing.handle(ev("text", TextData("ciao"), pid=9))  # seconda copia MQTT
+    ing.handle(ev("text", TextData("ciao"), pid=9, gateway_id="!gw2"))  # seconda copia MQTT
     assert live.nodes[1]["mqtt_gateways"] == 2
 
 
@@ -391,3 +391,37 @@ def test_unknown_node_starts_blank(env):
     assert store.get_node(42) is None
     ing.handle(ev("text", TextData("ciao"), num=42, pid=1))
     assert live.nodes[42]["long_name"] is None and live.nodes[42]["mqtt_gateways"] == 1
+
+
+def test_message_carries_broker(env):
+    ing, live, store, conn, got = env
+    ing.handle(ev("position", pos(MILAN), pid=1))
+    ing.handle(ev("text", TextData("ciao"), pid=2, broker="b1a2b3c"))
+    assert got[0]["broker"] == "b1a2b3c"
+    assert conn.execute("SELECT broker FROM messages").fetchone()[0] == "b1a2b3c"
+    m = ing.record_outgoing_mqtt(1, 0xFFFFFFFF, 99, "x", "LongFast", broker="default")
+    assert m["broker"] == "default"
+    assert conn.execute("SELECT broker FROM messages WHERE key='1:99'").fetchone()[0] == "default"
+    assert {m["key"]: m["broker"] for m in store.messages(None, None, 10)}["1:99"] == "default"
+
+
+def test_same_packet_two_brokers_one_message(env):
+    ing, live, _, conn, got = env
+    ing.handle(ev("position", pos(MILAN), pid=1))
+    ing.handle(ev("text", TextData("ciao"), pid=2, broker="default"))
+    ing.handle(ev("text", TextData("ciao"), pid=2, broker="b1"))
+    assert len(got) == 1 and got[0]["broker"] == "default"
+    assert conn.execute("SELECT broker FROM messages").fetchone()[0] == "default"
+    assert live.nodes[1]["mqtt_gateways"] == 1
+    ing.handle(ev("text", TextData("ciao"), pid=2, broker="b1", gateway_id="!other"))
+    assert live.nodes[1]["mqtt_gateways"] == 2
+
+
+def test_channel_counts_per_broker(env):
+    ing, *_ = env
+    ing.handle(ev("text", TextData("a"), pid=1, broker="default"))
+    ing.handle(ev("text", TextData("b"), pid=2, broker="default"))
+    ing.handle(ev("text", TextData("c"), pid=3, broker="b1"))
+    assert ing.mqtt_channel_counts(now=NOW) == {"LongFast": 3}
+    assert ing.mqtt_channel_counts(now=NOW, broker="b1") == {"LongFast": 1}
+    assert ing.mqtt_channel_brokers(now=NOW)["LongFast"] == ["default", "b1"]

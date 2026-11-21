@@ -2,6 +2,7 @@
   import { onMount, tick, untrack } from 'svelte'
   import { ApiError, getJSON, mqttChannels, mqttSend, send } from '../lib/api'
   import { ago } from '../lib/format'
+  import { brokerLabel, pickBroker } from '../lib/brokers'
   import { MAX_BYTES, MQTT_CONV, groupMessages, localNodeIds, splitKey, statusIcon } from '../lib/chat'
   import {
     MQTT_VIA,
@@ -22,6 +23,7 @@
   import { keepAboveKeyboard } from '../lib/keyboard'
   import { app, addMessage, addRadioHistory, attachChat } from '../lib/stores.svelte'
   import Badge from '../lib/ui/Badge.svelte'
+  import BrokerBadge from '../lib/ui/BrokerBadge.svelte'
   import Banner from '../lib/ui/Banner.svelte'
   import Button from '../lib/ui/Button.svelte'
   import Empty from '../lib/ui/Empty.svelte'
@@ -29,6 +31,7 @@
   import Modal from '../lib/ui/Modal.svelte'
   import Select from '../lib/ui/Select.svelte'
   import Toast from '../lib/ui/Toast.svelte'
+  import BrokerPicker from '../lib/shell/BrokerPicker.svelte'
   import MessageFeed from './MessageFeed.svelte'
   import type { Message, Radio } from '../lib/types'
 
@@ -41,7 +44,9 @@
   let radioChan = $state('0')
   let mqttChan = $state(DEFAULT_MQTT_CHANNEL)
   let mqttChans = $state<string[]>([DEFAULT_MQTT_CHANNEL])
+  let mqttBroker = $state('')
   let mqttNodeId = $state('')
+  let confirmText = $state(PUBLIC_WARNING)
   let unknownNode = $state(false)
   let sending = $state(false)
   let error = $state('')
@@ -75,11 +80,6 @@
   // Canali MQTT per l'invio e id nodo impostato (per sapere in anticipo se MQTT e' utilizzabile)
   onMount(() => {
     let alive = true
-    mqttChannels()
-      .then((rows) => {
-        if (alive) mqttChans = mqttChannelNames(rows)
-      })
-      .catch(() => {})
     getJSON<{ mqtt_node_id?: string }>('/settings')
       .then((s) => {
         if (alive && typeof s.mqtt_node_id === 'string') mqttNodeId = s.mqtt_node_id
@@ -125,7 +125,31 @@
   const dmTo = $derived(conv.startsWith('dm:') ? splitKey(conv)[2] : '')
 
   // --- Invia via ---
-  const mqttConnected = $derived(app.status?.mqtt.connected ?? false)
+  const brokers = $derived(app.status?.mqtt.brokers ?? [])
+  // Server vecchio (senza `brokers`): vale il totale
+  const mqttConnected = $derived(brokers.length ? (brokers.find((b) => b.id === mqttBroker)?.connected ?? false) : (app.status?.mqtt.connected ?? false))
+  $effect(() => {
+    mqttBroker = pickBroker(untrack(() => mqttBroker), brokers)
+  })
+  // Canali MQTT del broker scelto (anche i personalizzati senza traffico)
+  $effect(() => {
+    let alive = true
+    mqttChans = [DEFAULT_MQTT_CHANNEL]
+    mqttChannels(mqttBroker)
+      .then((rows) => {
+        if (alive) mqttChans = mqttChannelNames(rows)
+      })
+      .catch(() => {
+        if (alive) mqttChans = [DEFAULT_MQTT_CHANNEL]
+      })
+    return () => {
+      alive = false
+    }
+  })
+  // Se il canale scelto non esiste nel broker corrente si torna al primo
+  $effect(() => {
+    if (!mqttChans.includes(untrack(() => mqttChan))) mqttChan = mqttChans[0] ?? DEFAULT_MQTT_CHANNEL
+  })
   const options = $derived(viaOptions({ radios: app.radios, mqttConnected, mqttNodeId, unknownNode }))
   // Etichette con i nomi dei canali (solo visualizzazione: la scelta usa `options`, senza dipendere dal canale)
   const chanName = (r: Radio): string | undefined => {
@@ -189,12 +213,14 @@
       forceScroll = true
       addMessage(r.message)
       text = ''
-      notice = `Pubblicato su MQTT · ${body.channel}`
+      const bn = brokerLabel(body.broker, brokers)
+      notice = `Pubblicato su MQTT · ${bn ? `${bn} · ` : ''}${body.channel}`
     } catch (e) {
       const info = classifyMqttError(
         e instanceof ApiError ? { status: e.status, code: e.code, message: e.message, retryAfter: e.retryAfter } : { status: 0, code: null, message: '' },
       )
       if (info.kind === 'confirm') {
+        confirmText = info.message
         pending = body
         confirmOpen = true
         return
@@ -210,7 +236,7 @@
     error = ''
     notice = ''
     try {
-      if (via === MQTT_VIA) await sendMqtt(mqttBody(text, mqttChan, dmTo || null, false))
+      if (via === MQTT_VIA) await sendMqtt(mqttBody(text, mqttChan, dmTo || null, false, mqttBroker))
       else await sendRadio()
     } catch (e) {
       error = e instanceof Error && e.message ? e.message : 'Invio non riuscito'
@@ -296,6 +322,7 @@
             <div class="meta">
               <span>{ago((now - m.time) / 60)}</span>
               {#if m.via === 'mqtt'}<Badge kind="info">via MQTT</Badge>{/if}
+              <BrokerBadge id={m.broker} />
               {#if out && m.status}
                 <span class="st" class:bad={m.status === 'failed'} role="img" title={statusAria(m.status, m.via)} aria-label={statusAria(m.status, m.via)}>
                   {statusIcon(m.status)}
@@ -322,6 +349,7 @@
     </fieldset>
 
     {#if via === MQTT_VIA}
+      <BrokerPicker id="{uid}-brk" {brokers} bind:value={mqttBroker} />
       <Field label="Canale MQTT" for="{uid}-mch" hint={dmTo ? `Diretto a ${nodeName(dmTo)}` : undefined}>
         {#snippet children({ describedby })}
           <Select id="{uid}-mch" bind:value={mqttChan} aria-describedby={describedby}>
@@ -362,7 +390,7 @@
 </div>
 
 <Modal open={confirmOpen} title="Pubblicare su MQTT?" confirmLabel="Pubblica" oncancel={cancelPublic} onconfirm={confirmPublic}>
-  <p class="warn">{PUBLIC_WARNING}</p>
+  <p class="warn">{confirmText}</p>
 </Modal>
 
 <style>

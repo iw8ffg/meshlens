@@ -57,3 +57,14 @@ def test_observe_without_source_marks_nothing():
     assert d.observe(1, 5, 0) == (True, False)
     assert d.observe(1, 5, 1, "mqtt") == (False, False)
     assert d.is_new(1, 5, 2) is False
+
+
+def test_note_gateway():
+    d = Deduplicator(window_s=10)
+    d.observe(1, 5, 100.0, "mqtt")
+    assert d.note_gateway(1, 5, "!a") is True
+    assert d.note_gateway(1, 5, "!a") is False
+    assert d.note_gateway(1, 5, "!b") is True
+    d.prune(200.0)
+    d.observe(1, 5, 200.0, "mqtt")
+    assert d.note_gateway(1, 5, "!a") is True

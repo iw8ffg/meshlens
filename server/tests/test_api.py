@@ -478,10 +478,11 @@ async def test_history_shape(ctx):
     async with logged(ctx) as c:
         rows = (await c.get("/api/messages/history?country=IT")).json()
         assert rows == [{**msg, "from_name": "Zed", "direction": "in", "radio_id": None,
-                         "channel_index": None, "packet_id": None, "status": None}]
+                         "channel_index": None, "packet_id": None, "status": None,
+                         "broker": None}]
         assert set(rows[0]) == {"key", "from", "from_name", "to", "channel", "text",
                                 "time", "country", "source", "direction", "radio_id",
-                                "channel_index", "packet_id", "status"}
+                                "channel_index", "packet_id", "status", "broker"}
         assert (await c.get("/api/messages/history?country=IT&before=1")).json() == []
 
 
@@ -592,9 +593,95 @@ async def test_mqtt_channels_endpoint(ctx):
         r = await c.put("/api/settings", json={"mqtt_channels": ["LongFast", "Gone"]})
         assert r.status_code == 200 and r.json()["mqtt_channels"] == ["LongFast", "Gone"]
         got = (await c.get("/api/mqtt/channels")).json()
-        assert got == [{"name": "MediumFast", "count_1h": 9, "enabled": False},
-                       {"name": "LongFast", "count_1h": 5, "enabled": True},
-                       {"name": "Zed", "count_1h": 1, "enabled": False}]
+        assert got == [
+            {"name": "MediumFast", "count_1h": 9, "enabled": False, "custom": False, "brokers": []},
+            {"name": "LongFast", "count_1h": 5, "enabled": True, "custom": False, "brokers": []},
+            {"name": "Zed", "count_1h": 1, "enabled": False, "custom": False, "brokers": []}]
+
+
+_B1 = {"id": "b1", "name": "Broker uno", "enabled": True, "host": "broker.esempio.it",
+       "port": 1883, "topics": ["msh/EU_868/IT/#"],
+       "channels": [{"name": "Squadra", "psk": "ESIzRFVmd4iZqrvM3e7/ABEiM0RVZneImaq7zN3u/wA="}]}
+
+
+def _with_b1(conn):
+    from meshlens.settings import load_settings
+    default = load_settings(conn)["mqtt_brokers"][0]
+    return save_settings(conn, {"mqtt_brokers": [default, dict(_B1)]})
+
+
+async def test_send_route_with_broker_and_confirmation_saved(ctx):
+    from meshlens.mqtt_publish import MqttSender
+    from meshlens.settings import load_settings
+
+    class Conn:
+        def __init__(self):
+            self.published = []
+
+        def publish(self, topic, payload):
+            self.published.append(topic)
+            return True
+
+    conns = {"default": Conn(), "b1": Conn()}
+    save_settings(ctx.conn, {"mqtt_node_id": "!a1b2c3d4"})
+    _with_b1(ctx.conn)
+    recorded = []
+    ctx.mqtt_sender = MqttSender(
+        conns.get, lambda: load_settings(ctx.conn), lambda: [], lambda: 1000.0,
+        lambda **kw: recorded.append(kw) or {"key": "k", "text": kw["text"],
+                                             "broker": kw["broker"]})
+    async with logged(ctx) as c:
+        body = {"text": "ciao", "channel": "Squadra", "broker": "b1"}
+        r = await c.post("/api/mqtt/send", json=body)
+        assert r.status_code == 409 and "broker.esempio.it" in r.json()["detail"]
+        r = await c.post("/api/mqtt/send", json={**body, "confirm_public": True})
+        assert r.status_code == 202 and r.json()["message"]["broker"] == "b1"
+        saved = load_settings(ctx.conn)
+        assert saved["mqtt_send_confirmed_brokers"] == ["b1"]
+        assert saved["mqtt_send_confirmed"] is False  # vale solo per il predefinito
+        assert conns["b1"].published == ["msh/EU_868/IT/2/e/Squadra/!a1b2c3d4"]
+        r = await c.post("/api/mqtt/send", json={**body, "broker": "x" * 25})
+        assert r.status_code == 422
+        r = await c.post("/api/mqtt/send", json={**body, "broker": "nessuno"})
+        assert r.status_code == 400 and r.json()["code"] == "unknown_broker"
+        # sul predefinito la conferma imposta anche mqtt_send_confirmed
+        r = await c.post("/api/mqtt/send", json={"text": "x", "broker": "default",
+                                                 "confirm_public": True})
+        assert r.status_code == 202
+        saved = load_settings(ctx.conn)
+        assert saved["mqtt_send_confirmed_brokers"] == ["b1", "default"]
+        assert saved["mqtt_send_confirmed"] is True
+    assert [kw["broker"] for kw in recorded] == ["b1", "default"]
+
+
+async def test_channels_route_includes_custom_with_zero_count(ctx):
+    _with_b1(ctx.conn)
+    seen = {"default": {"LongFast": 4, "Squadra": 2}, "b1": {"LongFast": 3}}
+
+    def counts(broker=None):
+        if broker is None:
+            return {"LongFast": 7, "Squadra": 2}
+        return seen.get(broker, {})
+
+    ctx.mqtt_channel_counts = counts
+    ctx.mqtt_channel_brokers = lambda: {"LongFast": ["default", "b1"], "Squadra": ["default"]}
+    async with logged(ctx) as c:
+        got = (await c.get("/api/mqtt/channels?broker=b1")).json()
+        assert got == [
+            {"name": "LongFast", "count_1h": 3, "enabled": True, "custom": False,
+             "brokers": ["default", "b1"]},
+            {"name": "Squadra", "count_1h": 0, "enabled": True, "custom": True,
+             "brokers": ["default", "b1"]}]
+        allb = (await c.get("/api/mqtt/channels")).json()
+        assert allb == [
+            {"name": "LongFast", "count_1h": 7, "enabled": True, "custom": False,
+             "brokers": ["default", "b1"]},
+            {"name": "Squadra", "count_1h": 2, "enabled": True, "custom": True,
+             "brokers": ["default", "b1"]}]
+        dflt = (await c.get("/api/mqtt/channels?broker=default")).json()
+        assert [(r["name"], r["count_1h"], r["custom"]) for r in dflt] == [
+            ("LongFast", 4, False), ("Squadra", 2, False)]
+        assert (await c.get("/api/mqtt/channels?broker=nessuno")).status_code == 404
 
 
 async def test_db_endpoint_and_compact_requires_confirm(tmp_path):
@@ -670,8 +757,9 @@ async def test_settings_import_skips_masked(ctx):
         r = await c.post("/api/settings/import", json=doc)
         assert r.status_code == 200, r.text
         body = r.json()
-        assert set(body["skipped"]) == {"update_token", "mqtt.password", "mqtt.extra_keys",
-                                        "mqtt_send_confirmed"}
+        # i segreti mascherati dei broker si risolvono con quelli salvati (stesso id)
+        assert set(body["skipped"]) == {"update_token", "mqtt_send_confirmed",
+                                        "mqtt_send_confirmed_brokers"}
         assert "hunter2pw" not in r.text and "AQ==" not in r.text
         assert body["settings"]["retention_messages_days"] == 30
         from meshlens.settings import load_settings
@@ -856,3 +944,186 @@ async def test_tls_route(ctx):
         assert (await c.get("/api/tls")).json() == {
             "enabled": True, "port": 8687, "fingerprint_sha256": "AB:CD",
             "not_after": 1.5, "error": "HTTPS non avviato sulla porta 8687"}
+
+
+async def test_put_settings_brokers_masked_roundtrip(ctx):
+    from meshlens.settings import load_settings
+    async with logged(ctx) as c:
+        s = (await c.get("/api/settings")).json()
+        s["mqtt_brokers"][0]["password"] = "pw-default"
+        s["mqtt_brokers"].append({"id": "casa", "name": "Casa", "host": "casa.example",
+                                  "topics": ["msh/#"], "password": "pw-casa",
+                                  "channels": [{"name": "A", "psk": "AAECAwQFBgcICQoLDA0ODw=="},
+                                               {"name": "B", "psk": "Ag=="}],
+                                  "extra_keys": ["Aw=="]})
+        r = await c.put("/api/settings", json=s)
+        assert r.status_code == 200, r.text
+        saved = load_settings(ctx.conn)["mqtt_brokers"]
+        body = (await c.get("/api/settings")).json()
+        for secret in ("pw-default", "pw-casa", "AAECAwQFBgcICQoLDA0ODw==", "Ag==", "Aw=="):
+            assert secret not in r.text
+        r = await c.put("/api/settings", json=body)
+        assert r.status_code == 200, r.text
+        assert load_settings(ctx.conn)["mqtt_brokers"] == saved
+        casa = r.json()["mqtt_brokers"][1]
+        assert casa["password"] == "••••" and [ch["psk"] for ch in casa["channels"]] == ["••••"] * 2
+        assert r.json()["mqtt"]["password"] == "••••"
+
+
+async def test_put_settings_bad_mask_400_and_nothing_saved(ctx):
+    from meshlens.settings import load_settings
+    async with logged(ctx) as c:
+        s = (await c.get("/api/settings")).json()
+        before = load_settings(ctx.conn)
+        s["retention_messages_days"] = 33
+        s["mqtt_brokers"][0]["channels"] = [{"name": "A", "psk": "••••#3"}]
+        r = await c.put("/api/settings", json=s)
+        assert r.status_code == 400 and "senza corrispondenza" in r.json()["detail"]
+        s["mqtt_brokers"][0]["channels"] = []
+        s["mqtt_brokers"].append({"name": "Nuovo", "host": "n.example", "topics": ["msh/#"],
+                                  "password": "••••"})
+        r = await c.put("/api/settings", json=s)
+        assert r.status_code == 400
+        assert load_settings(ctx.conn) == before
+
+
+# ---- importazione dei canali e "mostra PSK" ----------------------------------------
+KEY32_B64 = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8="  # 32 byte 00..1f
+
+
+def _squadra_link() -> str:
+    import base64
+    from meshtastic.protobuf import apponly_pb2
+    cs = apponly_pb2.ChannelSet()
+    cs.settings.add().psk = b"\x01"  # primario senza nome: LongFast con la chiave pubblica
+    s = cs.settings.add()
+    s.name, s.psk = "Squadra", bytes(range(32))
+    return "https://meshtastic.org/e/#" + base64.urlsafe_b64encode(
+        cs.SerializeToString()).decode().rstrip("=")
+
+
+async def test_import_link_route_saves_and_masks(tmp_path):
+    from meshlens.settings import find_broker, load_settings
+    from test_app import KeyedConnector, _broker, _multi_rt
+    rt = await _multi_rt(tmp_path, KeyedConnector, _broker("b1"))
+    save_settings(rt.conn, {"mqtt_brokers": rt.settings["mqtt_brokers"]})
+    b1 = rt.connectors["b1"]
+    app = create_app(rt.ctx)
+    try:
+        async with client_for_app(app) as c:
+            assert (await c.post("/api/auth/setup", json={"pin": "1234"})).status_code == 200
+            r = await c.post("/api/mqtt/brokers/b1/channels/import-link",
+                             json={"url": _squadra_link()})
+            assert r.status_code == 200, r.text
+            body = r.json()
+            assert body["added"] == ["Squadra"]
+            assert body["skipped"] == [{"name": "LongFast", "reason": "canale pubblico predefinito"}]
+            masked = find_broker(body["settings"], "b1")["channels"]
+            assert masked == [{"name": "Squadra", "psk": "••••"}]
+            assert KEY32_B64 not in r.text
+            assert find_broker(load_settings(rt.conn), "b1")["channels"] == [
+                {"name": "Squadra", "psk": KEY32_B64}]
+            assert b1.decoder.channel_keys["Squadra"] == bytes(range(32))
+            # di nuovo: tutto gia' presente, nulla da salvare
+            r = await c.post("/api/mqtt/brokers/b1/channels/import-link",
+                             json={"url": _squadra_link()})
+            assert r.json()["added"] == [] and r.json()["skipped"][1]["reason"] == "già presente"
+            bad = await c.post("/api/mqtt/brokers/b1/channels/import-link",
+                               json={"url": "https://example.com/e/#abc"})
+            assert bad.status_code == 400 and "Link non valido" in bad.json()["detail"]
+            nob = await c.post("/api/mqtt/brokers/zz/channels/import-link",
+                               json={"url": _squadra_link()})
+            assert nob.status_code == 404
+    finally:
+        rt.conn.close()
+
+
+async def test_import_routes_require_auth(ctx):
+    async with client(ctx) as c:
+        for path in ("import-link", "import-radio"):
+            assert (await c.post(f"/api/mqtt/brokers/default/channels/{path}",
+                                 json={})).status_code == 401
+        assert (await c.post("/api/mqtt/brokers/default/channels/0/reveal", json={})).status_code == 401
+
+
+async def test_import_radio_route_409_without_radio():
+    from test_api_config import make_env
+    e, ctx, conn = await make_env()
+    conn.state_name = "reconnecting"
+    rid = e.mgr.radios()[0]["id"]
+    async with logged(ctx) as c:
+        r = await c.post("/api/mqtt/brokers/default/channels/import-radio", json={"radio_id": rid})
+        assert r.status_code == 409 and r.json()["detail"] == "Radio non collegata"
+        r = await c.post("/api/mqtt/brokers/default/channels/import-radio",
+                         json={"radio_id": "rnope"})
+        assert r.status_code == 404
+        r = await c.post("/api/mqtt/brokers/zz/channels/import-radio", json={"radio_id": rid})
+        assert r.status_code == 404
+
+
+async def test_import_radio_route_adds_channels():
+    import base64
+    from test_api_config import make_env
+    from meshlens.settings import find_broker, load_settings
+    e, ctx, conn = await make_env()
+    rid = e.mgr.radios()[0]["id"]
+    psk = bytes(range(32))
+    conn.nodes[None]["channels"][0].settings.psk = psk  # (la PSK di prova non e' valida)
+    async with logged(ctx) as c:
+        r = await c.post("/api/mqtt/brokers/default/channels/import-radio", json={"radio_id": rid})
+        assert r.status_code == 200, r.text
+        assert r.json()["added"] == ["LongFast", "uno"]
+        assert base64.b64encode(psk).decode() not in r.text
+        chans = find_broker(load_settings(ctx.conn), "default")["channels"]
+        assert chans[0] == {"name": "LongFast", "psk": base64.b64encode(psk).decode()}
+
+
+async def test_reveal_psk_route(ctx):
+    from meshlens.settings import load_settings
+    changes = {"mqtt_brokers": [{**load_settings(ctx.conn)["mqtt_brokers"][0],
+                                 "channels": [{"name": "Squadra", "psk": KEY32_B64}]}]}
+    save_settings(ctx.conn, changes)
+    async with logged(ctx) as c:
+        r = await c.post("/api/mqtt/brokers/default/channels/0/reveal", json={})
+        assert r.status_code == 200 and r.json() == {"psk": KEY32_B64}
+        assert (await c.post("/api/mqtt/brokers/default/channels/99/reveal", json={})).status_code == 404
+        assert (await c.post("/api/mqtt/brokers/zz/channels/0/reveal", json={})).status_code == 404
+        cookie = c.cookies.get("meshlens_session")
+    async with client_from(ctx, "192.168.1.5") as lan:
+        lan.cookies.set("meshlens_session", cookie)
+        r = await lan.post("/api/mqtt/brokers/default/channels/0/reveal", json={})
+        assert r.status_code == 403 and KEY32_B64 not in r.text
+
+
+async def test_import_does_not_lose_concurrent_save(ctx):
+    """Un salvataggio arrivato mentre si aspetta la radio non va perso."""
+    import asyncio
+    from meshlens.settings import load_settings
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    class SlowConfig:
+        async def channel_secrets(self, radio_id):
+            entered.set()
+            await release.wait()
+            return [{"name": "Squadra", "psk": KEY32_B64}]
+    ctx.config = SlowConfig()
+    async with logged(ctx) as c:
+        task = asyncio.create_task(c.post("/api/mqtt/brokers/default/channels/import-radio",
+                                          json={"radio_id": "r1"}))
+        await entered.wait()
+        r = await c.put("/api/settings", json={"retention_messages_days": 33})
+        assert r.status_code == 200
+        release.set()
+        r = await task
+        assert r.status_code == 200 and r.json()["added"] == ["Squadra"]
+        assert load_settings(ctx.conn)["retention_messages_days"] == 33
+        assert r.json()["settings"]["retention_messages_days"] == 33
+
+
+async def test_manual_channel_psk_must_be_strict_base64(ctx):
+    async with logged(ctx) as c:
+        cur = (await c.get("/api/settings")).json()["mqtt_brokers"]
+        for bad in ("***", "!!"):
+            body = [{**cur[0], "channels": [{"name": "X", "psk": bad}]}]
+            r = await c.put("/api/settings", json={"mqtt_brokers": body})
+            assert r.status_code == 400, bad

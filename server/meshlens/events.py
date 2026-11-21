@@ -99,6 +99,7 @@ class MeshEvent:
     # MQTT: ultimo byte dell'ultimo ritrasmettitore (0 = sconosciuto) e minimo dei salti noto
     relay_node: int | None = None
     hops_min: int | None = None
+    broker: str | None = None  # MQTT: id del broker che ha consegnato il pacchetto
 
     @property
     def gateway_num(self) -> int | None:

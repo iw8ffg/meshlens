@@ -65,11 +65,12 @@ class Store:
         self.conn.execute(
             "INSERT OR IGNORE INTO messages"
             "(key, from_num, to_num, channel, text, time, country, source, direction, radio_id, "
-            "channel_index, packet_id, status) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "channel_index, packet_id, status, broker) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (msg["key"], _id_to_num(msg["from"]), _id_to_num(to) if to else None,
              msg.get("channel"), msg.get("text"), msg["time"], msg.get("country"),
              msg.get("source"), msg.get("direction") or "in", msg.get("radio_id"),
-             msg.get("channel_index"), msg.get("packet_id"), msg.get("status")))
+             msg.get("channel_index"), msg.get("packet_id"), msg.get("status"),
+             msg.get("broker")))
 
     def update_message_status(self, key: str, status: str) -> None:
         self.conn.execute("UPDATE messages SET status=? WHERE key=?", (status, key))
@@ -397,7 +398,7 @@ class Store:
                  "time": r["time"], "country": r["country"], "source": r["source"],
                  "direction": r["direction"] or "in", "radio_id": r["radio_id"],
                  "channel_index": r["channel_index"], "packet_id": r["packet_id"],
-                 "status": r["status"],
+                 "status": r["status"], "broker": r["broker"],
                  # "via" non e' una colonna: si ricava (uscita su MQTT = inviato via MQTT)
                  **({"via": "mqtt"} if r["direction"] == "out" and r["source"] == "mqtt" else {})}
                 for r in self.conn.execute(sql, params)]
