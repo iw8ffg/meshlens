@@ -2,6 +2,9 @@
   // Contenuto dei popup della mappa (nodo, collegamento, punto Range Test): HTML con i token.
   import SourceMark from '../ui/SourceMark.svelte'
   import type { SourceKind } from '../ui/logic'
+  import Icon from '../ui/Icon.svelte'
+  import type { IconName } from '../ui/icons'
+  import { onDestroy } from 'svelte'
 
   interface Props {
     title: string
@@ -10,8 +13,27 @@
     mine?: boolean
     favorite?: boolean
     rows?: { label: string; value: string }[]
+    /** `onclick` che risolve a `true` mostra «Copiato» per 2 s. */
+    actions?: { label: string; icon: IconName; onclick: () => void | boolean | Promise<void | boolean>; disabled?: boolean }[]
   }
-  let { title, subtitle, source, mine = false, favorite = false, rows = [] }: Props = $props()
+  let { title, subtitle, source, mine = false, favorite = false, rows = [], actions = [] }: Props = $props()
+
+  let copied = $state(false)
+  let copiedTimer: ReturnType<typeof setTimeout> | null = null
+  onDestroy(() => {
+    if (copiedTimer) clearTimeout(copiedTimer)
+  })
+
+  async function run(a: NonNullable<Props['actions']>[number]) {
+    const r = await a.onclick()
+    if (r !== true) return
+    copied = true
+    if (copiedTimer) clearTimeout(copiedTimer)
+    copiedTimer = setTimeout(() => {
+      copied = false
+      copiedTimer = null
+    }, 2000)
+  }
 </script>
 
 <div class="np">
@@ -29,6 +51,17 @@
         <dd>{r.value}</dd>
       {/each}
     </dl>
+  {/if}
+  {#if actions.length > 0}
+    <div class="acts">
+      {#each actions as a (a.label)}
+        <button type="button" class="act" disabled={a.disabled} onclick={() => run(a)}>
+          <Icon name={a.icon} size={16} />
+          <span>{a.label}</span>
+        </button>
+      {/each}
+    </div>
+    <div class="copied" role="status">{copied ? 'Copiato' : ''}</div>
   {/if}
 </div>
 
@@ -77,6 +110,47 @@
   }
   dt {
     color: var(--ink-muted);
+  }
+  .acts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    margin-top: var(--space-3);
+  }
+  .act {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-height: var(--control-h-desktop);
+    padding: 0 var(--space-3);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--line-strong);
+    background: var(--surface-raised);
+    color: var(--ink);
+    font: 500 14px/20px var(--font-sans);
+    cursor: pointer;
+  }
+  .act:hover:not(:disabled) {
+    background: var(--surface-sunken);
+  }
+  .act:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  .act:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+  :global(.vp-phone) .act {
+    min-height: var(--control-h-phone);
+    min-width: var(--touch-min);
+  }
+  .copied {
+    min-height: 16px;
+    margin-top: var(--space-1);
+    color: var(--accent-ink);
+    font-size: 12px;
+    line-height: 16px;
   }
   dd {
     margin: 0;

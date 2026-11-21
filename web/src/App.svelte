@@ -197,7 +197,7 @@
     <TopBar visible={visible.length} tab={activeTab} onselect={goTab} onupdate={() => goTab('settings')} onpickalert={pickId} />
     <ConnectionBar />
     <div class="main">
-      <div class="mapwrap"><MapView nodes={visible} total={app.nodes.size} {now} {track} {focus} /></div>
+      <div class="mapwrap"><MapView nodes={visible} total={app.nodes.size} {now} {track} {focus} onpick={pickId} /></div>
 
       {#if !viewport.phone}
         {#if isPageTab(activeTab)}

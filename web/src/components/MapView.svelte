@@ -5,7 +5,11 @@
   import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url'
   import type { Point } from 'geojson'
   import 'maplibre-gl/dist/maplibre-gl.css'
-  import { app, coverage, maps } from '../lib/stores.svelte'
+  import { app, coverage, maps, openChat } from '../lib/stores.svelte'
+  import { navigate } from '../lib/shell/navigate'
+  import { haversineM, myOrigin } from '../lib/distance'
+  import { copyText } from '../lib/clipboard'
+  import { geopos } from '../lib/geopos.svelte'
   import { bboxFromBounds } from '../lib/maps'
   import { formatMeters } from '../lib/geo'
   import { coverageSession, getJSON, links as fetchLinks, patchCoverage } from '../lib/api'
@@ -40,6 +44,7 @@
     now,
     track,
     focus,
+    onpick,
   }: {
     nodes: Node[]
     /** Numero di nodi in `app.nodes`, prima dei filtri. */
@@ -47,6 +52,8 @@
     now: number
     track: [number, number][] | null
     focus: { lat: number; lon: number; seq: number } | null
+    /** Apre i dettagli di un nodo (pickId di App). */
+    onpick: (id: string) => void
   } = $props()
 
   const STYLE = 'https://tiles.openfreemap.org/styles/liberty'
@@ -423,31 +430,63 @@
     const n = app.nodes.get(id)
     if (!n) return
     const long = n.long_name && n.long_name !== (n.short_name || '') ? n.long_name : undefined
+    const rows = [
+      { label: 'Ultimo contatto', value: timeAgo(n.last_heard, now) },
+      { label: 'SNR', value: snrText(n.last_snr) },
+      { label: 'Salti', value: hopsLabel(n.hops, n.hops_min) },
+    ]
+    const pos = n.lat !== null && n.lon !== null ? { lat: n.lat, lon: n.lon } : null
+    const origin = myOrigin(app.nodes, app.radios, geopos.pos)
+    const isOrigin = origin !== null && origin.label !== 'dalla tua posizione' && (n.is_local_radio === true || app.radios.some((r) => r.state === 'connected' && r.my_node_id === id))
+    if (origin && pos && !isOrigin) rows.push({ label: 'Distanza', value: `${formatMeters(haversineM(origin, pos))} ${origin.label}` })
+    const radio = app.radios.find((r) => r.state === 'connected')
+    const actions: NonNullable<PopupProps['actions']> = []
+    if (radio) {
+      actions.push({
+        label: 'Messaggio diretto',
+        icon: 'send',
+        onclick: () => {
+          openChat(`dm:${radio.id}:${id}`)
+          navigate('chat')
+          popup?.remove()
+        },
+      })
+    }
+    actions.push({
+      label: 'Dettagli',
+      icon: 'info',
+      onclick: () => {
+        onpick(id)
+        popup?.remove()
+      },
+    })
+    actions.push({ label: 'Copia id', icon: 'copy', onclick: () => copyText(id) })
+    if (pos) actions.push({ label: 'Copia coordinate', icon: 'pin', onclick: () => copyText(`${pos.lat.toFixed(5)}, ${pos.lon.toFixed(5)}`) })
     openPopup(at, {
       title: nodeName(id),
       subtitle: long ?? id,
       source: ringKind(n),
       mine: isMine(n),
       favorite: isFavorite(n),
-      rows: [
-        { label: 'Ultimo contatto', value: timeAgo(n.last_heard, now) },
-        { label: 'SNR', value: snrText(n.last_snr) },
-        { label: 'Salti', value: hopsLabel(n.hops, n.hops_min) },
-      ],
+      rows,
+      actions,
     })
   }
 
   function showLinkPopup(at: maplibregl.LngLat, p: Record<string, unknown>) {
     const age = Number(p.age_h)
     const eta = age < 1 ? 'meno di 1 h fa' : `${num(Math.round(age))} h fa`
-    openPopup(at, {
-      title: `${nodeName(String(p.from_id))} ↔ ${nodeName(String(p.to_id))}`,
-      rows: [
-        { label: 'SNR', value: snrText(p.snr) },
-        { label: 'Fonte', value: SOURCE_LABEL[String(p.source)] ?? String(p.source) },
-        { label: 'Visto', value: eta },
-      ],
-    })
+    const a = app.nodes.get(String(p.from_id))
+    const b = app.nodes.get(String(p.to_id))
+    const rows = [
+      { label: 'SNR', value: snrText(p.snr) },
+      { label: 'Fonte', value: SOURCE_LABEL[String(p.source)] ?? String(p.source) },
+      { label: 'Visto', value: eta },
+    ]
+    if (a && b && a.lat !== null && a.lon !== null && b.lat !== null && b.lon !== null) {
+      rows.push({ label: 'Lunghezza', value: formatMeters(haversineM({ lat: a.lat, lon: a.lon }, { lat: b.lat, lon: b.lon })) })
+    }
+    openPopup(at, { title: `${nodeName(String(p.from_id))} ↔ ${nodeName(String(p.to_id))}`, rows })
   }
 
   function showCoveragePopup(at: maplibregl.LngLat, p: Record<string, unknown>, missing: boolean) {
