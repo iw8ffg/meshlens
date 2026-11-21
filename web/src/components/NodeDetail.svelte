@@ -2,6 +2,8 @@
   import { onDestroy } from 'svelte'
   import { getJSON, setFavorite, setMine } from '../lib/api'
   import { formatDate, ago, num } from '../lib/format'
+  import { downloadText } from '../lib/download'
+  import { fileStamp, gpx, slug } from '../lib/export'
   import { batteryView, contactMinutes, fmtOpt, hopsLabel, nodeName, sourceKind } from '../lib/nodes'
   import Badge from '../lib/ui/Badge.svelte'
   import BatteryBadge from '../lib/ui/BatteryBadge.svelte'
@@ -98,7 +100,10 @@
   const nodeId = $derived(node.id)
   $effect(() => {
     void nodeId
+    trackSeq++
     shown = false
+    loading = false
+    trackPts = []
     msg = ''
     linkCopied = false
     ontrack(null)
@@ -106,29 +111,70 @@
 
   const TRACK_ERROR = 'Percorso non disponibile'
 
-  async function toggleTrack() {
-    if (shown) {
-      shown = false
-      ontrack(null)
-      return
-    }
+  const TRACK_PERIODS = [
+    { hours: 24, label: '24 h' },
+    { hours: 168, label: '7 g' },
+    { hours: 720, label: '30 g' },
+    { hours: 2160, label: '90 g' },
+  ]
+  let trackHours = $state(24)
+  let trackPts = $state<Pos[]>([])
+  const NO_TRACK = 'Nessun percorso nel periodo scelto'
+  let trackSeq = 0 // scarta le risposte di richieste superate da un cambio di nodo o di periodo
+
+  async function loadTrack() {
+    const seq = ++trackSeq
     loading = true
     msg = ''
     const id = node.id
     try {
-      const pos = await getJSON<Pos[]>(`/nodes/${encodeURIComponent(id)}/positions?hours=24`)
-      if (id !== node.id) return
-      if (pos.length < 2) msg = 'Nessun percorso nelle ultime 24 h'
-      else {
-        ontrack([...pos].sort((a, b) => a.time - b.time).map((p) => [p.lon, p.lat]))
-        shown = true
-      }
+      const pos = await getJSON<Pos[]>(`/nodes/${encodeURIComponent(id)}/positions?hours=${trackHours}&max_points=5000`)
+      if (seq !== trackSeq || id !== node.id) return
+      const sorted = [...pos].sort((a, b) => a.time - b.time)
+      trackPts = sorted
+      if (sorted.length < 2) {
+        msg = NO_TRACK
+        ontrack(null)
+      } else ontrack(sorted.map((p) => [p.lon, p.lat]))
+      shown = true
     } catch {
+      if (seq !== trackSeq) return
       msg = TRACK_ERROR
+      ontrack(null)
     } finally {
-      loading = false
+      if (seq === trackSeq) loading = false
     }
   }
+
+  async function toggleTrack() {
+    if (shown) {
+      trackSeq++
+      shown = false
+      loading = false
+      msg = ''
+      trackPts = []
+      ontrack(null)
+      return
+    }
+    await loadTrack()
+  }
+
+  function pickPeriod(h: number) {
+    if (h === trackHours) return
+    trackHours = h
+    void loadTrack()
+  }
+
+  function exportGpx() {
+    const name = node.short_name || node.id
+    downloadText(`meshlens-percorso-${slug(name)}-${fileStamp(new Date())}.gpx`, 'application/gpx+xml', gpx(nodeName(node), trackPts))
+  }
+
+  const trackRange = $derived(
+    trackPts.length >= 2
+      ? `${trackPts.length} posizioni dal ${formatDate(trackPts[0].time)} al ${formatDate(trackPts[trackPts.length - 1].time)}`
+      : '',
+  )
 
   const precision = $derived(formatPrecision(node.precision_bits))
   const src = $derived(sourceKind(node))
@@ -181,12 +227,23 @@
     {/if}
     <Button icon="copy" onclick={copyLink}>{linkCopied ? 'Link copiato' : 'Copia link'}</Button>
   </div>
+  {#if shown}
+    <div class="periods" role="group" aria-label="Periodo del percorso">
+      {#each TRACK_PERIODS as p (p.hours)}
+        <button type="button" class="ui-chip" aria-pressed={trackHours === p.hours} disabled={loading} onclick={() => pickPeriod(p.hours)}>{p.label}</button>
+      {/each}
+    </div>
+    {#if trackRange}
+      <p class="hint">{trackRange}</p>
+      <div class="gap"><Button icon="download" onclick={exportGpx}>Esporta GPX</Button></div>
+    {/if}
+  {/if}
   {#if !firstRadio}<p class="hint">Collega una radio per i messaggi diretti e per configurare il nodo.</p>{/if}
   {#if msg}
     <div class="gap">
       <Banner kind="warn" title={msg}>
         {#snippet action()}
-          {#if msg === TRACK_ERROR}<Button onclick={toggleTrack}>Riprova</Button>{/if}
+          {#if msg === TRACK_ERROR}<Button onclick={loadTrack}>Riprova</Button>{/if}
         {/snippet}
       </Banner>
     </div>
@@ -274,6 +331,15 @@
   }
   .gap {
     margin-top: var(--space-2);
+  }
+  .periods {
+    display: flex;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+    margin-top: var(--space-2);
+  }
+  :global(.vp-phone) .periods :global(.ui-chip) {
+    min-height: 44px;
   }
   .hint {
     margin: var(--space-2) 0 0;

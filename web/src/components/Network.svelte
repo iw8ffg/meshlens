@@ -5,7 +5,10 @@
   import { loadView, saveView } from '../lib/viewstate'
   import { alertTone } from '../lib/alerts'
   import { alertText, alertsByNode, batteryView, contactMinutes, fmtOpt, hopsLabel, networkNodes, nodeName } from '../lib/nodes'
+  import { downloadText } from '../lib/download'
+  import { fileStamp, networkCsv } from '../lib/export'
   import Banner from '../lib/ui/Banner.svelte'
+  import Button from '../lib/ui/Button.svelte'
   import BatteryBadge from '../lib/ui/BatteryBadge.svelte'
   import Badge from '../lib/ui/Badge.svelte'
   import Icon from '../lib/ui/Icon.svelte'
@@ -43,6 +46,11 @@
   const alerts = $derived(alertsByNode(app.alerts))
   const alertRows = $derived(rows.filter((n) => alerts.has(n.id)))
 
+  // Esporta le righe mostrate: filtrate e ordinate
+  function exportCsv() {
+    downloadText(`meshlens-rete-${fileStamp(new Date())}.csv`, 'text/csv', networkCsv(rows))
+  }
+
   function sortBy(k: string) {
     const sk = k as SortKey
     if (sk === key) dir = dir === 'asc' ? 'desc' : 'asc'
@@ -59,6 +67,7 @@
     <Switch checked={onlyMine} label="Solo i miei nodi" onchange={(v) => (mineChoice = v)} />
     <Switch checked={onlyFav} label="Solo preferiti" onchange={(v) => (onlyFav = v)} />
     <span class="ui-muted">{rows.length} {rows.length === 1 ? 'nodo' : 'nodi'}</span>
+    <Button icon="download" disabled={rows.length === 0} onclick={exportCsv}>Esporta CSV</Button>
   </div>
 
   {#if alertRows.length > 0}

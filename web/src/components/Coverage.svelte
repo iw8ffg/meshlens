@@ -1,6 +1,8 @@
 <script lang="ts">
   import { coverageSession, deleteCoverage, patchCoverage, stopCoverage } from '../lib/api'
   import { formatLoss } from '../lib/coverage'
+  import { downloadText } from '../lib/download'
+  import { coverageCsv, coverageGeoJSONFile, coverageKml, slug, snrColorsFromTokens } from '../lib/export'
   import { formatDate } from '../lib/format'
   import { formatMeters } from '../lib/geo'
   import { applyCoverage, coverage } from '../lib/stores.svelte'
@@ -58,6 +60,16 @@
     } catch (e) {
       error = msg(e)
     }
+  }
+
+  // Esportazione del dettaglio aperto: nome file meshlens-copertura-<id>-<nome>.<estensione>
+  function exportDetail(kind: 'geojson' | 'kml' | 'csv') {
+    const d = coverage.detail
+    if (!d) return
+    const base = `meshlens-copertura-${d.id}-${slug(d.name)}`
+    if (kind === 'geojson') downloadText(`${base}.geojson`, 'application/geo+json', coverageGeoJSONFile(d))
+    else if (kind === 'kml') downloadText(`${base}.kml`, 'application/vnd.google-earth.kml+xml', coverageKml(d, snrColorsFromTokens()))
+    else downloadText(`${base}.csv`, 'text/csv', coverageCsv(d))
   }
 
   function closeDetail() {
@@ -129,6 +141,11 @@
           {formatDate(opened.started)} · {duration(opened)} · {opened.received} punti · perdita {formatLoss(opened)} ·
           distanza max {dist(opened)}
         </p>
+        <div class="row" role="group" aria-label="Esporta">
+          <Button icon="download" disabled={!coverage.detail} onclick={() => exportDetail('geojson')}>GeoJSON</Button>
+          <Button icon="download" disabled={!coverage.detail} onclick={() => exportDetail('kml')}>KML</Button>
+          <Button icon="download" disabled={!coverage.detail} onclick={() => exportDetail('csv')}>CSV</Button>
+        </div>
         <div class="row">
           <Button kind="primary" onclick={save}>Salva</Button>
           {#if opened.ended !== null}
