@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onMount, untrack } from 'svelte'
   import Login from './components/Login.svelte'
   import MapView from './components/MapView.svelte'
   import NodeList from './components/NodeList.svelte'
@@ -109,8 +109,9 @@
       coverageSessions()
         .then(setCoverageSessions)
         .catch(() => {})
-      if (coverage.openId !== null) {
-        const id = coverage.openId
+      const openId = untrack(() => coverage.openId)
+      if (openId !== null) {
+        const id = openId
         coverageSession(id)
           .then((d) => {
             if (coverage.openId === id) coverage.detail = d

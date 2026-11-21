@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { checklist, formatLoss } from './coverage'
+import { checklist, formatLoss, validInterval } from './coverage'
 import type { CoverageCheck } from './types'
 
 const good: CoverageCheck = {
@@ -49,5 +49,16 @@ describe('formatLoss', () => {
   })
   it('valore con virgola', () => {
     expect(formatLoss(6.67)).toBe('6,7%')
+  })
+})
+
+describe('validInterval', () => {
+  it('accetta 10-600 interi', () => {
+    expect(validInterval(10)).toBe(true)
+    expect(validInterval(600)).toBe(true)
+    expect(validInterval(9)).toBe(false)
+    expect(validInterval(601)).toBe(false)
+    expect(validInterval(30.5)).toBe(false)
+    expect(validInterval(null)).toBe(false)
   })
 })

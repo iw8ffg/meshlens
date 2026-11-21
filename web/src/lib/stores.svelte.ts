@@ -25,6 +25,8 @@ export const coverage = $state({
   sessions: [] as CoverageSession[],
   openId: null as number | null,
   detail: null as CoverageDetail | null,
+  /** Ultimo punto della sessione attiva (indipendente dalla sessione aperta). */
+  last: null as { id: number; snr: number | null; time: number } | null,
 })
 
 export function setCoverageSessions(list: CoverageSession[]): void {
@@ -36,6 +38,7 @@ export function applyCoverage(session: CoverageSession, point: CoveragePoint | n
   const i = coverage.sessions.findIndex((s) => s.id === session.id)
   if (i >= 0) coverage.sessions[i] = session
   else coverage.sessions.unshift(session)
+  if (point && session.ended === null) coverage.last = { id: session.id, snr: point.snr, time: point.time }
   if (session.id === coverage.openId && coverage.detail?.id === session.id) {
     const d = coverage.detail
     coverage.detail = { ...d, ...session, points: point ? [...d.points, point] : d.points }

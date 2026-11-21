@@ -59,6 +59,11 @@ export function checklist(check: CoverageCheck | null, mode: CoverageMode): Chec
   return items
 }
 
+/** Intervallo ammesso dal server: intero tra 10 e 600 secondi. */
+export function validInterval(n: unknown): n is number {
+  return typeof n === 'number' && Number.isInteger(n) && n >= 10 && n <= 600
+}
+
 /** Perdita pacchetti in percentuale ("6,7%"), "—" se non disponibile. */
 export function formatLoss(s: CoverageSession | number | null): string {
   const v = s !== null && typeof s === 'object' ? s.loss_pct : s

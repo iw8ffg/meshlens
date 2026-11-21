@@ -1,6 +1,6 @@
 <script lang="ts">
   import { ApiError, coverageCheck, startCoverage } from '../lib/api'
-  import { checklist } from '../lib/coverage'
+  import { checklist, validInterval } from '../lib/coverage'
   import { app, coverage } from '../lib/stores.svelte'
   import type { CoverageCheck, CoverageMode } from '../lib/types'
 
@@ -44,13 +44,14 @@
 
   const steps = $derived(checklist(check, mode))
   const hasActive = $derived(coverage.sessions.some((s) => s.ended === null))
-  const canStart = $derived(check?.gps_ok === true && check.radio_connected && !busy && !!radioId && !!mobileId && !hasActive)
+  const canStart = $derived(check?.gps_ok === true && check.radio_connected && !busy && !!radioId && !!mobileId && !hasActive && validInterval(interval))
 
   // Controllo ogni 5 s
   $effect(() => {
     const r = radioId
     const m = mobileId
     check = null
+    askApprox = ''
     if (!r || !m) return
     let live = true
     const run = () =>
@@ -58,7 +59,9 @@
         .then((c) => {
           if (live) check = c
         })
-        .catch(() => {})
+        .catch(() => {
+          if (live) check = null
+        })
     run()
     const t = setInterval(run, 5000)
     return () => {
@@ -139,6 +142,7 @@
       <button class="ghost" onclick={() => (askApprox = '')}>Annulla</button>
     </div>
   {/if}
+  {#if !validInterval(interval)}<p class="err">L'intervallo deve essere tra 10 e 600 secondi.</p>{/if}
   {#if error}<p class="err">{error}</p>{/if}
 
   <button class="link" aria-expanded={showHelp} onclick={() => (showHelp = !showHelp)}>

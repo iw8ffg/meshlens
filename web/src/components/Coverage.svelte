@@ -89,7 +89,7 @@
 
 <div class="cov">
   {#if active}
-    {@const last = coverage.detail?.id === active.id ? coverage.detail.points.at(-1) : undefined}
+    {@const last = coverage.last?.id === active.id ? coverage.last : null}
     <div class="running">
       <span>
         In corso: <b>{active.name}</b> — {active.received} punti{#if active.missing !== null}, {active.missing}
