@@ -1,0 +1,71 @@
+{
+  "v": 3,
+  "assetGroups": {
+    "Logo": {
+      "files": {
+        "app-icon-piccola.svg": {
+          "blob": "044b51ddeb8a24d517c90ea3fc450c2c",
+          "name": "app-icon-piccola.svg",
+          "size": 486,
+          "type": "image/svg+xml"
+        },
+        "app-icon.svg": {
+          "blob": "7bc1671eb74a59b560e0f953116e3e47",
+          "name": "app-icon.svg",
+          "size": 1262,
+          "type": "image/svg+xml"
+        },
+        "meshlens-logo-attuale.svg": {
+          "blob": "ddd292293223836d814850c7da7f8192",
+          "name": "meshlens-logo-attuale.svg",
+          "size": 926,
+          "type": "image/svg+xml"
+        },
+        "meshlens-logo-su-chiaro.svg": {
+          "blob": "f66f999872ec57631aa62c7b17069366",
+          "name": "meshlens-logo-su-chiaro.svg",
+          "size": 1146,
+          "type": "image/svg+xml"
+        },
+        "meshlens-logo.svg": {
+          "blob": "9d13ddb162b19a96760c7c6c5dfb2356",
+          "name": "meshlens-logo.svg",
+          "size": 1146,
+          "type": "image/svg+xml"
+        }
+      },
+      "name": "Logo",
+      "order": [
+        "meshlens-logo-attuale.svg",
+        "meshlens-logo.svg",
+        "meshlens-logo-su-chiaro.svg",
+        "app-icon.svg",
+        "app-icon-piccola.svg"
+      ],
+      "tile": "l"
+    }
+  },
+  "blobs": {},
+  "createdOnFiles": {
+    "at": "2026-11-21T13:50:39Z",
+    "v": 1
+  },
+  "docs": {
+    "readme": "project/README.md",
+    "sections": []
+  },
+  "groups": [
+    "Logo"
+  ],
+  "lastChange": {
+    "at": "2026-11-21T13:50:39Z",
+    "by": "Davide",
+    "note": "Design system iniziale di MeshLens: token, componenti, schermate",
+    "via": "Claude"
+  },
+  "layout": "files",
+  "libraries": [],
+  "namespace": "MeshLens",
+  "sections": {},
+  "title": "MeshLens"
+}
