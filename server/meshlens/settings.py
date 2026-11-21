@@ -19,6 +19,9 @@ DEFAULTS: dict = {
     "lan_access": False,
     "map_mode": "auto",
     "maps_source_url": "",
+    "update_repo": "iw8ffg/meshlens",
+    "update_token": "",
+    "update_auto_check": True,
     "mqtt": {
         "host": "mqtt.meshtastic.org",
         "port": 1883,
@@ -90,6 +93,15 @@ def _validate(key: str, value) -> None:
             u = urlsplit(value)
             if u.scheme != "https" or not u.netloc or not u.path.endswith(".pmtiles"):
                 raise ValueError("maps_source_url deve essere un URL https che termina con .pmtiles")
+    elif key == "update_repo":
+        if not (isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", value)):
+            raise ValueError("update_repo deve avere il formato owner/nome")
+    elif key == "update_token":
+        if not isinstance(value, str):
+            raise ValueError("update_token deve essere una stringa")
+    elif key == "update_auto_check":
+        if not isinstance(value, bool):
+            raise ValueError("update_auto_check deve essere vero o falso")
     elif key == "mqtt":
         _validate_mqtt(value)
 

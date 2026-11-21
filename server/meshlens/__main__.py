@@ -43,7 +43,7 @@ def main(argv: list[str] | None = None) -> int:
     import uvicorn
     from .app import build
     from .settings import load_settings
-    app, rt = build(Path(args.data_dir))
+    app, rt = build(Path(args.data_dir), auto_update=True)
     host = "0.0.0.0" if load_settings(rt.conn)["lan_access"] else "127.0.0.1"
     if not args.no_browser:
         timer = threading.Timer(1.5, webbrowser.open, args=(f"http://127.0.0.1:{args.port}",))

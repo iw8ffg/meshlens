@@ -28,6 +28,7 @@ from .coverage import SessionActive, precision_m
 from .geo import CountryLocator
 from .live import LiveState
 from .maps import MapsError
+from .updater import UpdateError
 from .radio_manager import NoRadioConnected, TracerouteThrottled
 from .settings import load_settings, save_settings
 from .store import Store
@@ -55,6 +56,7 @@ class AppContext:
     data_dir: Path | None = None
     config: object | None = None  # ConfigService
     maps: object | None = None  # MapsManager
+    updater: object | None = None  # Updater
     # token casuale generato all'avvio: lo conosce solo il lanciatore (in-process)
     shutdown_token: str = field(default_factory=lambda: secrets.token_urlsafe(32))
     exit_callback: Callable[[], None] | None = None  # impostata dal lanciatore
@@ -92,6 +94,10 @@ class MapsDownloadBody(BaseModel):
     kind: Literal["tool", "world", "italy", "area"]
     bbox: list[float] | None = None
     name: str | None = Field(None, max_length=80)
+
+
+class UpdateInstallBody(BaseModel):
+    confirm: bool = False
 
 
 class MineBody(BaseModel):
@@ -256,6 +262,8 @@ def _mask_settings(s: dict) -> dict:
     out = {**s, "mqtt": dict(s["mqtt"])}
     if out["mqtt"].get("password"):
         out["mqtt"]["password"] = MASK
+    if out.get("update_token"):
+        out["update_token"] = MASK  # il token non esce mai
     return out
 
 # Su Windows mimetypes legge il registro: forza i tipi JS per gli script ES module.
@@ -473,6 +481,8 @@ def create_app(ctx: AppContext) -> FastAPI:
         mqtt = changes.get("mqtt")
         if isinstance(mqtt, dict) and mqtt.get("password") == MASK:
             changes["mqtt"] = {k: v for k, v in mqtt.items() if k != "password"}
+        if changes.get("update_token") == MASK:
+            del changes["update_token"]  # invariato
         try:
             saved = save_settings(ctx.conn, changes)
         except ValueError as e:
@@ -762,6 +772,35 @@ def create_app(ctx: AppContext) -> FastAPI:
     async def coverage_detail(sid: int):
         coverage_session(sid)
         return ctx.coverage.detail(sid)
+
+    # ---- aggiornamenti ----
+    async def update_call(fn):
+        if ctx.updater is None:
+            raise HTTPException(503, "Aggiornamenti non disponibili")
+        try:
+            return await fn()
+        except UpdateError as e:
+            raise HTTPException(e.status, str(e))
+
+    async def _update_status():
+        return ctx.updater.status()
+
+    @app.get("/api/update/status", dependencies=[Depends(require_auth)])
+    async def update_status():
+        return await update_call(_update_status)
+
+    @app.post("/api/update/check", dependencies=[Depends(require_auth)])
+    async def update_check():
+        return await update_call(lambda: ctx.updater.check())
+
+    @app.post("/api/update/download", status_code=202, dependencies=[Depends(require_auth)])
+    async def update_download():
+        return await update_call(lambda: ctx.updater.start_download())
+
+    @app.post("/api/update/install", status_code=202,
+              dependencies=[Depends(require_auth), Depends(require_json)])
+    async def update_install(body: UpdateInstallBody):
+        return await update_call(lambda: ctx.updater.install(body.confirm))
 
     # ---- mappe offline ----
     async def maps_call(fn):

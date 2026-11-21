@@ -19,6 +19,7 @@ from .dedup import Deduplicator
 from .geo import CountryLocator
 from .ingest import Ingestor
 from .live import LiveState
+from .paths import is_frozen, updates_dir
 from .maps import MapsManager
 from .mqtt_client import MqttConnector
 from .mqtt_decode import EnvelopeDecoder
@@ -27,6 +28,7 @@ from .radio import RadioConnector
 from .radio_manager import RadioManager
 from .settings import load_settings
 from .store import Store
+from .updater import Updater
 
 STATIC_DIR = Path(__file__).parents[2] / "web" / "dist"
 PURGE_INTERVAL_S = 24 * 3600
@@ -56,6 +58,8 @@ class Runtime:
     radios: RadioManager | None = None
     config: ConfigService | None = None
     maps: MapsManager | None = None
+    updater: Updater | None = None
+    auto_update: bool = False  # controllo automatico ogni 24 h (attivo solo nell'app reale)
     connector: object = None
     ctx: object = None  # AppContext
     tasks: list = field(default_factory=list)
@@ -120,6 +124,8 @@ class Runtime:
         self.loop = asyncio.get_running_loop()
         if self.maps is not None:
             self.maps.cleanup_tmp()  # .tmp rimasti da un download interrotto
+        if self.updater is not None:
+            self.updater.cleanup_tmp()
         if self.coverage is not None:
             self.coverage.start()
         self.start_connector()
@@ -135,6 +141,8 @@ class Runtime:
             asyncio.create_task(self._every(60, lambda: self.ctx.alerts())),
             asyncio.create_task(self._every(60, self._coverage_tick)),
         ]
+        if self.updater is not None and self.auto_update:
+            self.tasks.append(asyncio.create_task(self.updater.run()))
 
     async def stop(self) -> None:
         if self.maps is not None:
@@ -157,7 +165,8 @@ class Runtime:
 
 def build(data_dir: Path, connector_factory=MqttConnector,
           static_dir: Path | None = STATIC_DIR,
-          radio_connector_factory=RadioConnector) -> tuple[FastAPI, Runtime]:
+          radio_connector_factory=RadioConnector, update_http=None,
+          auto_update: bool = False) -> tuple[FastAPI, Runtime]:
     conn = connect(Path(data_dir) / "meshlens.db")
     store = Store(conn)
     live = LiveState()
@@ -185,10 +194,14 @@ def build(data_dir: Path, connector_factory=MqttConnector,
                               connector_factory=radio_connector_factory, on_event=on_event)
     rt.config = ConfigService(store, rt.radios, live, bus)
     rt.maps = MapsManager(data_dir, lambda: rt.settings, bus)
+    rt.updater = Updater(lambda: rt.settings, bus, update_http, frozen=is_frozen(),
+                         updates_dir=updates_dir(),
+                         launcher_exit=lambda d: rt.ctx.request_exit(d))
+    rt.auto_update = auto_update
     ctx = AppContext(live=live, store=store, auth=auth, bus=bus, locator=locator, conn=conn,
                      mqtt_status=rt.mqtt_status, on_settings_changed=rt.on_settings_changed,
                      static_dir=static_dir, radios=rt.radios, coverage=coverage,
-                     config=rt.config, maps=rt.maps, data_dir=Path(data_dir))
+                     config=rt.config, maps=rt.maps, updater=rt.updater, data_dir=Path(data_dir))
     rt.ctx = ctx
     app = create_app(ctx)
 

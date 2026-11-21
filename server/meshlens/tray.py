@@ -171,7 +171,7 @@ def run_tray(data_dir: Path, port: int = PORT, open_browser: bool = True) -> int
 
     data_dir = Path(data_dir)
     data_dir.mkdir(parents=True, exist_ok=True)
-    app, rt = build(data_dir)
+    app, rt = build(data_dir, auto_update=True)
     host = "0.0.0.0" if load_settings(rt.conn)["lan_access"] else "127.0.0.1"
     srv = ServerThread(app, host, port)
     srv.start()
