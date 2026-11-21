@@ -5,7 +5,9 @@ import asyncio
 import copy
 import contextlib
 import ipaddress
+import math
 import mimetypes
+import re
 import sqlite3
 import threading
 import time
@@ -27,6 +29,7 @@ from .bus import Bus
 from .channel_link import parse_channel_url
 from .ingest import revive_node
 from .config_model import schema as config_schema
+from .conversations import summaries, waypoint_json
 from .config_service import ConfigError
 from .coverage import SessionActive, precision_m
 from .geo import CountryLocator
@@ -193,6 +196,28 @@ class RadioBody(BaseModel):
 
 class TracerouteBody(BaseModel):
     radio_id: str | None = None
+
+
+class WaypointBody(BaseModel):
+    name: str
+    description: str = ""
+    icon: str = "📍"
+    lat: float
+    lon: float
+    expire_h: int | None = None
+    channel_index: int = 0
+
+
+class ReadBody(BaseModel):
+    key: str = Field(max_length=64)
+    time: float
+
+
+CONV_KEY_RE = re.compile(r"^(ch|dm):r[0-9a-f]{8}:(\d|!?[0-9a-f]{8})$")
+WAYPOINT_ONLY_MINE = "Puoi eliminare solo i tuoi waypoint"
+WAYPOINT_UNKNOWN = "Waypoint non trovato"
+CONV_KEY_INVALID = "Conversazione non valida"
+CONV_TIME_INVALID = "Orario non valido"
 
 
 class SendBody(BaseModel):
@@ -928,6 +953,58 @@ def create_app(ctx: AppContext) -> FastAPI:
         return await radio_call(
             ctx.radios.send(radio_id, body.text, body.channel_index, body.to,
                             reply_id=body.reply_id, emoji=body.emoji))
+
+    # ---- waypoint e conversazioni ----
+    def local_nodes() -> tuple[set[str], set[int]]:
+        ids = {n["id"] for n in ctx.live.nodes.values() if n.get("is_local_radio")}
+        if ctx.radios is not None:
+            ids |= ctx.radios.local_ids()
+        return ids, {int(i[1:], 16) for i in ids}
+
+    @app.get("/api/waypoints", dependencies=[Depends(require_auth)])
+    async def list_waypoints():
+        _, nums = local_nodes()
+        return [waypoint_json(r, ctx.live.nodes, nums)
+                for r in ctx.store.active_waypoints(time.time(), 500)]
+
+    @app.post("/api/radios/{radio_id}/waypoint", status_code=202,
+              dependencies=[Depends(require_auth), Depends(require_json)])
+    async def send_waypoint(radio_id: str, body: WaypointBody):
+        try:
+            return await radio_call(ctx.radios.send_waypoint(
+                radio_id, body.name, body.description, body.icon, body.lat, body.lon,
+                body.expire_h, body.channel_index))
+        except RuntimeError as e:
+            raise HTTPException(502, str(e))
+
+    @app.delete("/api/waypoints/{wid}", dependencies=[Depends(require_auth)])
+    async def delete_waypoint(wid: int):
+        try:
+            await ctx.radios.delete_waypoint(wid)
+        except KeyError:
+            raise HTTPException(404, WAYPOINT_UNKNOWN)
+        except PermissionError:
+            raise HTTPException(403, WAYPOINT_ONLY_MINE)
+        except RuntimeError as e:
+            raise HTTPException(502, str(e))
+        return {"ok": True}
+
+    @app.get("/api/conversations", dependencies=[Depends(require_auth)])
+    async def list_conversations():
+        ids, _ = local_nodes()
+        return summaries(ctx.store.recent_radio_messages(), ids, ctx.store.read_times(),
+                         ctx.store.read_baseline())
+
+    @app.post("/api/conversations/read", dependencies=[Depends(require_auth), Depends(require_json)])
+    async def mark_conversation_read(body: ReadBody):
+        if not CONV_KEY_RE.fullmatch(body.key):
+            raise HTTPException(400, CONV_KEY_INVALID)
+        if not math.isfinite(body.time) or body.time > time.time() + 60:
+            raise HTTPException(400, CONV_TIME_INVALID)
+        read_time = ctx.store.mark_read(body.key, body.time)
+        ctx.store.commit()
+        ctx.bus.publish({"type": "conv_read", "key": body.key, "time": read_time})
+        return {"key": body.key, "read_time": read_time}
 
     @app.post("/api/nodes/{node_id}/traceroute", status_code=202,
               dependencies=[Depends(require_auth), Depends(require_json)])

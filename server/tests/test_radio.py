@@ -28,6 +28,7 @@ class FakeIface:
         ])
         self.sent = []
         self.sent_data = []
+        self.sent_data_ack = []
         self.sent_kw = []
         self.packets = []
         self.closed = 0
@@ -49,6 +50,7 @@ class FakeIface:
                  wantResponse=False, channelIndex=0, **kw):
         self.send_thread = threading.current_thread()
         self.sent_data.append((data, destinationId, portNum, wantResponse, channelIndex))
+        self.sent_data_ack.append(wantAck)
         self.next_id += 1
         if self.on_send:
             self.on_send(self.next_id)
@@ -269,6 +271,25 @@ async def test_send_reaction_builds_emoji_packet():
     h.conn.check_acks()
     assert [a[1] for a in h.acks] == [pid2]  # la reazione in DM attende l'ack
     await h.conn.stop()
+
+
+async def test_send_waypoint_uses_waypoint_port():
+    from meshtastic.protobuf import mesh_pb2, portnums_pb2
+    iface = FakeIface()
+    h = Harness(lambda cfg, n: iface)
+    await connected(h)
+    wp = mesh_pb2.Waypoint(id=7, latitude_i=451000000, longitude_i=92000000, locked_to=MY_NUM,
+                           name="Ritrovo")
+    pid = await h.conn.send_waypoint(wp, 1)
+    assert pid == 1001
+    ((data, dest, port, want_response, channel),) = iface.sent_data
+    assert data.locked_to == MY_NUM and data.name == "Ritrovo"
+    assert port == portnums_pb2.WAYPOINT_APP and dest == "^all" and channel == 1
+    assert iface.sent_data_ack == [False]
+    assert iface.send_thread is not threading.main_thread()
+    await h.conn.stop()
+    with pytest.raises(RuntimeError):
+        await h.conn.send_waypoint(wp, 0)
 
 
 async def test_send_text_not_connected():

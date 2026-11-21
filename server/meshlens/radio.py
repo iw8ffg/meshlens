@@ -451,6 +451,24 @@ class RadioConnector:
                 self._resolve(packet_id, early[1], early[2], early[3])
         return packet_id
 
+    async def send_waypoint(self, wp, channel_index: int) -> int:
+        """Invia un waypoint (WAYPOINT_APP) in broadcast; ritorna l'id del pacchetto."""
+        from meshtastic.protobuf import portnums_pb2
+        iface = self._iface
+        if iface is None or self._state != "connected":
+            raise RuntimeError("Radio non connessa")
+        async with self._send_lock:  # un invio alla volta per radio
+            try:
+                packet = await asyncio.wait_for(self._call(
+                    lambda: iface.sendData(
+                        wp, destinationId=BROADCAST, portNum=portnums_pb2.WAYPOINT_APP,
+                        wantAck=False, channelIndex=channel_index)), SEND_TIMEOUT)
+            except asyncio.TimeoutError:
+                raise RuntimeError("Invio scaduto") from None
+            except _LibraryError as err:
+                raise RuntimeError(f"Invio fallito: {type(err.original).__name__}") from err
+        return packet.id
+
     async def send_traceroute(self, dest_num: int, channel_index: int = 0) -> int:
         from meshtastic.protobuf import mesh_pb2, portnums_pb2
         iface = self._iface

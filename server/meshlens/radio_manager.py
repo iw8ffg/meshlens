@@ -7,7 +7,8 @@ import secrets
 import time
 from typing import Any
 
-from .events import MeshEvent, node_id
+from .events import MeshEvent, WaypointData, node_id
+from .conversations import waypoint_json
 from .ingest import traceroute_chains
 from .mqtt_publish import reply_problem
 from .radio import RadioConnector
@@ -386,6 +387,80 @@ class RadioManager:
         early = self._early_acks.pop((message["radio_id"], packet_id), None)
         if early is not None:
             self.ingestor.set_status(f"out:{message['radio_id']}:{packet_id}", *early)
+
+    # ---- waypoint -----------------------------------------------------
+    def local_ids(self) -> set[str]:
+        """Id dei nodi delle radio configurate (quelli noti)."""
+        nums = (self.ingestor.radio_node(rid) for rid in self._cfgs)
+        return {node_id(n) for n in nums if n is not None}
+
+    async def send_waypoint(self, radio_id: str, name: str, description: str, icon: str,
+                            lat: float, lon: float, expire_h: int | None,
+                            channel_index: int) -> dict:
+        from meshtastic.protobuf import mesh_pb2
+        self._get(radio_id)
+        if not name or len(name.encode("utf-8")) > 30:
+            raise ValueError("Nome non valido (1-30 byte)")
+        if len(description.encode("utf-8")) > 100:
+            raise ValueError("Descrizione troppo lunga (max 100 byte)")
+        if len(icon) != 1 or ord(icon) < 0x20 or 0xD800 <= ord(icon) <= 0xDFFF:
+            raise ValueError("Icona non valida")
+        if (not all(isinstance(v, (int, float)) and math.isfinite(v) for v in (lat, lon))
+                or not (-90 <= lat <= 90 and -180 <= lon <= 180) or (lat == 0 and lon == 0)):
+            raise ValueError("Coordinate non valide")
+        if expire_h is not None and (not isinstance(expire_h, int) or isinstance(expire_h, bool)
+                                     or not 1 <= expire_h <= 720):
+            raise ValueError("Scadenza non valida (1-720 ore)")
+        if not isinstance(channel_index, int) or not 0 <= channel_index <= 7:
+            raise ValueError("Canale non valido")
+        conn = self._connectors[radio_id]
+        st = conn.state()
+        if st["state"] != "connected" or not st["my_node_id"]:
+            raise ValueError("Radio non connessa")
+        my_num = int(st["my_node_id"][1:], 16)
+        wid = 0
+        while wid == 0:
+            wid = secrets.randbits(32)
+        expire = int(time.time()) + expire_h * 3600 if expire_h else 0
+        lat_i, lon_i = round(lat * 1e7), round(lon * 1e7)
+        wp = mesh_pb2.Waypoint(id=wid, latitude_i=lat_i, longitude_i=lon_i, expire=expire,
+                               locked_to=my_num, name=name, description=description,
+                               icon=ord(icon))
+        packet_id = await conn.send_waypoint(wp, channel_index)
+        # lo stesso percorso di un waypoint ricevuto: compare subito
+        self.ingestor.handle(MeshEvent(
+            source="rf", from_node=my_num, to_node=0xFFFFFFFF, packet_id=packet_id,
+            channel=str(channel_index), rx_time=time.time(), snr=None, rssi=None, hops=None,
+            gateway_id=None, radio_id=radio_id, kind="waypoint",
+            payload=WaypointData(id=wid, lat=lat_i * 1e-7, lon=lon_i * 1e-7, name=name,
+                                 description=description, icon=ord(icon), expire=expire,
+                                 locked_to=my_num)))
+        row = self.store.get_waypoint(wid)
+        return waypoint_json(row, self.ingestor.live.nodes,
+                             {self.ingestor.radio_node(r) for r in self._cfgs} - {None})
+
+    async def delete_waypoint(self, wid: int) -> None:
+        """Elimina un proprio waypoint: lo ri-invia con expire=1 (come le app ufficiali)."""
+        from meshtastic.protobuf import mesh_pb2
+        row = self.store.get_waypoint(wid)
+        if row is None or row["deleted"]:
+            raise KeyError(wid)
+        owner = self.local_radio_for(row["from_num"])
+        if owner is None:
+            raise PermissionError(wid)
+        try:
+            channel_index = int(row["channel"])
+        except (TypeError, ValueError):
+            channel_index = 0
+        wp = mesh_pb2.Waypoint(
+            id=wid, latitude_i=round(row["lat"] * 1e7), longitude_i=round(row["lon"] * 1e7),
+            expire=1, locked_to=row["locked_to"] or 0, name=row["name"] or "",
+            description=row["description"] or "", icon=row["icon"] or 0)
+        await self._connectors[owner].send_waypoint(wp, channel_index)
+        self.store.delete_waypoint(wid)
+        self.store.commit()
+        if self.ingestor.on_waypoint is not None:
+            self.ingestor.on_waypoint({"deleted": wid})
 
     # ---- accesso per la configurazione ---------------------------------
     def connector(self, radio_id: str):

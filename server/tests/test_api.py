@@ -1136,3 +1136,102 @@ async def test_manual_channel_psk_must_be_strict_base64(ctx):
             body = [{**cur[0], "channels": [{"name": "X", "psk": bad}]}]
             r = await c.put("/api/settings", json={"mqtt_brokers": body})
             assert r.status_code == 400, bad
+
+
+# ---- waypoint e conversazioni (fase 12) ----
+def _ws_ctx_with_radio():
+    from test_radio_manager import Env, FakeConnector
+    env = Env()
+    env.ingestor.on_waypoint = lambda wp: env.bus.publish(
+        {"type": "waypoint_deleted", "id": wp["deleted"]} if "deleted" in wp
+        else {"type": "waypoint", "waypoint": wp})
+    sent = []
+
+    async def send_waypoint(self, wp, channel_index):
+        sent.append((wp, channel_index))
+        return 900 + len(sent)
+
+    FakeConnector.send_waypoint = send_waypoint
+    ctx = AppContext(live=env.live, store=env.store, auth=Auth(env.conn), bus=env.bus,
+                     locator=CountryLocator(), conn=env.conn, mqtt_status=lambda: {},
+                     on_settings_changed=None, radios=env.mgr)
+    return env, ctx, sent
+
+
+def _ws_login(ctx):
+    ctx.auth.set_pin("1234")
+    return ctx.auth.login("1234", "127.0.0.1")
+
+
+def test_waypoint_routes():
+    import asyncio
+    from test_radio_manager import MY_ID
+    env, ctx, sent = _ws_ctx_with_radio()
+    token = _ws_login(ctx)
+    wp_body = {"name": "Ritrovo", "lat": 45.1, "lon": 9.2, "expire_h": 2}
+    with TestClient(create_app(ctx), base_url="http://127.0.0.1") as tc:
+        tc.cookies.set("meshlens_session", token)
+        rid = tc.post("/api/radios", json={"kind": "usb", "address": "COM5"}).json()["id"]
+        url = f"/api/radios/{rid}/waypoint"
+        tc.post(f"/api/radios/{rid}/disconnect")
+        assert tc.post(url, json=wp_body).status_code == 400  # radio non connessa
+        tc.post(f"/api/radios/{rid}/connect")
+        env.ingestor.set_radio_node(rid, int(MY_ID[1:], 16))
+        assert tc.post(url, json={**wp_body, "name": "x" * 31}).status_code == 400
+        assert tc.post(url, json={**wp_body, "icon": "ab"}).status_code == 400
+        assert tc.post(url, json={**wp_body, "expire_h": 0}).status_code == 400
+        assert tc.post(url, json={**wp_body, "lat": 0, "lon": 0}).status_code == 400
+        assert sent == []
+        with tc.websocket_connect("/ws", headers={"host": "127.0.0.1"}) as ws:
+            r = tc.post(url, json=wp_body)
+            assert r.status_code == 202
+            wp = r.json()
+            assert wp["name"] == "Ritrovo" and wp["icon"] == "📍" and wp["mine"] is True
+            assert wp["from"] == MY_ID and wp["locked_to"] == MY_ID and wp["expire"]
+            assert sent[0][0].locked_to == int(MY_ID[1:], 16) and sent[0][0].id == wp["id"]
+            got = ws.receive_json()
+            assert got["type"] == "waypoint" and got["waypoint"]["id"] == wp["id"]
+            assert [w["id"] for w in tc.get("/api/waypoints").json()] == [wp["id"]]
+            # un waypoint di un altro nodo non si elimina
+            env.store.upsert_waypoint({"id": 5, "from_num": 0x42, "lat": 45.0, "lon": 9.0,
+                                       "name": "Altrui", "time": time.time(), "source": "rf",
+                                       "radio_id": rid, "channel": "0"})
+            r = tc.delete("/api/waypoints/5")
+            assert r.status_code == 403
+            assert r.json()["detail"] == "Puoi eliminare solo i tuoi waypoint"
+            assert tc.delete("/api/waypoints/123").status_code == 404
+            r = tc.delete(f"/api/waypoints/{wp['id']}")
+            assert r.status_code == 200 and r.json() == {"ok": True}
+            assert sent[1][0].expire == 1 and sent[1][0].id == wp["id"]
+            assert ws.receive_json() == {"type": "waypoint_deleted", "id": wp["id"]}
+        assert [w["id"] for w in tc.get("/api/waypoints").json()] == [5]
+
+
+def test_conversations_read_broadcasts(ctx):
+    token = _ws_login(ctx)
+    key = "ch:r1a2b3c4d:0"
+    base = time.time()
+    for i, (t, d, frm) in enumerate([(base - 30, "in", 0x42), (base - 20, "in", 0x42),
+                                     (base - 10, "out", 1)]):
+        ctx.store.add_message({"key": f"k{i}", "from": f"!{frm:08x}", "to": "!ffffffff",
+                               "channel": "0", "text": f"m{i}", "time": t, "country": "IT",
+                               "source": "rf", "direction": d, "radio_id": "r1a2b3c4d",
+                               "channel_index": 0, "packet_id": i, "status": "sent"})
+    ctx.conn.execute("UPDATE settings SET value='0' WHERE key='conv_read_baseline'")
+    ctx.store.commit()
+    with TestClient(create_app(ctx), base_url="http://127.0.0.1") as tc:
+        tc.cookies.set("meshlens_session", token)
+        conv = tc.get("/api/conversations").json()
+        assert [c["key"] for c in conv] == [key] and conv[0]["unread"] == 2
+        with tc.websocket_connect("/ws", headers={"host": "127.0.0.1"}) as ws:
+            r = tc.post("/api/conversations/read", json={"key": key, "time": base - 15})
+            assert r.status_code == 200 and r.json() == {"key": key, "read_time": base - 15}
+            assert ws.receive_json() == {"type": "conv_read", "key": key, "time": base - 15}
+        conv = tc.get("/api/conversations").json()
+        assert conv[0]["read_time"] == base - 15 and conv[0]["unread"] == 0
+        assert tc.post("/api/conversations/read",
+                       json={"key": "boh", "time": 1}).status_code == 400
+        assert tc.post("/api/conversations/read",
+                       json={"key": "dm:r1a2b3c4d:!00000042", "time": 1}).status_code == 200
+        assert tc.post("/api/conversations/read",
+                       json={"key": key, "time": time.time() + 3600}).status_code == 400
