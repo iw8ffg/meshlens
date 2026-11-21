@@ -24,7 +24,7 @@ export function offlineStyle(info: Pick<StyleInfo, 'maxzoom'>): StyleSpecificati
       },
     },
     layers: layers('protomaps', namedFlavor('light'), { lang: 'it' }) as StyleSpecification['layers'],
-    glyphs: '/map-assets/fonts/{fontstack}/{range}.pbf',
+    glyphs: location.origin + '/map-assets/fonts/{fontstack}/{range}.pbf',
     sprite: location.origin + '/map-assets/sprites/light',
   }
 }

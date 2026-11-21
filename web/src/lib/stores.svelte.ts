@@ -4,7 +4,7 @@ import type { NodeFilter } from './filters'
 import { MAX_REPLACED, insertMessage, removeByKey, mergeRadioMessages, pruneSet } from './chat'
 import { shouldStore } from './traceroute'
 import { appendTrackPoint, upsertPoint } from './coverage'
-import type { ConfigJob, Alert, CoverageDetail, CoveragePoint, CoverageSession, CoverageTrackPoint, Message, MessageStatus, Node, Radio, Status, Traceroute } from './types'
+import type { Bbox, ConfigJob, MapJob, Alert, CoverageDetail, CoveragePoint, CoverageSession, CoverageTrackPoint, Message, MessageStatus, Node, Radio, Status, Traceroute } from './types'
 
 const MAX_MESSAGES = 500
 
@@ -116,4 +116,25 @@ export const configUi = $state({ target: null as { nodeId: string; radioId: stri
 
 export function openConfig(nodeId: string, radioId: string | null = null, tab: string | null = null): void {
   configUi.target = { nodeId, radioId, tab }
+}
+
+/** Mappe offline: lavoro in corso (WebSocket), contatore di ricarica e area visibile. */
+export const maps = $state({
+  job: null as MapJob | null,
+  /** Cresce quando cambia modalita', elenco mappe o fine download: MapView e pannello ricaricano. */
+  version: 0,
+  /** Area inquadrata dalla mappa, aggiornata a fine movimento. */
+  bounds: null as Bbox | null,
+})
+
+export function bumpMaps(): void {
+  maps.version++
+}
+
+/** Aggiornamento dal WebSocket; a download riuscito la mappa ricarica stile e elenco. */
+export function setMapJob(j: MapJob): void {
+  const prev = maps.job
+  maps.job = j
+  const finished = j.status === 'done' && !(prev && prev.id === j.id && prev.status === 'done')
+  if (finished) maps.version++
 }

@@ -39,7 +39,7 @@ describe('offlineStyle', () => {
     expect(src.tiles).toEqual(['http://localhost:8000/tiles/{z}/{x}/{y}.mvt'])
     expect(src.maxzoom).toBe(14)
     expect(src.attribution).toContain('OpenStreetMap')
-    expect(s.glyphs).toBe('/map-assets/fonts/{fontstack}/{range}.pbf')
+    expect(s.glyphs).toBe('http://localhost:8000/map-assets/fonts/{fontstack}/{range}.pbf')
     expect(s.sprite).toBe('http://localhost:8000/map-assets/sprites/light')
     expect(s.layers.length).toBeGreaterThan(10)
   })

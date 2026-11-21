@@ -4,8 +4,9 @@
   import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url'
   import type { Feature, FeatureCollection, Point } from 'geojson'
   import 'maplibre-gl/dist/maplibre-gl.css'
-  import { app, coverage } from '../lib/stores.svelte'
+  import { app, coverage, maps } from '../lib/stores.svelte'
   import { ageClass } from '../lib/filters'
+  import { bboxFromBounds } from '../lib/maps'
   import { circlePolygon, formatMeters, precisionRadiusM } from '../lib/geo'
   import { coverageSession, getJSON, links as fetchLinks, patchCoverage } from '../lib/api'
   import { coverageGeoJSON } from '../lib/coverage'
@@ -114,6 +115,9 @@
   }
 
   let notice = $state('')
+  // Impostato da onMount: rilegge modalita' e stile-info e aggiorna la mappa viva
+  let reloadCfg: (() => void) | null = null
+  let seenVersion = maps.version
   const NOTICE = 'Mappa non disponibile offline: scaricala da Impostazioni → Mappe offline'
   const ONLINE_TIMEOUT_MS = 8000
 
@@ -341,12 +345,14 @@
       return chooseMode(mode, navigator.onLine, info.has_offline, failed)
     }
 
-    const evaluate = () => {
+    // force: azione dell'utente (modalita', mappa scaricata o eliminata): niente attesa e, se
+    // gia' offline, lo stile viene ricreato per rileggere tessere e sorgente
+    const evaluate = (force = false) => {
       if (disposed || !map) return
       const t = target()
       notice = t === 'fallback' && !navigator.onLine ? NOTICE : ''
-      if (t === current) return
-      if (current !== null && !canSwitch(lastSwitch, Date.now())) {
+      if (t === current && !(force && t === 'offline')) return
+      if (!force && current !== null && !canSwitch(lastSwitch, Date.now())) {
         if (!retryTimer) {
           retryTimer = setTimeout(() => {
             retryTimer = null
@@ -392,19 +398,50 @@
       evaluate()
     }
 
-    const start = async () => {
+    const readCfg = async (): Promise<boolean> => {
       const [st, inf] = await Promise.all([
         getJSON<AppSettings>('/settings').catch(() => null),
         getJSON<StyleInfo>('/maps/style-info').catch(() => null), // server senza mappe offline (404): niente offline
       ])
-      if (disposed) return
+      if (disposed) return false
       if (st?.map_mode === 'online' || st?.map_mode === 'offline' || st?.map_mode === 'auto') mode = st.map_mode
       if (inf && typeof inf.has_offline === 'boolean') info = { has_offline: inf.has_offline, maxzoom: inf.maxzoom ?? 14, bounds: inf.bounds ?? null }
+      return true
+    }
+
+    const reload = async () => {
+      const hadOffline = info.has_offline
+      if (!(await readCfg()) || !map) return
+      // se si stava gia' mostrando l'online, non si passa all'offline solo perche' ora ci sono mappe
+      if (!hadOffline && info.has_offline && current === 'online') onlineOk = true
+      evaluate(true)
+      void verifyOnline()
+    }
+    reloadCfg = () => void reload()
+
+    const publishBounds = () => {
+      if (!map) return
+      const b = map.getBounds()
+      maps.bounds = bboxFromBounds(b)
+    }
+    let boundsTimer: ReturnType<typeof setTimeout> | null = null
+    const onMoveEnd = () => {
+      if (boundsTimer) return
+      boundsTimer = setTimeout(() => {
+        boundsTimer = null
+        if (!disposed) publishBounds()
+      }, 250)
+    }
+
+    const start = async () => {
+      if (!(await readCfg())) return
       current = target()
       notice = current === 'fallback' && !navigator.onLine ? NOTICE : ''
       map = new maplibregl.Map({ container: el, style: styleFor(current), center: [12.5, 42.5], zoom: 5, attributionControl: { compact: true }, fadeDuration: 0 })
       map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right')
       map.on('style.load', () => setup(current !== 'fallback'))
+      map.on('moveend', onMoveEnd)
+      publishBounds()
       map.on('error', (e) => {
         // errore di rete/HTTP sul JSON dello stile online; i 404 di tile e glyph hanno altri URL
         if ((e as { error?: { url?: string } }).error?.url === STYLE) {
@@ -423,6 +460,8 @@
       window.removeEventListener('online', onOnline)
       window.removeEventListener('offline', onOffline)
       verifying?.abort()
+      reloadCfg = null
+      if (boundsTimer) clearTimeout(boundsTimer)
       if (retryTimer) clearTimeout(retryTimer)
       if (timer) clearTimeout(timer)
       cancelPick()
@@ -610,6 +649,15 @@
         pickError = ''
       })
     }
+  })
+  // Modalita' mappa, mappe scaricate o eliminate: si applica alla mappa viva senza rimontarla
+  $effect(() => {
+    const v = maps.version
+    untrack(() => {
+      if (v === seenVersion) return
+      seenVersion = v
+      reloadCfg?.()
+    })
   })
   $effect(() => {
     if (focus && map) map.easeTo({ center: [focus.lon, focus.lat], zoom: Math.max(map.getZoom(), 10) })
