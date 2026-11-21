@@ -150,7 +150,10 @@ export const downloadUpdate = () => send<UpdateJob>('POST', '/update/download', 
 export const installUpdate = () => send<{ ok: boolean }>('POST', '/update/install', { confirm: true })
 
 export const mqttSend = (body: MqttSendBody) => send<{ message: Message }>('POST', '/mqtt/send', body)
-export const mqttChannels = () => getJSON<{ name: string; count_1h: number; enabled: boolean }[]>('/mqtt/channels')
+export const mqttChannels = (broker?: string) =>
+  getJSON<{ name: string; count_1h: number; enabled: boolean; custom?: boolean; brokers?: string[] }[]>(
+    '/mqtt/channels' + (broker ? '?broker=' + encodeURIComponent(broker) : ''),
+  )
 
 const brokerPath = (id: string) => `/mqtt/brokers/${encodeURIComponent(id)}`
 export interface ChannelImport {

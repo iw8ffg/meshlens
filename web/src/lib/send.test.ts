@@ -87,7 +87,7 @@ test('mqttChannelNames: LongFast per primo, senza doppioni', () => {
 })
 
 test('conferma MQTT: 409 chiede conferma e il reinvio porta confirm_public', () => {
-  const r = classifyMqttError({ status: 409, code: 'confirm_required', message: 'x' })
+  const r = classifyMqttError({ status: 409, code: 'confirm_required', message: '' })
   expect(r.kind).toBe('confirm')
   expect(r.message).toBe(PUBLIC_WARNING)
   expect(PUBLIC_WARNING).toBe('Il messaggio sarà pubblico sul broker mqtt.meshtastic.org e potrà essere ritrasmesso via radio dai gateway')
@@ -119,4 +119,21 @@ test('keyboardLift: solleva solo quanto la tastiera copre', () => {
   // tastiera chiusa
   expect(keyboardLift(500, 200, 800, 0)).toBe(0)
   expect(keyboardLift(700, 0, 800, 0)).toBe(0)
+})
+
+test('mqttBody: broker solo se indicato', () => {
+  expect(mqttBody('ciao', 'Squadra', null, false, 'b1')).toEqual({ text: 'ciao', channel: 'Squadra', broker: 'b1' })
+  expect('broker' in mqttBody('ciao', 'Squadra', null, false)).toBe(false)
+  expect('broker' in mqttBody('ciao', 'Squadra', null, false, '')).toBe(false)
+})
+
+test('mqttChannelNames: prima i personalizzati, poi LongFast, poi gli altri', () => {
+  expect(mqttChannelNames([{ name: 'MediumFast' }, { name: 'Squadra', custom: true }])).toEqual(['Squadra', 'LongFast', 'MediumFast'])
+})
+
+test('classifyMqttError: la conferma usa il testo del server (broker giusto)', () => {
+  const r = classifyMqttError({ status: 409, code: 'confirm_required', message: 'Il messaggio sarà pubblico sul broker mio.example e potrà essere ritrasmesso' })
+  expect(r.kind).toBe('confirm')
+  expect(r.message).toContain('mio.example')
+  expect(classifyMqttError({ status: 409, code: 'confirm_required', message: '' }).message).toBe(PUBLIC_WARNING)
 })

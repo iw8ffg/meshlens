@@ -74,9 +74,11 @@ export function pickVia(current: string, conv: string, options: ViaOption[], con
   return options.find((o) => !o.disabled)?.value ?? ''
 }
 
-/** Nomi dei canali per l'invio MQTT: LongFast per primo, poi quelli visti sul broker. */
-export function mqttChannelNames(rows: { name: string }[]): string[] {
-  const names = new Set<string>([DEFAULT_MQTT_CHANNEL])
+/** Nomi dei canali per l'invio MQTT: prima i personalizzati, poi LongFast, poi quelli visti sul broker. */
+export function mqttChannelNames(rows: { name: string; custom?: boolean }[]): string[] {
+  const names = new Set<string>()
+  for (const r of rows) if (r.name && r.custom) names.add(r.name)
+  names.add(DEFAULT_MQTT_CHANNEL)
   for (const r of rows) if (r.name) names.add(r.name)
   return [...names]
 }
@@ -103,10 +105,17 @@ export interface MqttSendBody {
   channel: string
   to?: string
   confirm_public?: boolean
+  broker?: string
 }
 
-export function mqttBody(text: string, channel: string, to: string | null, confirmPublic: boolean): MqttSendBody {
-  return { text: text.trim(), channel, ...(to ? { to } : {}), ...(confirmPublic ? { confirm_public: true } : {}) }
+export function mqttBody(text: string, channel: string, to: string | null, confirmPublic: boolean, broker?: string): MqttSendBody {
+  return {
+    text: text.trim(),
+    channel,
+    ...(to ? { to } : {}),
+    ...(confirmPublic ? { confirm_public: true } : {}),
+    ...(broker ? { broker } : {}),
+  }
 }
 
 export type MqttErrorKind = 'confirm' | 'unknown_node' | 'disconnected' | 'rate_limited' | 'other'
@@ -116,7 +125,7 @@ export function classifyMqttError(e: { status: number; code: string | null; mess
   kind: MqttErrorKind
   message: string
 } {
-  if (e.status === 409 && e.code === 'confirm_required') return { kind: 'confirm', message: PUBLIC_WARNING }
+  if (e.status === 409 && e.code === 'confirm_required') return { kind: 'confirm', message: e.message || PUBLIC_WARNING }
   if (e.code === 'unknown_node') return { kind: 'unknown_node', message: MQTT_NODE_REASON }
   if (e.status === 503 || e.code === 'mqtt_disconnected') return { kind: 'disconnected', message: MQTT_DOWN_REASON }
   if (e.status === 429 || e.code === 'rate_limited') {
