@@ -2,7 +2,10 @@
   import { app } from '../lib/stores.svelte'
   import { activeFilters, clearAllFilters } from '../lib/filters'
   import Button from '../lib/ui/Button.svelte'
-  import { ago, compareLastHeard } from '../lib/format'
+  import { ago } from '../lib/format'
+  import { formatMeters } from '../lib/geo'
+  import { haversineM, type Origin } from '../lib/distance'
+  import { sortNodeList, type NodeSortKey } from '../lib/nodesort'
   import { hopsLabel, batteryView, contactMinutes, nodeName, sourceKind } from '../lib/nodes'
   import { contactClass } from '../lib/ui/logic'
   import BatteryBadge from '../lib/ui/BatteryBadge.svelte'
@@ -13,9 +16,15 @@
   import SourceMark from '../lib/ui/SourceMark.svelte'
   import type { Node } from '../lib/types'
 
-  let { nodes, now, onpick }: { nodes: Node[]; now: number; onpick: (n: Node) => void } = $props()
+  let { nodes, now, sort, origin, onpick }: { nodes: Node[]; now: number; sort: NodeSortKey; origin: Origin | null; onpick: (n: Node) => void } = $props()
   const hasFilters = $derived(activeFilters(app.filter, (c) => c).length > 0)
-  const sorted = $derived([...nodes].sort((a, b) => compareLastHeard(a.last_heard, b.last_heard)))
+  const sorted = $derived(sortNodeList(nodes, sort, origin))
+  const showDistance = $derived(sort === 'distance' && origin !== null)
+
+  function distanceLabel(n: Node): string {
+    if (!origin || n.lat === null || n.lon === null) return '—'
+    return formatMeters(haversineM(origin, { lat: n.lat, lon: n.lon }))
+  }
 </script>
 
 {#if sorted.length === 0}
@@ -44,7 +53,11 @@
             <span class="meas">
               {#if n.last_snr !== null}<SnrBadge value={n.last_snr} />{/if}
               {#if bat}<BatteryBadge pct={bat.pct} usb={bat.usb} />{/if}
-              <span class="hops" title="Salti">{hopsLabel(n.hops, n.hops_min)}</span>
+              {#if showDistance}
+                <span class="hops" title="Distanza">{distanceLabel(n)}</span>
+              {:else}
+                <span class="hops" title="Salti">{hopsLabel(n.hops, n.hops_min)}</span>
+              {/if}
             </span>
           </span>
         </button>

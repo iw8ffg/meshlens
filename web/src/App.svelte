@@ -3,6 +3,7 @@
   import Login from './components/Login.svelte'
   import MapView from './components/MapView.svelte'
   import NodeList from './components/NodeList.svelte'
+  import NodeSortBar from './components/NodeSortBar.svelte'
   import NodeDetail from './components/NodeDetail.svelte'
   import Filters from './components/Filters.svelte'
   import ActiveFilters from './components/ActiveFilters.svelte'
@@ -25,6 +26,9 @@
   import { MORE_TABS, effectiveTab, isMoreTab, isPageTab, sheetVisible, type Tab } from './lib/shell/nav'
   import type { SheetSnap } from './lib/ui/sheetSnap'
   import { matchNode } from './lib/filters'
+  import { myOrigin } from './lib/distance'
+  import { geopos } from './lib/geopos.svelte'
+  import type { NodeSortKey } from './lib/nodesort'
   import { getJSON, alerts as fetchAlerts, coverageSessions, coverageSession, updateStatus, AUTH_REQUIRED } from './lib/api'
   import { connectWS } from './lib/ws'
   import { markOnline, markOffline } from './lib/connection.svelte'
@@ -43,6 +47,8 @@
   const visible = $derived(
     [...app.nodes.values()].filter((n) => matchNode(n, app.filter, now)),
   )
+  let nodeSort = $state<NodeSortKey>('recent')
+  const origin = $derived(myOrigin(app.nodes, app.radios, geopos.pos))
   const selected = $derived(app.selectedId ? (app.nodes.get(app.selectedId) ?? null) : null)
   // Su desktop "Mappa" e "Altro" non esistono come schede: la mappa e' sempre visibile
   const activeTab = $derived<Tab>(effectiveTab(tab, viewport.phone))
@@ -167,7 +173,8 @@
   {#if activeTab === 'nodes'}
     <Filters />
     <ActiveFilters />
-    <NodeList nodes={visible} {now} onpick={pick} />
+    <NodeSortBar value={nodeSort} hasOrigin={origin !== null} onchange={(k) => (nodeSort = k)} />
+    <NodeList nodes={visible} {now} sort={nodeSort} {origin} onpick={pick} />
   {:else if activeTab === 'network'}
     <Network nodes={[...app.nodes.values()]} {now} onpick={pick} />
   {:else if activeTab === 'coverage'}

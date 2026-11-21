@@ -35,7 +35,7 @@
 <div class="filters">
   <div class="search">
     <Icon name="search" size={18} />
-    <input class="ui-input" type="search" placeholder="Cerca nome o id…" aria-label="Cerca nodi" bind:value={app.filter.text} />
+    <input class="ui-input" type="search" placeholder="Cerca nome, id, modello o ruolo…" aria-label="Cerca nodi" bind:value={app.filter.text} />
   </div>
   <div class="row" role="group" aria-label="Ultimo contatto">
     {#each AGE_OPTIONS as o (o.label)}
