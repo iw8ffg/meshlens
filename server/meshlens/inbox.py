@@ -47,21 +47,32 @@ class EventInbox:
         try:
             self.loop.call_soon_threadsafe(self._drain)
         except RuntimeError:  # loop chiuso durante lo spegnimento
-            pass
+            with self._lock:
+                self._scheduled = False
 
     def _drain(self) -> None:
         """Sul loop: consegna al massimo `batch` elementi, poi si rischedula se ne restano."""
         with self._lock:
             n = min(self.batch, len(self._items))
             taken = [self._items.popleft() for _ in range(n)]
-        for item in taken:
-            try:
-                self.handler(item)
-            except Exception:
-                log.exception("Evento MQTT non elaborato")  # gli altri proseguono
+        try:
+            for item in taken:
+                try:
+                    self.handler(item)
+                except Exception:
+                    log.exception("Evento MQTT non elaborato")  # gli altri proseguono
+        finally:
+            # anche con una BaseException dal gestore la coda non resta bloccata
+            self._finish_drain()
+
+    def _finish_drain(self) -> None:
         with self._lock:
             if not self._items:
                 # azzerato sotto lock a coda vuota: un put successivo rischedula da se'
                 self._scheduled = False
                 return
-        self.loop.call_soon(self._drain)
+        try:
+            self.loop.call_soon(self._drain)
+        except RuntimeError:  # loop chiuso: il prossimo put riprova
+            with self._lock:
+                self._scheduled = False

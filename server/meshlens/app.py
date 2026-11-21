@@ -82,6 +82,7 @@ class Runtime:
     backups: BackupManager | None = None
     db_health: str = "non controllata"
     watchdog_restarts: int = 0
+    queue_dropped_retired: int = 0  # scarti della coda dei connettori gia' fermati
     _connector_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
     def start_connector(self) -> None:
@@ -101,7 +102,14 @@ class Runtime:
                       "json_topic": 0, "not_protobuf": 0},
             "queue_dropped": 0, "queue_size": 0}
         return {**base, "filtered_channel": self.ingestor.filtered_channel,
-                "watchdog_restarts": self.watchdog_restarts}
+                "watchdog_restarts": self.watchdog_restarts,
+                "queue_dropped": base.get("queue_dropped", 0) + self.queue_dropped_retired}
+
+    async def _retire_connector(self, old) -> None:
+        """Ferma un connettore tenendo le chiavi imparate e il totale degli scarti della coda."""
+        self.learned_keys.update(getattr(getattr(old, "decoder", None), "channel_keys", {}))
+        await asyncio.to_thread(old.stop)
+        self.queue_dropped_retired += getattr(getattr(old, "inbox", None), "dropped", 0)
 
     async def restart_connector(self, reason: str) -> None:
         async with self._connector_lock:
@@ -110,8 +118,7 @@ class Runtime:
     async def _restart_connector(self, reason: str) -> None:
         old, self.connector = self.connector, None
         if old is not None:
-            self.learned_keys.update(getattr(getattr(old, "decoder", None), "channel_keys", {}))
-            await asyncio.to_thread(old.stop)
+            await self._retire_connector(old)
         self.watchdog_restarts += 1
         log.warning("MQTT: %s", reason)
         try:
@@ -147,8 +154,7 @@ class Runtime:
             return
         if self.connector is not None:
             old, self.connector = self.connector, None
-            self.learned_keys.update(getattr(getattr(old, "decoder", None), "channel_keys", {}))
-            await asyncio.to_thread(old.stop)
+            await self._retire_connector(old)
         try:
             self.start_connector()
         except Exception:

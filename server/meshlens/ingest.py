@@ -98,7 +98,7 @@ class Ingestor:
         num = ev.from_node
         node = self.live.nodes.get(num)
         if node is None:
-            node = self.live.nodes[num] = _new_node(num)
+            node = self.live.nodes[num] = self._revive_node(num)
         self.live.mark_changed(num)
 
         # i replay del database nodi della radio hanno rx_time vecchio: non fanno regredire lo stato
@@ -190,6 +190,12 @@ class Ingestor:
         if message is not None:
             self.on_message(message)
 
+    def _revive_node(self, num: int) -> dict:
+        """Nodo assente dalla memoria (nuovo o tolto dal limite dei nodi): se e' archiviato
+        riparte dalla riga del database, altrimenti l'upsert cancellerebbe nome e posizione."""
+        stored = self.store.get_node(num)
+        return _new_node(num) if stored is None else {**_new_node(num), **stored}
+
     def _update_hops(self, node: dict, ev: MeshEvent, is_dup: bool) -> None:
         num = ev.from_node
         if ev.source == "rf":
@@ -274,7 +280,7 @@ class Ingestor:
         """Il nodo e' una radio collegata a questo server: e' anche "mio"."""
         node = self.live.nodes.get(node_num)
         if node is None:
-            node = self.live.nodes[node_num] = _new_node(node_num)
+            node = self.live.nodes[node_num] = self._revive_node(node_num)
         node["is_local_radio"] = True
         node["is_mine"] = True
         self.live.mark_changed(node_num)

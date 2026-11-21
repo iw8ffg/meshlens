@@ -367,3 +367,27 @@ def test_mqtt_gateways_after_rf_copy_use_shared_dedup(env):
     assert live.nodes[1]["mqtt_gateways"] == 1
     ing.handle(ev("text", TextData("ciao"), pid=9))  # seconda copia MQTT
     assert live.nodes[1]["mqtt_gateways"] == 2
+
+
+def test_node_evicted_by_cap_is_revived_from_db(env):
+    ing, live, store, conn, _ = env
+    ing.handle(ev("position", pos(MILAN), pid=1))
+    ing.handle(ev("nodeinfo", NodeInfoData("Mario", "MA", "HELTEC_V3", "CLIENT"), pid=2))
+    ing.handle(ev("telemetry", TelemetryData(87, 4.01), pid=3))
+    live.max_nodes = 0
+    assert live.enforce_cap() == 1 and 1 not in live.nodes
+    ing.handle(ev("text", TextData("di nuovo qui"), pid=4, t=NOW + HOUR))
+    node = live.nodes[1]
+    assert node["long_name"] == "Mario" and node["hw_model"] == "HELTEC_V3"
+    assert node["lat"] == pytest.approx(MILAN[0]) and node["country"] == "IT"
+    assert node["battery"] == 87 and node["last_heard"] == NOW + HOUR
+    row = store.get_node(1)
+    assert row["long_name"] == "Mario" and row["lat"] == pytest.approx(MILAN[0])
+    assert row["battery"] == 87 and row["country"] == "IT"
+
+
+def test_unknown_node_starts_blank(env):
+    ing, live, store, _, _ = env
+    assert store.get_node(42) is None
+    ing.handle(ev("text", TextData("ciao"), num=42, pid=1))
+    assert live.nodes[42]["long_name"] is None and live.nodes[42]["mqtt_gateways"] == 1

@@ -86,7 +86,8 @@ async def test_periodic_status_payload_uses_mqtt_key(tmp_path):
     msg = q.get_nowait()
     assert msg["type"] == "status"
     assert msg["mqtt"] == {"connected": True, "msgs_per_s": 1.0, "undecodable": 0,
-                           "filtered_channel": 0, "watchdog_restarts": 0}
+                           "filtered_channel": 0, "watchdog_restarts": 0,
+                           "queue_dropped": 0}
 
 
 async def test_purge_evicts_live_nodes_not_heard_for_7_days(tmp_path):
@@ -265,3 +266,26 @@ async def test_mqtt_status_has_queue_fields_without_connector(tmp_path):
     rt.connector = None
     st = rt.mqtt_status()
     assert st["queue_dropped"] == 0 and st["queue_size"] == 0
+
+
+async def test_queue_dropped_accumulates_across_connector_restarts(tmp_path):
+    class Inbox:
+        dropped = 0
+
+    class DroppingConnector(FakeConnector):
+        def __init__(self, *a):
+            super().__init__(*a)
+            self.inbox = Inbox()
+
+        def status(self):
+            return {**super().status(), "queue_dropped": self.inbox.dropped, "queue_size": 0}
+
+    app, rt = build(tmp_path, connector_factory=DroppingConnector, static_dir=None)
+    async with app.router.lifespan_context(app):
+        rt.connector.inbox.dropped = 7
+        await rt.restart_connector("prova")
+        rt.connector.inbox.dropped = 3
+        assert rt.mqtt_status()["queue_dropped"] == 10
+        saved = {**rt.settings, "mqtt": {**rt.settings["mqtt"], "host": "altro"}}
+        await rt.on_settings_changed(saved)
+        assert rt.mqtt_status()["queue_dropped"] == 10

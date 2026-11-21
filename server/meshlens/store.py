@@ -103,16 +103,21 @@ class Store:
             (num, time, t.battery_level, t.voltage, t.channel_utilization,
              t.air_util_tx, t.uptime_seconds))
 
+    @staticmethod
+    def _node_from_row(row) -> dict:
+        d = dict(row)
+        d["sources"] = json.loads(d["sources"]) if d["sources"] else []
+        d["heard_by"] = json.loads(d["heard_by"]) if d["heard_by"] else {}
+        d["is_mine"] = bool(d["is_mine"])
+        d["is_favorite"] = bool(d["is_favorite"])
+        return d
+
     def load_nodes(self) -> list[dict]:
-        out = []
-        for row in self.conn.execute("SELECT * FROM nodes"):
-            d = dict(row)
-            d["sources"] = json.loads(d["sources"]) if d["sources"] else []
-            d["heard_by"] = json.loads(d["heard_by"]) if d["heard_by"] else {}
-            d["is_mine"] = bool(d["is_mine"])
-            d["is_favorite"] = bool(d["is_favorite"])
-            out.append(d)
-        return out
+        return [self._node_from_row(row) for row in self.conn.execute("SELECT * FROM nodes")]
+
+    def get_node(self, num: int) -> dict | None:
+        row = self.conn.execute("SELECT * FROM nodes WHERE num=?", (num,)).fetchone()
+        return None if row is None else self._node_from_row(row)
 
     def set_mine(self, num: int, mine: bool) -> None:
         self.conn.execute("UPDATE nodes SET is_mine=? WHERE num=?", (1 if mine else 0, num))

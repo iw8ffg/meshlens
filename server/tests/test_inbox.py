@@ -125,3 +125,42 @@ async def test_inbox_no_orphan_after_drain():
         await asyncio.sleep(0.005)
     assert got == list(range(total))
     assert inbox.size() == 0 and inbox.dropped == 0
+
+
+def test_inbox_closed_loop_clears_scheduled_flag():
+    class FlakyLoop(FakeLoop):
+        closed = True
+
+        def call_soon_threadsafe(self, fn, *args):
+            if self.closed:
+                raise RuntimeError("Event loop is closed")
+            super().call_soon_threadsafe(fn, *args)
+
+    loop, got = FlakyLoop(), []
+    inbox = EventInbox(loop, got.append)
+    inbox.put(1)
+    loop.closed = False
+    inbox.put(2)  # il flag non e' rimasto incastrato: si rischedula
+    assert len(loop.threadsafe) == 1
+    loop.run_all()
+    assert got == [1, 2]
+
+
+def test_inbox_base_exception_from_handler_does_not_wedge():
+    loop, got = FakeLoop(), []
+
+    def handler(item):
+        if item == 0:
+            raise KeyboardInterrupt
+        got.append(item)
+
+    inbox = EventInbox(loop, handler)
+    inbox.put(0)
+    try:
+        loop.run_all()
+    except KeyboardInterrupt:
+        pass
+    inbox.put(1)
+    assert len(loop.threadsafe) == 1  # rischedulato: _scheduled non e' rimasto vero
+    loop.run_all()
+    assert got == [1]
