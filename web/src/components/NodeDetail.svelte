@@ -83,6 +83,8 @@
     ontrack(null)
   })
 
+  const TRACK_ERROR = 'Percorso non disponibile'
+
   async function toggleTrack() {
     if (shown) {
       shown = false
@@ -101,7 +103,7 @@
         shown = true
       }
     } catch {
-      msg = 'Percorso non disponibile'
+      msg = TRACK_ERROR
     } finally {
       loading = false
     }
@@ -157,7 +159,15 @@
     {/if}
   </div>
   {#if !firstRadio}<p class="hint">Collega una radio per i messaggi diretti e per configurare il nodo.</p>{/if}
-  {#if msg}<div class="gap"><Banner kind="warn" title={msg} /></div>{/if}
+  {#if msg}
+    <div class="gap">
+      <Banner kind="warn" title={msg}>
+        {#snippet action()}
+          {#if msg === TRACK_ERROR}<Button onclick={toggleTrack}>Riprova</Button>{/if}
+        {/snippet}
+      </Banner>
+    </div>
+  {/if}
 
   <dl>
     {#each rows as [k, v] (k)}

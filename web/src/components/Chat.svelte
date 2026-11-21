@@ -25,6 +25,7 @@
   import Banner from '../lib/ui/Banner.svelte'
   import Button from '../lib/ui/Button.svelte'
   import Empty from '../lib/ui/Empty.svelte'
+  import { emptyRadioHint, navigate } from '../lib/shell/navigate'
   import Field from '../lib/ui/Field.svelte'
   import Modal from '../lib/ui/Modal.svelte'
   import Select from '../lib/ui/Select.svelte'
@@ -284,7 +285,17 @@
         </li>
       {/if}
       {#if olderError}<li role="alert"><Banner kind="danger" title={olderError} /></li>{/if}
-      {#if msgs.length === 0}<li><Empty icon="chat" title="Nessun messaggio" /></li>{/if}
+      {#if msgs.length === 0}
+        {@const hint = emptyRadioHint(app.radios.filter((r) => r.state === 'connected').length)}
+        <li>
+          <Empty icon="chat" title={hint.title}>
+            {hint.text}
+            {#snippet action()}
+              {#if hint.action}{@const a = hint.action}<Button onclick={() => navigate(a.tab)}>{a.label}</Button>{/if}
+            {/snippet}
+          </Empty>
+        </li>
+      {/if}
       {#each msgs as m (m.key)}
         {@const out = m.direction === 'out'}
         <li class="msg" class:out>

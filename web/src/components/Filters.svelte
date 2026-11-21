@@ -6,13 +6,15 @@
   import Flag from '../lib/ui/Flag.svelte'
   import Icon from '../lib/ui/Icon.svelte'
   import Check from '../lib/ui/Check.svelte'
+  import Button from '../lib/ui/Button.svelte'
 
   type Country = { code: string; name: string; nodes: number }
 
   let countries = $state<Country[]>([])
   let error = $state('')
 
-  onMount(async () => {
+  async function loadCountries() {
+    error = ''
     try {
       const list = await getJSON<Country[]>('/countries')
       countries = [...list].sort((a, b) => {
@@ -23,7 +25,9 @@
     } catch {
       error = 'Elenco nazioni non disponibile'
     }
-  })
+  }
+
+  onMount(loadCountries)
 
   const countryLabel = $derived(app.filter.countries.length === 0 ? 'tutte' : String(app.filter.countries.length))
 </script>
@@ -49,7 +53,7 @@
   <Check bind:checked={app.filter.links} label="Collegamenti" />
   <details>
     <summary>Nazioni ({countryLabel})</summary>
-    {#if error}<p class="err">{error}</p>{/if}
+    {#if error}<p class="err">{error} <Button onclick={loadCountries}>Riprova</Button></p>{/if}
     <div class="row wrap">
       <button type="button" class="ui-chip" aria-pressed={app.filter.countries.length === 0} onclick={() => (app.filter.countries = [])}>Tutte</button>
       {#each countries as c (c.code)}

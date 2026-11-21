@@ -12,6 +12,7 @@
   import Flag from '../lib/ui/Flag.svelte'
   import { app, addMessage } from '../lib/stores.svelte'
   import { matchFeed } from '../lib/filters'
+  import { emptyFeedHint, navigate } from '../lib/shell/navigate'
   import type { Message } from '../lib/types'
 
   let { now, onpick }: { now: number; onpick: (id: string) => void } = $props()
@@ -37,13 +38,25 @@
 
   const qs = (extra: string) => `limit=${LIMIT}${extra}`
 
-  onMount(() => {
+  const hint = $derived(emptyFeedHint(app.status?.mqtt ?? null, app.radios.length))
+
+  function loadFirst() {
+    error = ''
     getJSON<Message[]>(`/messages?${qs('')}`)
       .then((list) => {
         // dal piu' vecchio al piu' recente: il limite dello store scarta i piu' vecchi
         for (const m of [...list].reverse()) addMessage(m)
       })
       .catch(() => (error = 'Messaggi non disponibili'))
+  }
+
+  function showAll() {
+    app.feedFilter.countries = []
+    app.feedFilter.includeUnknown = true
+  }
+
+  onMount(() => {
+    loadFirst()
     getJSON<Country[]>('/countries')
       .then((list) => (countries = list.filter((c) => c.code !== 'none')))
       .catch(() => {})
@@ -85,9 +98,27 @@
       {/each}
     </div>
   </details>
-  {#if hidden > 0}<p class="hid" role="status">{hidden} {hidden === 1 ? 'messaggio nascosto' : 'messaggi nascosti'} dal filtro</p>{/if}
-  {#if error}<div class="pad"><Banner kind="danger" title={error} /></div>{/if}
-  {#if shown.length === 0 && !error}<Empty icon="chat" title="Nessun messaggio" />{/if}
+  {#if hidden > 0}
+    <div class="hid" role="status">
+      <span>{hidden} {hidden === 1 ? 'messaggio nascosto' : 'messaggi nascosti'} dal filtro</span>
+      <Button onclick={showAll}>Mostra tutti</Button>
+    </div>
+  {/if}
+  {#if error}
+    <div class="pad">
+      <Banner kind="danger" title={error}>
+        {#snippet action()}<Button onclick={loadFirst}>Riprova</Button>{/snippet}
+      </Banner>
+    </div>
+  {/if}
+  {#if shown.length === 0 && !error}
+    <Empty icon="chat" title={hint.title}>
+      {hint.text}
+      {#snippet action()}
+        {#if hint.action}{@const a = hint.action}<Button onclick={() => navigate(a.tab)}>{a.label}</Button>{/if}
+      {/snippet}
+    </Empty>
+  {/if}
   <ul>
     {#each shown as m (m.key)}
       {@const out = m.direction === 'out'}
@@ -139,6 +170,10 @@
     padding: var(--space-2) 0 var(--space-3);
   }
   .hid {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
     margin: 0;
     padding: var(--space-2) var(--space-3);
     font-size: 13px;

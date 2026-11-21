@@ -18,6 +18,9 @@
   import ConnectionBar from './lib/shell/ConnectionBar.svelte'
   import Icon from './lib/ui/Icon.svelte'
   import Sheet from './lib/ui/Sheet.svelte'
+  import Empty from './lib/ui/Empty.svelte'
+  import Button from './lib/ui/Button.svelte'
+  import { setNavigator } from './lib/shell/navigate'
   import { viewport } from './lib/viewport.svelte'
   import { MORE_TABS, effectiveTab, isMoreTab, isPageTab, sheetVisible, type Tab } from './lib/shell/nav'
   import type { SheetSnap } from './lib/ui/sheetSnap'
@@ -85,6 +88,7 @@
   }
 
   onMount(() => {
+    setNavigator(goTab)
     refresh()
     const tick = setInterval(() => (now = Math.floor(Date.now() / 1000)), 30_000)
     const onAuth = () => {
@@ -94,7 +98,15 @@
     return () => {
       window.removeEventListener(AUTH_REQUIRED, onAuth)
       clearInterval(tick)
+      setNavigator(null)
     }
+  })
+
+  // server non raggiungibile: nuovo tentativo ogni 5 s finche' l'errore resta
+  $effect(() => {
+    if (!error) return
+    const t = setInterval(() => void refresh(), 5000)
+    return () => clearInterval(t)
   })
 
   $effect(persistFilter)
@@ -170,7 +182,12 @@
 {/snippet}
 
 {#if error}
-  <p class="center">{error}</p>
+  <div class="center">
+    <Empty icon="cloudoff" title={error}>
+      MeshLens potrebbe essere chiuso o in riavvio.
+      {#snippet action()}<Button kind="primary" onclick={refresh}>Riprova</Button>{/snippet}
+    </Empty>
+  </div>
 {:else if !auth}
   <p class="center">Caricamento…</p>
 {:else if !auth.authenticated}
