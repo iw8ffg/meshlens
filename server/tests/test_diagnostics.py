@@ -5,6 +5,7 @@ import zipfile
 import httpx
 from httpx import ASGITransport
 
+import meshlens
 from meshlens.api import create_app
 from meshlens.diagnostics import build_bundle
 from meshlens.settings import DEFAULTS
@@ -70,7 +71,7 @@ async def test_bundle_endpoint(tmp_path):
     assert "meshlens-diagnostica-" in r.headers["content-disposition"]
     with zipfile.ZipFile(io.BytesIO(r.content)) as z:
         info = json.loads(z.read("info.json"))
-        assert info["version"] == "1.2.3" and info["frozen"] is False
+        assert info["version"] == meshlens.__version__ and info["frozen"] is False
         assert "uptime_s" in info and "mqtt" in info and "radios" in info
         assert info["db"]["schema_version"] >= 1 and "backups" in info
         assert b"INFO riga" in z.read("meshlens.log")

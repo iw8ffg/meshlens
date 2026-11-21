@@ -470,11 +470,24 @@ def test_public_key_change_detection(env):
     ing.handle(ev("nodeinfo", _ni(None), pid=4))
     ing.handle(ev("nodeinfo", _ni(b""), pid=5))
     assert n["public_key"] == a64 and n["key_changed"] is None
-    ing.handle(ev("nodeinfo", _ni(b"B" * 32), pid=6, t=NOW + 1000))
+    ing.handle(ev("nodeinfo", _ni(b"B" * 32), pid=6, t=NOW + 1000, source="rf",
+                  radio_id="rA", gateway_id=None, channel="0"))
     b64 = base64.b64encode(b"B" * 32).decode()
     assert n["key_changed"] == NOW + 1000 and n["public_key"] == b64
     saved = store.get_node(1)
     assert saved["public_key"] == b64 and saved["key_changed"] == NOW + 1000
+
+
+def test_mqtt_key_never_replaces_or_flags(env):
+    import base64
+    ing, live, store, conn, _ = env
+    ing.handle(ev("position", pos(MILAN), pid=1))
+    ing.handle(ev("nodeinfo", _ni(b"A" * 32), pid=2))  # chiave mancante: la riempie
+    n = live.nodes[1]
+    a64 = base64.b64encode(b"A" * 32).decode()
+    assert n["public_key"] == a64
+    ing.handle(ev("nodeinfo", _ni(b"B" * 32), pid=3, t=NOW + 10))  # MQTT diversa: ignorata
+    assert n["public_key"] == a64 and n["key_changed"] is None
 
 
 def test_new_node_has_no_public_key():
@@ -512,15 +525,16 @@ def test_waypoint_store_and_delete(env):
     # coordinate non valide: eliminazione
     ing.handle(ev("waypoint", _wp(wid=43, lat=None, lon=None), pid=3))
     assert wps[-1] == {"deleted": 43}
-    # MQTT fuori dalle nazioni salvate: in diretta ma non salvato
+    # MQTT fuori dalle nazioni salvate: ne' salvato ne' pubblicato
+    n_before = len(wps)
     ing.handle(ev("waypoint", _wp(wid=44, lat=48.85, lon=2.35, expire=int(NOW) + 3600),
                   num=2, pid=4))
-    assert wps[-1]["id"] == 44 and wps[-1]["mine"] is False
-    assert wps[-1]["expire"] == int(NOW) + 3600 and wps[-1]["locked_to"] is None
-    assert store.active_waypoints(NOW) == []
-    # MQTT in una nazione salvata: si salva
-    ing.handle(ev("waypoint", _wp(wid=45), num=2, pid=5))
+    assert len(wps) == n_before and store.active_waypoints(NOW) == []
+    # MQTT in una nazione salvata: si salva e si pubblica
+    ing.handle(ev("waypoint", _wp(wid=45, expire=int(NOW) + 3600), num=2, pid=5))
     assert [r["id"] for r in store.active_waypoints(NOW)] == [45]
+    assert wps[-1]["id"] == 45 and wps[-1]["mine"] is False
+    assert wps[-1]["expire"] == int(NOW) + 3600 and wps[-1]["locked_to"] is None
     # icona non valida (surrogato) o assente
     ing.handle(ev("waypoint", _wp(wid=46, icon=0xD800), num=2, pid=6))
     assert wps[-1]["icon"] == ""
@@ -592,3 +606,31 @@ def test_waypoint_expiry_without_rx_time(env, monkeypatch):
     ing.handle(ev("waypoint", _wp(expire=int(NOW) - 10), pid=1, t=0, source="rf",
                   radio_id="rA", gateway_id=None, channel="0"))
     assert wps == [{"deleted": 42}]
+
+
+def test_waypoint_takeover_refused(env):
+    ing, live, store, *_ = env
+    wps = []
+    ing.on_waypoint = wps.append
+    ing.set_radio_node("rA", 1)
+    ing.handle(ev("waypoint", _wp(), num=1, pid=1))  # di una radio locale
+    assert len(wps) == 1
+    ing.handle(ev("waypoint", _wp(lat=41.9, lon=12.5), num=2, pid=2))
+    assert len(wps) == 1 and store.get_waypoint(42)["from_num"] == 1
+    assert store.get_waypoint(42)["lat"] == MILAN[0]
+    # bloccato verso un nodo: nessun altro lo sostituisce
+    ing.handle(ev("waypoint", _wp(wid=60, locked_to=5), num=7, pid=3))
+    ing.handle(ev("waypoint", _wp(wid=60, lat=41.9, lon=12.5), num=8, pid=4))
+    assert len(wps) == 2 and store.get_waypoint(60)["from_num"] == 7
+    # non bloccato e non locale: il nuovo arrivo lo aggiorna ma il proprietario resta
+    ing.handle(ev("waypoint", _wp(wid=61), num=9, pid=5))
+    ing.handle(ev("waypoint", _wp(wid=61, lat=41.9, lon=12.5), num=10, pid=6))
+    assert store.get_waypoint(61)["from_num"] == 9 and store.get_waypoint(61)["lat"] == 41.9
+
+
+def test_waypoint_callback_only_when_stored(env):
+    ing, live, store, *_ = env
+    wps = []
+    ing.on_waypoint = wps.append
+    ing.handle(ev("waypoint", _wp(lat=-33.9, lon=151.2), num=1, pid=1))  # nazione non salvata
+    assert wps == [] and store.active_waypoints(NOW) == []

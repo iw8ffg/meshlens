@@ -420,7 +420,8 @@ class Store:
 
     def upsert_waypoint(self, wp: dict) -> None:
         cols = self._WP_COLS
-        updates = ", ".join(f"{c}=excluded.{c}" for c in cols[1:])
+        # from_num non cambia mai: chi ha creato il waypoint resta il suo proprietario
+        updates = ", ".join(f"{c}=excluded.{c}" for c in cols if c not in ("id", "from_num"))
         # un nuovo arrivo ripristina anche un waypoint eliminato prima
         self.conn.execute(
             f"INSERT INTO waypoints({', '.join(cols)}, deleted) "

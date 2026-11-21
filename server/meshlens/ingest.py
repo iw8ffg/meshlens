@@ -195,7 +195,8 @@ class Ingestor:
             ev_pos = (p.lat, p.lon, p.precision_bits, ev.source)
             self._update_position(node, ev, *ev_pos)
         elif kind == "nodeinfo":
-            self._update_identity(node, p, ev.rx_time or time.time(), replay=stale or no_time)
+            self._update_identity(node, p, ev.rx_time or time.time(), replay=stale or no_time,
+                                  rf=ev.source == "rf")
         elif kind == "mapreport":
             self._update_identity(node, p, ev.rx_time or time.time(), replay=stale or no_time)
             if p.firmware_version:
@@ -388,7 +389,7 @@ class Ingestor:
                         country=self.locator.locate(lat, lon))
 
     @staticmethod
-    def _update_identity(node: dict, p, t: float, replay: bool = False) -> None:
+    def _update_identity(node: dict, p, t: float, replay: bool = False, rf: bool = False) -> None:
         for field in ("long_name", "short_name", "hw_model", "role"):
             value = getattr(p, field)
             if value:
@@ -403,6 +404,8 @@ class Ingestor:
                     node["public_key"] = b64
                 return
             if node.get("public_key") and node["public_key"] != b64:
+                if not rf:
+                    return  # MQTT non e' autorevole: riempie solo una chiave mancante
                 node["key_changed"] = t
             node["public_key"] = b64
 
@@ -424,13 +427,17 @@ class Ingestor:
               "locked_to": node_id(p.locked_to) if p.locked_to else None,
               "time": int(ev.rx_time), "source": ev.source, "radio_id": ev.radio_id,
               "channel": ev.channel, "mine": ev.from_node in self._radio_nodes.values()}
+        stored = self.store.get_waypoint(p.id)
+        if (stored is not None and stored["from_num"] != ev.from_node
+                and (stored["locked_to"] or stored["from_num"] in self._radio_nodes.values())):
+            return  # waypoint bloccato o di una radio locale: un altro nodo non lo sostituisce
         country = self.locator.locate(p.lat, p.lon)
         if ev.source == "rf" or country in self.get_settings()["saved_countries"]:
             self.store.upsert_waypoint(
                 {**wp, "from_num": ev.from_node, "icon": p.icon if wp["icon"] else 0,
                  "locked_to": p.locked_to or None, "country": country})
-        if self.on_waypoint is not None:
-            self.on_waypoint(wp)
+            if self.on_waypoint is not None:
+                self.on_waypoint(wp)
 
     @staticmethod
     def _update_telemetry(node: dict, t: TelemetryData) -> None:

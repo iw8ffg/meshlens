@@ -479,10 +479,12 @@ async def test_history_shape(ctx):
         rows = (await c.get("/api/messages/history?country=IT")).json()
         assert rows == [{**msg, "from_name": "Zed", "direction": "in", "radio_id": None,
                          "channel_index": None, "packet_id": None, "status": None,
-                         "broker": None}]
+                         "broker": None, "reply_id": None, "emoji": False, "pki": False,
+                         "error": None}]
         assert set(rows[0]) == {"key", "from", "from_name", "to", "channel", "text",
                                 "time", "country", "source", "direction", "radio_id",
-                                "channel_index", "packet_id", "status", "broker"}
+                                "channel_index", "packet_id", "status", "broker", "reply_id",
+                                "emoji", "pki", "error"}
         assert (await c.get("/api/messages/history?country=IT&before=1")).json() == []
 
 
