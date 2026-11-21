@@ -20,6 +20,8 @@ log = logging.getLogger(__name__)
 API_HOST = "api.github.com"
 CHECK_INTERVAL_S = 24 * 3600
 MAX_REDIRECTS = 5
+MAX_DOWNLOAD_BYTES = 500 * 1024 * 1024
+RETRY_AFTER_ERROR_S = 3600
 PRIVATE_MSG = "Repository privato: inserisci un token valido in Impostazioni → Aggiornamenti"
 OFFLINE_MSG = "Nessuna connessione"
 BAD_HASH_MSG = "Impronta SHA-256 non corrispondente: file scartato"
@@ -158,9 +160,12 @@ class Updater:
         self.checked_at: float | None = None
         self.error: str | None = None
         self.job: dict | None = None
-        self._assets: dict[str, str] = {}  # nome -> URL API dell'asset
+        self._assets: dict[str, dict] = {}  # nome -> {url, size}, solo host api.github.com
+        self._dl: dict | None = None  # copia fissata all'avvio del download
+        self._expected: dict[str, str] = {}  # nome -> SHA-256 atteso (in memoria)
+        self._installing = False
         self._task: asyncio.Task | None = None
-        self._last_auto: float | None = None
+        self._next_auto: float | None = None
         self._job_seq = 0
 
     # ---- stato ----
@@ -198,10 +203,11 @@ class Updater:
     # ---- controllo ----
     async def check(self) -> dict:
         self.checked_at = self.clock()
-        self._last_auto = self.checked_at
+        self._next_auto = self.checked_at + RETRY_AFTER_ERROR_S  # in errore si ritenta presto
         try:
             await asyncio.to_thread(self._check_blocking)
             self.error = None
+            self._next_auto = self.checked_at + CHECK_INTERVAL_S  # solo se riuscito
         except UpdateError as e:
             self.error = str(e)
         except NetworkError:
@@ -232,14 +238,23 @@ class Updater:
         self.latest = ".".join(str(x) for x in ver)
         self.notes = data.get("body") or None
         self.published_at = data.get("published_at")
-        self._assets = {a["name"]: a["url"] for a in data.get("assets", [])
-                        if isinstance(a, dict) and "name" in a and "url" in a}
+        # il token parte solo verso api.github.com: scarta gli asset con URL di altri host
+        self._assets = {}
+        for a in data.get("assets", []):
+            if not (isinstance(a, dict) and isinstance(a.get("name"), str)
+                    and isinstance(a.get("url"), str)):
+                continue
+            u = urlsplit(a["url"])
+            if u.scheme == "https" and u.hostname == API_HOST:
+                size = a.get("size")
+                self._assets[a["name"]] = {
+                    "url": a["url"], "size": size if isinstance(size, int) else None}
 
     async def tick(self) -> None:
         """Controllo automatico: al massimo uno ogni 24 h, se abilitato."""
         if not self.settings().get("update_auto_check", True):
             return
-        if self._last_auto is None or self.clock() - self._last_auto >= CHECK_INTERVAL_S:
+        if self._next_auto is None or self.clock() >= self._next_auto:
             await self.check()
 
     async def run(self) -> None:
@@ -268,6 +283,12 @@ class Updater:
         name = self._installer_name()
         if name not in self._assets or name + ".sha256" not in self._assets:
             raise UpdateError("La release non contiene l'installer o il file SHA-256", 502)
+        size = self._assets[name]["size"]
+        if size is not None and size > MAX_DOWNLOAD_BYTES:
+            raise UpdateError("Installer troppo grande", 502)
+        # copia: il thread di download non legge _assets, che un controllo puo' sostituire
+        self._dl = {"name": name, "url": self._assets[name]["url"], "size": size,
+                    "sha_url": self._assets[name + ".sha256"]["url"]}
         self._job_seq += 1
         self.job = {"id": f"u{self._job_seq}", "status": "running",
                     "bytes_done": 0, "bytes_total": None, "error": None}
@@ -298,8 +319,8 @@ class Updater:
                 await ticker
             self._publish()
 
-    def _fetch_sha(self, name: str) -> str:
-        status, body = self.http.get(self._assets[name + ".sha256"],
+    def _fetch_sha(self, sha_url: str) -> str:
+        status, body = self.http.get(sha_url,
                                      self._headers("application/octet-stream"), 4096)
         if status != 200:
             raise UpdateError("File SHA-256 non scaricabile", 502)
@@ -309,28 +330,35 @@ class Updater:
         return line[0].lower()
 
     def _download_blocking(self) -> None:
-        name = self._installer_name()
-        final, sidecar = self._paths()
+        dl = self._dl
+        name = dl["name"]
+        final, sidecar = self.updates_dir / name, self.updates_dir / (name + ".sha256")
+        self._expected.pop(name, None)
         self.updates_dir.mkdir(parents=True, exist_ok=True)
         tmp = final.with_name(name + ".tmp")
         _unlink(final)  # niente file "pronto" finché non è verificato
         _unlink(sidecar)
-        expected = self._fetch_sha(name)
+        expected = self._fetch_sha(dl["sha_url"])
 
         def progress(done: int, total: int | None) -> None:
+            if done > MAX_DOWNLOAD_BYTES or (total and total > MAX_DOWNLOAD_BYTES):
+                raise UpdateError("Installer troppo grande", 502)
             self.job["bytes_done"] = done  # solo campi semplici: pubblica il ticker
             if total:
                 self.job["bytes_total"] = total
 
         try:
-            status = self.http.download(self._assets[name],
+            status = self.http.download(dl["url"],
                                         self._headers("application/octet-stream"), tmp, progress)
             if status != 200:
                 raise UpdateError(f"Download non riuscito (errore {status})", 502)
+            if dl["size"] is not None and tmp.stat().st_size != dl["size"]:
+                raise UpdateError("Dimensione dell'installer inattesa", 502)
             if _sha256(tmp) != expected:
                 raise UpdateError(BAD_HASH_MSG, 502)
             sidecar.write_text(f"{expected}  {name}\n", encoding="utf-8")
             tmp.replace(final)  # compare solo dopo la verifica
+            self._expected[name] = expected
         except BaseException:
             _unlink(tmp)
             _unlink(final)
@@ -348,15 +376,32 @@ class Updater:
             raise UpdateError("Conferma richiesta", 400)
         if not self.frozen:
             raise UpdateError(DEV_MSG, 409)
+        if self._installing:
+            raise UpdateError("Installazione già in corso", 409)
+        if self._running():
+            raise UpdateError("Download in corso", 409)
         if not self.available() or not self._ready():
             raise UpdateError("Aggiornamento non scaricato", 409)
-        final, sidecar = self._paths()
-        expected = sidecar.read_text(encoding="utf-8").split()[0].lower()
-        if await asyncio.to_thread(_sha256, final) != expected:  # riverifica prima di eseguire
-            _unlink(final)
-            _unlink(sidecar)
-            raise UpdateError(BAD_HASH_MSG, 409)
-        await asyncio.to_thread(self.launcher, [str(final), *INSTALLER_ARGS])
+        self._installing = True
+        try:
+            final, sidecar = self._paths()
+            expected = self._expected.get(final.name)
+            try:
+                parts = sidecar.read_text(encoding="utf-8").split()
+                on_disk = parts[0].lower() if parts else ""
+            except (OSError, ValueError):
+                on_disk = ""
+            # impronta in memoria (dal download) + sidecar + file riverificato prima di eseguire
+            ok = (expected is not None and on_disk == expected
+                  and await asyncio.to_thread(_sha256, final) == expected)
+            if not ok:
+                _unlink(final)
+                _unlink(sidecar)
+                raise UpdateError(BAD_HASH_MSG, 409)
+            await asyncio.to_thread(self.launcher, [str(final), *INSTALLER_ARGS])
+        except BaseException:
+            self._installing = False  # a lancio riuscito resta True: un secondo install e' 409
+            raise
         if self.launcher_exit:
             self.launcher_exit(2.0)
         return {"ok": True}

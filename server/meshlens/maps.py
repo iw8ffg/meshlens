@@ -132,11 +132,22 @@ def default_downloader(url: str, dest: Path, progress: Callable[[int, int | None
             progress(done, total)
 
 
+_live_procs: set = set()  # processi figli attivi (per l'uccisione di emergenza)
+
+
+def kill_children() -> None:
+    """Uccide i figli ancora attivi (chiusura forzata se il server non si ferma in tempo)."""
+    for proc in list(_live_procs):
+        with contextlib.suppress(Exception):
+            proc.kill()
+
+
 async def default_runner(argv: list[str], on_output: Callable[[str], None]) -> int:
     """Lancia il processo; all'annullamento (o chiusura) lo uccide prima di rilanciare."""
     proc = await asyncio.create_subprocess_exec(
         *argv, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
         stdin=asyncio.subprocess.DEVNULL)
+    _live_procs.add(proc)
     try:
         while chunk := await proc.stdout.read(4096):
             for part in re.split(r"[\r\n]+", chunk.decode("utf-8", "replace")):
@@ -144,6 +155,7 @@ async def default_runner(argv: list[str], on_output: Callable[[str], None]) -> i
                     on_output(part.strip())
         return await proc.wait()
     finally:
+        _live_procs.discard(proc)
         if proc.returncode is None:
             with contextlib.suppress(ProcessLookupError):
                 proc.kill()

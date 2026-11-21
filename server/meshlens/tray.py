@@ -1,6 +1,7 @@
 """Lanciatore con icona di notifica: istanza singola, avvio automatico, server in un thread."""
 import asyncio
 import json
+import logging
 import os
 import socket
 import sys
@@ -16,6 +17,7 @@ from .paths import app_dir, is_frozen
 PORT = 8686
 RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 RUN_NAME = "MeshLens"
+log = logging.getLogger(__name__)
 ASSETS = Path(__file__).parent / "assets"
 
 
@@ -43,6 +45,11 @@ def single_instance(port: int) -> str:
 def _winreg():
     import winreg  # solo Windows; i test lo sostituiscono con un finto modulo
     return winreg
+
+
+def autostart_enabled(frozen: bool) -> bool:
+    """La voce di avvio automatico ha senso solo per l'eseguibile installato."""
+    return frozen
 
 
 def get_autostart() -> bool:
@@ -108,7 +115,8 @@ class ServerThread:
         from uvicorn.config import LOGGING_CONFIG
         # senza console (eseguibile installato) stdout è None: niente configurazione di log
         cfg = uvicorn.Config(app, host=host, port=port,
-                             log_config=None if is_frozen() else LOGGING_CONFIG)
+                             log_config=None if is_frozen() else LOGGING_CONFIG,
+                             proxy_headers=False, forwarded_allow_ips=None)
         self.server = uvicorn.Server(cfg)
         self.thread = threading.Thread(target=self._run, name="meshlens-server", daemon=True)
         self.error: BaseException | None = None
@@ -142,6 +150,10 @@ class ServerThread:
     def stop(self, timeout: float = 20.0) -> None:
         self.server.should_exit = True
         self.thread.join(timeout)
+        if self.thread.is_alive():
+            from . import maps
+            log.warning("Il server non si è fermato entro %s s: chiusura forzata", timeout)
+            maps.kill_children()  # niente go-pmtiles orfano
 
 
 def _message_box(text: str) -> None:
@@ -202,10 +214,11 @@ def run_tray(data_dir: Path, port: int = PORT, open_browser: bool = True) -> int
             pystray.MenuItem("Apri MeshLens", open_ui, default=True),
             pystray.MenuItem("Apri cartella dati", open_data),
             pystray.MenuItem("Avvia all'accesso", toggle_autostart,
-                             checked=lambda _i: get_autostart()),
+                             checked=lambda _i: get_autostart(),
+                             enabled=autostart_enabled(is_frozen())),
             pystray.MenuItem("Esci", quit_app),
         ))
-    # l'aggiornamento (o l'endpoint interno) chiude tutto passando da qui
+    # l'aggiornamento chiude tutto passando da qui
     rt.ctx.exit_callback = icon.stop
 
     def watch() -> None:  # se il server muore da solo, chiudi anche l'icona

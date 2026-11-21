@@ -261,3 +261,87 @@ def test_redirect_rejects_http_and_loops():
     loop = [Resp(302, {"Location": "https://api.github.com/b"}) for _ in range(10)]
     with pytest.raises(up.UpdateError):
         scripted(loop, []).get("https://api.github.com/a", {})
+
+
+# ---- hardening (round 1) ----
+async def test_assets_on_other_hosts_ignored(tmp_path):
+    rel = release()
+    rel["assets"][0]["url"] = "https://evil.example/a/1"
+    u = make(tmp_path, FakeHttp(rel=rel))
+    await u.check()
+    with pytest.raises(up.UpdateError) as e:
+        await u.start_download()
+    assert e.value.status == 502
+
+
+async def _ready(tmp_path, **kw):
+    u = make(tmp_path, **kw)
+    await u.check()
+    await u.start_download()
+    await u._task
+    return u
+
+
+async def test_install_empty_sidecar_is_bad_hash(tmp_path):
+    u = await _ready(tmp_path)
+    (tmp_path / "updates" / "MeshLens-Setup-1.0.1.exe.sha256").write_text("")
+    with pytest.raises(up.UpdateError) as e:
+        await u.install(True)
+    assert e.value.status == 409 and u.launched == []
+
+
+async def test_install_compares_with_memory_sha(tmp_path):
+    u = await _ready(tmp_path)
+    other = b"altro"
+    d = tmp_path / "updates"
+    (d / "MeshLens-Setup-1.0.1.exe").write_bytes(other)  # file e sidecar coerenti tra loro, ma non col download
+    (d / "MeshLens-Setup-1.0.1.exe.sha256").write_text(hashlib.sha256(other).hexdigest() + "  x\n")
+    with pytest.raises(up.UpdateError):
+        await u.install(True)
+    assert u.launched == []
+
+
+async def test_install_twice_and_during_download(tmp_path):
+    u = await _ready(tmp_path)
+    assert (await u.install(True)) == {"ok": True}
+    with pytest.raises(up.UpdateError) as e:
+        await u.install(True)
+    assert e.value.status == 409 and len(u.launched) == 1
+    v = make(tmp_path / "b")
+    await v.check()
+    await v.start_download()
+    with pytest.raises(up.UpdateError) as e:
+        await v.install(True)
+    assert e.value.status == 409
+    await v._task
+
+
+async def test_auto_check_retries_after_network_error(tmp_path):
+    now = [1000.0]
+    http = FakeHttp(offline=True)
+    u = make(tmp_path, http, clock=lambda: now[0])
+    await u.tick()
+    assert len(http.calls) == 1
+    now[0] += 1800
+    await u.tick()
+    assert len(http.calls) == 1
+    now[0] += 3600
+    await u.tick()
+    assert len(http.calls) == 2  # ritenta dopo ~1 h, non dopo 24 h
+
+
+async def test_download_size_cap_and_mismatch(tmp_path):
+    rel = release()
+    rel["assets"][0]["size"] = len(EXE) + 1
+    u = make(tmp_path, FakeHttp(rel=rel))
+    await u.check()
+    await u.start_download()
+    await u._task
+    assert u.status()["job"]["status"] == "failed"
+    assert list((tmp_path / "updates").iterdir()) == []
+    rel = release()
+    rel["assets"][0]["size"] = up.MAX_DOWNLOAD_BYTES + 1
+    u = make(tmp_path / "c", FakeHttp(rel=rel))
+    await u.check()
+    with pytest.raises(up.UpdateError):
+        await u.start_download()

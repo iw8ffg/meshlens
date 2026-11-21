@@ -3,7 +3,6 @@ condivisa e va usata solo dal thread dell'event loop."""
 import asyncio
 import ipaddress
 import mimetypes
-import secrets
 import sqlite3
 import threading
 import time
@@ -57,8 +56,6 @@ class AppContext:
     config: object | None = None  # ConfigService
     maps: object | None = None  # MapsManager
     updater: object | None = None  # Updater
-    # token casuale generato all'avvio: lo conosce solo il lanciatore (in-process)
-    shutdown_token: str = field(default_factory=lambda: secrets.token_urlsafe(32))
     exit_callback: Callable[[], None] | None = None  # impostata dal lanciatore
     _alerts: list = field(default_factory=list)
 
@@ -314,15 +311,6 @@ def create_app(ctx: AppContext) -> FastAPI:
         # non autenticato e senza altri dati: serve solo a riconoscere MeshLens sulla porta
         from . import __version__
         return {"app": "meshlens", "version": __version__}
-
-    @app.post("/api/internal/shutdown")
-    async def internal_shutdown(request: Request):
-        given = request.headers.get("x-shutdown-token", "")
-        if (not is_local(request)
-                or not secrets.compare_digest(given.encode(), ctx.shutdown_token.encode())):
-            raise HTTPException(403, "Non consentito")
-        ctx.request_exit(0.2)
-        return {"ok": True}
 
     # ---- auth ----
     @app.get("/api/version", dependencies=[Depends(require_auth)])

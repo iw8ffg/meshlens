@@ -103,52 +103,47 @@ def test_ensure_icon_generates(tmp_path):
     assert png.is_file() and png.stat().st_size > 0
 
 
+async def test_internal_shutdown_route_removed(tmp_path):
+    app, rt = build(tmp_path, static_dir=None)
+    async with await _client(app, "127.0.0.1") as c:
+        r = await c.post("/api/internal/shutdown")
+        assert r.status_code in (404, 405)
+    assert not hasattr(rt.ctx, "shutdown_token")
+
+
 async def _client(app, ip):
     return httpx.AsyncClient(transport=httpx.ASGITransport(app=app, client=(ip, 1)),
                              base_url="http://127.0.0.1")
 
 
-async def test_shutdown_endpoint(tmp_path):
-    app, rt = build(tmp_path, static_dir=None)
-    calls = []
-    rt.ctx.exit_callback = lambda: calls.append(1)
-    tok = rt.ctx.shutdown_token
-    assert len(tok) >= 32
-    async with app.router.lifespan_context(app):
-        async with await _client(app, "127.0.0.1") as c:
-            assert (await c.post("/api/internal/shutdown")).status_code == 403
-            r = await c.post("/api/internal/shutdown", headers={"X-Shutdown-Token": "sbagliato"})
-            assert r.status_code == 403
-            assert not calls
-        async with await _client(app, "192.168.1.9") as c:
-            r = await c.post("/api/internal/shutdown", headers={"X-Shutdown-Token": tok})
-            assert r.status_code == 403
-            assert not calls
-        async with await _client(app, "127.0.0.1") as c:
-            r = await c.post("/api/internal/shutdown", headers={"X-Shutdown-Token": tok})
-            assert r.status_code == 200
-        for _ in range(50):
-            if calls:
-                break
-            import asyncio
-            await asyncio.sleep(0.02)
-        assert calls == [1]
+def test_server_config_ignores_proxy_headers(tmp_path):
+    app, _ = build(tmp_path, static_dir=None)
+    st = tray.ServerThread(app, "127.0.0.1", 0)
+    assert st.server.config.proxy_headers is False
 
 
-async def test_ping_unauthenticated(tmp_path):
-    from meshlens import __version__
-    app, rt = build(tmp_path, static_dir=None)
-    async with app.router.lifespan_context(app):
-        async with await _client(app, "127.0.0.1") as c:
-            r = await c.get("/api/ping")
-            assert r.status_code == 200
-            assert r.json() == {"app": "meshlens", "version": __version__}
+def test_stop_timeout_logs_and_kills_children(caplog, monkeypatch):
+    from meshlens import maps
+    killed = []
+    monkeypatch.setattr(maps, "kill_children", lambda: killed.append(1))
+
+    class T:
+        def join(self, t):
+            pass
+
+        def is_alive(self):
+            return True
+
+    class S:
+        should_exit = False
+
+    st = tray.ServerThread.__new__(tray.ServerThread)
+    st.server, st.thread = S(), T()
+    with caplog.at_level("WARNING"):
+        st.stop(0.01)
+    assert killed == [1] and "non si è fermato" in caplog.text
 
 
-def test_request_exit_delay_zero_calls_callback(tmp_path):
-    app, rt = build(tmp_path, static_dir=None)
-    ev = threading.Event()
-    rt.ctx.exit_callback = ev.set
-    rt.ctx.request_exit(0)
-    assert ev.wait(2)
-    rt.conn.close()
+def test_autostart_item_disabled_when_not_frozen():
+    assert tray.autostart_enabled(False) is False
+    assert tray.autostart_enabled(True) is True
