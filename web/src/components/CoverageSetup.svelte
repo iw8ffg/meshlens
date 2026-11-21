@@ -1,8 +1,9 @@
 <script lang="ts">
-  import { ApiError, coverageCheck, startCoverage } from '../lib/api'
+  import { ApiError, coverageCheck, preparePlan, startCoverage } from '../lib/api'
   import { checklist, validInterval } from '../lib/coverage'
   import { app, coverage } from '../lib/stores.svelte'
-  import type { CoverageCheck, CoverageMode } from '../lib/types'
+  import type { CoverageCheck, CoverageMode, CoveragePlan } from '../lib/types'
+  import CoveragePlanFlow from './CoveragePlanFlow.svelte'
 
   const connected = $derived(app.radios.filter((r) => r.state === 'connected'))
   const radioNodeIds = $derived(new Set(app.radios.map((r) => r.my_node_id).filter((x): x is string => !!x)))
@@ -16,6 +17,22 @@
   let error = $state('')
   let askApprox = $state('')
   let showHelp = $state(false)
+  let privateChannel = $state(false)
+  let plan = $state<CoveragePlan | null>(null)
+  let prepBusy = $state(false)
+  let prepError = $state('')
+
+  async function prepare() {
+    prepBusy = true
+    prepError = ''
+    try {
+      plan = await preparePlan({ radio_id: radioId, mobile_id: mobileId, interval_s: interval, private_channel: privateChannel })
+    } catch (e) {
+      prepError = e instanceof Error ? e.message : 'Errore'
+    } finally {
+      prepBusy = false
+    }
+  }
 
   // Radio di base: la prima collegata, se quella scelta sparisce
   $effect(() => {
@@ -133,6 +150,20 @@
       </li>
     {/each}
   </ul>
+
+  <label class="inline">
+    <input type="checkbox" bind:checked={privateChannel} />
+    Usa un canale privato temporaneo a precisione piena (le due radio saranno isolate dalla rete pubblica durante la prova)
+  </label>
+  <button class="ghost" disabled={prepBusy || !radioId || !mobileId || !validInterval(interval) || !!plan} onclick={prepare}>
+    Prepara le radio
+  </button>
+  {#if prepError}<p class="err">{prepError}</p>{/if}
+  {#if plan}
+    {#key plan.plan_id}
+      <CoveragePlanFlow {plan} kind="prepare" oncancel={() => (plan = null)} />
+    {/key}
+  {/if}
 
   <button class="start" disabled={!canStart} onclick={() => start(false)}>Avvia prova</button>
   {#if askApprox}

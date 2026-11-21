@@ -4,7 +4,7 @@ import type { NodeFilter } from './filters'
 import { MAX_REPLACED, insertMessage, removeByKey, mergeRadioMessages, pruneSet } from './chat'
 import { shouldStore } from './traceroute'
 import { appendTrackPoint, upsertPoint } from './coverage'
-import type { Alert, CoverageDetail, CoveragePoint, CoverageSession, CoverageTrackPoint, Message, MessageStatus, Node, Radio, Status, Traceroute } from './types'
+import type { ConfigJob, Alert, CoverageDetail, CoveragePoint, CoverageSession, CoverageTrackPoint, Message, MessageStatus, Node, Radio, Status, Traceroute } from './types'
 
 const MAX_MESSAGES = 500
 
@@ -102,4 +102,18 @@ export function setStatus(s: Status): void {
 export function persistFilter(): void {
   const { countries, maxAgeH, sources, text, links } = app.filter
   saveFilter(localStorage, { countries: [...countries], maxAgeH, sources: [...sources], text, links })
+}
+
+/** Lavori di configurazione, aggiornati dal WebSocket. */
+export const configJobs = new SvelteMap<number, ConfigJob>()
+
+export function setConfigJob(j: ConfigJob): void {
+  configJobs.set(j.id, j)
+}
+
+/** Pannello "Configura" aperto: nodo e radio preferita (null = scelta automatica). */
+export const configUi = $state({ target: null as { nodeId: string; radioId: string | null; tab: string | null } | null })
+
+export function openConfig(nodeId: string, radioId: string | null = null, tab: string | null = null): void {
+  configUi.target = { nodeId, radioId, tab }
 }

@@ -214,3 +214,104 @@ export interface CoverageStartBody {
   base_lon?: number
   accept_approx?: boolean
 }
+
+// ---- Configurazione (fase 5) ----
+export type SchemaFieldType = 'bool' | 'int' | 'float' | 'string' | 'enum' | 'bytes' | 'repeated'
+export interface SchemaField {
+  type: SchemaFieldType
+  enum?: string[]
+  secret?: boolean
+}
+export type SchemaSection = Record<string, SchemaField>
+export interface ConfigSchema {
+  config: Record<string, SchemaSection>
+  module_config: Record<string, SchemaSection>
+  channel: SchemaSection
+  owner: SchemaSection
+}
+
+export type ConfigValue = string | number | boolean | null | undefined | unknown[]
+export interface ConfigChannel {
+  index: number
+  role?: string
+  name?: string
+  psk?: string
+  position_precision?: number
+  uplink_enabled?: boolean
+  downlink_enabled?: boolean
+  [k: string]: unknown
+}
+export interface ConfigDict {
+  owner?: Record<string, ConfigValue>
+  config?: Record<string, Record<string, ConfigValue>>
+  module_config?: Record<string, Record<string, ConfigValue>>
+  channels?: ConfigChannel[]
+}
+
+export interface ConfigJob {
+  id: number
+  node_id: string
+  radio_id: string
+  kind: 'read' | 'apply' | 'reboot' | 'fixed_position'
+  status: 'running' | 'done' | 'failed'
+  step: string
+  progress: [number, number] | null
+  error: string | null
+  error_code: 'unauthorized' | 'timeout' | 'error' | null
+  result_id: number | null
+  verify: 'verified' | 'mismatch' | null
+  started: number
+  ended: number | null
+}
+
+export interface ConfigSaved {
+  id: number
+  node_id: string
+  radio_id: string
+  time: number
+  config: ConfigDict
+  sections: string[]
+}
+
+export interface ConfigChange {
+  path: string
+  old: unknown
+  new: unknown
+  risky: boolean
+  reason: string | null
+}
+export interface ConfigPreview {
+  preview_id: string
+  node_id: string
+  radio_id: string
+  changes: ConfigChange[]
+  risky: boolean
+  backup_sections: string[]
+}
+
+export interface ConfigBackup {
+  id: number
+  node_id: string
+  time: number
+  reason: 'before_apply' | 'coverage_prepare' | 'manual'
+  label: string
+  sections: string[]
+  config?: ConfigDict
+}
+
+// ---- Prepara le radio (fase 5) ----
+export interface CoveragePlanStep {
+  node_id: string
+  preview: ConfigPreview
+}
+/** Piano di preparazione o di ripristino: mobile prima, base dopo. */
+export interface CoveragePlan {
+  plan_id: string
+  steps: CoveragePlanStep[]
+}
+/** Ultimo piano applicato e non ripristinato. */
+export interface CoverageLastPlan {
+  plan_id: string
+  steps: { node_id: string; preview?: ConfigPreview }[]
+  jobs?: ConfigJob[]
+}

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { getJSON, setMine } from '../lib/api'
   import { flag, formatDate, timeAgo } from '../lib/format'
-  import { app, upsertNodes } from '../lib/stores.svelte'
+  import { app, upsertNodes, openConfig } from '../lib/stores.svelte'
   import TelemetryChart from './TelemetryChart.svelte'
   import Traceroute from './Traceroute.svelte'
   import { formatPrecision } from '../lib/geo'
@@ -144,6 +144,9 @@
       Messaggio diretto
     </button>
   {/if}
+  <button class="dm" disabled={!firstRadio} title={firstRadio ? '' : 'Nessuna radio connessa'} onclick={() => openConfig(node.id)}>
+    Configura
+  </button>
   {#if node.lat !== null}
     <button class="track" disabled={loading} onclick={toggleTrack}>
       {shown ? 'Nascondi percorso' : loading ? 'Caricamento…' : 'Mostra percorso'}

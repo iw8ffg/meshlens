@@ -1,5 +1,5 @@
 import { emitAuthRequired } from './api'
-import type { Alert, CoveragePoint, CoverageSession, CoverageTrackPoint, Message, MessageStatus, Node, Radio, Status, Traceroute } from './types'
+import type { ConfigJob, Alert, CoveragePoint, CoverageSession, CoverageTrackPoint, Message, MessageStatus, Node, Radio, Status, Traceroute } from './types'
 
 export interface WSHandlers {
   nodes(n: Node[]): void
@@ -10,6 +10,7 @@ export interface WSHandlers {
   traceroute(t: Traceroute): void
   coverage(session: CoverageSession, point: CoveragePoint | null, trackPoint?: CoverageTrackPoint | null): void
   messageStatus(key: string, status: MessageStatus): void
+  configJob?(job: ConfigJob): void
   /** Chiamato a ogni riapertura dopo la prima: lo stato puo' essere vecchio (telefono in standby). */
   reconnected?(): void
 }
@@ -40,6 +41,7 @@ export function connectWS(handlers: WSHandlers): () => void {
         else if (msg.type === 'traceroute') handlers.traceroute(msg.result)
         else if (msg.type === 'coverage') handlers.coverage(msg.session, msg.point ?? null, msg.track_point ?? null)
         else if (msg.type === 'message_status') handlers.messageStatus(msg.key, msg.status)
+        else if (msg.type === 'config_job') handlers.configJob?.(msg.job)
         else if (msg.type === 'status') handlers.status({ mqtt: msg.mqtt })
       } catch {
         /* messaggio malformato: ignorato */
