@@ -20,7 +20,10 @@
     {#if open}
       <ul>
         {#each app.alerts as a (a.key)}
-          <li><button onclick={() => onpick(a.node_id)}>{text(a)}</button></li>
+          <li><button onclick={() => {
+              open = false
+              onpick(a.node_id)
+            }}>{text(a)}</button></li>
         {/each}
       </ul>
     {/if}

@@ -1,7 +1,9 @@
 <script lang="ts">
-  import { getJSON } from '../lib/api'
+  import { getJSON, setMine } from '../lib/api'
   import { flag, formatDate, timeAgo } from '../lib/format'
-  import { app } from '../lib/stores.svelte'
+  import { app, upsertNodes } from '../lib/stores.svelte'
+  import TelemetryChart from './TelemetryChart.svelte'
+  import Traceroute from './Traceroute.svelte'
   import { formatPrecision } from '../lib/geo'
   import type { Node } from '../lib/types'
 
@@ -32,6 +34,19 @@
     if (!firstRadio) return
     app.chatConv = `dm:${firstRadio.id}:${node.id}`
     onchat()
+  }
+
+  let mineBusy = $state(false)
+  async function toggleMine() {
+    mineBusy = true
+    msg = ''
+    try {
+      upsertNodes([await setMine(node.id, !node.is_mine)])
+    } catch {
+      msg = 'Impossibile aggiornare "Mio nodo"'
+    } finally {
+      mineBusy = false
+    }
   }
 
   let loading = $state(false)
@@ -98,6 +113,9 @@
 <section>
   <header>
     <h2>{node.long_name || node.short_name || node.id}</h2>
+    <button class="star" disabled={mineBusy} title="Mio nodo" aria-label="Mio nodo" aria-pressed={!!node.is_mine} onclick={toggleMine}>
+      {node.is_mine ? '★' : '☆'}
+    </button>
     <button class="x" aria-label="Chiudi dettaglio" onclick={onclose}>✕</button>
   </header>
   <dl>
@@ -132,6 +150,8 @@
     </button>
   {/if}
   {#if msg}<p class="msg">{msg}</p>{/if}
+  <TelemetryChart nodeId={node.id} />
+  <Traceroute {node} />
 </section>
 
 <style>
@@ -146,6 +166,14 @@
   h2 {
     font-size: 17px;
     margin: 4px 0;
+    flex: 1;
+  }
+  .star {
+    background: none;
+    border: 0;
+    color: #fbbf24;
+    font-size: 20px;
+    cursor: pointer;
   }
   .x {
     background: none;
