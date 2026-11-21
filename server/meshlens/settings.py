@@ -42,6 +42,15 @@ _RANGE_KEYS = {"battery_alert_pct": (1, 99), "silent_alert_hours": (1, 168)}
 _MQTT_STR = ("host", "username", "password")
 
 
+def normalize_topic(topic: str) -> str:
+    """Un'iscrizione senza jolly ("msh/EU_868/IT") riceverebbe solo quell'argomento esatto,
+    cioe' niente: si aggiunge "/#" per ricevere tutto cio' che sta sotto."""
+    t = topic.strip()
+    if not t or t.endswith("#") or "+" in t:
+        return t
+    return t.rstrip("/") + "/#"
+
+
 def _is_int(v) -> bool:
     return isinstance(v, int) and not isinstance(v, bool)
 
@@ -62,6 +71,8 @@ def _validate_mqtt(m) -> None:
     for k in ("topics", "extra_keys"):
         if k in m and not (isinstance(m[k], list) and all(isinstance(x, str) for x in m[k])):
             raise ValueError(f"mqtt.{k} deve essere una lista di stringhe")
+    if "topics" in m:
+        m["topics"] = [t for t in (normalize_topic(x) for x in m["topics"]) if t]
     for key in m.get("extra_keys", []):
         try:
             expand_psk(key)
@@ -131,6 +142,9 @@ def load_settings(conn: sqlite3.Connection) -> dict:
             result["mqtt"].update(value)
         else:
             result[row["key"]] = value
+    # argomenti salvati da versioni precedenti senza "/#" (non ricevevano nulla)
+    result["mqtt"]["topics"] = [t for t in (normalize_topic(x) for x in result["mqtt"].get("topics", []))
+                                if t] or list(DEFAULTS["mqtt"]["topics"])
     return result
 
 

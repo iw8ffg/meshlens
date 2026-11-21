@@ -238,7 +238,7 @@
             <Field label="Utente" for="set-user">{#snippet children()}<input id="set-user" class="ui-input" type="text" autocomplete="off" bind:value={username} />{/snippet}</Field>
             <Field label="Password" for="set-pass">{#snippet children()}<input id="set-pass" class="ui-input" type="password" autocomplete="new-password" bind:value={password} />{/snippet}</Field>
           </div>
-          <Field label="Topic (uno per riga)" for="set-topics">{#snippet children()}<textarea id="set-topics" class="ui-input area" rows="3" bind:value={topics}></textarea>{/snippet}</Field>
+          <Field label="Topic (uno per riga)" for="set-topics" hint="Esempio: msh/EU_868/IT/# per il traffico italiano (se manca, /# viene aggiunto da solo). I messaggi inviati via MQTT usano la radice del primo topic, per esempio msh/EU_868/IT, così arrivano ai gateway che la ascoltano.">{#snippet children()}<textarea id="set-topics" class="ui-input area" rows="3" bind:value={topics}></textarea>{/snippet}</Field>
           <Field label="Chiavi aggiuntive base64 (una per riga)" for="set-keys">{#snippet children()}<textarea id="set-keys" class="ui-input area" rows="3" bind:value={keys}></textarea>{/snippet}</Field>
           <Field
             label="Il tuo id nodo per MQTT"

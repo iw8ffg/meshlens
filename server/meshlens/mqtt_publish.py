@@ -47,6 +47,21 @@ def build_envelope(text: str, from_num: int, to_num: int, channel_name: str, key
                                     gateway_id=gateway_id).SerializeToString()
 
 
+def root_from_topics(topics: list[str]) -> str:
+    """Radice per l'invio, presa dal primo argomento sottoscritto: "msh/EU_868/IT/#" ->
+    "msh/EU_868/IT". I gateway con downlink ascoltano <radice>/2/e/<canale>/#: pubblicare
+    sotto la stessa radice che si ascolta e' cio' che fa arrivare il messaggio via radio."""
+    if topics:
+        t = topics[0].strip()
+        if "/2/" in t:
+            t = t.split("/2/", 1)[0]
+        t = t.rstrip("#").rstrip("/")
+        parts = t.split("/")
+        if len(parts) >= 2 and parts[0] == "msh" and all(p and p not in ("#", "+") for p in parts):
+            return t
+    return f"msh/{DEFAULT_REGION}"
+
+
 def region_from_topics(topics: list[str]) -> str:
     """Regione dal primo argomento sottoscritto msh/<REGIONE>/..."""
     if topics:
@@ -118,8 +133,8 @@ class MqttSender:
         self._check_rate()
         from_num = int(own[1:], 16)
         packet_id = secrets.randbelow(2**32 - 1) + 1  # 32 bit, mai 0
-        region = region_from_topics(settings["mqtt"].get("topics", []))
-        topic = f"msh/{region}/2/e/{channel}/{own}"
+        root = root_from_topics(settings["mqtt"].get("topics", []))
+        topic = f"{root}/2/e/{channel}/{own}"
         payload = build_envelope(text, from_num, to_num, channel, key, packet_id, own)
         if not connector.publish(topic, payload):
             raise MqttSendError(503, "mqtt_disconnected", "MQTT non connesso")

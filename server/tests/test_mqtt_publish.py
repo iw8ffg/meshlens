@@ -320,3 +320,12 @@ def test_control_chars_and_bad_radio_node():
                      radios=[{"state": "connected", "my_node_id": "!zz"}])
     expect(400, "unknown_node", lambda: s2.send("x", "LongFast", None, False))
     assert len(conn.published) == 1
+
+
+def test_root_from_topics_uses_subscribed_root():
+    from meshlens.mqtt_publish import root_from_topics
+    assert root_from_topics(["msh/EU_868/IT/#"]) == "msh/EU_868/IT"
+    assert root_from_topics(["msh/EU_868/#"]) == "msh/EU_868"
+    assert root_from_topics(["msh/EU_868/IT/2/e/LongFast/#"]) == "msh/EU_868/IT"
+    assert root_from_topics(["msh/+/2/e/#"]) == "msh/EU_868"
+    assert root_from_topics([]) == "msh/EU_868"

@@ -72,3 +72,21 @@ def test_mqtt_channels_default_and_validation(conn):
         with pytest.raises(ValueError):
             save_settings(conn, {"mqtt_channels": bad})
     save_settings(conn, {"mqtt_channels": ["x" * 32] * 1})
+
+
+def test_topics_without_wildcard_get_hash():
+    from meshlens.settings import normalize_topic
+    assert normalize_topic("msh/EU_868/IT") == "msh/EU_868/IT/#"
+    assert normalize_topic(" msh/EU_868/IT/ ") == "msh/EU_868/IT/#"
+    assert normalize_topic("msh/EU_868/#") == "msh/EU_868/#"
+    assert normalize_topic("msh/+/2/e/LongFast/#") == "msh/+/2/e/LongFast/#"
+    assert normalize_topic("  ") == ""
+
+
+def test_load_normalizes_saved_topics(tmp_path):
+    import json
+    from meshlens.db import connect
+    from meshlens.settings import load_settings
+    conn = connect(tmp_path / "t.db")
+    conn.execute("INSERT INTO settings(key, value) VALUES('mqtt', ?)", (json.dumps({"topics": ["msh/EU_868/IT"]}),))
+    assert load_settings(conn)["mqtt"]["topics"] == ["msh/EU_868/IT/#"]

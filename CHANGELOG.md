@@ -3,6 +3,20 @@
 Il formato segue [Keep a Changelog](https://keepachangelog.com/it-IT/1.1.0/) e il progetto usa il [versionamento semantico](https://semver.org/lang/it/).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [1.2.2] - 2026-11-21
+
+### Italiano
+
+#### Corretto
+- **Topic MQTT senza `/#`:** un topic come `msh/EU_868/IT` non riceveva nulla (MQTT lo intende come argomento esatto). Ora MeshLens aggiunge `/#` da solo, anche ai topic già salvati.
+- **Invio via MQTT:** i messaggi venivano pubblicati sempre sotto `msh/EU_868`, mentre i gateway italiani con downlink ascoltano `msh/EU_868/IT`. Ora l'invio usa la radice del primo topic che ascolti (per esempio `msh/EU_868/IT/2/e/LongFast/...`).
+
+### English
+
+#### Fixed
+- **MQTT topics without `/#`:** a topic like `msh/EU_868/IT` received nothing (MQTT treats it as an exact topic). MeshLens now appends `/#` automatically, also to saved topics.
+- **Sending over MQTT:** messages were always published under `msh/EU_868`, while Italian downlink gateways listen on `msh/EU_868/IT`. Sending now uses the root of the first subscribed topic (for example `msh/EU_868/IT/2/e/LongFast/...`).
+
 ## [1.2.1] - 2026-11-21
 
 ### Italiano
@@ -119,3 +133,4 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 [1.1.0]: https://github.com/iw8ffg/meshlens/releases/tag/v1.1.0
 [1.2.0]: https://github.com/iw8ffg/meshlens/releases/tag/v1.2.0
 [1.2.1]: https://github.com/iw8ffg/meshlens/releases/tag/v1.2.1
+[1.2.2]: https://github.com/iw8ffg/meshlens/releases/tag/v1.2.2
