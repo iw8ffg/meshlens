@@ -1,21 +1,36 @@
 <script lang="ts">
-  import { onMount, untrack } from 'svelte'
+  import { mount, onMount, unmount, untrack } from 'svelte'
+  import type { ComponentProps } from 'svelte'
   import * as maplibregl from 'maplibre-gl'
   import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url'
-  import type { Feature, FeatureCollection, Point } from 'geojson'
+  import type { Point } from 'geojson'
   import 'maplibre-gl/dist/maplibre-gl.css'
   import { app, coverage, maps } from '../lib/stores.svelte'
-  import { ageClass } from '../lib/filters'
   import { bboxFromBounds } from '../lib/maps'
-  import { circlePolygon, formatMeters, precisionRadiusM } from '../lib/geo'
+  import { formatMeters } from '../lib/geo'
   import { coverageSession, getJSON, links as fetchLinks, patchCoverage } from '../lib/api'
   import { coverageGeoJSON } from '../lib/coverage'
-  import { formatDate } from '../lib/format'
+  import { formatDate, num, signed, timeAgo } from '../lib/format'
   import { linksToGeoJSON } from '../lib/links'
   import { canSwitch, chooseMode, offlineStyle, SWITCH_MIN_MS } from '../lib/mapstyle'
   import type { EffectiveMode, MapMode, StyleInfo } from '../lib/mapstyle'
+  import { getTheme } from '../lib/theme'
+  import type { Theme } from '../lib/theme'
   import type { AppSettings } from '../lib/settings'
   import type { Link, Node } from '../lib/types'
+  import { recolorLiberty } from '../lib/map/basemap'
+  import { readDocumentTokens } from '../lib/map/tokens'
+  import type { MapTokens } from '../lib/map/tokens'
+  import { registerSprites } from '../lib/map/sprites'
+  import { addNodeLayers, EMPTY, isMine, nodeFeatures, precisionData, ringKind, selectionData } from '../lib/map/NodeLayer'
+  import { addLinkLayers } from '../lib/map/LinkLayer'
+  import { addTrackLayer, trackData } from '../lib/map/TrackLayer'
+  import { addCoverageLayers } from '../lib/map/CoverageLayer'
+  import Legend from '../lib/map/Legend.svelte'
+  import MapControls from '../lib/map/MapControls.svelte'
+  import NodePopup from '../lib/map/NodePopup.svelte'
+  import Icon from '../lib/ui/Icon.svelte'
+  import Button from '../lib/ui/Button.svelte'
 
   let {
     nodes,
@@ -31,14 +46,11 @@
 
   const STYLE = 'https://tiles.openfreemap.org/styles/liberty'
   // Stile minimo usato quando lo stile online non si carica (offline): niente glyphs
-  const OFFLINE_STYLE: maplibregl.StyleSpecification = {
+  const fallbackStyle = (t: MapTokens): maplibregl.StyleSpecification => ({
     version: 8,
     sources: {},
-    layers: [{ id: 'bg', type: 'background', paint: { 'background-color': '#dde3ea' } }],
-  }
-  const COLORS = { fresh: '#2e9e44', recent: '#e0a800', old: '#8a8a8a' }
-  const RF_BORDER = '#1e3a8a'
-  const EMPTY: FeatureCollection = { type: 'FeatureCollection', features: [] }
+    layers: [{ id: 'bg', type: 'background', paint: { 'background-color': t.land } }],
+  })
 
   let el: HTMLDivElement
   let map: maplibregl.Map | null = null
@@ -46,31 +58,15 @@
   let lastPush = 0
   let timer: ReturnType<typeof setTimeout> | null = null
   let linkList: Link[] = []
+  let popup: maplibregl.Popup | null = null
   const SOURCE_LABEL: Record<string, string> = { neighborinfo: 'NeighborInfo', traceroute: 'traceroute', rf_direct: 'ricezione diretta' }
 
   const src = (id: string) => map?.getSource(id) as maplibregl.GeoJSONSource | undefined
 
-  // Fonte per il bordo: solo RF, RF+MQTT (bordo doppio) oppure solo MQTT
-  function origin(n: Node): 'rf' | 'both' | 'mqtt' {
-    const rf = n.sources.includes('rf')
-    const mq = n.sources.some((s) => s !== 'rf')
-    return rf && mq ? 'both' : rf ? 'rf' : 'mqtt'
-  }
-
-  function pointFeatures(): Feature[] {
-    return nodes
-      .filter((n) => n.lat !== null && n.lon !== null)
-      .map((n) => ({
-        type: 'Feature',
-        geometry: { type: 'Point', coordinates: [n.lon!, n.lat!] },
-        properties: { id: n.id, age: ageClass(n.last_heard, now), origin: origin(n) },
-      }))
-  }
-
   function pushNodes() {
     timer = null
     lastPush = Date.now()
-    src('nodes')?.setData({ type: 'FeatureCollection', features: pointFeatures() })
+    src('nodes')?.setData({ type: 'FeatureCollection', features: nodeFeatures(nodes, now) })
   }
 
   // Aggiorna la sorgente al massimo una volta al secondo
@@ -82,39 +78,12 @@
 
   function pushSelection() {
     const n = app.selectedId ? app.nodes.get(app.selectedId) : undefined
-    const has = n && n.lat !== null && n.lon !== null
-    src('selected')?.setData(
-      has
-        ? {
-            type: 'FeatureCollection',
-            features: [
-              {
-                type: 'Feature',
-                geometry: { type: 'Point', coordinates: [n.lon!, n.lat!] },
-                properties: { age: ageClass(n.last_heard, now) },
-              },
-            ],
-          }
-        : EMPTY,
-    )
-    const r = has ? precisionRadiusM(n.precision_bits) : null
-    src('precision')?.setData(
-      r !== null
-        ? {
-            type: 'FeatureCollection',
-            features: [
-              {
-                type: 'Feature',
-                geometry: { type: 'Polygon', coordinates: [circlePolygon(n!.lat!, n!.lon!, r)] },
-                properties: {},
-              },
-            ],
-          }
-        : EMPTY,
-    )
+    src('selected')?.setData(selectionData(n, now))
+    src('precision')?.setData(precisionData(n))
   }
 
   let notice = $state('')
+  let offlineBadge = $state(false)
   // Connessione anticipata al server delle tessere online: solo se la modalita' puo' usare la rete
   function addPreconnect() {
     if (document.head.querySelector('link[data-meshlens-preconnect]')) return
@@ -136,15 +105,19 @@
 
   onMount(() => {
     maplibregl.setWorkerUrl(workerUrl)
+    const themeCtl = getTheme()
     let disposed = false
     let bound = false
     let mode: MapMode = 'auto'
     let info: StyleInfo = { has_offline: false, maxzoom: 14, bounds: null }
     let current: EffectiveMode | null = null
+    let theme: Theme = themeCtl.theme()
+    let appliedTheme: Theme = theme // tema dello stile attualmente sulla mappa
     let lastSwitch = 0 // 0: l'avvio non conta come cambio
     let onlineOk = false // stile online precaricato con successo (usato solo con mappe offline presenti)
     let onlineFailed = false // stile online non raggiungibile (usato senza mappe offline)
-    let styleJson: maplibregl.StyleSpecification | null = null
+    let styleJson: maplibregl.StyleSpecification | null = null // stile OpenFreeMap grezzo, ricolorato per tema
+    let stylePromise: Promise<void> | null = null
     let verifying: AbortController | null = null
     let retryTimer: ReturnType<typeof setTimeout> | null = null
     let verifyTimer: ReturnType<typeof setTimeout> | null = null
@@ -153,153 +126,13 @@
     const setup = (hasGlyphs: boolean) => {
       const m = map!
       if (m.getSource('nodes')) return // gia' montato
-      m.addSource('nodes', { type: 'geojson', data: EMPTY, cluster: true, clusterMaxZoom: 7, clusterRadius: 40 })
-      m.addSource('selected', { type: 'geojson', data: EMPTY })
-      m.addSource('precision', { type: 'geojson', data: EMPTY })
-      m.addSource('track', { type: 'geojson', data: EMPTY })
-      m.addSource('links', { type: 'geojson', data: EMPTY })
-      for (const id of ['cov-track', 'cov-missing', 'cov-points', 'cov-base']) m.addSource(id, { type: 'geojson', data: EMPTY })
-      m.addLayer({
-        id: 'precision-fill',
-        type: 'fill',
-        source: 'precision',
-        paint: { 'fill-color': '#2563eb', 'fill-opacity': 0.15 },
-      })
-      m.addLayer({
-        id: 'precision-line',
-        type: 'line',
-        source: 'precision',
-        paint: { 'line-color': '#2563eb', 'line-width': 1.5, 'line-dasharray': [2, 2] },
-      })
-      m.addLayer({
-        id: 'track',
-        type: 'line',
-        source: 'track',
-        paint: { 'line-color': '#2563eb', 'line-width': 3 },
-      })
-      const linkOpacity: maplibregl.ExpressionSpecification = ['interpolate', ['linear'], ['get', 'age_h'], 0, 1, 24, 0.35]
-      m.addLayer({
-        id: 'links',
-        type: 'line',
-        source: 'links',
-        filter: ['!=', ['get', 'source'], 'traceroute'],
-        paint: { 'line-color': ['get', 'color'], 'line-width': 2.5, 'line-opacity': linkOpacity },
-      })
-      m.addLayer({
-        id: 'links-trace',
-        type: 'line',
-        source: 'links',
-        filter: ['==', ['get', 'source'], 'traceroute'],
-        paint: { 'line-color': ['get', 'color'], 'line-width': 2.5, 'line-opacity': linkOpacity, 'line-dasharray': [3, 2] },
-      })
-      m.addLayer({
-        id: 'clusters',
-        type: 'circle',
-        source: 'nodes',
-        filter: ['has', 'point_count'],
-        paint: {
-          'circle-color': '#3b82f6',
-          'circle-opacity': 0.8,
-          'circle-radius': ['step', ['get', 'point_count'], 14, 20, 18, 100, 24],
-        },
-      })
-      if (hasGlyphs) {
-        m.addLayer({
-          id: 'cluster-count',
-          type: 'symbol',
-          source: 'nodes',
-          filter: ['has', 'point_count'],
-          layout: {
-            'text-field': ['get', 'point_count_abbreviated'],
-            'text-font': ['Noto Sans Regular'],
-            'text-size': 12,
-          },
-          paint: { 'text-color': '#ffffff' },
-        })
-      }
-      const colorExpr: maplibregl.ExpressionSpecification = [
-        'match',
-        ['get', 'age'],
-        'fresh',
-        COLORS.fresh,
-        'recent',
-        COLORS.recent,
-        COLORS.old,
-      ]
-      m.addLayer({
-        id: 'points-ring',
-        type: 'circle',
-        source: 'nodes',
-        filter: ['all', ['!', ['has', 'point_count']], ['==', ['get', 'origin'], 'both']],
-        paint: {
-          'circle-color': 'rgba(0,0,0,0)',
-          'circle-radius': 9.5,
-          'circle-stroke-width': 1.5,
-          'circle-stroke-color': RF_BORDER,
-        },
-      })
-      m.addLayer({
-        id: 'points',
-        type: 'circle',
-        source: 'nodes',
-        filter: ['!', ['has', 'point_count']],
-        paint: {
-          'circle-color': colorExpr,
-          'circle-radius': 6,
-          'circle-stroke-width': ['match', ['get', 'origin'], 'mqtt', 1, 2],
-          'circle-stroke-color': ['match', ['get', 'origin'], 'mqtt', '#ffffff', RF_BORDER],
-        },
-      })
-      m.addLayer({
-        id: 'selected',
-        type: 'circle',
-        source: 'selected',
-        paint: {
-          'circle-color': colorExpr,
-          'circle-radius': 11,
-          'circle-stroke-width': 3,
-          'circle-stroke-color': '#2563eb',
-        },
-      })
-      m.addLayer({
-        id: 'cov-track',
-        type: 'line',
-        source: 'cov-track',
-        paint: { 'line-color': '#2563eb', 'line-width': 1.5 },
-      })
-      m.addLayer({
-        id: 'cov-missing',
-        type: 'circle',
-        source: 'cov-missing',
-        paint: {
-          'circle-color': 'rgba(0,0,0,0)',
-          'circle-radius': 4,
-          'circle-stroke-width': 1.5,
-          'circle-stroke-color': '#8a8a8a',
-        },
-      })
-      m.addLayer({
-        id: 'cov-points',
-        type: 'circle',
-        source: 'cov-points',
-        paint: {
-          'circle-color': ['get', 'color'],
-          'circle-radius': 6,
-          'circle-stroke-width': 1.5,
-          'circle-stroke-color': '#ffffff',
-        },
-      })
-      m.addLayer({
-        id: 'cov-base',
-        type: 'circle',
-        source: 'cov-base',
-        paint: {
-          'circle-color': '#111827',
-          'circle-radius': 9,
-          'circle-stroke-width': 3,
-          'circle-stroke-color': '#facc15',
-        },
-      })
+      const tk = readDocumentTokens()
+      registerSprites(m, tk)
+      // ordine dal basso: collegamenti e traccia, nodi, prova di copertura
+      addLinkLayers(m, tk)
+      addTrackLayer(m, tk)
+      addNodeLayers(m, tk, hasGlyphs)
+      addCoverageLayers(m, tk)
       if (!bound) {
         bound = true
         for (const l of ['cov-points', 'cov-missing']) {
@@ -315,11 +148,15 @@
             if (!picking) m.getCanvas().style.cursor = ''
           })
         }
-        m.on('click', 'points', (e: maplibregl.MapLayerMouseEvent) => {
-          if (picking) return
-          const id = e.features?.[0]?.properties?.id
-          if (typeof id === 'string') app.selectedId = id
-        })
+        for (const l of ['points', 'points-mine']) {
+          m.on('click', l, (e: maplibregl.MapLayerMouseEvent) => {
+            if (picking) return
+            const id = e.features?.[0]?.properties?.id
+            if (typeof id !== 'string') return
+            app.selectedId = id
+            showNodePopup(e.lngLat, id)
+          })
+        }
         m.on('click', 'clusters', async (e: maplibregl.MapLayerMouseEvent) => {
           const f = e.features?.[0]
           if (!f) return
@@ -333,12 +170,12 @@
         for (const l of ['links', 'links-trace']) {
           m.on('click', l, (e: maplibregl.MapLayerMouseEvent) => {
             if (picking) return
-            if (m.queryRenderedFeatures(e.point, { layers: ['points', 'clusters'] }).length > 0) return
+            if (m.queryRenderedFeatures(e.point, { layers: ['points', 'points-mine', 'clusters'] }).length > 0) return
             const p = e.features?.[0]?.properties
             if (p) showLinkPopup(e.lngLat, p)
           })
         }
-        for (const l of ['points', 'clusters', 'links', 'links-trace']) {
+        for (const l of ['points', 'points-mine', 'clusters', 'links', 'links-trace']) {
           m.on('mouseenter', l, () => (m.getCanvas().style.cursor = 'pointer'))
           m.on('mouseleave', l, () => (m.getCanvas().style.cursor = ''))
         }
@@ -351,13 +188,40 @@
       pushCoverage()
     }
 
-    const styleFor = (m: EffectiveMode): string | maplibregl.StyleSpecification =>
-      m === 'online' ? (styleJson ?? STYLE) : m === 'offline' ? offlineStyle(info) : OFFLINE_STYLE
+    const styleFor = (m: EffectiveMode): maplibregl.StyleSpecification => {
+      const tk = readDocumentTokens()
+      if (m === 'online' && styleJson) return recolorLiberty(styleJson, tk)
+      if (m === 'offline') return offlineStyle(info, theme, tk)
+      return fallbackStyle(tk)
+    }
 
     const noticeFor = (t: EffectiveMode): string => {
       if (t !== 'fallback') return ''
       if (mode === 'online') return NOTICE_ONLINE
       return mode === 'offline' || !navigator.onLine ? NOTICE : ''
+    }
+
+    const fetchStyle = async (signal: AbortSignal): Promise<void> => {
+      const res = await fetch(STYLE, { signal, cache: 'no-store' })
+      if (!res.ok) throw new Error(String(res.status))
+      styleJson = (await res.json()) as maplibregl.StyleSpecification
+    }
+
+    // Scarica lo stile online (serve per ricolorarlo); se fallisce, l'online e' dato per non raggiungibile
+    const loadStyle = (): Promise<void> => {
+      if (stylePromise) return stylePromise
+      if (styleJson || disposed) return Promise.resolve()
+      const ctl = new AbortController()
+      const to = setTimeout(() => ctl.abort(), ONLINE_TIMEOUT_MS)
+      stylePromise = fetchStyle(ctl.signal)
+        .catch(() => {
+          onlineFailed = true
+        })
+        .finally(() => {
+          clearTimeout(to)
+          stylePromise = null
+        })
+      return stylePromise
     }
 
     const target = (): EffectiveMode => {
@@ -369,14 +233,20 @@
       return chooseMode(mode, navigator.onLine, info.has_offline, failed)
     }
 
-    // force: azione dell'utente (modalita', mappa scaricata o eliminata): niente attesa e, se
+    // force: azione dell'utente (modalita', mappa scaricata o eliminata, tema): niente attesa e, se
     // gia' offline, lo stile viene ricreato per rileggere tessere e sorgente
     const evaluate = (force = false) => {
       if (disposed || !map) return
       const t = target()
       notice = noticeFor(t)
-      if (t === current && !(force && t === 'offline')) return
-      if (!force && current !== null && !canSwitch(lastSwitch, Date.now())) {
+      const themeChanged = appliedTheme !== theme
+      if (t === current && !themeChanged && !(force && t === 'offline')) return
+      if (t === 'online' && !styleJson) {
+        // serve lo stile grezzo: lo si scarica e si rivaluta (al piu' una volta: l'esito cambia target() o styleJson)
+        void loadStyle().then(() => evaluate(force))
+        return
+      }
+      if (!force && !themeChanged && current !== null && !canSwitch(lastSwitch, Date.now())) {
         if (!retryTimer) {
           retryTimer = setTimeout(() => {
             retryTimer = null
@@ -385,10 +255,12 @@
         }
         return
       }
-      if (current !== null) lastSwitch = Date.now()
+      if (current !== null && (t !== current || !themeChanged)) lastSwitch = Date.now()
       current = t
+      appliedTheme = theme
+      offlineBadge = t === 'offline'
       ready = false
-      map.setStyle(styleFor(t), { diff: false }) // style.load ricrea i livelli MeshLens
+      map.setStyle(styleFor(t), { diff: false }) // style.load ricrea sprite e livelli MeshLens
       notice = noticeFor(t)
     }
 
@@ -399,9 +271,7 @@
       verifying = ctl
       const to = setTimeout(() => ctl.abort(), ONLINE_TIMEOUT_MS)
       try {
-        const res = await fetch(STYLE, { signal: ctl.signal, cache: 'no-store' })
-        if (!res.ok) throw new Error(String(res.status))
-        styleJson = (await res.json()) as maplibregl.StyleSpecification
+        await fetchStyle(ctl.signal)
         onlineOk = true
         backoff = BACKOFF_START_MS
       } catch {
@@ -470,22 +340,28 @@
       }, 250)
     }
 
+    // Cambio di tema: una sola ricreazione dello stile (nessun setStyle in cascata)
+    const offTheme = themeCtl.subscribe((t) => {
+      theme = t
+      evaluate(true)
+    })
+
     const start = async () => {
       if (!(await readCfg())) return
       current = target()
+      if (current === 'online' && !styleJson) {
+        await loadStyle()
+        if (disposed) return
+        current = target()
+      }
+      theme = themeCtl.theme()
+      appliedTheme = theme
       notice = noticeFor(current)
+      offlineBadge = current === 'offline'
       map = new maplibregl.Map({ container: el, style: styleFor(current), center: [12.5, 42.5], zoom: 5, attributionControl: { compact: true }, fadeDuration: 0 })
-      map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right')
       map.on('style.load', () => setup(current !== 'fallback'))
       map.on('moveend', onMoveEnd)
       publishBounds()
-      map.on('error', (e) => {
-        // errore di rete/HTTP sul JSON dello stile online; i 404 di tile e glyph hanno altri URL
-        if ((e as { error?: { url?: string } }).error?.url === STYLE) {
-          onlineFailed = true
-          evaluate()
-        }
-      })
       window.addEventListener('online', onOnline)
       window.addEventListener('offline', onOffline)
       void verifyOnline()
@@ -494,6 +370,7 @@
 
     return () => {
       disposed = true
+      offTheme()
       window.removeEventListener('online', onOnline)
       window.removeEventListener('offline', onOffline)
       verifying?.abort()
@@ -503,6 +380,7 @@
       if (verifyTimer) clearTimeout(verifyTimer)
       if (timer) clearTimeout(timer)
       cancelPick()
+      popup?.remove()
       map?.remove()
       map = null
       ready = false
@@ -514,39 +392,66 @@
     return n?.short_name || n?.long_name || id
   }
 
-  function showLinkPopup(at: maplibregl.LngLat, p: Record<string, unknown>) {
+  // Popup in HTML con i token: il contenuto e' un componente Svelte montato nel popup di MapLibre
+  type PopupProps = ComponentProps<typeof NodePopup>
+  function openPopup(at: maplibregl.LngLat, props: PopupProps) {
     if (!map) return
-    const snr = typeof p.snr === 'number' ? `${String(Math.round(p.snr * 10) / 10).replace('.', ',')} dB` : 'sconosciuto'
-    const age = Number(p.age_h)
-    const eta = age < 1 ? 'meno di 1 h fa' : `${Math.round(age)} h fa`
-    const box = document.createElement('div')
-    const title = document.createElement('b')
-    title.textContent = `${nodeName(String(p.from_id))} ↔ ${nodeName(String(p.to_id))}`
-    box.append(title)
-    for (const line of [`SNR: ${snr}`, `Fonte: ${SOURCE_LABEL[String(p.source)] ?? String(p.source)}`, `Visto: ${eta}`]) {
-      box.append(document.createElement('br'), line)
-    }
-    new maplibregl.Popup({ closeButton: true }).setLngLat(at).setDOMContent(box).addTo(map)
+    popup?.remove()
+    const host = document.createElement('div')
+    const comp = mount(NodePopup, { target: host, props })
+    const p = new maplibregl.Popup({ closeButton: true, className: 'ml-popup', maxWidth: '280px' }).setLngLat(at).setDOMContent(host).addTo(map)
+    p.on('close', () => {
+      void unmount(comp)
+      if (popup === p) popup = null
+    })
+    popup = p
   }
 
-  const fmtSnr = (v: unknown) => (typeof v === 'number' ? `${String(Math.round(v * 10) / 10).replace('.', ',')} dB` : 'sconosciuto')
+  const snrText = (v: unknown) => (typeof v === 'number' ? `${signed(v, 1)} dB` : 'sconosciuto')
+
+  function showNodePopup(at: maplibregl.LngLat, id: string) {
+    const n = app.nodes.get(id)
+    if (!n) return
+    const long = n.long_name && n.long_name !== (n.short_name || '') ? n.long_name : undefined
+    openPopup(at, {
+      title: nodeName(id),
+      subtitle: long ?? id,
+      source: ringKind(n),
+      mine: isMine(n),
+      rows: [
+        { label: 'Ultimo contatto', value: timeAgo(n.last_heard, now) },
+        { label: 'SNR', value: snrText(n.last_snr) },
+        { label: 'Salti', value: n.hops === null ? 'sconosciuto' : num(n.hops) },
+      ],
+    })
+  }
+
+  function showLinkPopup(at: maplibregl.LngLat, p: Record<string, unknown>) {
+    const age = Number(p.age_h)
+    const eta = age < 1 ? 'meno di 1 h fa' : `${num(Math.round(age))} h fa`
+    openPopup(at, {
+      title: `${nodeName(String(p.from_id))} ↔ ${nodeName(String(p.to_id))}`,
+      rows: [
+        { label: 'SNR', value: snrText(p.snr) },
+        { label: 'Fonte', value: SOURCE_LABEL[String(p.source)] ?? String(p.source) },
+        { label: 'Visto', value: eta },
+      ],
+    })
+  }
 
   function showCoveragePopup(at: maplibregl.LngLat, p: Record<string, unknown>, missing: boolean) {
-    if (!map) return
-    const lines: string[] = missing
-      ? ['Pacchetto non ricevuto']
-      : [
-          `SNR: ${fmtSnr(p.snr)}`,
-          `RSSI: ${typeof p.rssi === 'number' ? `${p.rssi} dBm` : 'sconosciuto'}`,
-          `Salti: ${typeof p.hops === 'number' ? p.hops : 'sconosciuto'}`,
-          `Distanza dalla base: ${typeof p.distance_m === 'number' ? formatMeters(p.distance_m) : 'sconosciuta'}`,
-        ]
-    const box = document.createElement('div')
-    const title = document.createElement('b')
-    title.textContent = `${typeof p.seq === 'number' ? `Pacchetto ${p.seq}` : 'Pacchetto'} · ${formatDate(Number(p.time))}`
-    box.append(title)
-    for (const line of lines) box.append(document.createElement('br'), line)
-    new maplibregl.Popup({ closeButton: true }).setLngLat(at).setDOMContent(box).addTo(map)
+    openPopup(at, {
+      title: `${typeof p.seq === 'number' ? `Pacchetto ${p.seq}` : 'Pacchetto'}`,
+      subtitle: formatDate(Number(p.time)),
+      rows: missing
+        ? [{ label: 'Esito', value: 'non ricevuto' }]
+        : [
+            { label: 'SNR', value: snrText(p.snr) },
+            { label: 'RSSI', value: typeof p.rssi === 'number' ? `${signed(p.rssi)} dBm` : 'sconosciuto' },
+            { label: 'Salti', value: typeof p.hops === 'number' ? num(p.hops) : 'sconosciuto' },
+            { label: 'Distanza base', value: typeof p.distance_m === 'number' ? formatMeters(p.distance_m) : 'sconosciuta' },
+          ],
+    })
   }
 
   // Prova aperta: risultati sulla mappa; all'apertura la vista si adatta ai punti
@@ -636,16 +541,20 @@
 
   function pushTrack() {
     if (!ready) return
-    src('track')?.setData(
-      track && track.length > 1
-        ? { type: 'Feature', geometry: { type: 'LineString', coordinates: track }, properties: {} }
-        : EMPTY,
-    )
+    src('track')?.setData(trackData(track))
     if (track && track.length > 1) {
       const b = new maplibregl.LngLatBounds(track[0], track[0])
       for (const p of track) b.extend(p)
       map?.fitBounds(b, { padding: 60, maxZoom: 15 })
     }
+  }
+
+  function fitAll() {
+    const pts = nodes.filter((n) => n.lat !== null && n.lon !== null)
+    if (!map || pts.length === 0) return
+    const b = new maplibregl.LngLatBounds([pts[0].lon!, pts[0].lat!], [pts[0].lon!, pts[0].lat!])
+    for (const n of pts) b.extend([n.lon!, n.lat!])
+    map.fitBounds(b, { padding: 60, maxZoom: 12, duration: 0 })
   }
 
   $effect(() => {
@@ -700,83 +609,150 @@
   $effect(() => {
     if (focus && map) map.easeTo({ center: [focus.lon, focus.lat], zoom: Math.max(map.getZoom(), 10) })
   })
+
 </script>
 
 <div class="map" bind:this={el}></div>
-{#if notice}<div class="notice">{notice}</div>{/if}
+<MapControls onzoomin={() => map?.zoomIn({ duration: 0 })} onzoomout={() => map?.zoomOut({ duration: 0 })} onfit={fitAll} />
+<Legend />
+{#if offlineBadge}
+  <div class="badge" role="status"><Icon name="cloudoff" size={16} />Mappa offline</div>
+{/if}
+{#if notice}<div class="notice" role="status">{notice}</div>{/if}
 {#if coverage.detail}
   <div class="covbar">
     <div class="row">
       <b>{coverage.detail.name}</b>
-      <button onclick={closeTest}>Chiudi prova</button>
+      <Button onclick={closeTest}>Chiudi prova</Button>
     </div>
     {#if coverage.detail.base_lat === null}
       <p>Posizione della base sconosciuta: tocca la mappa per impostarla</p>
     {/if}
     {#if picking}
       <p>Tocca la mappa nel punto in cui si trova la base.</p>
-      <button class="ghost" onclick={cancelPick}>Annulla</button>
+      <Button kind="ghost" onclick={cancelPick}>Annulla</Button>
     {:else}
-      <button onclick={startPick}>Imposta posizione base</button>
+      <Button onclick={startPick}>Imposta posizione base</Button>
     {/if}
     {#if pickError}<p class="err">{pickError}</p>{/if}
   </div>
 {/if}
 
 <style>
+  .map {
+    position: absolute;
+    inset: 0;
+    background: var(--map-land);
+  }
   .covbar {
     position: absolute;
-    top: 8px;
-    left: 8px;
-    z-index: 5;
-    max-width: 260px;
-    padding: 8px;
-    border-radius: 6px;
-    background: rgba(17, 24, 39, 0.92);
-    color: #f3f4f6;
-    font-size: 0.85em;
+    top: var(--space-3);
+    left: var(--space-3);
+    z-index: var(--z-map-ui);
+    max-width: 280px;
+    padding: var(--space-3);
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--line);
+    background: var(--surface);
+    color: var(--ink);
+    box-shadow: var(--shadow-2);
+    font-size: 14px;
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: var(--space-2);
+  }
+  :global(.vp-phone) .covbar {
+    top: calc(var(--touch-min) + var(--space-3) * 2);
   }
   .covbar p {
     margin: 0;
   }
   .covbar .row {
     display: flex;
-    gap: 8px;
+    gap: var(--space-2);
     align-items: center;
     justify-content: space-between;
   }
   .covbar .err {
-    color: #f87171;
+    color: var(--danger);
   }
-  .covbar button {
-    padding: 6px 8px;
-    border: 0;
-    border-radius: 6px;
-    background: #2563eb;
-    color: #fff;
-    font: inherit;
-    cursor: pointer;
-  }
-  .covbar .ghost {
-    background: #374151;
+  .notice,
+  .badge {
+    position: absolute;
+    z-index: var(--z-map-ui);
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-pill);
+    border: 1px solid var(--line);
+    background: var(--surface);
+    color: var(--ink);
+    box-shadow: var(--shadow-1);
+    font-size: 13px;
+    line-height: 18px;
   }
   .notice {
-    position: absolute;
-    bottom: 28px;
+    bottom: var(--space-8);
     left: 50%;
     transform: translateX(-50%);
-    z-index: 5;
-    padding: 6px 10px;
-    border-radius: 6px;
-    background: rgba(17, 24, 39, 0.92);
-    color: #f3f4f6;
-    font-size: 0.85em;
+    max-width: calc(100% - var(--space-8));
+    text-align: center;
   }
-  .map {
-    position: absolute;
-    inset: 0;
+  .badge {
+    top: var(--space-3);
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+  }
+  :global(.vp-phone) .notice,
+  :global(.vp-phone) .badge {
+    font-size: 14px;
+    line-height: 20px;
+  }
+  /* Popup e attribuzione di MapLibre in tema */
+  :global(.ml-popup .maplibregl-popup-content) {
+    background: var(--surface-raised);
+    color: var(--ink);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-3);
+    padding: var(--space-3);
+  }
+  :global(.ml-popup.maplibregl-popup-anchor-bottom .maplibregl-popup-tip),
+  :global(.ml-popup.maplibregl-popup-anchor-bottom-left .maplibregl-popup-tip),
+  :global(.ml-popup.maplibregl-popup-anchor-bottom-right .maplibregl-popup-tip) {
+    border-top-color: var(--surface-raised);
+  }
+  :global(.ml-popup.maplibregl-popup-anchor-top .maplibregl-popup-tip),
+  :global(.ml-popup.maplibregl-popup-anchor-top-left .maplibregl-popup-tip),
+  :global(.ml-popup.maplibregl-popup-anchor-top-right .maplibregl-popup-tip) {
+    border-bottom-color: var(--surface-raised);
+  }
+  :global(.ml-popup.maplibregl-popup-anchor-left .maplibregl-popup-tip) {
+    border-right-color: var(--surface-raised);
+  }
+  :global(.ml-popup.maplibregl-popup-anchor-right .maplibregl-popup-tip) {
+    border-left-color: var(--surface-raised);
+  }
+  :global(.ml-popup .maplibregl-popup-close-button) {
+    color: var(--ink-muted);
+    font-size: 20px;
+    min-width: var(--control-h-desktop);
+    min-height: var(--control-h-desktop);
+    border-radius: var(--radius-md);
+  }
+  :global(.vp-phone .ml-popup .maplibregl-popup-close-button) {
+    min-width: var(--touch-min);
+    min-height: var(--touch-min);
+  }
+  :global(.maplibregl-ctrl-attrib) {
+    background: color-mix(in srgb, var(--surface) 85%, transparent);
+    color: var(--ink-muted);
+  }
+  :global(.maplibregl-ctrl-attrib a) {
+    color: var(--accent-ink);
+  }
+  :global(.maplibregl-ctrl-attrib-button) {
+    filter: none;
   }
 </style>

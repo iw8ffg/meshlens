@@ -1,4 +1,6 @@
-import { layers, namedFlavor } from '@protomaps/basemaps'
+import { layers } from '@protomaps/basemaps'
+import { themedFlavor } from './map/basemap'
+import type { MapTokens } from './map/tokens'
 import type { StyleSpecification } from 'maplibre-gl'
 
 export type MapMode = 'auto' | 'online' | 'offline'
@@ -12,7 +14,8 @@ export interface StyleInfo {
 
 export const SWITCH_MIN_MS = 30_000
 
-export function offlineStyle(info: Pick<StyleInfo, 'maxzoom'>): StyleSpecification {
+/** Stile offline Protomaps; `theme` sceglie il flavor, `tokens` ne ricolora il fondo. Lo sprite resta quello chiaro (unico servito). */
+export function offlineStyle(info: Pick<StyleInfo, 'maxzoom'>, theme: 'dark' | 'light' = 'light', tokens?: MapTokens): StyleSpecification {
   return {
     version: 8,
     sources: {
@@ -23,7 +26,7 @@ export function offlineStyle(info: Pick<StyleInfo, 'maxzoom'>): StyleSpecificati
         attribution: '© OpenStreetMap contributors · Protomaps',
       },
     },
-    layers: layers('protomaps', namedFlavor('light'), { lang: 'it' }) as StyleSpecification['layers'],
+    layers: layers('protomaps', themedFlavor(theme, tokens), { lang: 'it' }) as StyleSpecification['layers'],
     glyphs: location.origin + '/map-assets/fonts/{fontstack}/{range}.pbf',
     sprite: location.origin + '/map-assets/sprites/light',
   }
