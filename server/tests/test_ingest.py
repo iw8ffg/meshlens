@@ -133,6 +133,18 @@ def test_mine_node_outside_saved_countries_is_persisted(env):
     assert [n["num"] for n in store.load_nodes()] == [1]
 
 
+def test_new_node_has_is_mine_false(env):
+    ing, live, _, _, _ = env
+    ing.handle(ev("position", pos(MILAN)))
+    assert live.nodes[1]["is_mine"] is False
+
+
+def test_unmarked_node_outside_saved_countries_not_persisted(env):
+    ing, live, _, conn, _ = env
+    ing.handle(ev("telemetry", TelemetryData(50, 3.9, 5.0, 1.0), pid=2))
+    assert count(conn, "telemetry") == 0
+
+
 def test_take_changed(env):
     ing, live, _, _, _ = env
     ing.handle(ev("position", pos(MILAN), num=1))

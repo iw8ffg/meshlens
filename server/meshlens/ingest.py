@@ -31,7 +31,7 @@ def _new_node(num: int) -> dict:
             "precision_bits": None, "position_source": None, "position_time": None,
             "country": None, "last_heard": None, "sources": [], "battery": None,
             "voltage": None, "channel_util": None, "air_util_tx": None, "mqtt_gateways": 0,
-            "last_snr": None, "hops": None, "heard_by": {}, "is_local_radio": False}
+            "last_snr": None, "hops": None, "heard_by": {}, "is_local_radio": False, "is_mine": False}
 
 
 class Ingestor:
