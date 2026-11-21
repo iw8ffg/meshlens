@@ -7,19 +7,20 @@ import sqlite3
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Awaitable, Callable
+from typing import Awaitable, Callable, Literal
 from urllib.parse import urlsplit
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, WebSocket
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.websockets import WebSocketDisconnect
 
 from .alerts import compute_alerts
 from .auth import Auth, LockedError
 from .bus import Bus
+from .coverage import SessionActive, precision_m
 from .geo import CountryLocator
 from .live import LiveState
 from .radio_manager import NoRadioConnected, TracerouteThrottled
@@ -81,6 +82,39 @@ class SendBody(BaseModel):
     text: str
     channel_index: int = 0
     to: str | None = None
+
+
+class CoverageStartBody(BaseModel):
+    name: str | None = None
+    radio_id: str
+    mobile_id: str
+    mode: Literal["rangetest", "position"] = "rangetest"
+    interval_s: int = Field(30, ge=10, le=600)
+    base_lat: float | None = None
+    base_lon: float | None = None
+    accept_approx: bool = False
+
+
+class CoveragePatchBody(BaseModel):
+    name: str | None = None
+    notes: str | None = None
+    base_lat: float | None = None
+    base_lon: float | None = None
+
+
+GPS_MAX_AGE_S = 600
+NO_GPS_MSG = ("Il nodo mobile non ha inviato una posizione negli ultimi 10 minuti: "
+              "serve il GPS acceso e la posizione attiva.")
+
+
+def _mobile_num(mobile_id: str) -> int:
+    """'!hex' in qualunque maiuscola/minuscola -> num; 400 se non valido."""
+    try:
+        if not mobile_id.startswith("!"):
+            raise ValueError
+        return int(mobile_id[1:], 16)
+    except ValueError:
+        raise HTTPException(400, "Identificativo del nodo mobile non valido")
 
 
 def _public(node: dict) -> dict:
@@ -404,6 +438,109 @@ def create_app(ctx: AppContext) -> FastAPI:
     @app.get("/api/nodes/{node_id}/traceroutes", dependencies=[Depends(require_auth)])
     async def node_traceroutes(node_id: str):
         return ctx.store.traceroutes(_num_from_id(node_id), 10)
+
+    # ---- copertura ----
+    def coverage_session(sid: int) -> dict:
+        s = ctx.store.get_session(sid)
+        if s is None:
+            raise HTTPException(404, "Sessione non trovata")
+        return s
+
+    def radio_info(radio_id: str) -> dict | None:
+        return next((r for r in ctx.radios.radios() if r["id"] == radio_id), None)
+
+    def position_age(node: dict | None) -> float | None:
+        # position_time e' l'istante di ricezione dell'ultima posizione (lo scrive l'ingestor
+        # con rx_time), non un'ora del dispositivo: e' affidabile anche senza orologio sul nodo
+        if not node or not node.get("position_time"):
+            return None
+        return max(0.0, time.time() - node["position_time"])
+
+    @app.get("/api/coverage/check", dependencies=[Depends(require_auth)])
+    async def coverage_check(radio_id: str, mobile_id: str):
+        num = _mobile_num(mobile_id)
+        radio = radio_info(radio_id)
+        connected = bool(radio and radio["state"] == "connected")
+        node = ctx.live.nodes.get(num)
+        age = position_age(node)
+        bits = node.get("precision_bits") if node and age is not None else None
+        base = None
+        if radio and radio.get("my_node_id"):
+            b = ctx.live.nodes.get(_num_from_id(radio["my_node_id"]))
+            if b and b.get("lat") is not None and b.get("lon") is not None:
+                base = {"lat": b["lat"], "lon": b["lon"]}
+        return {"radio_connected": connected,
+                "radio_channels": [{"index": ch["index"], "name": ch["name"]}
+                                   for ch in (radio["channels"] if radio else [])],
+                "mobile_known": node is not None, "position_age_s": age,
+                "precision_bits": bits, "precision_m": precision_m(bits),
+                "gps_ok": age is not None and age <= GPS_MAX_AGE_S,
+                "rangetest_age_s": ctx.coverage.rangetest_age(radio_id, num),
+                "base_position": base}
+
+    @app.get("/api/coverage/sessions", dependencies=[Depends(require_auth)])
+    async def coverage_sessions():
+        return [ctx.coverage.summary(s) for s in ctx.store.sessions()]
+
+    @app.post("/api/coverage/sessions", status_code=201,
+              dependencies=[Depends(require_auth), Depends(require_json)])
+    async def coverage_start(body: CoverageStartBody):
+        if (body.base_lat is None) != (body.base_lon is None):
+            raise HTTPException(400, "base_lat e base_lon vanno indicate insieme")
+        num = _mobile_num(body.mobile_id)
+        radio = radio_info(body.radio_id)
+        if radio is None:
+            raise HTTPException(404, "Radio non trovata")
+        if ctx.store.active_session() is not None:
+            raise HTTPException(409, "C'è già una sessione in corso")
+        if radio["state"] != "connected":
+            raise HTTPException(400, "La radio non è collegata")
+        node = ctx.live.nodes.get(num)
+        age = position_age(node)
+        if age is None or age > GPS_MAX_AGE_S:
+            raise HTTPException(400, NO_GPS_MSG)
+        radius = precision_m(node.get("precision_bits"))
+        if radius is not None and not body.accept_approx:
+            return JSONResponse(status_code=400, content={
+                "code": "approx_position",
+                "detail": (f"Le posizioni del nodo mobile sono approssimate (circa ±{radius} m): "
+                           "usa un canale privato con precisione piena oppure continua "
+                           "sapendolo.")})
+        try:
+            return ctx.coverage.start_session(
+                body.radio_id, num, body.mode, body.interval_s, body.name,
+                body.base_lat, body.base_lon)
+        except SessionActive as e:
+            raise HTTPException(409, str(e))
+
+    @app.post("/api/coverage/sessions/{sid}/stop", dependencies=[Depends(require_auth)])
+    async def coverage_stop(sid: int):
+        s = coverage_session(sid)
+        if s["ended"] is not None:
+            raise HTTPException(409, "La sessione è già terminata")
+        return ctx.coverage.stop_session()
+
+    @app.patch("/api/coverage/sessions/{sid}",
+               dependencies=[Depends(require_auth), Depends(require_json)])
+    async def coverage_patch(sid: int, body: CoveragePatchBody):
+        coverage_session(sid)
+        if (body.base_lat is None) != (body.base_lon is None):
+            raise HTTPException(400, "base_lat e base_lon vanno indicate insieme")
+        return ctx.coverage.update_session(sid, **body.model_dump(exclude_none=True))
+
+    @app.delete("/api/coverage/sessions/{sid}", dependencies=[Depends(require_auth)])
+    async def coverage_delete(sid: int):
+        s = coverage_session(sid)
+        if s["ended"] is None:
+            raise HTTPException(409, "Ferma la sessione prima di eliminarla")
+        ctx.store.delete_session(sid)
+        ctx.conn.commit()
+        return {"ok": True}
+
+    @app.get("/api/coverage/sessions/{sid}", dependencies=[Depends(require_auth)])
+    async def coverage_detail(sid: int):
+        coverage_session(sid)
+        return ctx.coverage.detail(sid)
 
     # ---- websocket ----
     @app.websocket("/ws")

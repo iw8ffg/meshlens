@@ -138,6 +138,18 @@ class CoverageRecorder:
                    if session["mode"] == "rangetest" else [])
         return summarize(session, points, missing)
 
+    def summary(self, session: dict) -> dict:
+        return self._summary(session)
+
+    def update_session(self, sid: int, **fields) -> dict:
+        """Modifica nome, note o base; aggiorna anche la copia in memoria se e' attiva."""
+        self.store.update_session(sid, **fields)
+        self.store.commit()
+        s = self.store.get_session(sid)
+        if self._session is not None and self._session["id"] == sid:
+            self._session = s
+        return self._summary(s)
+
     def _publish(self, session: dict, point: dict | None = None) -> None:
         self.bus.publish({"type": "coverage", "session": self._summary(session), "point": point})
 
