@@ -2,8 +2,12 @@ import { conversationKey } from './chat'
 import { markConversationRead } from './api'
 import type { ConvSummary, Message } from './types'
 
-/** Non letti per conversazione e ultimo istante letto (secondi epoch). */
-export const unread = $state({ counts: {} as Record<string, number>, reads: {} as Record<string, number> })
+/** Non letti per conversazione, ultimo istante letto (secondi epoch) e riepiloghi del server. */
+export const unread = $state({
+  counts: {} as Record<string, number>,
+  reads: {} as Record<string, number>,
+  summaries: {} as Record<string, ConvSummary>,
+})
 
 // Conversazione aperta: variabile semplice, non reattiva (la legge solo l'handler dei messaggi).
 let activeConv: string | null = null
@@ -19,12 +23,15 @@ export function getActiveConv(): string | null {
 export function applySummaries(list: ConvSummary[]): void {
   const counts: Record<string, number> = {}
   const reads: Record<string, number> = {}
+  const summaries: Record<string, ConvSummary> = {}
   for (const s of list) {
     counts[s.key] = s.unread
     reads[s.key] = s.read_time
+    summaries[s.key] = s
   }
   unread.counts = counts
   unread.reads = reads
+  unread.summaries = summaries
 }
 
 /** Conta un messaggio in arrivo; restituisce la chiave contata, o null se non conta. */
