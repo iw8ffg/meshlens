@@ -119,7 +119,7 @@ class StoreForwardService:
             self._update_router(ev, sfp)
         elif rr == "ROUTER_HISTORY":
             job = self._active_job(ev.radio_id)
-            if job is not None:
+            if job is not None and self._router_nums.get(job["id"]) == ev.from_node:
                 job["status"] = "receiving"
                 job["expected"] = (sfp.history or {}).get("history_messages")
                 self._activity[job["id"]] = self.clock()
@@ -156,8 +156,13 @@ class StoreForwardService:
             job["status"] = "receiving"
             self._activity[job["id"]] = self.clock()
         key = f"{ev.from_node}:{ev.packet_id}"
-        known = (self.store.conn.execute("SELECT 1 FROM messages WHERE key=?", (key,)).fetchone()
-                 is not None or any(m.get("key") == key for m in self.live.messages))
+        # gia' noto: stessa chiave, oppure inviato da un'altra radio locale (direction 'out')
+        known = (self.store.conn.execute(
+            "SELECT 1 FROM messages WHERE key=? OR (direction='out' AND packet_id=?)",
+            (key, ev.packet_id)).fetchone() is not None
+            or any(m.get("key") == key
+                   or (m.get("direction") == "out" and m.get("packet_id") == ev.packet_id)
+                   for m in self.live.messages))
         if known:
             if job is not None:
                 job["duplicates"] += 1
@@ -209,16 +214,27 @@ class StoreForwardService:
             raise SfError(f"Attendi {wait} s prima di una nuova richiesta a questo router",
                           429, retry_after=wait)
         self._sending.add(radio_id)
+        # prenota subito il limite di frequenza: un'altra radio non puo' passare durante l'await
+        previous = last
+        self._last_request[router_num] = now
         try:
             await conn.send_storeforward(router_num, "CLIENT_HISTORY", window_min, channel_index)
-        except RuntimeError as err:
-            raise SfError(str(err), 409) from err
+        except BaseException as err:
+            if previous is None:
+                self._last_request.pop(router_num, None)
+            else:
+                self._last_request[router_num] = previous
+            if isinstance(err, RuntimeError):
+                raise SfError(str(err), 409) from err
+            raise
         finally:
             self._sending.discard(radio_id)
         now = self.clock()
         self._last_request[router_num] = now
-        cur = self.store.conn.execute("UPDATE sf_routers SET last_request=? WHERE num=?",
-                                      (now, router_num))
+        self.store.conn.execute(
+            "INSERT INTO sf_routers(num, last_request) VALUES(?,?)"
+            " ON CONFLICT(num) DO UPDATE SET last_request=excluded.last_request",
+            (router_num, now))
         job = {"id": secrets.token_hex(8), "radio_id": radio_id,
                "router_id": node_id(router_num), "window_min": window_min,
                "channel_index": channel_index, "status": "waiting", "expected": None,
@@ -226,8 +242,7 @@ class StoreForwardService:
         self._jobs[job["id"]] = job
         self._router_nums[job["id"]] = router_num
         self._trim_jobs()
-        if cur.rowcount:
-            self._publish_routers()
+        self._publish_routers()
         self._publish_job(job)
         return dict(job)
 
@@ -259,7 +274,7 @@ class StoreForwardService:
     # ---- stato --------------------------------------------------------
     def routers(self) -> list[dict]:
         out = []
-        for r in self.store.conn.execute("SELECT * FROM sf_routers ORDER BY last_seen DESC"):
+        for r in self.store.conn.execute("SELECT * FROM sf_routers WHERE last_seen IS NOT NULL ORDER BY last_seen DESC"):
             node = self.live.nodes.get(r["num"]) or {}
             out.append({"id": node_id(r["num"]), "name": node.get("long_name"),
                         "radio_id": r["radio_id"], "last_seen": r["last_seen"],

@@ -304,3 +304,60 @@ async def test_radio_send_storeforward():
     msg = StoreAndForward.FromString(iface.sent_data[-1][0].SerializeToString())
     assert msg.rr == RR.Value("CLIENT_STATS") and not msg.HasField("history")
     await h.conn.stop()
+
+
+async def test_concurrent_radios_rate_limited(env):
+    import asyncio
+    sf, store, live, bus, clock, radios, calls, events = env
+
+    class Slow(FakeConnector):
+        async def send_storeforward(self, *a):
+            await asyncio.sleep(0.01)
+            return await super().send_storeforward(*a)
+
+    radios["r1"] = Slow(calls)
+    radios["r2"] = Slow(calls)
+    res = await asyncio.gather(sf.request("r1", ROUTER, 60, 1), sf.request("r2", ROUTER, 60, 1),
+                               return_exceptions=True)
+    errs = [r for r in res if isinstance(r, SfError)]
+    assert len(errs) == 1 and errs[0].status == 429 and len(calls) == 2 - 1
+
+
+async def test_failed_send_releases_rate_limit(env):
+    sf, store, live, bus, clock, radios, calls, events = env
+
+    async def boom(*a):
+        raise RuntimeError("giu")
+
+    radios["r1"].send_storeforward = boom
+    with pytest.raises(SfError):
+        await sf.request("r1", ROUTER, 60, 1)
+    assert ROUTER not in sf._last_request
+
+
+async def test_history_from_other_router_ignored(env):
+    sf, *_, clock, radios, calls, events = env
+    await sf.request("r1", ROUTER, 60, 1)
+    hist = StoreAndForward(rr=RR.Value("ROUTER_HISTORY"),
+                           history=StoreAndForward.History(history_messages=3))
+    sf.handle(sf_event(hist, clock, frm=0xC3))
+    assert sf.jobs()[0]["status"] == "waiting"
+
+
+async def test_last_request_persisted_for_unknown_router(env):
+    sf, store, live, bus, clock, radios, calls, events = env
+    await sf.request("r1", ROUTER, 60, 1)
+    row = store.conn.execute("SELECT last_request FROM sf_routers WHERE num=?",
+                             (ROUTER,)).fetchone()
+    assert row[0] == NOW and sf.routers() == []  # persistito, ma non elencato senza heartbeat
+
+
+async def test_replay_skips_own_outgoing(env):
+    sf, store, live, bus, clock, radios, calls, events = env
+    store.add_message({"key": "99:7", "from": "!00000099", "to": "!ffffffff", "channel": "1",
+                       "text": "mio", "time": int(NOW), "country": None, "source": "rf",
+                       "direction": "out", "radio_id": "r2", "channel_index": 1,
+                       "packet_id": 7, "status": None, "broker": None})
+    msg = StoreAndForward(rr=RR.Value("ROUTER_TEXT_BROADCAST"), text=b"mio")
+    sf.handle(sf_event(msg, clock, frm=0x99, pid=7, rx_time=NOW - 60))
+    assert events == []
