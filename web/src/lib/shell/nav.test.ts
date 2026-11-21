@@ -3,7 +3,7 @@ import { PANEL_DEFAULT, PANEL_KEY, PANEL_MAX, PANEL_MIN, PHONE_NAV, clampPanelWi
 
 describe('schede', () => {
   it('la barra in basso ha cinque voci nell\'ordine del design', () => {
-    expect(PHONE_NAV.map((n) => n.label)).toEqual(['Mappa', 'Nodi', 'Chat', 'Copertura', 'Altro'])
+    expect(PHONE_NAV.map((n) => n.label)).toEqual(['Mappa', 'Nodi', 'Messaggi', 'Copertura', 'Altro'])
   })
   it('Rete, Radio e Impostazioni accendono «Altro»', () => {
     expect(navActive('network')).toBe('more')

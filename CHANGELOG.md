@@ -3,6 +3,18 @@
 Il formato segue [Keep a Changelog](https://keepachangelog.com/it-IT/1.1.0/) e il progetto usa il [versionamento semantico](https://semver.org/lang/it/).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [1.2.3] - 2026-11-21
+
+### Italiano
+
+#### Modificato
+- La sezione "Chat" si chiama ora **"Messaggi"** (barra in basso sul telefono e schede sul PC).
+
+### English
+
+#### Changed
+- The "Chat" section is now called **"Messaggi"** (Messages) in the phone bottom bar and the desktop tabs.
+
 ## [1.2.2] - 2026-11-21
 
 ### Italiano
@@ -134,3 +146,4 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 [1.2.0]: https://github.com/iw8ffg/meshlens/releases/tag/v1.2.0
 [1.2.1]: https://github.com/iw8ffg/meshlens/releases/tag/v1.2.1
 [1.2.2]: https://github.com/iw8ffg/meshlens/releases/tag/v1.2.2
+[1.2.3]: https://github.com/iw8ffg/meshlens/releases/tag/v1.2.3

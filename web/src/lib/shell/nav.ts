@@ -8,7 +8,7 @@ export const DESKTOP_TABS: { id: Tab; label: string; icon: IconName }[] = [
   { id: 'nodes', label: 'Nodi', icon: 'nodes' },
   { id: 'network', label: 'Rete', icon: 'network' },
   { id: 'coverage', label: 'Copertura', icon: 'coverage' },
-  { id: 'chat', label: 'Chat', icon: 'chat' },
+  { id: 'chat', label: 'Messaggi', icon: 'chat' },
   { id: 'radio', label: 'Radio', icon: 'radio' },
   { id: 'settings', label: 'Impostazioni', icon: 'settings' },
 ]
@@ -17,7 +17,7 @@ export const DESKTOP_TABS: { id: Tab; label: string; icon: IconName }[] = [
 export const PHONE_NAV: { id: Tab; label: string; icon: IconName }[] = [
   { id: 'map', label: 'Mappa', icon: 'map' },
   { id: 'nodes', label: 'Nodi', icon: 'nodes' },
-  { id: 'chat', label: 'Chat', icon: 'chat' },
+  { id: 'chat', label: 'Messaggi', icon: 'chat' },
   { id: 'coverage', label: 'Copertura', icon: 'coverage' },
   { id: 'more', label: 'Altro', icon: 'more' },
 ]
