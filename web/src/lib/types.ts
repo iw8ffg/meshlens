@@ -298,3 +298,20 @@ export interface ConfigBackup {
   sections: string[]
   config?: ConfigDict
 }
+
+// ---- Prepara le radio (fase 5) ----
+export interface CoveragePlanStep {
+  node_id: string
+  preview: ConfigPreview
+}
+/** Piano di preparazione o di ripristino: mobile prima, base dopo. */
+export interface CoveragePlan {
+  plan_id: string
+  steps: CoveragePlanStep[]
+}
+/** Ultimo piano applicato e non ripristinato. */
+export interface CoverageLastPlan {
+  plan_id: string
+  steps: { node_id: string; preview?: ConfigPreview }[]
+  jobs?: ConfigJob[]
+}

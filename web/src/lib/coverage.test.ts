@@ -150,3 +150,47 @@ describe('appendTrackPoint', () => {
     expect(appendTrackPoint(a, t(10))).toBe(a)
   })
 })
+
+import { prepareStatus } from './coverage'
+import type { ConfigJob } from './types'
+
+const job = (over: Partial<ConfigJob>): ConfigJob => ({
+  id: 1, node_id: '!a', radio_id: 'r', kind: 'apply', status: 'done', step: '', progress: null,
+  error: null, error_code: null, result_id: null, verify: 'verified', started: 0, ended: 1, ...over,
+})
+const steps = [{ node_id: '!mob' }, { node_id: '!base' }]
+
+describe('prepareStatus', () => {
+  it('senza lavori: in attesa', () => {
+    const s = prepareStatus({ steps, jobs: [] })
+    expect(s.nodes.map((n) => n.state)).toEqual(['waiting', 'waiting'])
+    expect(s.finished).toBe(false)
+  })
+  it('mobile in corso', () => {
+    const s = prepareStatus({ steps, jobs: [job({ status: 'running', step: 'Scrittura', verify: null })] })
+    expect(s.nodes[0].state).toBe('running')
+    expect(s.nodes[0].text).toContain('Scrittura')
+    expect(s.summary).toBe('Preparazione in corso')
+  })
+  it('entrambi riusciti', () => {
+    const s = prepareStatus({ steps, jobs: [job({}), job({ id: 2 })] })
+    expect(s.summary).toBe('Radio preparate')
+    expect(s.finished).toBe(true)
+    expect(s.failed).toBe(false)
+  })
+  it('mobile ok, base fallita', () => {
+    const s = prepareStatus({ steps, jobs: [job({}), job({ id: 2, status: 'failed', error: 'Nessuna risposta', verify: null })] })
+    expect(s.summary).toBe('Mobile preparato, base no: riprova o ripristina')
+    expect(s.nodes[1].text).toContain('Nessuna risposta')
+    expect(s.failed).toBe(true)
+  })
+  it('mobile fallito: base non toccata', () => {
+    const s = prepareStatus({ steps, jobs: [job({ status: 'failed', error: 'x', verify: null })] })
+    expect(s.summary).toBe('Mobile non preparato, base non toccata')
+  })
+  it('mismatch segnalato', () => {
+    const s = prepareStatus({ steps, jobs: [job({ verify: 'mismatch' }), job({ id: 2 })] })
+    expect(s.nodes[0].text).toContain('diversa')
+    expect(s.summary).toContain('controlla')
+  })
+})

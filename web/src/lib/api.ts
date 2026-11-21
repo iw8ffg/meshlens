@@ -2,6 +2,8 @@ import type {
   Alert,
   CoverageCheck,
   CoverageDetail,
+  CoverageLastPlan,
+  CoveragePlan,
   CoverageSession,
   CoverageStartBody,
   ConfigBackup,
@@ -115,3 +117,10 @@ export const previewRestore = (id: number) => send<ConfigPreview>('POST', `/conf
 export const revealPsk = (nodeId: string, index: number) =>
   send<{ psk: string }>('POST', `${cfgPath(nodeId)}/channels/${index}/reveal-psk`)
 export const configJob = (id: number) => getJSON<ConfigJob>(`/config/jobs/${id}`)
+
+export const preparePlan = (body: { radio_id: string; mobile_id: string; interval_s: number; private_channel: boolean }) =>
+  send<CoveragePlan>('POST', '/coverage/prepare', body)
+export const applyPlan = (planId: string, confirmRisky = false) =>
+  send<{ jobs: ConfigJob[] }>('POST', `/coverage/prepare/${encodeURIComponent(planId)}/apply`, { confirm_risky: confirmRisky })
+export const restorePlan = (planId: string) => send<CoveragePlan>('POST', '/coverage/restore', { plan_id: planId })
+export const lastPlan = () => getJSON<CoverageLastPlan | null>('/coverage/prepare/last')

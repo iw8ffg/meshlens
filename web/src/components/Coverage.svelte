@@ -6,6 +6,7 @@
   import { applyCoverage, coverage } from '../lib/stores.svelte'
   import type { CoverageSession } from '../lib/types'
   import CoverageSetup from './CoverageSetup.svelte'
+  import CoverageRestoreBox from './CoverageRestoreBox.svelte'
 
   let { now }: { now: number } = $props()
 
@@ -98,6 +99,7 @@
       <button class="stop" onclick={() => stop(active)}>Ferma</button>
     </div>
   {/if}
+  <CoverageRestoreBox reloadKey={coverage.sessions.filter((s) => s.ended !== null).length + (active ? 1000 : 0)} />
   <div class="bar">
     <button disabled={!!active} onclick={() => (creating = !creating)}>Nuova prova</button>
   </div>

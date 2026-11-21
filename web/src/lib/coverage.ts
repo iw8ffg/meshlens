@@ -2,6 +2,7 @@ import type { Feature, FeatureCollection, LineString, Point } from 'geojson'
 import { formatMeters } from './geo'
 import { snrColor } from './links'
 import type {
+  ConfigJob,
   CoverageCheck,
   CoverageDetail,
   CoverageMode,
@@ -134,4 +135,52 @@ export function upsertPoint(points: CoveragePoint[], p: CoveragePoint): Coverage
   const out = [...points]
   out[i] = p
   return out
+}
+
+export type NodeState = 'waiting' | 'running' | 'ok' | 'mismatch' | 'failed'
+export interface NodeStatus {
+  node_id: string
+  role: string
+  state: NodeState
+  text: string
+}
+export interface PrepareStatus {
+  nodes: NodeStatus[]
+  summary: string
+  /** tutti i lavori sono terminati (o uno e' fallito e gli altri non partiranno) */
+  finished: boolean
+  failed: boolean
+}
+
+const ROLES = ['Mobile', 'Base']
+
+/** Stato per nodo di un piano (mobile, poi base) dagli esiti dei lavori. */
+export function prepareStatus(plan: { steps: { node_id: string }[]; jobs: (ConfigJob | null | undefined)[] }): PrepareStatus {
+  const nodes: NodeStatus[] = plan.steps.map((s, i) => {
+    const role = ROLES[i] ?? `Nodo ${i + 1}`
+    const j = plan.jobs[i]
+    if (!j) return { node_id: s.node_id, role, state: 'waiting', text: 'In attesa' }
+    if (j.status === 'running') return { node_id: s.node_id, role, state: 'running', text: `In corso: ${j.step || 'scrittura'}` }
+    if (j.status === 'failed') {
+      return { node_id: s.node_id, role, state: 'failed', text: `Non riuscito: ${j.error || 'errore sconosciuto'}` }
+    }
+    if (j.verify === 'mismatch') {
+      return { node_id: s.node_id, role, state: 'mismatch', text: 'Applicato, ma la configurazione riletta è diversa dal previsto' }
+    }
+    return { node_id: s.node_id, role, state: 'ok', text: j.verify === 'verified' ? 'Applicato e verificato' : 'Applicato' }
+  })
+  const applied = (n: NodeStatus) => n.state === 'ok' || n.state === 'mismatch'
+  const failedAt = nodes.findIndex((n) => n.state === 'failed')
+  const failed = failedAt >= 0
+  const running = nodes.some((n) => n.state === 'running')
+  const allApplied = nodes.length > 0 && nodes.every(applied)
+  let summary: string
+  if (failed) {
+    const okNames = nodes.filter(applied).map((n) => n.role)
+    if (okNames.length === 0) summary = `${nodes[failedAt].role} non preparato, base non toccata`
+    else summary = `${okNames.join(' e ')} preparato, ${nodes[failedAt].role.toLowerCase()} no: riprova o ripristina`
+  } else if (running || (!allApplied && nodes.some(applied))) summary = 'Preparazione in corso'
+  else if (allApplied) summary = nodes.some((n) => n.state === 'mismatch') ? 'Applicato, ma controlla le differenze rilette' : 'Radio preparate'
+  else summary = 'In attesa'
+  return { nodes, summary, finished: failed || allApplied, failed }
 }
