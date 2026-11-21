@@ -137,14 +137,14 @@ export function addNodeLayers(map: MLMap, t: MapTokens, hasGlyphs: boolean): voi
     type: 'symbol',
     source: 'nodes',
     filter: ['all', single, ['==', ['get', 'mine'], true]],
-    layout: { 'icon-image': HOUSE_IMAGE, 'icon-offset': [-9, -9], 'icon-allow-overlap': true, 'icon-ignore-placement': true },
+    layout: { 'icon-image': HOUSE_IMAGE, 'icon-offset': [-15, -15], 'icon-allow-overlap': true, 'icon-ignore-placement': true },
   })
   map.addLayer({
     id: 'points-fav',
     type: 'symbol',
     source: 'nodes',
     filter: ['all', single, ['==', ['get', 'fav'], true]],
-    layout: { 'icon-image': STAR_IMAGE, 'icon-offset': [9, -9], 'icon-allow-overlap': true, 'icon-ignore-placement': true },
+    layout: { 'icon-image': STAR_IMAGE, 'icon-offset': [15, -15], 'icon-allow-overlap': true, 'icon-ignore-placement': true },
   })
   map.addLayer({
     id: 'selected',

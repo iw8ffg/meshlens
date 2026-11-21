@@ -3,6 +3,26 @@
 Il formato segue [Keep a Changelog](https://keepachangelog.com/it-IT/1.1.0/) e il progetto usa il [versionamento semantico](https://semver.org/lang/it/).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [1.2.0] - 2026-11-21
+
+### Italiano
+
+#### Aggiunto
+- **Preferiti separati da "Mio nodo":** ★ Preferito per i nodi che vuoi seguire (stella, filtro "Preferiti" in Nodi e "Solo preferiti" in Rete, nessun avviso); ⌂ Mio nodo per i nodi tuoi (casetta, avvisi di batteria e silenzio, configurazione). Un nodo può essere entrambe le cose; sulla mappa casetta a sinistra e stella a destra.
+- **Collegamenti dai gateway MQTT:** quando un gateway riceve un nodo direttamente via radio, MeshLens disegna il collegamento con il suo SNR (linea puntinata, voce in legenda). Si vedono collegamenti anche senza radio collegate.
+
+#### Corretto
+- **Salti dei nodi MQTT:** il broker pubblico azzera il contatore dei salti, quindi i valori mostrati erano sbagliati. Ora: "0 (diretto)", "≥ 1" se ritrasmesso, "—" se non si può sapere; i vecchi valori vengono azzerati all'avvio.
+
+### English
+
+#### Added
+- **Favourites separate from "My node":** ★ Favourite for nodes you follow (star, "Favourites" filter in Nodes and "Favourites only" in Network, no alerts); ⌂ My node for your own nodes (house, battery and silence alerts, configuration). A node can be both; on the map the house is on the left and the star on the right.
+- **Links from MQTT gateways:** when a gateway hears a node directly over radio, MeshLens draws the link with its SNR (dotted line, legend entry). Links show up even without connected radios.
+
+#### Fixed
+- **Hops of MQTT nodes:** the public broker zeroes the hop counter, so the shown values were wrong. Now: "0 (direct)", "≥ 1" when relayed, "—" when unknown; old values are cleared at startup.
+
 ## [1.1.0] - 2026-11-21
 
 ### Italiano
@@ -85,3 +105,4 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 [1.0.0]: https://github.com/iw8ffg/meshlens/releases/tag/v1.0.0
 [1.0.2]: https://github.com/iw8ffg/meshlens/releases/tag/v1.0.2
 [1.1.0]: https://github.com/iw8ffg/meshlens/releases/tag/v1.1.0
+[1.2.0]: https://github.com/iw8ffg/meshlens/releases/tag/v1.2.0
