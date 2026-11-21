@@ -1,7 +1,14 @@
-import { expect, test } from 'vitest'
+import { expect, test, vi } from 'vitest'
 import { sortNodeList } from './nodesort'
 import type { Origin } from './distance'
 import type { Node } from './types'
+
+// Conta le chiamate a haversineM senza cambiarne il risultato.
+const calls = vi.hoisted(() => ({ n: 0 }))
+vi.mock('./distance', async (orig) => {
+  const m = await orig<typeof import('./distance')>()
+  return { ...m, haversineM: (a: { lat: number; lon: number }, b: { lat: number; lon: number }) => ((calls.n += 1), m.haversineM(a, b)) }
+})
 
 const node = (id: string, extra: Partial<Node> = {}) => ({ id, long_name: null, short_name: null, last_heard: null, lat: null, lon: null, hops: null, hops_min: null, last_snr: null, ...extra }) as Node
 const ids = (ns: Node[]) => ns.map((n) => n.id)
@@ -52,4 +59,28 @@ test('l\'input non viene modificato', () => {
   sortNodeList(nodes, 'name', null)
   expect(nodes).toEqual(copy)
   expect(ids(nodes)).toEqual(['b', 'a'])
+})
+
+test('distanza: haversineM una sola volta per nodo con posizione', () => {
+  calls.n = 0
+  const nodes = [
+    node('a', { lat: 45.5, lon: 9.2 }),
+    node('b', { lat: 41.9, lon: 12.5 }),
+    node('c', { lat: 44.4, lon: 8.9 }),
+    node('d', { lat: 45.0, lon: 7.7 }),
+    node('nopos'),
+  ]
+  const out = sortNodeList(nodes, 'distance', MILANO)
+  expect(ids(out)).toEqual(['a', 'c', 'd', 'b', 'nopos'])
+  expect(calls.n).toBe(4)
+})
+
+test('distanza: a parità di distanza vale il contatto recente, una chiamata per nodo', () => {
+  calls.n = 0
+  const nodes = [
+    node('old', { last_heard: 100, lat: 45.5, lon: 9.2 }),
+    node('new', { last_heard: 300, lat: 45.5, lon: 9.2 }),
+  ]
+  expect(ids(sortNodeList(nodes, 'distance', MILANO))).toEqual(['new', 'old'])
+  expect(calls.n).toBe(2)
 })

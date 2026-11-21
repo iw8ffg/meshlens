@@ -14,16 +14,21 @@ export const NODE_SORTS: { key: NodeSortKey; label: string }[] = [
   { key: 'distance', label: 'Distanza' },
 ]
 
-/** Ordina per un valore numerico: i mancanti vanno in fondo, a parità vale l'ultimo contatto. */
+/**
+ * Ordina per un valore numerico calcolato una sola volta per nodo (decorate-sort-undecorate):
+ * i mancanti vanno in fondo, a parità vale l'ultimo contatto.
+ */
 function byValue(nodes: Node[], value: (n: Node) => number | null, cmp: (x: number, y: number) => number): Node[] {
-  return [...nodes].sort((a, b) => {
-    const x = value(a)
-    const y = value(b)
-    if (x === null && y === null) return compareLastHeard(a.last_heard, b.last_heard)
+  const keyed = nodes.map((n) => ({ n, v: value(n) }))
+  keyed.sort((a, b) => {
+    const x = a.v
+    const y = b.v
+    if (x === null && y === null) return compareLastHeard(a.n.last_heard, b.n.last_heard)
     if (x === null) return 1
     if (y === null) return -1
-    return cmp(x, y) || compareLastHeard(a.last_heard, b.last_heard)
+    return cmp(x, y) || compareLastHeard(a.n.last_heard, b.n.last_heard)
   })
+  return keyed.map((k) => k.n)
 }
 
 /** Restituisce una copia ordinata di `nodes`; senza origine la distanza equivale a «recente». */
