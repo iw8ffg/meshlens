@@ -3,6 +3,24 @@
 Il formato segue [Keep a Changelog](https://keepachangelog.com/it-IT/1.1.0/) e il progetto usa il [versionamento semantico](https://semver.org/lang/it/).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [1.4.1] - 2026-11-22
+
+### Italiano
+
+#### Corretto
+- **Blocco dopo l'aggiornamento:** gli avvisi di Windows dall'icona partono ora da un canale separato e non possono più fermare il server.
+
+#### Aggiunto
+- **Diagnosi dei blocchi:** se il server resta fermo per più di 15 secondi, MeshLens scrive nella cartella dei log un file `stall-…txt` con lo stato di tutte le sue parti, da allegare a una segnalazione.
+
+### English
+
+#### Fixed
+- **Freeze after updating:** Windows notifications from the tray icon now go through a separate channel and can no longer stall the server.
+
+#### Added
+- **Freeze diagnostics:** if the server stops responding for more than 15 seconds, MeshLens writes a `stall-…txt` file in the logs folder with the state of all its parts, to attach to a report.
+
 ## [1.4.0] - 2026-11-22
 
 ### Italiano
@@ -251,3 +269,4 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 [1.2.3]: https://github.com/iw8ffg/meshlens/releases/tag/v1.2.3
 [1.3.0]: https://github.com/iw8ffg/meshlens/releases/tag/v1.3.0
 [1.4.0]: https://github.com/iw8ffg/meshlens/releases/tag/v1.4.0
+[1.4.1]: https://github.com/iw8ffg/meshlens/releases/tag/v1.4.1
