@@ -118,6 +118,8 @@ export const settings: Record<keyof typeof itArea, string> = {
   'settings.table.traceroutes': 'Traceroutes',
   'settings.table.coverage_points': 'Coverage points',
   'settings.table.sessions': 'Sessions',
+  'settings.table.metrics': 'Metrics',
+  'settings.table.packets': 'Packets',
   'settings.reason.preMigration': 'Before the migration',
   'settings.reason.preUpdate': 'Before the update',
   'settings.reason.weekly': 'Weekly',

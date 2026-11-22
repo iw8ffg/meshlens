@@ -1,6 +1,6 @@
 import { test, expect, afterEach } from 'vitest'
 import { setLang } from './i18n/index.svelte'
-import { timeAgo, formatDate, compareLastHeard, num, signed, ago } from './format'
+import { timeAgo, formatDate, compareLastHeard, num, signed, ago, countryName } from './format'
 
 const now = 1_000_000
 
@@ -56,4 +56,13 @@ test('formati in inglese (en-GB): punto decimale, meno tipografico, 24 ore', () 
   const d = formatDate(Date.UTC(2024, 2, 14, 15, 4, 0) / 1000)
   expect(d).not.toMatch(/AM|PM/i)
   expect(d).toMatch(/\d{2}:\d{2}:\d{2}$/)
+})
+
+test('countryName localizza il paese nella lingua attiva e ricade sul codice', () => {
+  setLang('it')
+  expect(countryName('IT')).toBe('Italia')
+  setLang('en')
+  expect(countryName('IT')).toBe('Italy')
+  expect(countryName('none', 'x')).toBe('x')
+  expect(countryName('none')).toBe('none')
 })

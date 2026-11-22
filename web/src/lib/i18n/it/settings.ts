@@ -116,6 +116,8 @@ export const settings = {
   'settings.table.traceroutes': 'Traceroute',
   'settings.table.coverage_points': 'Punti di copertura',
   'settings.table.sessions': 'Sessioni',
+  'settings.table.metrics': 'Metriche',
+  'settings.table.packets': 'Pacchetti',
   'settings.reason.preMigration': 'Prima della migrazione',
   'settings.reason.preUpdate': 'Prima dell\'aggiornamento',
   'settings.reason.weekly': 'Settimanale',

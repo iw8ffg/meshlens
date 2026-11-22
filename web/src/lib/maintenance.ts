@@ -31,6 +31,8 @@ export const TABLE_LABELS: Record<string, string> = {
   get traceroutes() { return t('settings.table.traceroutes') },
   get coverage_points() { return t('settings.table.coverage_points') },
   get sessions() { return t('settings.table.sessions') },
+  get metrics() { return t('settings.table.metrics') },
+  get packets() { return t('settings.table.packets') },
 }
 
 export type BackupInfo = { name: string; time: number; reason: string; size_bytes: number }

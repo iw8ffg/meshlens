@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { getJSON, getCountries } from '../lib/api'
-  import { ago } from '../lib/format'
+  import { ago, countryName } from '../lib/format'
   import { statusIcon } from '../lib/chat'
   import { statusAria } from '../lib/send'
   import { routingErrorText, threadItems } from '../lib/reactions'
@@ -113,7 +113,7 @@
       <button type="button" class="ui-chip" aria-pressed={app.feedFilter.countries.length === 0} onclick={() => (app.feedFilter.countries = [])}>{t('chat.allCountries')}</button>
       {#each countries as c (c.code)}
         <button type="button" class="ui-chip" aria-pressed={app.feedFilter.countries.includes(c.code)} onclick={() => toggle(c.code)}>
-          <Flag code={c.code} name={c.name} />{c.name}
+          <Flag code={c.code} name={countryName(c.code, c.name)} />{countryName(c.code, c.name)}
         </button>
       {/each}
     </div>
@@ -148,7 +148,7 @@
       {:else}
       <li class:out data-mkey={m.key}>
         <div class="head">
-          <Flag code={m.country} name={m.country ?? t('chat.unknownPosition')} />
+          <Flag code={m.country} name={m.country ? countryName(m.country) : t('chat.unknownPosition')} />
           {#if out}
             <b class="name">{t('chat.you')}</b>
           {:else}

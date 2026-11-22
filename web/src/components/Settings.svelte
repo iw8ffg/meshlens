@@ -24,7 +24,7 @@
   import Notifications from './settings/Notifications.svelte'
   import { channelOptions, checkMqttNodeId, httpsNote, type AppSettings, type Broker, type MqttChannel, type TlsInfo } from '../lib/settings'
   import { channelNameError, fromServer, pskError } from '../lib/brokers'
-  import { formatDate } from '../lib/format'
+  import { formatDate, countryName } from '../lib/format'
   import { i18n, setLang, t, LANGS, LANG_LABELS, type Lang, type MsgKey } from '../lib/i18n/index.svelte'
   import { translateServer } from '../lib/i18n/server'
 
@@ -219,7 +219,7 @@
                 <label class="ui-check">
                   <input type="checkbox" checked={saved.includes(c.code)} onchange={() => toggle(c.code)} />
                   <span class="bx">{#if saved.includes(c.code)}<Icon name="check" size={14} />{/if}</span>
-                  <span class="cn"><Flag code={c.code} name={c.name} /> {c.name}</span>
+                  <span class="cn"><Flag code={c.code} name={countryName(c.code, c.name)} /> {countryName(c.code, c.name)}</span>
                 </label>
               </li>
             {/each}

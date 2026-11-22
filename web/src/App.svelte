@@ -345,6 +345,7 @@
     display: flex;
     flex-direction: column;
     height: 100dvh;
+    overflow: hidden;
     background: var(--bg);
     color: var(--ink);
   }

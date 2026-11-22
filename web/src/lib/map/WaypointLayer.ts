@@ -7,7 +7,7 @@ import { WP_DEFAULT_IMAGE, wpImageChar } from '../waypoints'
 const SIZE = 48
 export const WP_IMAGE_RE = /^wp-/
 
-/** Disegna l'emoji in un cerchio (sfondo `surfaceRaised`, bordo `accent` se `mine`) e la registra. */
+/** Disegna l'emoji in un cerchio (sfondo `accent`, bordo `ink`; anello `accent` a parte se `mine`) e la registra. */
 export function ensureWaypointImage(map: MLMap, name: string, tk: MapTokens, mine = false): void {
   if (map.hasImage(name)) return
   const canvas = document.createElement('canvas')
@@ -18,10 +18,11 @@ export function ensureWaypointImage(map: MLMap, name: string, tk: MapTokens, min
   const c = SIZE / 2
   ctx.beginPath()
   ctx.arc(c, c, c - 2, 0, Math.PI * 2)
-  ctx.fillStyle = tk.surfaceRaised
+  // Cerchio pieno col colore d'accento e bordo in `ink`: contrasta sia sul tema scuro (mappa scura) sia su quello chiaro.
+  ctx.fillStyle = tk.accent
   ctx.fill()
-  ctx.lineWidth = mine ? 3 : 1.5
-  ctx.strokeStyle = mine ? tk.accent : tk.outline
+  ctx.lineWidth = mine ? 3 : 2
+  ctx.strokeStyle = tk.ink
   ctx.stroke()
   ctx.font = `24px system-ui, "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif`
   ctx.textAlign = 'center'
@@ -46,7 +47,7 @@ export function addWaypointLayers(map: MLMap, tk: MapTokens, hasGlyphs = false):
     type: 'circle',
     source: 'waypoints',
     filter: ['==', ['get', 'mine'], true],
-    paint: { 'circle-radius': 13, 'circle-color': tk.accent, 'circle-opacity': 0, 'circle-stroke-color': tk.accent, 'circle-stroke-width': 2.5 },
+    paint: { 'circle-radius': 13, 'circle-color': tk.amber, 'circle-opacity': 0, 'circle-stroke-color': tk.amber, 'circle-stroke-width': 2.5 },
   })
   map.addLayer({
     id: 'wp-icons',

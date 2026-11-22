@@ -5,6 +5,7 @@
   import { t, tn, type MsgKey } from '../lib/i18n/index.svelte'
   import { AGE_OPTIONS, SOURCE_OPTIONS, toggleIn } from '../lib/nodes'
   import Flag from '../lib/ui/Flag.svelte'
+  import { countryName } from '../lib/format'
   import Icon from '../lib/ui/Icon.svelte'
   import Check from '../lib/ui/Check.svelte'
   import Button from '../lib/ui/Button.svelte'
@@ -59,7 +60,7 @@
       <button type="button" class="ui-chip" aria-pressed={app.filter.countries.length === 0} onclick={() => (app.filter.countries = [])}>{t('nodes.countriesAll')}</button>
       {#each countries as c (c.code)}
         <button type="button" class="ui-chip" aria-pressed={app.filter.countries.includes(c.code)} onclick={() => (app.filter.countries = toggleIn(app.filter.countries, c.code))}>
-          {#if c.code !== 'none'}<Flag code={c.code} name={c.name} />{/if}{c.code === 'none' ? t('nodes.countryUnknown') : c.name}
+          {#if c.code !== 'none'}<Flag code={c.code} name={countryName(c.code, c.name)} />{/if}{c.code === 'none' ? t('nodes.countryUnknown') : countryName(c.code, c.name)}
           <span class="n">{c.nodes}</span>
         </button>
       {/each}

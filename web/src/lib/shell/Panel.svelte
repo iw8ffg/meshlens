@@ -58,7 +58,8 @@
 
 <style>
   .panel { position: relative; flex: none; display: flex; flex-direction: column; min-width: 0; background: var(--surface); border-right: 1px solid var(--line-strong); z-index: var(--z-panel); }
-  .content { flex: 1; min-height: 0; overflow: auto; }
+  /* position: relative: gli elementi assoluti (es. .ui-sr dei grafici) restano dentro l'area che scorre invece di allungare la pagina */
+  .content { position: relative; flex: 1; min-height: 0; overflow: auto; }
   .grip { position: absolute; top: 0; bottom: 0; right: -6px; width: 12px; cursor: col-resize; touch-action: none; z-index: 1; }
   .grip::after { content: ''; position: absolute; top: 50%; left: 4px; width: 4px; height: 40px; margin-top: -20px; border-radius: 2px; background: var(--line-strong); }
   .grip:hover::after, .grip.on::after { background: var(--accent); }

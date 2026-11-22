@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onDestroy } from 'svelte'
   import { getJSON, setFavorite, setMine } from '../lib/api'
-  import { formatDate, ago, num } from '../lib/format'
+  import { formatDate, ago, num, countryName } from '../lib/format'
   import { downloadText } from '../lib/download'
   import { fileStamp, gpx, slug } from '../lib/export'
   import { batteryView, contactMinutes, fmtOpt, hopsLabel, nodeName, sourceKind } from '../lib/nodes'
@@ -199,7 +199,7 @@
 
 <section class="nd">
   <header>
-    <Flag code={node.country} name={node.country ?? undefined} />
+    <Flag code={node.country} name={node.country ? countryName(node.country) : undefined} />
     <h2>{nodeName(node)}</h2>
     <Button kind="ghost" iconOnly icon="x" label={t('nodes.detail.close')} onclick={onclose} />
   </header>

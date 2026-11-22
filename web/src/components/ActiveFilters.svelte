@@ -4,6 +4,7 @@
   import { app } from '../lib/stores.svelte'
   import { t } from '../lib/i18n/index.svelte'
   import { activeFilters, clearFilter, clearAllFilters } from '../lib/filters'
+  import { countryName } from '../lib/format'
   import Icon from '../lib/ui/Icon.svelte'
 
   let { compact = false }: { compact?: boolean } = $props()
@@ -19,7 +20,7 @@
     }
   })
 
-  const items = $derived(activeFilters(app.filter, (code) => names[code] ?? code))
+  const items = $derived(activeFilters(app.filter, (code) => countryName(code, names[code])))
 </script>
 
 {#if items.length > 0}

@@ -60,3 +60,28 @@ export function ago(minutes: number | null): string {
   if (minutes < 1440) return t('common.hourAgo', { n: Math.floor(minutes / 60) })
   return t('common.dayAgo', { n: Math.floor(minutes / 1440) })
 }
+
+// --- Nomi dei paesi nella lingua attiva ---
+
+const dnCache = new Map<string, Intl.DisplayNames | null>()
+
+/** Nome del paese nella lingua attiva (Intl.DisplayNames); il codice del server resta il dato, in caso di errore si mostra il codice. */
+export function countryName(code: string | null | undefined, fallback?: string): string {
+  if (!code) return fallback ?? ''
+  const loc = locale()
+  let dn = dnCache.get(loc)
+  if (dn === undefined) {
+    try {
+      dn = new Intl.DisplayNames([loc], { type: 'region' })
+    } catch {
+      dn = null
+    }
+    dnCache.set(loc, dn)
+  }
+  if (!dn || !/^[A-Za-z]{2}$/.test(code)) return fallback ?? code
+  try {
+    return dn.of(code.toUpperCase()) ?? fallback ?? code
+  } catch {
+    return fallback ?? code
+  }
+}
