@@ -5,7 +5,7 @@
 <p align="center">
   <img alt="Licenza GPL-3.0" src="https://img.shields.io/badge/licenza-GPL--3.0-blue">
   <img alt="Piattaforma Windows" src="https://img.shields.io/badge/piattaforma-Windows%2010%2F11-0078D6">
-  <img alt="Versione 1.3.0" src="https://img.shields.io/badge/versione-1.3.0-brightgreen">
+  <img alt="Versione 1.4.0" src="https://img.shields.io/badge/versione-1.4.0-brightgreen">
 </p>
 
 **MeshLens** è un'applicazione locale per Windows che riunisce in un'unica mappa interattiva tutto ciò che accade su una rete [Meshtastic](https://meshtastic.org): i nodi sentiti da **Internet (MQTT)** e dalle **tue radio** collegate via USB o Bluetooth. Osservi la rete, gestisci i tuoi nodi e chatti via radio, anche senza Internet. Si usa dal PC e dal telefono sulla stessa Wi-Fi.
@@ -14,19 +14,23 @@
 
 | | |
 |---|---|
-| ![Mappa con i nodi](docs/img/screen-map.png)<br>**Mappa** con i nodi da radio e MQTT | ![Dettaglio nodo](docs/img/screen-node.png)<br>**Dettaglio nodo** con grafico della batteria |
-| ![Scheda Rete](docs/img/screen-network.png)<br>**Rete**: i tuoi nodi a colpo d'occhio | ![Prova di copertura](docs/img/screen-coverage.png)<br>**Copertura** sul campo |
-| ![Impostazioni](docs/img/screen-settings.png)<br>**Mappe offline** e aggiornamenti | ![Vista telefono](docs/img/screen-mobile.png)<br>**Telefono** |
+| ![Mappa con i nodi e i waypoint](docs/img/screen-map.png)<br>**Mappa** | ![Scheda Rete con selettore Nodi, Statistiche, Pacchetti](docs/img/screen-network.png)<br>**Rete** |
+| ![Chat con risposte, reazioni e lucchetto PKI](docs/img/screen-chat.png)<br>**Chat** | ![Elenco delle conversazioni con non letti e bozze](docs/img/screen-chat-list.png)<br>**Conversazioni** |
+| ![Waypoint sulla mappa](docs/img/screen-waypoint.png)<br>**Waypoint** | ![Copertura prevista confrontata con le misure](docs/img/screen-prediction.png)<br>**Copertura prevista** |
+| ![Statistiche della rete](docs/img/screen-stats.png)<br>**Statistiche** | ![Ispettore dei pacchetti](docs/img/screen-packets.png)<br>**Pacchetti** |
+| ![Dettaglio nodo](docs/img/screen-node.png)<br>**Dettaglio nodo** | ![Prova di copertura](docs/img/screen-coverage.png)<br>**Copertura sul campo** |
+| ![Impostazioni](docs/img/screen-settings.png)<br>**Impostazioni** | ![Vista telefono](docs/img/screen-mobile.png)<br>**Telefono** |
+| ![Interfaccia in inglese](docs/img/screen-english.png)<br>**Interfaccia in inglese** |  |
 
-> Le schermate usano un database dimostrativo con nodi inventati.
+> Le schermate usano un database dimostrativo con nodi, messaggi e posizioni inventati.
 
 ## Funzioni principali
 
 ### 🗺️ Mappa e osservazione
 - Nodi da MQTT e da radio fusi in un'unica vista, con colore per fonte e per ultimo contatto.
 - Filtri per nazione, fonte, radio, ultimo contatto, ruolo e testo; i filtri attivi restano visibili come chip, con **"Azzera filtri"**.
-- Dettaglio nodo: hardware, ruolo, firmware, posizione e precisione, batteria, SNR/RSSI/hop, traccia dei percorsi; **link diretto** al nodo (`#/nodes/!id`).
-- Mappa: distanze e azioni rapide nei popup, **righello**, raggruppamento dei nodi attivabile, **ricerca di un nodo** e **"Dove sono"**.
+- Dettaglio nodo: hardware, ruolo, firmware, posizione e precisione, batteria, SNR/RSSI/hop, traccia dei percorsi con **periodo a scelta fino a 90 giorni**; **link diretto** al nodo (`#/nodes/!id`).
+- Mappa: distanze e azioni rapide nei popup, **righello**, raggruppamento dei nodi attivabile, **ricerca di un nodo**, **"Dove sono"** e **waypoint** ricevuti.
 - Ordinamento dei nodi e ricerca anche per modello e ruolo; la vista viene ricordata.
 - Feed dei messaggi pubblici MQTT, filtrabile per nazione, con l'indicazione del broker di provenienza.
 
@@ -34,6 +38,14 @@
 - Più radio insieme, via **USB** e **Bluetooth**, con riconnessione automatica.
 - Messaggi su canali e diretti, con stato di consegna e un unico campo **"Invia via"**: radio oppure **MQTT** (solo testo, a nome del tuo nodo, con conferma la prima volta), con scelta del **broker** e del canale.
 - Interfaccia con tema **scuro e chiaro**, pensata anche per il telefono.
+
+### 💬 Messaggi
+- **Elenco delle conversazioni** con anteprima, **ricerca** e **bozze**; contatori dei **non letti**, `(n)` nel titolo della scheda e **notifiche del browser** per i messaggi diretti.
+- **Risposte e reazioni con emoji**, via radio e via MQTT.
+- **Lucchetto** sui messaggi diretti cifrati con la chiave pubblica (PKI), **avviso quando la chiave di un nodo cambia** e motivo degli errori di consegna in italiano.
+- **Waypoint**: quelli ricevuti compaiono sulla mappa; i tuoi si inviano solo via radio.
+- **Notifiche esterne**: notifiche di Windows dall'icona nell'area di notifica e, se lo attivi, **bot Telegram** (token salvato cifrato).
+- **Recupera messaggi persi** (Store & Forward): dalla scheda Radio chiedi a un nodo router lo storico dei messaggi che ti sei perso, senza duplicati.
 
 ### 🌐 Più broker MQTT e canali personalizzati
 - Collega **più broker MQTT insieme**, ognuno con il proprio stato e i propri interruttori **Crittografia** e **TLS** (spenti per i broker nuovi; il broker predefinito mantiene la crittografia).
@@ -46,24 +58,35 @@
 - Mappa dei collegamenti colorata per SNR e **traceroute** a richiesta.
 - Barra "connessione persa" e pulsanti **Riprova** quando qualcosa non risponde.
 
+### 📈 Dati e statistiche
+- **Telemetria** di ambiente, qualità dell'aria, alimentazione e statistiche locali dei nodi, da MQTT e da radio.
+- **Grafici** con lettura dei valori al passaggio del mouse e **periodo a scelta** (anche uso del canale, SNR e sensori).
+- **Esportazioni** in **CSV** (con `;`, adatto a Excel), **GPX**, **GeoJSON** e **KML**.
+- **Statistiche della rete** e **ispettore dei pacchetti** nella pagina Rete, con impostazioni di conservazione per limitare lo spazio.
+
 ### 📡 Copertura sul campo
 - Prove di copertura con il modulo Range Test: punti colorati per qualità del segnale, percorso, punti mancanti e storico delle sessioni.
 - "Prepara le radio" e "Ripristina" per impostare e rimettere a posto la configurazione.
+
+### 📡 Copertura prevista
+- **Previsione della copertura** di un sito (posizione, altezza dell'antenna, potenza, guadagni) con il modello **NTIA ITM** e i dati di altitudine **Terrarium**, scaricati solo dopo la tua conferma.
+- Risultato sovrapposto alla mappa e **confronto con le misure** del Range Test; avviso se la potenza supera il limite di legge EU 868.
 
 ### ⚙️ Configurazione
 - Lettura e modifica della configurazione delle radio collegate e dei nodi remoti (chiavi admin PKI).
 - Ogni modifica passa da un **riepilogo delle differenze**, una **conferma esplicita** e una **copia di sicurezza ripristinabile**.
 
-### 🌍 Offline
+### 🌍 Offline e lingua
 - Mappe PMTiles scaricabili con un passo guidato: mondo a basso dettaglio, Italia e aree a scelta.
 - Passaggio automatico tra mappa online e offline.
+- Interfaccia disponibile in **italiano** (predefinito) e in **inglese**: la lingua si sceglie in Impostazioni.
 
 ### 🔒 Accesso dalla rete locale e HTTPS
 - Di default MeshLens ascolta solo sul PC (`http://127.0.0.1:8686`). L'accesso dalla rete locale si attiva in Impostazioni ed è protetto dal PIN.
 - Con l'accesso dalla rete locale il PIN ha almeno **6 cifre** (i PIN già impostati continuano a funzionare). Dopo troppi errori scatta un blocco che resiste al riavvio; il PC locale non resta mai chiuso fuori.
 - In Impostazioni vedi **sessioni e dispositivi** collegati e puoi disconnetterli; puoi anche cambiare il PIN.
 - **HTTPS facoltativo** (spento di default) sulla porta **8687**, con certificato autofirmato generato da MeshLens: la prima volta il browser mostrerà un avviso da accettare. Su `127.0.0.1:8686` resta HTTP.
-- Il token GitHub per gli aggiornamenti è salvato cifrato con Windows DPAPI.
+- I token (GitHub per gli aggiornamenti, bot Telegram) sono salvati cifrati con Windows DPAPI.
 
 ### 🧰 Backup e diagnostica
 - **Backup automatici** del database: prima di ogni aggiornamento e migrazione e una volta a settimana (ne restano 5). Elenco e **ripristino** da Impostazioni.
@@ -94,7 +117,7 @@ Al primo avvio il browser si apre su `http://127.0.0.1:8686` e ti chiede di sceg
 1. In **Impostazioni** attiva l'accesso dalla rete locale (di default MeshLens ascolta solo sul PC).
 2. Dal telefono, collegato alla stessa Wi-Fi, apri `http://<indirizzo-del-PC>:8686` e inserisci il PIN.
 
-L'accesso avviene di default in HTTP semplice: usalo solo su una rete di cui ti fidi. Senza HTTPS non sono disponibili il GPS del telefono né le notifiche push del browser. Per l'accesso dalla rete locale puoi attivare HTTPS facoltativo in **Impostazioni → Rete** (porta 8687, con certificato autofirmato generato da MeshLens: il browser chiederà di accettarlo).
+L'accesso avviene di default in HTTP semplice: usalo solo su una rete di cui ti fidi. Senza HTTPS non è disponibile il GPS del telefono; le notifiche del browser per i messaggi diretti funzionano se consenti alla pagina di inviarle, ma sui telefoni di solito richiedono HTTPS. Per l'accesso dalla rete locale puoi attivare HTTPS facoltativo in **Impostazioni → Rete** (porta 8687, con certificato autofirmato generato da MeshLens: il browser chiederà di accettarlo).
 
 ## Mappe offline
 
@@ -140,7 +163,7 @@ Il primo comando esegue i test del server, il secondo quelli dell'interfaccia e 
 - Su MQTT MeshLens **ascolta** e pubblica **solo i messaggi di testo che invii tu** scegliendo "Invia via MQTT" (a nome del tuo nodo, con conferma la prima volta e un limite di frequenza). Nient'altro viene mai pubblicato: né posizioni né dati dei nodi.
 - Per default il server ascolta solo su `127.0.0.1`; l'accesso dalla rete locale è una tua scelta ed è protetto dal PIN.
 - Lo storico ha una scadenza configurabile (default: messaggi e posizioni 90 giorni, telemetria 1 anno).
-- Le uniche connessioni in uscita sono quelle che avvii tu: il broker MQTT, le mappe online, lo scaricamento delle mappe offline e il controllo degli aggiornamenti su GitHub.
+- Le uniche connessioni in uscita sono quelle che avvii tu: il broker MQTT, le mappe online, lo scaricamento delle mappe offline e il controllo degli aggiornamenti su GitHub; su richiesta, lo scaricamento dei dati di altitudine (Terrarium, dati aperti su AWS) per la copertura prevista; e, solo se li attivi, le notifiche Telegram.
 
 ## Licenza
 

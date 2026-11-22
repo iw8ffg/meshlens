@@ -5,7 +5,7 @@
 <p align="center">
   <img alt="License GPL-3.0" src="https://img.shields.io/badge/license-GPL--3.0-blue">
   <img alt="Platform Windows" src="https://img.shields.io/badge/platform-Windows%2010%2F11-0078D6">
-  <img alt="Version 1.3.0" src="https://img.shields.io/badge/version-1.3.0-brightgreen">
+  <img alt="Version 1.4.0" src="https://img.shields.io/badge/version-1.4.0-brightgreen">
 </p>
 
 **MeshLens** is a local Windows application that brings everything happening on a [Meshtastic](https://meshtastic.org) network onto one interactive map: nodes heard over the **Internet (MQTT)** and by **your own radios** connected over USB or Bluetooth. Watch the network, manage your nodes and chat over radio, even without Internet. Use it from your PC and from your phone on the same Wi-Fi.
@@ -14,19 +14,23 @@
 
 | | |
 |---|---|
-| ![Map with nodes](docs/img/screen-map.png)<br>**Map** with nodes from radio and MQTT | ![Node details](docs/img/screen-node.png)<br>**Node details** with battery chart |
-| ![Network tab](docs/img/screen-network.png)<br>**Network**: your nodes at a glance | ![Coverage test](docs/img/screen-coverage.png)<br>Field **coverage** tests |
-| ![Settings](docs/img/screen-settings.png)<br>**Offline maps** and updates | ![Phone view](docs/img/screen-mobile.png)<br>**Phone** |
+| ![Map with nodes and waypoints](docs/img/screen-map.png)<br>**Map** | ![Network tab with Nodes, Statistics, Packets selector](docs/img/screen-network.png)<br>**Network** |
+| ![Chat with replies, reactions and PKI lock](docs/img/screen-chat.png)<br>**Chat** | ![Conversation list with unread counters and drafts](docs/img/screen-chat-list.png)<br>**Conversations** |
+| ![Waypoints on the map](docs/img/screen-waypoint.png)<br>**Waypoints** | ![Predicted coverage compared with measurements](docs/img/screen-prediction.png)<br>**Predicted coverage** |
+| ![Network statistics](docs/img/screen-stats.png)<br>**Statistics** | ![Packet inspector](docs/img/screen-packets.png)<br>**Packets** |
+| ![Node details](docs/img/screen-node.png)<br>**Node details** | ![Coverage test](docs/img/screen-coverage.png)<br>**Field coverage** |
+| ![Settings](docs/img/screen-settings.png)<br>**Settings** | ![Phone view](docs/img/screen-mobile.png)<br>**Phone** |
+| ![Interface in English](docs/img/screen-english.png)<br>**English interface** |  |
 
-> Screenshots use a demo database with invented nodes. The app interface is in Italian.
+> Screenshots use a demo database with invented nodes, messages and positions. The interface is available in Italian and English.
 
 ## Features
 
 ### 🗺️ Map and observation
 - MQTT and radio nodes merged in one view, colored by source and by last contact.
 - Filters by country, source, radio, last contact, role and text; active filters stay visible as chips, with **"Clear filters"**.
-- Node detail: hardware, role, firmware, position and precision, battery, SNR/RSSI/hops, position track; **direct link** to the node (`#/nodes/!id`).
-- Map: distances and quick actions in popups, a **ruler**, optional node clustering, **node search** and **"Where am I"**.
+- Node detail: hardware, role, firmware, position and precision, battery, SNR/RSSI/hops, position track with a **selectable period up to 90 days**; **direct link** to the node (`#/nodes/!id`).
+- Map: distances and quick actions in popups, a **ruler**, optional node clustering, **node search**, **"Where am I"** and received **waypoints**.
 - Node sorting and search by model and role too; your view is remembered.
 - Public MQTT message feed, filterable by country, showing which broker each message came from.
 
@@ -34,6 +38,14 @@
 - Several radios at once, over **USB** and **Bluetooth**, with automatic reconnection.
 - Messages on channels and direct messages, with delivery status and a single **"Send via"** field: radio or **MQTT** (text only, as your own node, with a confirmation the first time), with a choice of **broker** and channel.
 - **Dark and light** themes, designed for phones too.
+
+### 💬 Messages
+- **Conversation list** with preview, **search** and **drafts**; **unread** counters, `(n)` in the tab title and **browser notifications** for direct messages.
+- **Replies and emoji reactions**, over radio and over MQTT.
+- **Lock** on direct messages encrypted with the public key (PKI), a **warning when a node's key changes** and delivery error reasons in plain language.
+- **Waypoints**: received ones appear on the map; you send your own over radio only.
+- **External notifications**: Windows notifications from the notification-area icon and, if you enable it, a **Telegram bot** (token stored encrypted).
+- **Recover missed messages** (Store & Forward): from the Radio tab, ask a router node for the history of messages you missed, without duplicates.
 
 ### 🌐 Several MQTT brokers and custom channels
 - Connect **several MQTT brokers at once**, each with its own status and its own **Encryption** and **TLS** toggles (off for new brokers; the default broker keeps encryption).
@@ -46,24 +58,35 @@
 - Link map colored by SNR and on-demand **traceroute**.
 - "Connection lost" bar and **Retry** buttons when something does not respond.
 
+### 📈 Data and statistics
+- **Telemetry** for environment, air quality, power and local node statistics, from MQTT and from radio.
+- **Charts** with values shown as you hover and a **selectable period** (also channel use, SNR and sensors).
+- **Exports** as **CSV** (with `;`, Excel-friendly), **GPX**, **GeoJSON** and **KML**.
+- **Network statistics** and a **packet inspector** in the Network page, with retention settings to limit the space used.
+
 ### 📡 Field coverage
 - Coverage tests with the Range Test module: points colored by signal quality, path, missing points and session history.
 - "Prepare radios" and "Restore" to set up and put back the configuration.
+
+### 📡 Predicted coverage
+- **Coverage prediction** for a site (position, antenna height, power, gains) with the **NTIA ITM** model and **Terrarium** elevation data, downloaded only after you confirm.
+- Result overlaid on the map and **compared with the measurements** from the Range Test; warning if the power exceeds the EU 868 legal limit.
 
 ### ⚙️ Configuration
 - Read and edit the configuration of connected radios and remote nodes (PKI admin keys).
 - Every change goes through a **diff summary**, an **explicit confirmation** and a **restorable safety copy**.
 
-### 🌍 Offline
+### 🌍 Offline and language
 - PMTiles maps downloadable with a guided step: low-detail world, Italy and areas of your choice.
 - Automatic switch between online and offline map.
+- Interface available in **Italian** (default) and **English**: choose the language in Settings.
 
 ### 🔒 LAN access and HTTPS
 - By default MeshLens listens on the PC only (`http://127.0.0.1:8686`). LAN access is enabled in Settings and protected by the PIN.
 - With LAN access the PIN has at least **6 digits** (existing PINs keep working). After too many wrong attempts a lockout kicks in that survives restarts; the local PC is never locked out.
 - In Settings you can see the connected **sessions and devices** and sign them out; you can also change the PIN.
 - **Optional HTTPS** (off by default) on port **8687**, with a self-signed certificate generated by MeshLens: the browser will show a warning to accept the first time. `127.0.0.1:8686` stays plain HTTP.
-- The GitHub token for updates is stored encrypted with Windows DPAPI.
+- Tokens (GitHub for updates, Telegram bot) are stored encrypted with Windows DPAPI.
 
 ### 🧰 Backup and diagnostics
 - **Automatic database backups**: before every update and migration and once a week (kept separately by type: the most recent copies of each kind). List and **restore** in Settings.
@@ -94,7 +117,7 @@ On first start the browser opens `http://127.0.0.1:8686` and asks you to choose 
 1. In **Settings**, enable access from the local network (by default MeshLens only listens on the PC).
 2. From the phone, on the same Wi-Fi, open `http://<PC-address>:8686` and enter the PIN.
 
-By default access is plain HTTP: use it only on a network you trust. Without HTTPS there is no phone GPS and no browser push notifications. For access from the local network you can enable optional HTTPS in **Settings → Network** (port 8687, with a self-signed certificate generated by MeshLens: the browser will ask you to accept it).
+By default access is plain HTTP: use it only on a network you trust. Without HTTPS there is no phone GPS; browser notifications for direct messages work if you allow the page to send them, but on phones they generally need HTTPS. For access from the local network you can enable optional HTTPS in **Settings → Network** (port 8687, with a self-signed certificate generated by MeshLens: the browser will ask you to accept it).
 
 ## Offline maps
 
@@ -140,7 +163,7 @@ The first command runs the server tests, the second the interface tests and a ho
 - On MQTT MeshLens **listens** and publishes **only the text messages you send** with "Send via MQTT" (as your own node, with a confirmation the first time and a rate limit). Nothing else is ever published: no positions, no node data.
 - By default the server listens on `127.0.0.1` only; local-network access is your choice and is protected by the PIN.
 - History expires (default: messages and positions 90 days, telemetry 1 year, configurable).
-- The only outgoing connections are the ones you trigger: the MQTT broker, online maps, offline map downloads and the update check on GitHub.
+- The only outgoing connections are the ones you trigger: the MQTT broker, online maps, offline map downloads and the update check on GitHub; on request, the download of elevation data (Terrarium, open data on AWS) for predicted coverage; and, only if you enable it, Telegram notifications.
 
 ## License
 

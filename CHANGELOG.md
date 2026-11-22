@@ -3,6 +3,58 @@
 Il formato segue [Keep a Changelog](https://keepachangelog.com/it-IT/1.1.0/) e il progetto usa il [versionamento semantico](https://semver.org/lang/it/).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [1.4.0] - 2026-11-22
+
+### Italiano
+
+#### Aggiunto
+- **Messaggi non letti:** contatori sulle conversazioni, conversazioni non lette in grassetto, `(n)` nel titolo della scheda e **notifiche del browser** per i messaggi diretti.
+- **Elenco delle conversazioni:** al posto del menu a tendina, con ordine per attività, anteprima dell'ultimo messaggio, **ricerca** e **bozze** che restano salvate; dalla lista si passa alla conversazione e si torna indietro.
+- **Risposte e reazioni con emoji:** le ricevi e le invii, via radio e via MQTT.
+- **Messaggi diretti cifrati:** un **lucchetto** indica i messaggi diretti protetti con la chiave pubblica (PKI); MeshLens **ti avvisa quando la chiave di un nodo cambia**.
+- **Errori di consegna spiegati:** quando un messaggio non arriva, vedi il motivo in italiano.
+- **Waypoint sulla mappa:** i waypoint ricevuti compaiono sulla mappa e puoi inviare i tuoi **via radio** (non vengono mai pubblicati su MQTT).
+- **Notifiche esterne:** notifiche di Windows dall'icona nell'area di notifica e, se lo attivi, un **bot Telegram**; il token del bot è salvato cifrato.
+- **Nuova telemetria:** ambiente, qualità dell'aria, alimentazione e statistiche locali dei nodi, da MQTT e da radio.
+- **Grafici più ricchi:** lettura dei valori al passaggio del mouse e **periodo a scelta**, anche per uso del canale, SNR e sensori.
+- **Esportazioni:** dati in **CSV** (con `;`, per aprirlo bene in Excel), percorsi e posizioni in **GPX**, **GeoJSON** e **KML**.
+- **Traccia di un nodo** con periodo a scelta, **fino a 90 giorni**.
+- **Statistiche della rete:** nuova vista nella pagina Rete (Nodi / Statistiche / Pacchetti).
+- **Ispettore dei pacchetti:** per vedere i pacchetti ricevuti, con impostazioni di conservazione per limitare lo spazio occupato.
+- **Copertura prevista:** MeshLens calcola la copertura attesa di un sito (posizione, altezza dell'antenna, potenza, guadagni) con il modello **NTIA ITM** e i dati di altitudine **Terrarium**, scaricati solo dopo la tua conferma (con la stima della dimensione). Il risultato si vede sulla mappa e si **confronta con le misure** delle prove di copertura (Range Test). Se la potenza supera il limite di legge UE 868 compare un avviso.
+- **Recupera messaggi persi (Store & Forward):** dalla scheda Radio chiedi a un nodo router lo storico dei messaggi che ti sei perso; i messaggi recuperati entrano nelle conversazioni senza duplicati.
+- **Interfaccia in inglese:** la lingua si sceglie in Impostazioni e viene ricordata; l'italiano resta quella predefinita.
+
+#### Modificato
+- **Migrazioni del database:** l'aggiornamento aggiunge nuove tabelle e colonne in modo automatico, **con un backup del database fatto prima**. Se torni alla 1.3.x o precedenti, ripristina un backup precedente all'aggiornamento.
+- **Attribuzioni di terzi:** i dati di altitudine Terrarium (AWS Terrain Tiles) e il modello NTIA ITM sono citati in `THIRD_PARTY_NOTICES.md`.
+- L'elenco delle conversazioni sostituisce il menu a tendina del canale nella chat.
+
+### English
+
+#### Added
+- **Unread messages:** counters on conversations, unread conversations in bold, `(n)` in the browser tab title and **browser notifications** for direct messages.
+- **Conversation list:** replaces the drop-down, with ordering by activity, a preview of the last message, **search** and **drafts** that stay saved; you move from the list to a conversation and back.
+- **Replies and emoji reactions:** receive and send them, over radio and over MQTT.
+- **Encrypted direct messages:** a **lock** marks direct messages protected with the public key (PKI); MeshLens **warns you when a node's key changes**.
+- **Delivery errors explained:** when a message does not get through you see the reason in plain language.
+- **Waypoints on the map:** received waypoints appear on the map and you can send your own **over radio** (they are never published to MQTT).
+- **External notifications:** Windows notifications from the notification-area icon and, if you enable it, a **Telegram bot**; the bot token is stored encrypted.
+- **New telemetry:** environment, air quality, power and local node statistics, from MQTT and from radio.
+- **Richer charts:** values shown as you hover, and a **selectable period**, also for channel use, SNR and sensors.
+- **Exports:** data as **CSV** (with `;`, so it opens correctly in Excel), tracks and positions as **GPX**, **GeoJSON** and **KML**.
+- **Node track** with a selectable period, **up to 90 days**.
+- **Network statistics:** a new view in the Network page (Nodes / Statistics / Packets).
+- **Packet inspector:** browse the packets received, with retention settings to limit the space used.
+- **Predicted coverage:** MeshLens computes the expected coverage of a site (position, antenna height, power, gains) with the **NTIA ITM** model and **Terrarium** elevation data, downloaded only after you confirm (with a size estimate shown first). The result is shown on the map and **compared with the measurements** from coverage tests (Range Test). A warning appears if the power exceeds the EU 868 legal limit.
+- **Recover missed messages (Store & Forward):** from the Radio tab, ask a router node for the history of messages you missed; recovered messages enter the conversations without duplicates.
+- **English interface:** the language is chosen in Settings and remembered; Italian stays the default.
+
+#### Changed
+- **Database migrations:** updating adds new tables and columns automatically, **with a database backup taken beforehand**. If you go back to 1.3.x or earlier, restore a backup made before the update.
+- **Third-party attributions:** the Terrarium elevation data (AWS Terrain Tiles) and the NTIA ITM model are credited in `THIRD_PARTY_NOTICES.md`.
+- The conversation list replaces the channel drop-down in chat.
+
 ## [1.3.0] - 2026-11-21
 
 ### Italiano
@@ -198,3 +250,4 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 [1.2.2]: https://github.com/iw8ffg/meshlens/releases/tag/v1.2.2
 [1.2.3]: https://github.com/iw8ffg/meshlens/releases/tag/v1.2.3
 [1.3.0]: https://github.com/iw8ffg/meshlens/releases/tag/v1.3.0
+[1.4.0]: https://github.com/iw8ffg/meshlens/releases/tag/v1.4.0
