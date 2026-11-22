@@ -22,7 +22,7 @@
   import Devices from './settings/Devices.svelte'
   import Brokers from './settings/Brokers.svelte'
   import Notifications from './settings/Notifications.svelte'
-  import { channelOptions, checkMqttNodeId, httpsNote, type AppSettings, type Broker, type MqttChannel, type TlsInfo } from '../lib/settings'
+  import { channelOptions, checkMqttNodeId, filterChannels, httpsNote, type AppSettings, type Broker, type MqttChannel, type TlsInfo } from '../lib/settings'
   import { channelNameError, fromServer, pskError } from '../lib/brokers'
   import { formatDate, countryName } from '../lib/format'
   import { i18n, setLang, t, LANGS, LANG_LABELS, type Lang, type MsgKey } from '../lib/i18n/index.svelte'
@@ -135,6 +135,8 @@
   ])
 
   const channels = $derived(channelOptions(seenChannels, chosen))
+  let chanQuery = $state('')
+  const shownChannels = $derived(filterChannels(channels, chanQuery))
 
   function toggleChannel(name: string) {
     chosen = chosen.includes(name) ? chosen.filter((x) => x !== name) : [...chosen, name]
@@ -312,8 +314,11 @@
             value={onlyChosen ? 'chosen' : 'all'}
             onchange={(v) => (onlyChosen = v === 'chosen')}
           />
+          {#if channels.length > 6}
+            <input class="ui-input chan-search" type="search" aria-label={t('settings.chan.searchAria')} placeholder={t('settings.chan.searchPh')} bind:value={chanQuery} />
+          {/if}
           <ul class="countries">
-            {#each channels as c (c.name)}
+            {#each shownChannels as c (c.name)}
               <li>
                 <label class="ui-check chan">
                   <input type="checkbox" disabled={!onlyChosen} checked={chosen.includes(c.name)} onchange={() => toggleChannel(c.name)} />
@@ -322,8 +327,11 @@
                   <span class="n ui-mono">{t('settings.chan.count', { n: c.count })}</span>
                 </label>
               </li>
+            {:else}
+              <li class="ui-hint">{t('settings.chan.none')}</li>
             {/each}
           </ul>
+          {#if chosen.length}<p class="ui-hint">{t('settings.chan.selected', { n: chosen.length })}</p>{/if}
           <p class="ui-hint">{t('settings.chan.hint')}</p>
         </section>
       </Card>
@@ -363,6 +371,7 @@
   .cn { display: inline-flex; align-items: center; gap: var(--space-2); }
   .countries { list-style: none; margin: 0; padding: 0; max-height: 240px; overflow: auto; }
   .chan { width: 100%; }
+  .chan-search { max-width: 320px; }
   .n { margin-left: auto; color: var(--ink-muted); font-size: 13px; }
   .fp { font-size: 14px; line-height: 20px; overflow-wrap: anywhere; word-break: break-all; }
   .line { margin: 0; font: 400 14px/20px var(--font-sans); }

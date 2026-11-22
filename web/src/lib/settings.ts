@@ -107,6 +107,12 @@ export function channelOptions(seen: MqttChannel[], selected: string[]): { name:
     .sort((a, b) => b.count - a.count || order.get(a.name)! - order.get(b.name)!)
 }
 
+/** Filtro della ricerca nell'elenco canali: per parte del nome, maiuscole e spazi esterni ignorati. */
+export function filterChannels<T extends { name: string }>(list: T[], query: string): T[] {
+  const q = query.trim().toLowerCase()
+  return q ? list.filter((c) => c.name.toLowerCase().includes(q)) : list
+}
+
 /** Parole chiave per le notifiche: separate da virgola o a capo, senza doppioni (maiuscole ignorate), al massimo 20. */
 export function parseKeywords(text: string): string[] {
   const seen = new Set<string>()

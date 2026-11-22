@@ -26,6 +26,17 @@ test('channelOptions: preset standard piu canali visti, ordinati per conteggio',
   expect(o[0].name).toBe('Custom')
 })
 
+import { filterChannels } from './settings'
+
+test('filterChannels: parte del nome, maiuscole e spazi ignorati; vuoto = tutti', () => {
+  const l = [{ name: 'LongFast' }, { name: 'MediumFast' }, { name: 'Napoli' }]
+  expect(filterChannels(l, '')).toEqual(l)
+  expect(filterChannels(l, '   ')).toEqual(l)
+  expect(filterChannels(l, ' fast ').map((c) => c.name)).toEqual(['LongFast', 'MediumFast'])
+  expect(filterChannels(l, 'NAP').map((c) => c.name)).toEqual(['Napoli'])
+  expect(filterChannels(l, 'xyz')).toEqual([])
+})
+
 import { checkMqttNodeId } from './settings'
 
 describe('checkMqttNodeId', () => {
