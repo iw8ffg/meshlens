@@ -3,6 +3,24 @@
 Il formato segue [Keep a Changelog](https://keepachangelog.com/it-IT/1.1.0/) e il progetto usa il [versionamento semantico](https://semver.org/lang/it/).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [1.4.2] - 2026-11-22
+
+### Italiano
+
+#### Corretto
+- **Zona bianca nelle Impostazioni:** spuntando i canali da ascoltare (o le nazioni) in un elenco lungo, la pagina non salta più in fondo e non compare più una grande zona vuota.
+
+#### Aggiunto
+- **Ricerca nei canali:** con più di 6 canali compare una casella per cercarli per nome; sotto l'elenco è indicato quanti ne hai scelti.
+
+### English
+
+#### Fixed
+- **Blank area in Settings:** ticking channels to listen to (or countries) in a long list no longer jumps the page to the bottom or adds a large empty area.
+
+#### Added
+- **Channel search:** with more than 6 channels a box lets you search them by name; below the list you see how many you have chosen.
+
 ## [1.4.1] - 2026-11-22
 
 ### Italiano
@@ -271,4 +289,5 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 [1.2.3]: https://github.com/iw8ffg/meshlens/releases/tag/v1.2.3
 [1.3.0]: https://github.com/iw8ffg/meshlens/releases/tag/v1.3.0
 [1.4.0]: https://github.com/iw8ffg/meshlens/releases/tag/v1.4.0
+[1.4.2]: https://github.com/iw8ffg/meshlens/releases/tag/v1.4.2
 [1.4.1]: https://github.com/iw8ffg/meshlens/releases/tag/v1.4.1
