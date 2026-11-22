@@ -10,7 +10,7 @@
   import Chat from './components/Chat.svelte'
   import Radios from './components/Radios.svelte'
   import Settings from './components/Settings.svelte'
-  import Network from './components/Network.svelte'
+  import NetworkPage from './components/NetworkPage.svelte'
   import Coverage from './components/Coverage.svelte'
   import ConfigPanel from './components/ConfigPanel.svelte'
   import TopBar from './lib/shell/TopBar.svelte'
@@ -261,7 +261,7 @@
     />
     <NodeList nodes={visible} {now} sort={nodeSort} {origin} onpick={pick} />
   {:else if activeTab === 'network'}
-    <Network nodes={[...app.nodes.values()]} {now} onpick={pick} />
+    <NetworkPage nodes={[...app.nodes.values()]} {now} onpick={pick} />
   {:else if activeTab === 'coverage'}
     <Coverage {now} />
   {:else if activeTab === 'chat'}

@@ -1,5 +1,6 @@
 import type {
   Alert,
+  NetworkStats,
   CoverageCheck,
   CoverageDetail,
   CoverageLastPlan,
@@ -212,3 +213,4 @@ export interface NotifyStatus {
 export const notifyStatus = () => getJSON<NotifyStatus>('/notify/status')
 export const notifyTest = (channel: 'toast' | 'telegram') => send<{ ok: boolean }>('POST', '/notify/test', { channel })
 export const telegramFindChat = () => send<{ chat_id: string; title: string }>('POST', '/notify/telegram/chat')
+export const networkStats = (hours: number) => getJSON<NetworkStats>(`/stats?hours=${hours}`)

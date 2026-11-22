@@ -487,3 +487,17 @@ export interface UpdateStatus {
   can_install: boolean
   frozen: boolean
 }
+
+export interface NetworkStats {
+  hours: number
+  since: number
+  totals: { nodes: number; packets: number }
+  online: { time: number; nodes: number }[]
+  packets: { time: number; kind: string; packets: number; receptions: number }[]
+  snr: { bins: number[]; rf: number[]; mqtt: number[] }
+  hops: { hops: number | null; nodes: number }[]
+  top: { id: string; name: string; packets: number; per_hour: number }[]
+  hardware: { value: string; nodes: number }[]
+  roles: { value: string; nodes: number }[]
+  other_hardware: number
+}

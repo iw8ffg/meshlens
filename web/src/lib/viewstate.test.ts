@@ -10,9 +10,15 @@ function mem(init: Record<string, string> = {}) {
   }
 }
 
-const DEFAULTS: ViewState = { tab: null, map: null, conv: null, netSort: null, nodeSort: 'recent', cluster: true, waypoints: true }
+const DEFAULTS: ViewState = { tab: null, map: null, conv: null, netSort: null, nodeSort: 'recent', cluster: true, waypoints: true, netView: 'nodes' }
 
 describe('loadView', () => {
+  it('netView: salvato e riletto, valore non valido diventa nodes', () => {
+    const s = mem()
+    saveView(s, { netView: 'stats' })
+    expect(loadView(s).netView).toBe('stats')
+    expect(loadView(mem({ [VIEW_KEY]: JSON.stringify({ v: 1, netView: 'boh' }) })).netView).toBe('nodes')
+  })
   it('waypoints: assente true, false salvato false, valore non booleano true', () => {
     expect(loadView(mem({ [VIEW_KEY]: JSON.stringify({ v: 1 }) })).waypoints).toBe(true)
     expect(loadView(mem({ [VIEW_KEY]: JSON.stringify({ v: 1, waypoints: false }) })).waypoints).toBe(false)
@@ -56,6 +62,7 @@ describe('saveView', () => {
       conv: 'dm:r1:!0000abcd',
       netSort: { key: 'snr', dir: 'asc' },
       nodeSort: 'distance',
+      netView: 'packets',
       cluster: false,
       waypoints: false,
     }

@@ -7,6 +7,9 @@ import { isRouteTab } from './route'
 
 export const VIEW_KEY = 'meshlens.view'
 
+export type NetView = 'nodes' | 'stats' | 'packets'
+const NET_VIEWS: readonly NetView[] = ['nodes', 'stats', 'packets']
+
 export type ViewState = {
   tab: Tab | null
   map: { lon: number; lat: number; zoom: number } | null
@@ -15,6 +18,7 @@ export type ViewState = {
   nodeSort: NodeSortKey
   cluster: boolean
   waypoints: boolean
+  netView: NetView
 }
 
 const SORT_KEYS: readonly SortKey[] = [
@@ -31,7 +35,7 @@ const SORT_KEYS: readonly SortKey[] = [
 ]
 
 function defaults(): ViewState {
-  return { tab: null, map: null, conv: null, netSort: null, nodeSort: 'recent', cluster: true, waypoints: true }
+  return { tab: null, map: null, conv: null, netSort: null, nodeSort: 'recent', cluster: true, waypoints: true, netView: 'nodes' }
 }
 
 const inRange = (x: unknown, lim: number, min = -lim): x is number =>
@@ -74,6 +78,7 @@ export function loadView(storage: Pick<Storage, 'getItem'> | null): ViewState {
   if (NODE_SORTS.some((s) => s.key === o.nodeSort)) v.nodeSort = o.nodeSort as NodeSortKey
   if (typeof o.cluster === 'boolean') v.cluster = o.cluster
   if (typeof o.waypoints === 'boolean') v.waypoints = o.waypoints
+  if (NET_VIEWS.includes(o.netView as NetView)) v.netView = o.netView as NetView
   return v
 }
 
