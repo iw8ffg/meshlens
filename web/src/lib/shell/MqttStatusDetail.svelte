@@ -2,6 +2,7 @@
   import { onMount } from 'svelte'
   import { brokerRows, mqttSummary } from '../mqttstatus'
   import type { MqttStatus } from '../types'
+  import { t } from '../i18n/index.svelte'
 
   let { status, onsettings }: { status: MqttStatus | null; onsettings?: () => void } = $props()
 
@@ -33,7 +34,7 @@
     </ul>
   {/if}
   {#if onsettings}
-    <button type="button" class="link" onclick={onsettings}>Impostazioni MQTT</button>
+    <button type="button" class="link" onclick={onsettings}>{t('shell.mqttSettings')}</button>
   {/if}
 </div>
 

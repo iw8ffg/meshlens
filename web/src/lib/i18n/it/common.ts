@@ -1,0 +1,22 @@
+// Testi italiani: area «common». Chiavi piatte a punti (common.*), una frase per chiave.
+export const common = {
+  'common.never': 'mai',
+  'common.justNow': 'adesso',
+  'common.nowShort': 'ora',
+  'common.minAgo': '{n} min fa',
+  'common.hourAgo': '{n} h fa',
+  'common.dayAgo': '{n} g fa',
+  'common.messages.one': '{n} messaggio',
+  'common.messages.other': '{n} messaggi',
+  'common.retry': 'Riprova',
+  'common.close': 'Chiudi',
+  'common.confirm': 'Conferma',
+  'common.cancel': 'Annulla',
+  'common.riskAck': 'Ho capito e voglio procedere',
+  'common.unknownCountry': 'Nazione sconosciuta',
+  'common.sourceBoth': 'Radio e MQTT',
+  'common.sheetResize': 'Trascina per ridimensionare il pannello',
+  'common.sheetExpand': 'Espandi il pannello',
+  'common.sheetClose': 'Chiudi il pannello',
+  'common.sheetShrink': 'Riduci il pannello',
+} as const

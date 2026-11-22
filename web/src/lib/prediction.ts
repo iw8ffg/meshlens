@@ -1,6 +1,7 @@
 // Copertura prevista: tipi del contratto, validazione dei parametri, colori del raster e chiamate al server.
 import { getJSON, send } from './api'
 import type { MapTokens } from './map/tokens'
+import { decSep } from './format'
 
 export interface PredictionParams {
   lat: number
@@ -108,7 +109,7 @@ export const PARAM_FIELDS: { key: NumKey; label: string; unit: string; min: numb
   { key: 'radius_km', label: 'Raggio', unit: 'km', min: 1, max: 50, step: 1 },
 ]
 
-const fmt = (n: number) => String(n).replace('.', ',').replace('-', '−')
+const fmt = (n: number) => decSep(String(n)).replace('-', '−')
 
 /** Primo errore dei parametri, in italiano; null se tutto e' valido. */
 export function validateParams(p: PredictionParams): string | null {

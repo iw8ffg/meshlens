@@ -2,6 +2,7 @@
   import Icon from '../ui/Icon.svelte'
   import { conn, connectionView, RESTORED_MS } from '../connection.svelte'
   import { reconnectNow } from '../ws'
+  import { t } from '../i18n/index.svelte'
 
   let nowMs = $state(Date.now())
   let browserOnline = $state(typeof navigator === 'undefined' ? true : navigator.onLine)
@@ -33,7 +34,7 @@
     <Icon name={view.tone === 'ok' ? 'check' : 'cloudoff'} size={18} />
     <span class="txt">{view.text}</span>
     {#if view.retry}
-      <button type="button" onclick={reconnectNow}>Riprova ora</button>
+      <button type="button" onclick={reconnectNow}>{t('shell.retryNow')}</button>
     {/if}
   </div>
 {/if}

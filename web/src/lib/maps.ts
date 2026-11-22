@@ -1,4 +1,5 @@
 import type { Bbox, MapJob } from './types'
+import { decSep } from './format'
 
 const UNITS = ['B', 'KB', 'MB', 'GB', 'TB']
 
@@ -12,7 +13,7 @@ export function formatBytes(n: number): string {
     i++
   }
   const text = i >= 2 ? v.toFixed(1) : String(Math.round(v))
-  return `${text.replace('.', ',')} ${UNITS[i]}`
+  return `${decSep(text)} ${UNITS[i]}`
 }
 
 /** Avanzamento 0..100, oppure null se il totale non e' noto. */

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from '../i18n/index.svelte'
   import type { Snippet } from 'svelte'
   import Button from './Button.svelte'
   import Check from './Check.svelte'
@@ -22,15 +23,19 @@
     open,
     title,
     risk = false,
-    riskLabel = 'Ho capito e voglio procedere',
-    confirmLabel = 'Conferma',
-    cancelLabel = 'Annulla',
+    riskLabel,
+    confirmLabel,
+    cancelLabel,
     danger,
     onconfirm,
     oncancel,
     children,
   }: Props = $props()
 
+  // testi predefiniti nella lingua corrente (un default dei props non seguirebbe il cambio lingua)
+  const riskText = $derived(riskLabel ?? t('common.riskAck'))
+  const confirmText = $derived(confirmLabel ?? t('common.confirm'))
+  const cancelText = $derived(cancelLabel ?? t('common.cancel'))
   const uid = $props.id()
   let ack = $state(false)
   const canConfirm = $derived(!risk || ack)
@@ -97,10 +102,10 @@
     >
       <h2 id="{uid}-t">{title}</h2>
       <div>{@render children()}</div>
-      {#if risk}<Check risk bind:checked={ack} label={riskLabel} />{/if}
+      {#if risk}<Check risk bind:checked={ack} label={riskText} />{/if}
       <div class="acts">
-        <Button onclick={() => oncancel?.()} data-autofocus={risk || undefined}>{cancelLabel}</Button>
-        <Button kind={danger ?? risk ? 'danger' : 'primary'} disabled={!canConfirm} onclick={confirm}>{confirmLabel}</Button>
+        <Button onclick={() => oncancel?.()} data-autofocus={risk || undefined}>{cancelText}</Button>
+        <Button kind={danger ?? risk ? 'danger' : 'primary'} disabled={!canConfirm} onclick={confirm}>{confirmText}</Button>
       </div>
     </div>
   </div>

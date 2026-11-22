@@ -1,3 +1,5 @@
+import { locale } from './i18n/index.svelte'
+
 export interface Pt {
   t: number
   v: number | null
@@ -72,13 +74,22 @@ export function nearestIndex(ts: number[], t: number): number {
   return lo
 }
 
-const TIME_ONLY = new Intl.DateTimeFormat('it-IT', { hour: '2-digit', minute: '2-digit' })
-const DAY = new Intl.DateTimeFormat('it-IT', { day: 'numeric', month: 'short' })
+const dtfCache = new Map<string, Intl.DateTimeFormat>()
+function dtf(kind: 'time' | 'day'): Intl.DateTimeFormat {
+  const loc = locale()
+  const key = `${loc}:${kind}`
+  let f = dtfCache.get(key)
+  if (!f) {
+    f = new Intl.DateTimeFormat(loc, kind === 'time' ? { hour: '2-digit', minute: '2-digit' } : { day: 'numeric', month: 'short' })
+    dtfCache.set(key, f)
+  }
+  return f
+}
 
 /** Tempo (secondi epoch) per la lettura: fino a 48 h "14:05", oltre "21 nov, 14:05". */
 export function chartTime(t: number, spanHours: number): string {
   const d = new Date(t * 1000)
-  return spanHours <= 48 ? TIME_ONLY.format(d) : `${DAY.format(d)}, ${TIME_ONLY.format(d)}`
+  return spanHours <= 48 ? dtf('time').format(d) : `${dtf('day').format(d)}, ${dtf('time').format(d)}`
 }
 
 /** Asse per percentuali: [0, max(10, arrotondato per eccesso a 10)]. */

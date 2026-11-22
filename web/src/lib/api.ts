@@ -33,6 +33,7 @@ import type {
 } from './types'
 import type { MqttSendBody } from './send'
 import type { AppSettings } from './settings'
+import { translateServer } from './i18n/server'
 
 export class ApiError extends Error {
   status: number
@@ -75,7 +76,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     const retryAfter = ra !== null && ra !== '' && !Number.isNaN(Number(ra)) ? Number(ra) : null
     // 401 su /auth/login significa PIN errato, non sessione scaduta
     if (res.status === 401 && path !== '/auth/login') emitAuthRequired()
-    throw new ApiError(res.status, detail, retryAfter, code)
+    throw new ApiError(res.status, translateServer(detail), retryAfter, code)
   }
   if (res.status === 204) return undefined as T
   const text = await res.text()

@@ -1,32 +1,33 @@
 // Logica pura del guscio: schede, voci della barra in basso, larghezza del pannello.
 import type { IconName } from '../ui/icons'
+import type { MsgKey } from '../i18n/index.svelte'
 
 export type Tab = 'map' | 'nodes' | 'network' | 'coverage' | 'chat' | 'radio' | 'settings' | 'more'
 
 /** Schede della barra superiore su desktop (la mappa è sempre visibile). */
-export const DESKTOP_TABS: { id: Tab; label: string; icon: IconName }[] = [
-  { id: 'nodes', label: 'Nodi', icon: 'nodes' },
-  { id: 'network', label: 'Rete', icon: 'network' },
-  { id: 'coverage', label: 'Copertura', icon: 'coverage' },
-  { id: 'chat', label: 'Messaggi', icon: 'chat' },
-  { id: 'radio', label: 'Radio', icon: 'radio' },
-  { id: 'settings', label: 'Impostazioni', icon: 'settings' },
+export const DESKTOP_TABS: { id: Tab; labelKey: MsgKey; icon: IconName }[] = [
+  { id: 'nodes', labelKey: 'nav.nodes', icon: 'nodes' },
+  { id: 'network', labelKey: 'nav.network', icon: 'network' },
+  { id: 'coverage', labelKey: 'nav.coverage', icon: 'coverage' },
+  { id: 'chat', labelKey: 'nav.chat', icon: 'chat' },
+  { id: 'radio', labelKey: 'nav.radio', icon: 'radio' },
+  { id: 'settings', labelKey: 'nav.settings', icon: 'settings' },
 ]
 
 /** Barra in basso su telefono. */
-export const PHONE_NAV: { id: Tab; label: string; icon: IconName }[] = [
-  { id: 'map', label: 'Mappa', icon: 'map' },
-  { id: 'nodes', label: 'Nodi', icon: 'nodes' },
-  { id: 'chat', label: 'Messaggi', icon: 'chat' },
-  { id: 'coverage', label: 'Copertura', icon: 'coverage' },
-  { id: 'more', label: 'Altro', icon: 'more' },
+export const PHONE_NAV: { id: Tab; labelKey: MsgKey; icon: IconName }[] = [
+  { id: 'map', labelKey: 'nav.map', icon: 'map' },
+  { id: 'nodes', labelKey: 'nav.nodes', icon: 'nodes' },
+  { id: 'chat', labelKey: 'nav.chat', icon: 'chat' },
+  { id: 'coverage', labelKey: 'nav.coverage', icon: 'coverage' },
+  { id: 'more', labelKey: 'nav.more', icon: 'more' },
 ]
 
 /** Voci raccolte sotto «Altro». */
-export const MORE_TABS: { id: Tab; label: string; icon: IconName }[] = [
-  { id: 'network', label: 'Rete', icon: 'network' },
-  { id: 'radio', label: 'Radio', icon: 'radio' },
-  { id: 'settings', label: 'Impostazioni', icon: 'settings' },
+export const MORE_TABS: { id: Tab; labelKey: MsgKey; icon: IconName }[] = [
+  { id: 'network', labelKey: 'nav.network', icon: 'network' },
+  { id: 'radio', labelKey: 'nav.radio', icon: 'radio' },
+  { id: 'settings', labelKey: 'nav.settings', icon: 'settings' },
 ]
 
 /** Pagine lunghe: su desktop occupano tutta l'area sotto la barra. */

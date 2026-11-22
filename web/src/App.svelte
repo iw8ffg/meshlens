@@ -39,13 +39,14 @@
   import { onIncoming } from './lib/incoming'
   import { unread, applySummaries, applyRead, totalUnread } from './lib/unread.svelte'
   import { titleFor } from './lib/notify'
+  import { t } from './lib/i18n/index.svelte'
   import { markOnline, markOffline, resetConn } from './lib/connection.svelte'
   import { serialRunner } from './lib/serial'
   import { app, upsertNodes, addMessage, addRadioHistory, setMessageStatus, setStatus, setRadios, setAlerts, setTraceroute, persistFilter, persistFeedFilter, coverage, setCoverageSessions, applyCoverage, configUi, setConfigJob, setMapJob, setUpdateStatus, setUpdateJob, openChat, setWaypoints, upsertWaypoint, removeWaypoint } from './lib/stores.svelte'
   import type { AuthStatus, Message, Node, Radio } from './lib/types'
 
   let auth = $state<AuthStatus | null>(null)
-  let error = $state('')
+  let error = $state(false)
   // Vista iniziale: prima l'hash (link diretto), poi la vista ricordata, poi il predefinito
   const initialRoute = parseHash(location.hash)
   const initialView = loadView(localStorage)
@@ -94,6 +95,7 @@
   // Nodo del link diretto non ancora caricato: variabile semplice, non reattiva
   let pendingNode: string | null = null
   let nodesLoaded = false
+  // id del nodo del link diretto che non esiste (il testo si compone nel template, nella lingua corrente)
   let routeError = $state('')
 
   function applyRoute(r: Route) {
@@ -118,7 +120,7 @@
       upsertNodes([await getJSON<Node>('/nodes/' + encodeURIComponent(id))])
       pickId(id)
     } catch (e) {
-      if (e instanceof ApiError && e.status === 404) routeError = `Nodo ${id} non trovato`
+      if (e instanceof ApiError && e.status === 404) routeError = id
       else if (pendingNode === null) pendingNode = id // errore di rete: si riprova al prossimo caricamento
     }
   }
@@ -131,9 +133,9 @@
   async function refresh() {
     try {
       auth = await getJSON<AuthStatus>('/auth/status')
-      error = ''
+      error = false
     } catch {
-      error = 'Server non raggiungibile'
+      error = true
     }
   }
 
@@ -174,7 +176,7 @@
 
   // legge lo stato, scrive solo il DOM
   $effect(() => {
-    document.title = titleFor('MeshLens', unreadTotal)
+    document.title = titleFor(t('shell.title'), unreadTotal)
   })
 
   $effect(persistFilter)
@@ -275,13 +277,13 @@
 
 {#if error}
   <div class="center">
-    <Empty icon="cloudoff" title={error}>
-      MeshLens potrebbe essere chiuso o in riavvio.
-      {#snippet action()}<Button kind="primary" onclick={refresh}>Riprova</Button>{/snippet}
+    <Empty icon="cloudoff" title={t('shell.serverUnreachable')}>
+      {t('shell.serverUnreachableHint')}
+      {#snippet action()}<Button kind="primary" onclick={refresh}>{t('common.retry')}</Button>{/snippet}
     </Empty>
   </div>
 {:else if !auth}
-  <p class="center">Caricamento…</p>
+  <p class="center">{t('shell.loading')}</p>
 {:else if !auth.authenticated}
   <Login status={auth} onsuccess={refresh} />
 {:else}
@@ -290,7 +292,7 @@
     <ConnectionBar />
     <div class="main">
       {#if routeError}
-        <div class="route-toast"><Toast kind="warn" onclose={() => (routeError = '')}>{routeError}</Toast></div>
+        <div class="route-toast"><Toast kind="warn" onclose={() => (routeError = '')}>{t('shell.nodeNotFound', { id: routeError })}</Toast></div>
       {/if}
       <div class="mapwrap"><MapView nodes={visible} total={app.nodes.size} {now} {track} {focus} onpick={pickId} /></div>
 
@@ -306,20 +308,20 @@
           </Panel>
         {/if}
       {:else if sheetVisible(activeTab, !!selected)}
-        <Sheet bind:snap label="Pannello">
+        <Sheet bind:snap label={t('shell.panel')}>
           {#if tab === 'more'}
             <ul class="more">
               {#each MORE_TABS as m (m.id)}
                 <li>
                   <button type="button" onclick={() => goTab(m.id)}>
-                    <Icon name={m.icon} size={20} /><span>{m.label}</span><Icon name="chevR" size={18} />
+                    <Icon name={m.icon} size={20} /><span>{t(m.labelKey)}</span><Icon name="chevR" size={18} />
                   </button>
                 </li>
               {/each}
             </ul>
           {:else}
             {#if isMoreTab(tab)}
-              <button type="button" class="back" onclick={() => goTab('more')}><Icon name="back" size={18} />Altro</button>
+              <button type="button" class="back" onclick={() => goTab('more')}><Icon name="back" size={18} />{t('nav.more')}</button>
             {/if}
             {#if selected}
               <NodeDetail node={selected} {now} ontrack={(t) => (track = t)} onclose={close} onchat={() => goTab('chat')} />

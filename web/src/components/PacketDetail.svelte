@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { locale } from '../lib/i18n/index.svelte'
   import { packet as fetchPacket } from '../lib/api'
   import { copyText } from '../lib/clipboard'
   import { kindLabel } from '../lib/netstats'
@@ -49,7 +50,7 @@
   const relayHex = (r: number) => r.toString(16).padStart(2, '0')
   const relays = $derived(data ? relayCandidates(data.relay_node, nodes) : [])
   const summaryText = $derived(data?.summary ? JSON.stringify(data.summary, null, 2) : '')
-  const when = (t: number) => new Date(t * 1000).toLocaleString('it-IT')
+  const when = (t: number) => new Date(t * 1000).toLocaleString(locale())
   const num1 = (v: number | null) => (v === null ? '–' : String(v).replace('-', '−'))
 
   async function copyHex() {

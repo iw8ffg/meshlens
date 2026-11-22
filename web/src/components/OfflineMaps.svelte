@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { locale } from '../lib/i18n/index.svelte'
   import { onMount, untrack } from 'svelte'
   import { ApiError, cancelMapJob, deleteMap, downloadMap, estimateMap, getJSON, mapsState, send } from '../lib/api'
   import { bboxFromBounds, formatBytes, isStaleSnapshot, jobPercent } from '../lib/maps'
@@ -183,7 +184,7 @@
 
   const when = (c: number | string) => {
     const d = typeof c === 'number' ? new Date(c * 1000) : new Date(c)
-    return Number.isNaN(d.getTime()) ? '—' : d.toLocaleDateString('it-IT')
+    return Number.isNaN(d.getTime()) ? '—' : d.toLocaleDateString(locale())
   }
   const dataDate = (s: string | null) => (s && /^\d{8}$/.test(s) ? `${s.slice(6, 8)}/${s.slice(4, 6)}/${s.slice(0, 4)}` : '—')
 </script>

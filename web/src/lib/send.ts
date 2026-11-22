@@ -142,7 +142,7 @@ export function classifyMqttError(e: { status: number; code: string | null; mess
   if (e.code === 'unknown_node') return { kind: 'unknown_node', message: MQTT_NODE_REASON }
   if (e.status === 503 || e.code === 'mqtt_disconnected') return { kind: 'disconnected', message: MQTT_DOWN_REASON }
   if (e.status === 429 || e.code === 'rate_limited') {
-    const msg = /attendi/i.test(e.message) ? e.message : e.retryAfter ? `Attendi ${e.retryAfter} s` : 'Troppi messaggi: riprova tra poco'
+    const msg = /attendi|wait/i.test(e.message) ? e.message : e.retryAfter ? `Attendi ${e.retryAfter} s` : 'Troppi messaggi: riprova tra poco'
     return { kind: 'rate_limited', message: msg }
   }
   return { kind: 'other', message: e.message || 'Invio non riuscito' }

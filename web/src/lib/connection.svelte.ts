@@ -1,3 +1,5 @@
+import { locale, t } from './i18n/index.svelte'
+
 export const SHOW_AFTER_MS = 3000
 export const RESTORED_MS = 4000
 
@@ -39,23 +41,23 @@ export interface ConnView {
 }
 
 const HIDDEN: ConnView = { show: false, tone: 'warn', text: '', retry: false }
-const hhmm = new Intl.DateTimeFormat('it-IT', { hour: '2-digit', minute: '2-digit' })
+const hhmm = (ms: number) => new Intl.DateTimeFormat(locale(), { hour: '2-digit', minute: '2-digit' }).format(ms)
 
 export function connectionView(c: ConnState, nowMs: number, browserOnline: boolean): ConnView {
   if (!c.online) {
     if (c.lostAt === null || nowMs - c.lostAt < SHOW_AFTER_MS) return HIDDEN
     if (!browserOnline) {
-      return { show: true, tone: 'warn', text: 'Il dispositivo è offline: i dati sono fermi', retry: false }
+      return { show: true, tone: 'warn', text: t('shell.connOffline'), retry: false }
     }
     return {
       show: true,
       tone: 'warn',
-      text: `Connessione al server persa: i dati sono fermi dalle ${hhmm.format(c.lostAt)}. Nuovo tentativo in corso…`,
+      text: t('shell.connLost', { time: hhmm(c.lostAt) }),
       retry: true,
     }
   }
   if (c.restoredAt !== null && nowMs - c.restoredAt < RESTORED_MS) {
-    return { show: true, tone: 'ok', text: 'Connessione ripristinata', retry: false }
+    return { show: true, tone: 'ok', text: t('shell.connRestored'), retry: false }
   }
   return HIDDEN
 }

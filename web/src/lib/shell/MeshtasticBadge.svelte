@@ -1,10 +1,11 @@
 <script lang="ts">
   // Badge solo testuale: il logo ufficiale non è incluso finché non si verifica la trademark policy.
+  import { t } from '../i18n/index.svelte'
 </script>
 
 <div class="mb">
-  <span class="chip">Compatibile con Meshtastic®</span>
-  <p>MeshLens non è affiliato al progetto Meshtastic. Meshtastic® è un marchio registrato di Meshtastic LLC</p>
+  <span class="chip">{t('shell.badge')}</span>
+  <p>{t('shell.badgeNote')}</p>
 </div>
 
 <style>

@@ -1,5 +1,6 @@
 // Statistiche della rete: etichette e calcoli per i grafici della pagina Rete.
 import type { NetworkStats } from './types'
+import { decSep } from './format'
 
 export const KIND_LABEL: Record<string, string> = {
   text: 'Messaggi',
@@ -47,7 +48,7 @@ export function barRects(values: number[], w: number, h: number, gap = 2): { x: 
 const SNR_STEP = 2.5
 const SNR_FIRST = -20
 const SNR_LAST = 15
-const fmt = (n: number) => String(n).replace('.', ',').replace('-', '−')
+const fmt = (n: number) => decSep(String(n)).replace('-', '−')
 
 /** Etichetta di un bin dell'SNR: «−17,5…−15»; il primo e' «≤ −17,5», l'ultimo e' «≥ 15». */
 export function snrBinLabel(lo: number): string {

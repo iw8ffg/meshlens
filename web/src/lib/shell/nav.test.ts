@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest'
+import { t } from '../i18n/index.svelte'
 import { PANEL_DEFAULT, PANEL_KEY, PANEL_MAX, PANEL_MIN, PHONE_NAV, clampPanelWidth, effectiveTab, isMoreTab, isPageTab, loadPanelWidth, navActive, savePanelWidth, sheetVisible } from './nav'
 
 describe('schede', () => {
   it('la barra in basso ha cinque voci nell\'ordine del design', () => {
-    expect(PHONE_NAV.map((n) => n.label)).toEqual(['Mappa', 'Nodi', 'Messaggi', 'Copertura', 'Altro'])
+    expect(PHONE_NAV.map((n) => t(n.labelKey))).toEqual(['Mappa', 'Nodi', 'Messaggi', 'Copertura', 'Altro'])
   })
   it('Rete, Radio e Impostazioni accendono «Altro»', () => {
     expect(navActive('network')).toBe('more')

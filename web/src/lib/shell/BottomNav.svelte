@@ -1,6 +1,6 @@
 <script lang="ts">
   import Icon from '../ui/Icon.svelte'
-  import { T } from '../strings/messaggi'
+  import { t, tn } from '../i18n/index.svelte'
   import { num } from '../format'
   import { PHONE_NAV, navActive, type Tab } from './nav'
 
@@ -8,15 +8,15 @@
   const active = $derived(navActive(tab))
 </script>
 
-<nav class="bn" aria-label="Sezioni">
+<nav class="bn" aria-label={t('nav.sections')}>
   {#each PHONE_NAV as it (it.id)}
     <button type="button" class:on={active === it.id} aria-current={active === it.id ? 'page' : undefined} onclick={() => onselect(it.id)}>
       <span class="ic">
         <Icon name={it.icon} size={22} />
-        {#if it.id === 'chat' && unread > 0}<b class="cnt" aria-label={T.unreadAria(unread)}>{num(unread)}</b>{/if}
-        {#if it.id === 'more' && alerts > 0}<b class="cnt" aria-label="{alerts} {alerts === 1 ? 'avviso' : 'avvisi'}">{alerts}</b>{/if}
+        {#if it.id === 'chat' && unread > 0}<b class="cnt" aria-label={tn('shell.unread', unread)}>{num(unread)}</b>{/if}
+        {#if it.id === 'more' && alerts > 0}<b class="cnt" aria-label={tn('shell.alerts', alerts)}>{alerts}</b>{/if}
       </span>
-      <span class="lb">{it.label}</span>
+      <span class="lb">{t(it.labelKey)}</span>
     </button>
   {/each}
 </nav>

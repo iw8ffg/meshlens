@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from '../i18n/index.svelte'
   import type { Snippet } from 'svelte'
   import Button from './Button.svelte'
   import { SHEET_SNAPS, clampSnap, fractionFromDrag, nearestSnap, stepSnap, type SheetSnap } from './sheetSnap'
@@ -9,7 +10,7 @@
     label?: string
     children: Snippet
   }
-  let { snap = $bindable(1), label = 'Pannello', children }: Props = $props()
+  let { snap = $bindable(1), label, children }: Props = $props()
 
   let el: HTMLElement | undefined = $state()
   let dragFraction = $state<number | null>(null)
@@ -45,20 +46,20 @@
   }
 </script>
 
-<section bind:this={el} class="ui-sheet" class:dragging={dragFraction !== null} aria-label={label} style="height: {closed ? 'auto' : `${fraction * 100}%`}">
+<section bind:this={el} class="ui-sheet" class:dragging={dragFraction !== null} aria-label={label ?? t('shell.panel')} style="height: {closed ? 'auto' : `${fraction * 100}%`}">
   <div class="hd">
     <button
       type="button"
       class="gr"
-      aria-label="Trascina per ridimensionare il pannello"
+      aria-label={t('common.sheetResize')}
       onpointerdown={down}
       onpointermove={move}
       onpointerup={up}
       onpointercancel={up}
       onkeydown={key}
     ><i></i></button>
-    <Button kind="ghost" iconOnly icon="chevU" label="Espandi il pannello" disabled={snap === 2} onclick={() => (snap = stepSnap(snap, 1))} />
-    <Button kind="ghost" iconOnly icon="chevD" label={snap === 1 ? 'Chiudi il pannello' : 'Riduci il pannello'} disabled={snap === 0} onclick={() => (snap = stepSnap(snap, -1))} />
+    <Button kind="ghost" iconOnly icon="chevU" label={t('common.sheetExpand')} disabled={snap === 2} onclick={() => (snap = stepSnap(snap, 1))} />
+    <Button kind="ghost" iconOnly icon="chevD" label={snap === 1 ? t('common.sheetClose') : t('common.sheetShrink')} disabled={snap === 0} onclick={() => (snap = stepSnap(snap, -1))} />
   </div>
   {#if !closed}<div class="body">{@render children()}</div>{/if}
 </section>

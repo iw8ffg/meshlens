@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { locale } from '../../lib/i18n/index.svelte'
   import { onMount } from 'svelte'
   import { ApiError, getJSON, send } from '../../lib/api'
   import { bytes, exportUrl, integrityDamaged, reasonLabel, TABLE_LABELS, type BackupInfo, type DbInfo, type ImportResult } from '../../lib/maintenance'
@@ -108,7 +109,7 @@
     }
   }
 
-  const when = (t: number) => new Date(t * 1000).toLocaleString('it-IT')
+  const when = (t: number) => new Date(t * 1000).toLocaleString(locale())
   const deletedTotal = (d: Record<string, number>) => Object.values(d).reduce((a, b) => a + b, 0)
 </script>
 
@@ -124,13 +125,13 @@
         <div><dt>Dimensione</dt><dd class="ui-mono">{bytes(info.size_bytes)}</dd></div>
         <div><dt>Spazio libero</dt><dd class="ui-mono">{bytes(info.free_bytes)}</dd></div>
         {#each Object.entries(info.rows) as [table, n] (table)}
-          <div><dt>{TABLE_LABELS[table] ?? table}</dt><dd class="ui-mono">{n.toLocaleString('it-IT')}</dd></div>
+          <div><dt>{TABLE_LABELS[table] ?? table}</dt><dd class="ui-mono">{n.toLocaleString(locale())}</dd></div>
         {/each}
       </dl>
       <p class="line">
         Ultima pulizia:
         {#if info.last_purge}
-          {when(info.last_purge.time)} ({deletedTotal(info.last_purge.deleted).toLocaleString('it-IT')} righe rimosse)
+          {when(info.last_purge.time)} ({deletedTotal(info.last_purge.deleted).toLocaleString(locale())} righe rimosse)
         {:else}
           non ancora eseguita
         {/if}

@@ -10,6 +10,7 @@ import type {
   CoverageSession,
   CoverageTrackPoint,
 } from './types'
+import { decSep } from './format'
 
 export interface ChecklistItem {
   key: 'radio' | 'mobile' | 'gps' | 'precision' | 'rangetest'
@@ -78,7 +79,7 @@ export function validInterval(n: unknown): n is number {
 export function formatLoss(s: CoverageSession | number | null): string {
   const v = s !== null && typeof s === 'object' ? s.loss_pct : s
   if (v === null || v === undefined || !Number.isFinite(v)) return '—'
-  return `${v.toFixed(1).replace('.', ',')}%`
+  return `${decSep(v.toFixed(1))}%`
 }
 
 export interface CoverageGeo {

@@ -1,7 +1,10 @@
-import { test, expect } from 'vitest'
+import { test, expect, afterEach } from 'vitest'
+import { setLang } from './i18n/index.svelte'
 import { timeAgo, formatDate, compareLastHeard, num, signed, ago } from './format'
 
 const now = 1_000_000
+
+afterEach(() => setLang('it'))
 
 test('format', () => {
   expect(timeAgo(now - 30, now)).toBe('adesso')
@@ -33,4 +36,24 @@ test('num, signed, ago (formato del design)', () => {
   expect(ago(1439)).toBe('23 h fa')
   expect(ago(1440)).toBe('1 g fa')
   expect(ago(null)).toBe('mai')
+})
+
+test('formati in inglese (en-GB): punto decimale, meno tipografico, 24 ore', () => {
+  setLang('en')
+  expect(`${num(3.59, 2)} V`).toBe('3.59 V')
+  expect(`${signed(-3.5, 1)} dB`).toBe('−3.5 dB')
+  expect(signed(6.5, 1)).toBe('+6.5')
+  expect(signed(-0.04, 1)).toBe('0.0')
+  expect(num(1234.5, 1)).toBe('1,234.5')
+  expect(ago(12)).toBe('12 min ago')
+  expect(ago(0.2)).toBe('now')
+  expect(ago(1440)).toBe('1 d ago')
+  expect(ago(null)).toBe('never')
+  expect(timeAgo(now - 30, now)).toBe('just now')
+  expect(timeAgo(now - 3 * 3600, now)).toBe('3 h ago')
+  expect(formatDate(null)).toBe('never')
+  // 15:04 UTC del 14 marzo 2024: orario a 24 ore, senza AM/PM
+  const d = formatDate(Date.UTC(2024, 2, 14, 15, 4, 0) / 1000)
+  expect(d).not.toMatch(/AM|PM/i)
+  expect(d).toMatch(/\d{2}:\d{2}:\d{2}$/)
 })

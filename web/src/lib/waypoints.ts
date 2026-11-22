@@ -2,6 +2,7 @@
 import type { Feature, FeatureCollection, Point } from 'geojson'
 import type { Waypoint } from './types'
 import { T } from './strings/waypoint'
+import { locale } from './i18n/index.svelte'
 
 export const WP_ICONS = ['📍', '🏠', '⛺', '🚗', '🚩', '📡', '🏥', '⛽', '🔥', '💧', '🍴', '⭐'] as const
 
@@ -61,5 +62,5 @@ export function expiryLabel(expire: number | null, nowS: number): string {
   if (expire === null) return T.noExpiry
   if (expire <= nowS) return T.expired
   const d = new Date(expire * 1000)
-  return T.expiresAt(new Intl.DateTimeFormat('it-IT', { dateStyle: 'medium', timeStyle: 'short' }).format(d))
+  return T.expiresAt(new Intl.DateTimeFormat(locale(), { dateStyle: 'medium', timeStyle: 'short' }).format(d))
 }

@@ -25,6 +25,7 @@
   import { channelOptions, checkMqttNodeId, httpsNote, type AppSettings, type Broker, type MqttChannel, type TlsInfo } from '../lib/settings'
   import { channelNameError, fromServer, pskError } from '../lib/brokers'
   import { formatDate } from '../lib/format'
+  import { i18n, setLang, t, LANGS, LANG_LABELS, type Lang } from '../lib/i18n/index.svelte'
 
   let { onlogout }: { onlogout: () => void } = $props()
 
@@ -52,6 +53,7 @@
   let version = $state('')
   let themePref = $state<ThemePref>('auto')
   const themeItems = (Object.keys(THEME_LABELS) as ThemePref[]).map((v) => ({ value: v, label: THEME_LABELS[v] }))
+  const langItems = LANGS.map((l: Lang) => ({ value: l, label: LANG_LABELS[l] }))
   const nodeIdCheck = $derived(checkMqttNodeId(nodeId))
   const dirty = $derived(JSON.stringify(brokers) !== brokersSnap)
   const brokersOk = $derived(
@@ -191,6 +193,10 @@
         <span class="ui-lbl">Tema</span>
         <Segmented items={themeItems} bind:value={themePref} label="Tema" onchange={(v) => getTheme().setPref(v)} />
         <span class="ui-hint">Auto segue il tema del dispositivo.</span>
+      </div>
+      <div class="fld">
+        <span class="ui-lbl">{t('shell.language')}</span>
+        <Segmented items={langItems} value={i18n.lang} label={t('shell.language')} onchange={(l) => setLang(l)} />
       </div>
     </section>
   </Card>

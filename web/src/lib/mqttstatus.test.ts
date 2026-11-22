@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { DROP_LABELS, brokerRows, mqttSummary } from './mqttstatus'
+import { DROP_KEYS, brokerRows, mqttSummary } from './mqttstatus'
+import { t } from './i18n/index.svelte'
 import type { BrokerStatus, MqttStatus } from './types'
 
 const base: MqttStatus = { connected: true, msgs_per_s: 2, undecodable: 0 }
@@ -26,9 +27,9 @@ describe('mqttSummary', () => {
   it('mostra solo i motivi di scarto positivi con le etichette', () => {
     const r = mqttSummary({ ...base, last_msg_age_s: 1, drops: { empty: 0, not_protobuf: 4, json_topic: 2 } }, 0)
     const labels = r.rows.map((x) => x.label)
-    expect(labels).toContain(`Scartati: ${DROP_LABELS.not_protobuf}`)
-    expect(labels).toContain(`Scartati: ${DROP_LABELS.json_topic}`)
-    expect(labels.some((l) => l.includes(DROP_LABELS.empty))).toBe(false)
+    expect(labels).toContain(`Scartati: ${t(DROP_KEYS.not_protobuf)}`)
+    expect(labels).toContain(`Scartati: ${t(DROP_KEYS.json_topic)}`)
+    expect(labels.some((l) => l.includes(t(DROP_KEYS.empty)))).toBe(false)
   })
   it('regge uno stato vecchio senza campi nuovi', () => {
     expect(() => mqttSummary({ connected: false, msgs_per_s: 0, undecodable: 3 }, 0)).not.toThrow()

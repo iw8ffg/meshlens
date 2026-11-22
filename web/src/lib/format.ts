@@ -1,15 +1,17 @@
+import { locale, t } from './i18n/index.svelte'
+
 export function timeAgo(ts: number | null, now: number): string {
-  if (ts === null || !Number.isFinite(ts)) return 'mai'
+  if (ts === null || !Number.isFinite(ts)) return t('common.never')
   const s = Math.max(0, now - ts)
-  if (s < 60) return 'adesso'
-  if (s < 3600) return `${Math.floor(s / 60)} min fa`
-  if (s < 86400) return `${Math.floor(s / 3600)} h fa`
-  return `${Math.floor(s / 86400)} g fa`
+  if (s < 60) return t('common.justNow')
+  if (s < 3600) return t('common.minAgo', { n: Math.floor(s / 60) })
+  if (s < 86400) return t('common.hourAgo', { n: Math.floor(s / 3600) })
+  return t('common.dayAgo', { n: Math.floor(s / 86400) })
 }
 
 export function formatDate(ts: number | null): string {
-  if (ts === null || !Number.isFinite(ts)) return 'mai'
-  return new Date(ts * 1000).toLocaleString('it-IT')
+  if (ts === null || !Number.isFinite(ts)) return t('common.never')
+  return new Date(ts * 1000).toLocaleString(locale())
 }
 
 export function compareLastHeard(a: number | null, b: number | null): number {
@@ -19,19 +21,26 @@ export function compareLastHeard(a: number | null, b: number | null): number {
   return b - a
 }
 
-// --- Formato del design (it-IT) ---
+/** Separatore decimale della lingua per i numeri già composti con String()/toFixed(): «.» in inglese, «,» in italiano. */
+export function decSep(s: string): string {
+  return locale() === 'it-IT' ? s.replace('.', ',') : s
+}
 
-const nfCache = new Map<number, Intl.NumberFormat>()
+// --- Formato del design (it-IT o en-GB secondo la lingua) ---
+
+const nfCache = new Map<string, Intl.NumberFormat>()
 function nf(decimals: number): Intl.NumberFormat {
-  let f = nfCache.get(decimals)
+  const loc = locale()
+  const key = `${loc}:${decimals}`
+  let f = nfCache.get(key)
   if (!f) {
-    f = new Intl.NumberFormat('it-IT', { minimumFractionDigits: decimals, maximumFractionDigits: decimals })
-    nfCache.set(decimals, f)
+    f = new Intl.NumberFormat(loc, { minimumFractionDigits: decimals, maximumFractionDigits: decimals })
+    nfCache.set(key, f)
   }
   return f
 }
 
-/** Numero in formato italiano: num(3.59, 2) -> "3,59". */
+/** Numero nel formato della lingua: num(3.59, 2) -> "3,59" (it) o "3.59" (en). */
 export function num(n: number, decimals = 0): string {
   return nf(decimals).format(n)
 }
@@ -45,9 +54,9 @@ export function signed(n: number, decimals = 0): string {
 
 /** Eta relativa da minuti: ora, min, h, g. ago(12) -> "12 min fa". */
 export function ago(minutes: number | null): string {
-  if (minutes === null || !Number.isFinite(minutes)) return 'mai'
-  if (minutes < 1) return 'ora'
-  if (minutes < 60) return `${Math.floor(minutes)} min fa`
-  if (minutes < 1440) return `${Math.floor(minutes / 60)} h fa`
-  return `${Math.floor(minutes / 1440)} g fa`
+  if (minutes === null || !Number.isFinite(minutes)) return t('common.never')
+  if (minutes < 1) return t('common.nowShort')
+  if (minutes < 60) return t('common.minAgo', { n: Math.floor(minutes) })
+  if (minutes < 1440) return t('common.hourAgo', { n: Math.floor(minutes / 60) })
+  return t('common.dayAgo', { n: Math.floor(minutes / 1440) })
 }

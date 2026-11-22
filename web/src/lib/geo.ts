@@ -1,3 +1,5 @@
+import { decSep } from './format'
+
 /**
  * Raggio approssimativo (metri) dell'incertezza di posizione per `precision_bits`.
  * Formula: 23_300_000 / 2**bits, arrotondata al metro (13 bit -> 2844 m).
@@ -13,7 +15,7 @@ export function formatPrecision(bits: number | null): string | null {
   const r = precisionRadiusM(bits)
   if (r === null) return null
   if (r < 1000) return `± ${Math.round(r / 10) * 10} m`
-  const km = (Math.round(r / 100) / 10).toString().replace('.', ',')
+  const km = decSep((Math.round(r / 100) / 10).toString())
   return `± ${km} km`
 }
 
@@ -33,5 +35,5 @@ export function circlePolygon(lat: number, lon: number, radiusM: number, steps =
 /** Metri in italiano: "850 m" sotto 1 km, altrimenti "2,9 km". */
 export function formatMeters(m: number): string {
   if (m < 1000) return `${Math.round(m)} m`
-  return `${(Math.round(m / 100) / 10).toString().replace('.', ',')} km`
+  return `${decSep((Math.round(m / 100) / 10).toString())} km`
 }

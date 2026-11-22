@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { locale } from '../lib/i18n/index.svelte'
   import { onMount } from 'svelte'
   import { getJSON, packets as fetchPackets } from '../lib/api'
   import { KIND_LABEL, kindLabel } from '../lib/netstats'
@@ -172,7 +173,7 @@
     return () => clearInterval(t)
   })
 
-  const timeText = (t: number) => new Date(t * 1000).toLocaleTimeString('it-IT')
+  const timeText = (t: number) => new Date(t * 1000).toLocaleTimeString(locale())
   const label = (id: string) => (id === BROADCAST ? 'Tutti' : (names.get(id) ?? id))
   const rowKey = (p: PacketRow) => String(p.id)
 </script>

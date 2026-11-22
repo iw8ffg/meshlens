@@ -7,9 +7,9 @@
   import { mqttSummary } from '../mqttstatus'
   import { app, updates } from '../stores.svelte'
   import { unread, totalUnread } from '../unread.svelte'
-  import { T } from '../strings/messaggi'
+  import { t, tn, type MsgKey } from '../i18n/index.svelte'
   import { viewport } from '../viewport.svelte'
-  import { getTheme, THEME_LABELS, type ThemePref } from '../theme'
+  import { getTheme, type ThemePref } from '../theme'
   import { num } from '../format'
   import { DESKTOP_TABS, type Tab } from './nav'
   import AlertsList from './AlertsList.svelte'
@@ -35,7 +35,8 @@
   let open = $state<'alerts' | 'menu' | 'mqtt' | null>(null)
   let root = $state<HTMLElement>()
   let pref = $state<ThemePref>('auto')
-  const themeItems = (Object.keys(THEME_LABELS) as ThemePref[]).map((v) => ({ value: v, label: THEME_LABELS[v] }))
+  const THEME_KEYS: Record<ThemePref, MsgKey> = { auto: 'shell.themeAuto', dark: 'shell.themeDark', light: 'shell.themeLight' }
+  const themeItems = $derived((Object.keys(THEME_KEYS) as ThemePref[]).map((v) => ({ value: v, label: t(THEME_KEYS[v]) })))
 
   onMount(() => {
     const ctl = getTheme()
@@ -63,10 +64,10 @@
   </div>
 
   {#if !viewport.phone}
-    <nav class="tabs" aria-label="Sezioni">
-      {#each DESKTOP_TABS as t (t.id)}
-        <button type="button" class:on={tab === t.id} aria-current={tab === t.id ? 'page' : undefined} onclick={() => onselect(t.id)}>
-          <Icon name={t.icon} size={16} />{t.label}{#if t.id === 'chat' && unreadTotal > 0}<span class="bdg" aria-label={T.unreadAria(unreadTotal)}>{num(unreadTotal)}</span>{/if}
+    <nav class="tabs" aria-label={t('nav.sections')}>
+      {#each DESKTOP_TABS as d (d.id)}
+        <button type="button" class:on={tab === d.id} aria-current={tab === d.id ? 'page' : undefined} onclick={() => onselect(d.id)}>
+          <Icon name={d.icon} size={16} />{t(d.labelKey)}{#if d.id === 'chat' && unreadTotal > 0}<span class="bdg" aria-label={tn('shell.unread', unreadTotal)}>{num(unreadTotal)}</span>{/if}
         </button>
       {/each}
     </nav>
@@ -76,10 +77,10 @@
     <div class="pop-wrap">
       <button type="button" class="it mq" aria-haspopup="dialog" aria-expanded={open === 'mqtt'} title={mqttSum.title} onclick={() => toggle('mqtt')}>
         <span class="dot" class:ok={mqttSum.tone === 'ok'} class:warn={mqttSum.tone === 'warn'} class:ko={mqttSum.tone === 'ko'}></span>
-        {#if viewport.phone}MQTT{:else}MQTT {mqtt ? (mqtt.connected ? 'connesso' : 'non connesso') : '…'}{/if}
+        {#if viewport.phone}MQTT{:else}MQTT {mqtt ? (mqtt.connected ? t('shell.mqttConnectedShort') : t('shell.mqttDownShort')) : '…'}{/if}
       </button>
       {#if open === 'mqtt'}
-        <div class="pop mqtt" role="dialog" aria-label="Stato MQTT">
+        <div class="pop mqtt" role="dialog" aria-label={t('shell.mqttStatus')}>
           <MqttStatusDetail
             status={mqtt}
             onsettings={() => {
@@ -92,23 +93,23 @@
     {#if !viewport.phone}
       <span class="it ui-mono">{mqtt ? num(mqtt.msgs_per_s, 1) : '–'} msg/s</span>
     {/if}
-    <span class="it"><Icon name="nodes" size={16} />{num(visible)}{#if !viewport.phone}&nbsp;nodi{/if}</span>
-    <span class="it"><Icon name="radio" size={16} />{radiosOn}/{app.radios.length}{#if !viewport.phone}&nbsp;radio{/if}</span>
+    <span class="it"><Icon name="nodes" size={16} />{num(visible)}{#if !viewport.phone}&nbsp;{t('shell.nodesWord')}{/if}</span>
+    <span class="it"><Icon name="radio" size={16} />{radiosOn}/{app.radios.length}{#if !viewport.phone}&nbsp;{t('shell.radiosWord')}{/if}</span>
   </div>
 
   <div class="acts">
     {#if upd}
       <button type="button" class="upd" onclick={onupdate}>
-        <Icon name="download" size={16} />{#if viewport.phone}Aggiorna{:else}Disponibile {upd}{/if}
+        <Icon name="download" size={16} />{#if viewport.phone}{t('shell.updateShort')}{:else}{t('shell.updateAvailable', { version: upd })}{/if}
       </button>
     {/if}
     {#if app.alerts.length > 0}
       <div class="pop-wrap">
-        <button type="button" class:warn={hasWarnAlert} class="ib" aria-haspopup="dialog" aria-expanded={open === 'alerts'} aria-label="{app.alerts.length} {app.alerts.length === 1 ? 'avviso' : 'avvisi'}" onclick={() => toggle('alerts')}>
+        <button type="button" class:warn={hasWarnAlert} class="ib" aria-haspopup="dialog" aria-expanded={open === 'alerts'} aria-label={tn('shell.alerts', app.alerts.length)} onclick={() => toggle('alerts')}>
           <Icon name="alert" size={18} /><span class="n">{num(app.alerts.length)}</span>
         </button>
         {#if open === 'alerts'}
-          <div class="pop alerts" role="dialog" aria-label="Avvisi">
+          <div class="pop alerts" role="dialog" aria-label={t('shell.alertsTitle')}>
             <AlertsList
               alerts={app.alerts}
               {now}
@@ -121,13 +122,13 @@
       </div>
     {/if}
     <div class="pop-wrap">
-      <button type="button" class="ib" aria-haspopup="dialog" aria-expanded={open === 'menu'} aria-label="Menu e tema" onclick={() => toggle('menu')}>
+      <button type="button" class="ib" aria-haspopup="dialog" aria-expanded={open === 'menu'} aria-label={t('shell.menuAria')} onclick={() => toggle('menu')}>
         <Icon name="more" size={18} />
       </button>
       {#if open === 'menu'}
-        <div class="pop menu" role="dialog" aria-label="Menu">
-          <div class="lbl">Tema</div>
-          <Segmented items={themeItems} bind:value={pref} fill label="Tema" onchange={(v) => getTheme().setPref(v)} />
+        <div class="pop menu" role="dialog" aria-label={t('shell.menu')}>
+          <div class="lbl">{t('shell.theme')}</div>
+          <Segmented items={themeItems} bind:value={pref} fill label={t('shell.theme')} onchange={(v) => getTheme().setPref(v)} />
         </div>
       {/if}
     </div>

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { locale } from '../lib/i18n/index.svelte'
   import { onMount } from 'svelte'
   import { ApiError, checkUpdate, downloadUpdate, getJSON, installUpdate, send, updateStatus } from '../lib/api'
   import { formatBytes, jobPercent } from '../lib/maps'
@@ -144,7 +145,7 @@
   const when = (c: string | number | null) => {
     if (c === null) return '—'
     const d = typeof c === 'number' ? new Date(c * 1000) : new Date(c)
-    return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString('it-IT')
+    return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString(locale())
   }
 </script>
 

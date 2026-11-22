@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Snippet } from 'svelte'
+  import { t } from '../i18n/index.svelte'
   import { PANEL_MAX, PANEL_MIN, clampPanelWidth, loadPanelWidth, savePanelWidth } from './nav'
 
   let { children }: { children: Snippet } = $props()
@@ -42,7 +43,7 @@
     class:on={dragging}
     role="separator"
     aria-orientation="vertical"
-    aria-label="Ridimensiona il pannello"
+    aria-label={t('shell.resizePanel')}
     aria-valuemin={PANEL_MIN}
     aria-valuemax={PANEL_MAX}
     aria-valuenow={width}

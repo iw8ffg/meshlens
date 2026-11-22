@@ -1,0 +1,282 @@
+{
+  "exact": {
+    "Accesso richiesto": "Access required",
+    "Aggiornamenti non disponibili": "Updates not available",
+    "Aggiornamento non scaricato": "Update not downloaded",
+    "Anteprima sconosciuta o scaduta: ripeti l'anteprima": "Unknown or expired preview: repeat the preview",
+    "Anteprima sconosciuta o scaduta: ripeti la preparazione": "Unknown or expired preview: repeat the preparation",
+    "Archivio dello strumento non valido": "Invalid tool archive",
+    "Area non valida: il minimo deve essere minore del massimo": "Invalid area: the minimum must be less than the maximum",
+    "Area non valida: latitudine fuori da -85..85": "Invalid area: latitude out of range -85..85",
+    "Area non valida: longitudine fuori da -180..180": "Invalid area: longitude out of range -180..180",
+    "Area non valida: servono 4 coordinate": "Invalid area: 4 coordinates required",
+    "Area troppo grande: massimo 40° x 40°": "Area too large: maximum 40° x 40°",
+    "Attendi la fine del download in corso": "Wait for the current download to finish",
+    "Backup non disponibili": "Backups not available",
+    "Backup non trovato": "Backup not found",
+    "Broker non trovato": "Broker not found",
+    "Broker non trovato o disattivato": "Broker not found or disabled",
+    "C'è già un calcolo in corso": "A calculation is already in progress",
+    "C'è già un download in corso": "A download is already in progress",
+    "C'è già un recupero in corso su questa radio": "A retrieval is already in progress on this radio",
+    "C'è già una sessione in corso": "A session is already in progress",
+    "Calcolo annullato": "Calculation cancelled",
+    "Canale non trovato": "Channel not found",
+    "Canale non valido": "Invalid channel",
+    "Collega una radio o imposta il tuo id nodo in Impostazioni → MQTT": "Connect a radio or set your node id in Settings → MQTT",
+    "Conferma richiesta": "Confirmation required",
+    "Conferma richiesta per modifiche a rischio": "Confirmation required for risky changes",
+    "Configurazione dei nodi non disponibile": "Node configuration not available",
+    "Connessione Bluetooth non riuscita: avvicina la radio e riprova": "Bluetooth connection failed: move the radio closer and try again",
+    "Content-Type non supportato": "Unsupported Content-Type",
+    "Controllo aggiornamenti non riuscito": "Update check failed",
+    "Conversazione non valida": "Invalid conversation",
+    "Coordinate della base non valide": "Invalid base coordinates",
+    "Coordinate non valide": "Invalid coordinates",
+    "Copia non trovata": "Backup not found",
+    "Database non disponibile": "Database not available",
+    "Database occupato (backup o lettura in corso): riprova tra qualche minuto": "Database busy (backup or read in progress): try again in a few minutes",
+    "Dati di altitudine mancanti per l'area": "Elevation data missing for the area",
+    "Destinatario non valido": "Invalid recipient",
+    "Dimensione dell'installer inattesa": "Unexpected installer size",
+    "Disponibile solo nella versione installata": "Only available in the installed version",
+    "Download già in corso": "Download already in progress",
+    "Download in corso": "Download in progress",
+    "Download non riuscito": "Download failed",
+    "Ferma la sessione prima di eliminarla": "Stop the session before deleting it",
+    "File SHA-256 non scaricabile": "SHA-256 file cannot be downloaded",
+    "File SHA-256 non valido": "Invalid SHA-256 file",
+    "Host non consentito": "Host not allowed",
+    "I segreti si esportano solo da questo PC": "Secrets can only be exported from this PC",
+    "Identificativo del nodo mobile non valido": "Invalid mobile node identifier",
+    "Identificativo del nodo non valido": "Invalid node identifier",
+    "Il link non contiene canali": "The link contains no channels",
+    "Il nodo ha rifiutato la richiesta": "The node rejected the request",
+    "Il nodo mobile coincide con la radio di base": "The mobile node is the same as the base radio",
+    "Il nodo mobile non ha inviato una posizione negli ultimi 10 minuti: serve il GPS acceso e la posizione attiva.": "The mobile node has not sent a position in the last 10 minutes: GPS and position reporting must be on.",
+    "Il nodo non ha la chiave admin di questa radio: aggiungila seguendo la guida": "The node does not have this radio's admin key: add it following the guide",
+    "Il nome non può essere vuoto": "The name cannot be empty",
+    "Il piano non è stato applicato": "The plan has not been applied",
+    "Il router ha risposto con un errore": "The router replied with an error",
+    "Il router rifiuta le richieste sul canale pubblico: scegli un canale privato condiviso con il router": "The router refuses requests on the public channel: choose a private channel shared with the router",
+    "Impostazione del PIN non consentita": "PIN change not allowed",
+    "Impronta SHA-256 non corrispondente: file scartato": "SHA-256 fingerprint mismatch: file discarded",
+    "Impronta del file non valida: download annullato": "Invalid file fingerprint: download cancelled",
+    "Inserisci il token del bot e l'id della chat": "Enter the bot token and the chat id",
+    "Inserisci prima il token del bot": "Enter the bot token first",
+    "Installazione già in corso": "Installation already in progress",
+    "Installer troppo grande": "Installer too large",
+    "Interrotto": "Interrupted",
+    "Invio MQTT non disponibile": "MQTT sending not available",
+    "La configurazione del nodo è cambiata: rivedi le modifiche": "The node configuration has changed: review the changes",
+    "La configurazione è stata riletta: ripeti l'anteprima": "The configuration was re-read: repeat the preview",
+    "La configurazione è stata riletta: ripeti la preparazione": "The configuration was re-read: repeat the preparation",
+    "La copia non contiene sezioni ripristinabili": "The backup contains no restorable sections",
+    "La radio non ha ancora una chiave pubblica": "The radio does not have a public key yet",
+    "La radio non è collegata": "The radio is not connected",
+    "La radio non è tornata dopo il riavvio": "The radio did not come back after the restart",
+    "La reazione richiede il messaggio a cui reagire": "A reaction requires the message to react to",
+    "La release non contiene l'installer o il file SHA-256": "The release does not contain the installer or the SHA-256 file",
+    "La sessione è già terminata": "The session has already ended",
+    "Lavoro non trovato": "Job not found",
+    "Le chiavi si mostrano solo da questo PC": "Keys can only be shown from this PC",
+    "Le radio sono già pronte per la prova": "The radios are already ready for the test",
+    "Leggi di nuovo la configurazione del nodo prima di scrivere": "Read the node configuration again before writing",
+    "Leggi prima la configurazione": "Read the configuration first",
+    "Link non valido: usa un link https://meshtastic.org/e/#…": "Invalid link: use a https://meshtastic.org/e/#… link",
+    "MQTT non connesso": "MQTT not connected",
+    "Mappa non trovata": "Map not found",
+    "Mappe offline non disponibili": "Offline maps not available",
+    "Messaggio di riferimento non valido": "Invalid reference message",
+    "Nessun aggiornamento disponibile": "No update available",
+    "Nessuna configurazione letta per questo nodo": "No configuration read for this node",
+    "Nessuna connessione": "No connection",
+    "Nessuna mappa Protomaps disponibile negli ultimi 7 giorni": "No Protomaps map available in the last 7 days",
+    "Nessuna modifica da applicare": "No changes to apply",
+    "Nessuna modifica indicata": "No changes specified",
+    "Nessuna radio collegata": "No radio connected",
+    "Nessuna risposta dal nodo entro 60 s": "No response from the node within 60 s",
+    "Nessuna risposta dal router": "No response from the router",
+    "Nessuna risposta entro 60 s": "No response within 60 s",
+    "Nodo non trovato": "Node not found",
+    "Nodo non valido": "Invalid node",
+    "Nome del canale non valido": "Invalid channel name",
+    "Non eseguito: il passo precedente non è riuscito": "Not run: the previous step failed",
+    "Notifiche di Windows disponibili solo con MeshLens avviato dall'icona nell'area di notifica": "Windows notifications are only available when MeshLens is started from the notification area icon",
+    "Orario non valido": "Invalid time",
+    "PIN attuale errato": "Current PIN incorrect",
+    "PIN errato": "Incorrect PIN",
+    "PNG di altitudine con dimensioni inattese": "Elevation PNG with unexpected dimensions",
+    "PNG di altitudine corrotto": "Corrupt elevation PNG",
+    "PNG di altitudine non supportato (servono 8 bit, RGB/RGBA, non interlacciato)": "Unsupported elevation PNG (8-bit, RGB/RGBA, non-interlaced required)",
+    "PNG di altitudine non valido": "Invalid elevation PNG",
+    "PNG di altitudine non valido: filtro sconosciuto": "Invalid elevation PNG: unknown filter",
+    "PNG di altitudine troncato": "Truncated elevation PNG",
+    "Pacchetto non trovato": "Packet not found",
+    "Parametri della previsione non validi": "Invalid prediction parameters",
+    "Piano già applicato": "Plan already applied",
+    "Piano già ripristinato": "Plan already restored",
+    "Piano non trovato": "Plan not found",
+    "Più radio Bluetooth corrispondono: usa l'indirizzo esatto": "Several Bluetooth radios match: use the exact address",
+    "Porta in uso da un altro programma (chiudi l'app o la CLI Meshtastic)": "Port in use by another program (close the Meshtastic app or CLI)",
+    "Porta non trovata: radio scollegata?": "Port not found: is the radio unplugged?",
+    "Preparazione ancora in corso": "Preparation still in progress",
+    "Previsione di copertura non disponibile": "Coverage prediction not available",
+    "Previsione non trovata": "Prediction not found",
+    "Puoi eliminare solo i tuoi waypoint": "You can only delete your own waypoints",
+    "Radio Bluetooth non abbinata: abbinala da Impostazioni Windows → Bluetooth (PIN sullo schermo della radio)": "Bluetooth radio not paired: pair it from Windows Settings → Bluetooth (PIN on the radio screen)",
+    "Radio Bluetooth non trovata: è accesa e vicina?": "Bluetooth radio not found: is it on and nearby?",
+    "Radio non collegata": "Radio not connected",
+    "Radio non connessa": "Radio not connected",
+    "Radio non trovata": "Radio not found",
+    "Radio scollegata durante il recupero": "Radio disconnected during the retrieval",
+    "Reazione non valida": "Invalid reaction",
+    "Repository privato: inserisci un token valido in Impostazioni → Aggiornamenti": "Private repository: enter a valid token in Settings → Updates",
+    "Riquadro di altitudine danneggiato e rimosso: ricalcola": "Elevation tile damaged and removed: recalculate",
+    "Riquadro di altitudine troppo grande: scartato": "Elevation tile too large: discarded",
+    "Risposta di GitHub non valida": "Invalid GitHub response",
+    "Risposta di Telegram non valida": "Invalid Telegram response",
+    "Risposta di reindirizzamento non valida": "Invalid redirect response",
+    "Ritaglio non riuscito: file non creato": "Extraction failed: file not created",
+    "Router occupato: riprova tra poco": "Router busy: try again shortly",
+    "Scrivi un messaggio al bot su Telegram e riprova": "Write a message to the bot on Telegram and try again",
+    "Server in chiusura": "Server shutting down",
+    "Sessione non trovata": "Session not found",
+    "Sono ammessi solo download https": "Only https downloads are allowed",
+    "Store & Forward non disponibile": "Store & Forward not available",
+    "Strumento già installato": "Tool already installed",
+    "Troppi reindirizzamenti": "Too many redirects",
+    "Troppi tentativi, riprova più tardi": "Too many attempts, try again later",
+    "Un'operazione precedente sulla radio è ancora in corso: riprova tra poco": "A previous operation on the radio is still in progress: try again shortly",
+    "Valore cifrato con DPAPI: non decifrabile su questo sistema": "Value encrypted with DPAPI: cannot be decrypted on this system",
+    "Valore cifrato non valido": "Invalid encrypted value",
+    "Valore decifrato non valido": "Invalid decrypted value",
+    "Valore salvato da un sistema senza DPAPI": "Value saved by a system without DPAPI",
+    "Waypoint non trovato": "Waypoint not found",
+    "base_lat e base_lon vanno indicate insieme": "base_lat and base_lon must be given together",
+    "il backup e' vuoto o non e' un database MeshLens": "the backup is empty or is not a MeshLens database",
+    "preset: valore non valido": "preset: invalid value"
+  },
+  "patterns": [
+    [
+      "^Le posizioni del nodo mobile sono approssimate \\(circa ±(.+)\\): usa un canale privato con precisione piena oppure continua sapendolo\\.$",
+      "The mobile node positions are approximate (about ±$1): use a private channel with full precision, or continue knowingly."
+    ],
+    [
+      "^Impossibile creare il certificato HTTPS \\((.+)\\): l'accesso dalla rete è spento\\. Dal PC resta (http://127\\.0\\.0\\.1:\\d+)\\.$",
+      "Could not create the HTTPS certificate ($1): network access is off. From this PC it stays at $2."
+    ],
+    [
+      "^Non conosco la chiave del canale (.+) su (.+): aggiungilo ai canali del broker in Impostazioni$",
+      "I do not know the key of channel $1 on $2: add it to the broker channels in Settings"
+    ],
+    [
+      "^Il messaggio sarà pubblico sul broker (.+) e potrà essere ritrasmesso via radio dai gateway$",
+      "The message will be public on broker $1 and may be retransmitted over radio by gateways"
+    ],
+    [
+      "^Chiave del canale (.+) non leggibile su questo PC: reinseriscila$",
+      "Key of channel $1 is not readable on this PC: enter it again"
+    ],
+    [
+      "^Mancano (\\d+) riquadri di altitudine: scaricali per continuare$",
+      "$1 elevation tiles are missing: download them to continue"
+    ],
+    [
+      "^Attendi (\\d+) s prima di una nuova richiesta a questo router",
+      "Wait $1 s before a new request to this router"
+    ],
+    [
+      "^Il testo deve essere non vuoto e di al massimo (\\d+) byte$",
+      "The text must not be empty and at most $1 bytes long"
+    ],
+    [
+      "^Download dei dati di altitudine non riuscito: HTTP (\\d+)$",
+      "Elevation data download failed: HTTP $1"
+    ],
+    [
+      "^Spazio su disco insufficiente: servono circa (\\d+) GB$",
+      "Not enough disk space: about $1 GB needed"
+    ],
+    [
+      "^Download dei dati di altitudine non riuscito: (.+)$",
+      "Elevation data download failed: $1"
+    ],
+    [
+      "^(.+): valore fuori dall'intervallo (.+)\\.\\.(.+)$",
+      "$1: value out of range $2..$3"
+    ],
+    [
+      "^Riquadro di altitudine non disponibile: (.+)$",
+      "Elevation tile not available: $1"
+    ],
+    [
+      "^Il nodo ha rifiutato la richiesta \\((.+)\\)$",
+      "The node rejected the request ($1)"
+    ],
+    [
+      "^Backup del database non riuscito: (.+)$",
+      "Database backup failed: $1"
+    ],
+    [
+      "^Download non riuscito \\(errore (.+)\\)$",
+      "Download failed (error $1)"
+    ],
+    [
+      "^Ritaglio non riuscito \\(codice (.+)\\)$",
+      "Extraction failed (code $1)"
+    ],
+    [
+      "^il backup non e' leggibile \\((.+)\\)$",
+      "the backup is not readable ($1)"
+    ],
+    [
+      "^DPAPI non riuscita \\(errore (.+)\\)$",
+      "DPAPI failed (error $1)"
+    ],
+    [
+      "^GitHub ha risposto con errore (.+)$",
+      "GitHub replied with error $1"
+    ],
+    [
+      "^il backup e' danneggiato \\((.+)\\)$",
+      "the backup is damaged ($1)"
+    ],
+    [
+      "^Ripristino rifiutato: (.+)$",
+      "Restore refused: $1"
+    ],
+    [
+      "^Backup non riuscito: (.+)$",
+      "Backup failed: $1"
+    ],
+    [
+      "^Sezione sconosciuta: (.+)$",
+      "Unknown section: $1"
+    ],
+    [
+      "^Canale sconosciuto: (.+)$",
+      "Unknown channel: $1"
+    ],
+    [
+      "^Operazione fallita: (.+)$",
+      "Operation failed: $1"
+    ],
+    [
+      "^(.+): valore non valido$",
+      "$1: invalid value"
+    ],
+    [
+      "^Errore imprevisto: (.+)$",
+      "Unexpected error: $1"
+    ],
+    [
+      "^(.+): valore mancante$",
+      "$1: value missing"
+    ],
+    [
+      "^Attendi (\\d+) s$",
+      "Wait $1 s"
+    ]
+  ]
+}

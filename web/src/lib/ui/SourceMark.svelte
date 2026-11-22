@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { SourceKind } from './logic'
+  import { t } from '../i18n/index.svelte'
 
   interface Props {
     source: SourceKind
@@ -7,7 +8,7 @@
   }
   let { source, size = 20 }: Props = $props()
   const color = $derived(source === 'radio' ? 'var(--src-radio)' : source === 'mqtt' ? 'var(--src-mqtt)' : 'var(--src-both)')
-  const name = $derived(source === 'radio' ? 'Radio' : source === 'mqtt' ? 'MQTT' : 'Radio e MQTT')
+  const name = $derived(source === 'radio' ? 'Radio' : source === 'mqtt' ? 'MQTT' : t('common.sourceBoth'))
 </script>
 
 <span class="ui-src" title={name}>

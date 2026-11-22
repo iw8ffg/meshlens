@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { locale } from '../lib/i18n/index.svelte'
   import { untrack } from 'svelte'
   import { ApiError } from '../lib/api'
   import { formatDate, signed } from '../lib/format'
@@ -42,7 +43,7 @@
   const legal = $derived(overLegalLimit(params))
   const percent = $derived(job && job.total > 0 ? (job.done / job.total) * 100 : 0)
   const finished = $derived(coverage.sessions.filter((s) => s.ended !== null))
-  const mb = $derived(estimate ? (estimate.download_bytes / 1_000_000).toLocaleString('it-IT', { maximumFractionDigits: 1 }) : '')
+  const mb = $derived(estimate ? (estimate.download_bytes / 1_000_000).toLocaleString(locale(), { maximumFractionDigits: 1 }) : '')
 
   const msg = (e: unknown) => (e instanceof ApiError ? e.message : 'Operazione non riuscita')
 
@@ -170,7 +171,7 @@
   }
 
   const label = (p: PredictionMeta) => p.name || formatDate(p.created)
-  const pct = (n: number | null) => (n === null ? '—' : `${n.toLocaleString('it-IT', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`)
+  const pct = (n: number | null) => (n === null ? '—' : `${n.toLocaleString(locale(), { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`)
   const db = (n: number | null) => (n === null ? '—' : `${signed(n, 1)} dB`)
 </script>
 
@@ -244,7 +245,7 @@
           <li>
             <div class="info">
               <b>{label(p)}</b>
-              <small>{formatDate(p.created)} · {p.params.preset} · {p.params.radius_km} km · {p.covered_km2.toLocaleString('it-IT', { maximumFractionDigits: 1 })} km²</small>
+              <small>{formatDate(p.created)} · {p.params.preset} · {p.params.radius_km} km · {p.covered_km2.toLocaleString(locale(), { maximumFractionDigits: 1 })} km²</small>
             </div>
             <div class="row">
               {#if on}
