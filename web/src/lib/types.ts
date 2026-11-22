@@ -501,3 +501,46 @@ export interface NetworkStats {
   roles: { value: string; nodes: number }[]
   other_hardware: number
 }
+
+export interface PacketRow {
+  id: number
+  time: number
+  from: string
+  from_name: string | null
+  to: string
+  packet_id: number | null
+  source: 'rf' | 'mqtt'
+  broker: string | null
+  radio_id: string | null
+  channel: string | number | null
+  portnum: number | string | null
+  kind: string
+  status: string
+  snr: number | null
+  rssi: number | null
+  hops: number | null
+  hop_start: number | null
+  hop_limit: number | null
+  relay_node: number | null
+  gateway: string | null
+  copies: number
+  size: number | null
+}
+
+export interface PacketReception {
+  source: 'rf' | 'mqtt'
+  broker: string | null
+  radio_id: string | null
+  gateway: string | null
+  snr: number | null
+  rssi: number | null
+  hops: number | null
+  relay_node: number | null
+  time: number
+}
+
+export interface PacketDetail extends PacketRow {
+  receptions: PacketReception[]
+  summary: Record<string, unknown> | null
+  raw_hex: string
+}

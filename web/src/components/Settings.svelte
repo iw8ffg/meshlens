@@ -6,6 +6,7 @@
   import Field from '../lib/ui/Field.svelte'
   import Icon from '../lib/ui/Icon.svelte'
   import Segmented from '../lib/ui/Segmented.svelte'
+  import Select from '../lib/ui/Select.svelte'
   import Skeleton from '../lib/ui/Skeleton.svelte'
   import Switch from '../lib/ui/Switch.svelte'
   import MeshtasticBadge from '../lib/shell/MeshtasticBadge.svelte'
@@ -35,6 +36,8 @@
   let retPos = $state(90)
   let retTel = $state(365)
   let capMb = $state(2048)
+  let retPackets = $state(48)
+  let packetMode = $state<'off' | 'archived' | 'all'>('archived')
   let lan = $state(false)
   let lanHttps = $state(false)
   let tls = $state<TlsInfo | null>(null)
@@ -76,6 +79,8 @@
     retPos = s.retention_positions_days
     retTel = s.retention_telemetry_days
     capMb = s.storage_cap_mb
+    retPackets = s.retention_packets_hours ?? 48
+    packetMode = s.packet_log_mode ?? 'archived'
     lan = s.lan_access
     lanHttps = s.lan_https ?? false
     batteryPct = s.battery_alert_pct
@@ -147,6 +152,8 @@
         retention_positions_days: retPos,
         retention_telemetry_days: retTel,
         storage_cap_mb: capMb,
+        retention_packets_hours: retPackets,
+        packet_log_mode: packetMode,
         lan_access: lan,
         lan_https: lanHttps,
         mqtt_channels: onlyChosen ? chosen : [],
@@ -220,7 +227,16 @@
             <Field label="Posizioni (giorni)" for="set-ret-pos">{#snippet children()}<input id="set-ret-pos" class="ui-input ui-mono" type="number" min="1" bind:value={retPos} />{/snippet}</Field>
             <Field label="Telemetria (giorni)" for="set-ret-tel">{#snippet children()}<input id="set-ret-tel" class="ui-input ui-mono" type="number" min="1" bind:value={retTel} />{/snippet}</Field>
             <Field label="Limite spazio (MB)" for="set-cap">{#snippet children()}<input id="set-cap" class="ui-input ui-mono" type="number" min="1" bind:value={capMb} />{/snippet}</Field>
+            <Field label="Pacchetti (ore)" for="set-ret-pkt">{#snippet children()}<input id="set-ret-pkt" class="ui-input ui-mono" type="number" min="1" max="168" bind:value={retPackets} />{/snippet}</Field>
+            <Field label="Ispettore dei pacchetti" for="set-pkt-mode">{#snippet children()}
+              <Select id="set-pkt-mode" bind:value={packetMode}>
+                <option value="off">Spento</option>
+                <option value="archived">Nodi archiviati e radio</option>
+                <option value="all">Tutto il traffico</option>
+              </Select>
+            {/snippet}</Field>
           </div>
+          <p class="ui-hint">Con «Tutto il traffico» il broker pubblico occupa molto spazio: si tengono al massimo 300 000 pacchetti.</p>
         </section>
       </Card>
 

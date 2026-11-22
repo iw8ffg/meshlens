@@ -3,6 +3,7 @@
   import Segmented from '../lib/ui/Segmented.svelte'
   import Network from './Network.svelte'
   import NetworkStats from './NetworkStats.svelte'
+  import PacketInspector from './PacketInspector.svelte'
   import type { Node } from '../lib/types'
 
   let { nodes, now, onpick }: { nodes: Node[]; now: number; onpick: (n: Node) => void } = $props()
@@ -10,11 +11,11 @@
   const VIEWS: { value: NetView; label: string }[] = [
     { value: 'nodes', label: 'Nodi' },
     { value: 'stats', label: 'Statistiche' },
+    { value: 'packets', label: 'Pacchetti' },
   ]
 
   const saved = loadView(localStorage).netView
-  // La voce «Pacchetti» arriva con l'ispettore: finché manca, vale «Nodi»
-  let view = $state<NetView>(saved === 'stats' ? 'stats' : 'nodes')
+  let view = $state<NetView>(saved)
 
   const pickId = (id: string) => {
     const n = nodes.find((x) => x.id === id)
@@ -28,6 +29,8 @@
   </div>
   {#if view === 'stats'}
     <NetworkStats onpick={pickId} />
+  {:else if view === 'packets'}
+    <PacketInspector {nodes} onpick={pickId} />
   {:else}
     <Network {nodes} {now} {onpick} />
   {/if}

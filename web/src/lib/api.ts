@@ -1,6 +1,8 @@
 import type {
   Alert,
   NetworkStats,
+  PacketDetail,
+  PacketRow,
   CoverageCheck,
   CoverageDetail,
   CoverageLastPlan,
@@ -214,3 +216,5 @@ export const notifyStatus = () => getJSON<NotifyStatus>('/notify/status')
 export const notifyTest = (channel: 'toast' | 'telegram') => send<{ ok: boolean }>('POST', '/notify/test', { channel })
 export const telegramFindChat = () => send<{ chat_id: string; title: string }>('POST', '/notify/telegram/chat')
 export const networkStats = (hours: number) => getJSON<NetworkStats>(`/stats?hours=${hours}`)
+export const packets = (query: string) => getJSON<{ items: PacketRow[]; next_before_id: number | null }>(`/packets?${query}`)
+export const packet = (id: number) => getJSON<PacketDetail>(`/packets/${id}`)

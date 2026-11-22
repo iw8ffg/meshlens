@@ -64,6 +64,9 @@ export interface AppSettings {
   notify_mine_status?: boolean
   notify_new_node?: boolean
   notify_keywords?: string[]
+  /** Ispettore dei pacchetti: spento, nodi archiviati e radio, o tutto il traffico. */
+  packet_log_mode?: 'off' | 'archived' | 'all'
+  retention_packets_hours?: number
 }
 
 // Una voce per riga: spazi tolti, righe vuote scartate
