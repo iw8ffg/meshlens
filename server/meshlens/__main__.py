@@ -49,6 +49,20 @@ def main(argv: list[str] | None = None) -> int:
         print("PIN azzerato: al prossimo accesso dal PC potrai sceglierne uno nuovo.")
         return 0
 
+    # MeshLens gia' attivo (es. la versione installata): niente secondo avvio sugli stessi dati
+    from .tray import single_instance
+    url = f"http://127.0.0.1:{args.port}"
+    state = single_instance(args.port)
+    if state == "meshlens":
+        print(f"MeshLens è già in esecuzione su {url}: apro il browser.")
+        if not args.no_browser:
+            webbrowser.open(url)
+        return 0
+    if state == "other":
+        print(f"La porta {args.port} è occupata da un altro programma: chiudilo oppure "
+              f"avvia con --port <altra porta>.")
+        return 1
+
     import asyncio
     from uvicorn.config import LOGGING_CONFIG
     from .app import build
