@@ -3,6 +3,7 @@
   import { ApiError, traceroute, traceroutes } from '../lib/api'
   import { formatDate, signed } from '../lib/format'
   import { t } from '../lib/i18n/index.svelte'
+  import { translateServer } from '../lib/i18n/server'
   import Banner from '../lib/ui/Banner.svelte'
   import Button from '../lib/ui/Button.svelte'
   import Select from '../lib/ui/Select.svelte'
@@ -108,7 +109,7 @@
 
   function failure(tr: Traceroute): string {
     if (tr.status === 'timeout') return t('nodes.tr.timeout')
-    return tr.error ? t('nodes.tr.failedWith', { error: tr.error }) : t('nodes.tr.failed')
+    return tr.error ? t('nodes.tr.failedWith', { error: translateServer(tr.error) }) : t('nodes.tr.failed')
   }
 
   const pending = $derived(busy || current?.status === 'pending')

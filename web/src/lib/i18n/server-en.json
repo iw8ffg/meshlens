@@ -3,8 +3,11 @@
     "Accesso richiesto": "Access required",
     "Aggiornamenti non disponibili": "Updates not available",
     "Aggiornamento non scaricato": "Update not downloaded",
+    "Annullato": "Cancelled",
     "Anteprima sconosciuta o scaduta: ripeti l'anteprima": "Unknown or expired preview: repeat the preview",
     "Anteprima sconosciuta o scaduta: ripeti la preparazione": "Unknown or expired preview: repeat the preparation",
+    "Applicato (nessun riavvio rilevato)": "Applied (no restart detected)",
+    "Apro la transazione": "Opening the transaction",
     "Archivio dello strumento non valido": "Invalid tool archive",
     "Area non valida: il minimo deve essere minore del massimo": "Invalid area: the minimum must be less than the maximum",
     "Area non valida: latitudine fuori da -85..85": "Invalid area: latitude out of range -85..85",
@@ -12,6 +15,8 @@
     "Area non valida: servono 4 coordinate": "Invalid area: 4 coordinates required",
     "Area troppo grande: massimo 40° x 40°": "Area too large: maximum 40° x 40°",
     "Attendi la fine del download in corso": "Wait for the current download to finish",
+    "Attendo la radio": "Waiting for the radio",
+    "Attendo la radio e verifico": "Waiting for the radio and verifying",
     "Backup non disponibili": "Backups not available",
     "Backup non trovato": "Backup not found",
     "Broker non trovato": "Broker not found",
@@ -20,16 +25,23 @@
     "C'è già un download in corso": "A download is already in progress",
     "C'è già un recupero in corso su questa radio": "A retrieval is already in progress on this radio",
     "C'è già una sessione in corso": "A session is already in progress",
+    "Calcolo": "Calculation",
     "Calcolo annullato": "Calculation cancelled",
     "Canale non trovato": "Channel not found",
     "Canale non valido": "Invalid channel",
+    "Canali letti": "Channels read",
+    "Chiave mascherata senza corrispondenza: reinseriscila": "Masked key with no match: enter it again",
     "Collega una radio o imposta il tuo id nodo in Impostazioni → MQTT": "Connect a radio or set your node id in Settings → MQTT",
+    "Completato": "Completed",
     "Conferma richiesta": "Confirmation required",
     "Conferma richiesta per modifiche a rischio": "Confirmation required for risky changes",
+    "Confermo le modifiche": "Committing the changes",
     "Configurazione dei nodi non disponibile": "Node configuration not available",
     "Connessione Bluetooth non riuscita: avvicina la radio e riprova": "Bluetooth connection failed: move the radio closer and try again",
+    "Contatto il nodo": "Contacting the node",
     "Content-Type non supportato": "Unsupported Content-Type",
     "Controllo aggiornamenti non riuscito": "Update check failed",
+    "Controllo la radio": "Checking the radio",
     "Conversazione non valida": "Invalid conversation",
     "Coordinate della base non valide": "Invalid base coordinates",
     "Coordinate non valide": "Invalid coordinates",
@@ -37,19 +49,26 @@
     "Database non disponibile": "Database not available",
     "Database occupato (backup o lettura in corso): riprova tra qualche minuto": "Database busy (backup or read in progress): try again in a few minutes",
     "Dati di altitudine mancanti per l'area": "Elevation data missing for the area",
+    "Descrizione troppo lunga (max 100 byte)": "Description too long (max 100 bytes)",
     "Destinatario non valido": "Invalid recipient",
     "Dimensione dell'installer inattesa": "Unexpected installer size",
     "Disponibile solo nella versione installata": "Only available in the installed version",
+    "Download dei dati di altitudine": "Downloading elevation data",
     "Download già in corso": "Download already in progress",
     "Download in corso": "Download in progress",
     "Download non riuscito": "Download failed",
+    "Fatto": "Done",
     "Ferma la sessione prima di eliminarla": "Stop the session before deleting it",
     "File SHA-256 non scaricabile": "SHA-256 file cannot be downloaded",
     "File SHA-256 non valido": "Invalid SHA-256 file",
+    "Formato del file di impostazioni non supportato": "Unsupported settings file format",
     "Host non consentito": "Host not allowed",
     "I segreti si esportano solo da questo PC": "Secrets can only be exported from this PC",
+    "Icona non valida": "Invalid icon",
     "Identificativo del nodo mobile non valido": "Invalid mobile node identifier",
     "Identificativo del nodo non valido": "Invalid node identifier",
+    "Il broker predefinito non si può eliminare: puoi disattivarlo": "The default broker cannot be deleted: you can disable it",
+    "Il file non contiene le impostazioni": "The file does not contain any settings",
     "Il link non contiene canali": "The link contains no channels",
     "Il nodo ha rifiutato la richiesta": "The node rejected the request",
     "Il nodo mobile coincide con la radio di base": "The mobile node is the same as the base radio",
@@ -59,15 +78,20 @@
     "Il piano non è stato applicato": "The plan has not been applied",
     "Il router ha risposto con un errore": "The router replied with an error",
     "Il router rifiuta le richieste sul canale pubblico: scegli un canale privato condiviso con il router": "The router refuses requests on the public channel: choose a private channel shared with the router",
+    "Impossibile leggere le porte seriali": "Unable to read the serial ports",
     "Impostazione del PIN non consentita": "PIN change not allowed",
+    "Imposto la posizione fissa": "Setting the fixed position",
     "Impronta SHA-256 non corrispondente: file scartato": "SHA-256 fingerprint mismatch: file discarded",
     "Impronta del file non valida: download annullato": "Invalid file fingerprint: download cancelled",
+    "In coda": "Queued",
+    "Indirizzo mancante": "Address missing",
     "Inserisci il token del bot e l'id della chat": "Enter the bot token and the chat id",
     "Inserisci prima il token del bot": "Enter the bot token first",
     "Installazione già in corso": "Installation already in progress",
     "Installer troppo grande": "Installer too large",
     "Interrotto": "Interrupted",
     "Invio MQTT non disponibile": "MQTT sending not available",
+    "Invio il riavvio": "Sending the restart",
     "La configurazione del nodo è cambiata: rivedi le modifiche": "The node configuration has changed: review the changes",
     "La configurazione è stata riletta: ripeti l'anteprima": "The configuration was re-read: repeat the preview",
     "La configurazione è stata riletta: ripeti la preparazione": "The configuration was re-read: repeat the preparation",
@@ -83,11 +107,15 @@
     "Le radio sono già pronte per la prova": "The radios are already ready for the test",
     "Leggi di nuovo la configurazione del nodo prima di scrivere": "Read the node configuration again before writing",
     "Leggi prima la configurazione": "Read the configuration first",
+    "Leggo la radio": "Reading the radio",
+    "Letta la configurazione": "Configuration read",
     "Link non valido: usa un link https://meshtastic.org/e/#…": "Invalid link: use a https://meshtastic.org/e/#… link",
     "MQTT non connesso": "MQTT not connected",
     "Mappa non trovata": "Map not found",
     "Mappe offline non disponibili": "Offline maps not available",
     "Messaggio di riferimento non valido": "Invalid reference message",
+    "Messaggio troppo lungo (max 200 byte)": "Message too long (max 200 bytes)",
+    "Messaggio vuoto": "Empty message",
     "Nessun aggiornamento disponibile": "No update available",
     "Nessuna configurazione letta per questo nodo": "No configuration read for this node",
     "Nessuna connessione": "No connection",
@@ -100,9 +128,12 @@
     "Nessuna risposta entro 60 s": "No response within 60 s",
     "Nodo non trovato": "Node not found",
     "Nodo non valido": "Invalid node",
+    "Nome del backup non valido": "Invalid backup name",
     "Nome del canale non valido": "Invalid channel name",
+    "Nome non valido (1-30 byte)": "Invalid name (1-30 bytes)",
     "Non eseguito: il passo precedente non è riuscito": "Not run: the previous step failed",
     "Notifiche di Windows disponibili solo con MeshLens avviato dall'icona nell'area di notifica": "Windows notifications are only available when MeshLens is started from the notification area icon",
+    "Ogni broker deve essere un oggetto": "Each broker must be an object",
     "Orario non valido": "Invalid time",
     "PIN attuale errato": "Current PIN incorrect",
     "PIN errato": "Incorrect PIN",
@@ -126,25 +157,40 @@
     "Puoi eliminare solo i tuoi waypoint": "You can only delete your own waypoints",
     "Radio Bluetooth non abbinata: abbinala da Impostazioni Windows → Bluetooth (PIN sullo schermo della radio)": "Bluetooth radio not paired: pair it from Windows Settings → Bluetooth (PIN on the radio screen)",
     "Radio Bluetooth non trovata: è accesa e vicina?": "Bluetooth radio not found: is it on and nearby?",
+    "Radio già aggiunta": "Radio already added",
     "Radio non collegata": "Radio not connected",
     "Radio non connessa": "Radio not connected",
     "Radio non trovata": "Radio not found",
     "Radio scollegata durante il recupero": "Radio disconnected during the retrieval",
     "Reazione non valida": "Invalid reaction",
     "Repository privato: inserisci un token valido in Impostazioni → Aggiornamenti": "Private repository: enter a valid token in Settings → Updates",
+    "Rileggo il nodo prima di scrivere": "Re-reading the node before writing",
+    "Rimuovo la posizione fissa": "Removing the fixed position",
     "Riquadro di altitudine danneggiato e rimosso: ricalcola": "Elevation tile damaged and removed: recalculate",
     "Riquadro di altitudine troppo grande: scartato": "Elevation tile too large: discarded",
     "Risposta di GitHub non valida": "Invalid GitHub response",
     "Risposta di Telegram non valida": "Invalid Telegram response",
     "Risposta di reindirizzamento non valida": "Invalid redirect response",
+    "Ritaglio della mappa": "Extracting the map",
     "Ritaglio non riuscito: file non creato": "Extraction failed: file not created",
     "Router occupato: riprova tra poco": "Router busy: try again shortly",
+    "Salvataggio": "Saving",
+    "Salvo la copia di sicurezza": "Saving the backup copy",
+    "Salvo la nuova lettura": "Saving the new reading",
+    "Scadenza non valida (1-720 ore)": "Invalid expiry (1-720 hours)",
+    "Scansione Bluetooth non riuscita: il Bluetooth è acceso?": "Bluetooth scan failed: is Bluetooth on?",
+    "Scansione Bluetooth scaduta": "Bluetooth scan timed out",
+    "Scarico lo strumento go-pmtiles": "Downloading the go-pmtiles tool",
+    "Scritto: il nodo si sta riavviando, rileggi tra poco": "Written: the node is restarting, read it again shortly",
     "Scrivi un messaggio al bot su Telegram e riprova": "Write a message to the bot on Telegram and try again",
+    "Scrivo il nome": "Writing the name",
+    "Scrivo la configurazione": "Writing the configuration",
     "Server in chiusura": "Server shutting down",
     "Sessione non trovata": "Session not found",
     "Sono ammessi solo download https": "Only https downloads are allowed",
     "Store & Forward non disponibile": "Store & Forward not available",
     "Strumento già installato": "Tool already installed",
+    "Tipo di radio non valido": "Invalid radio type",
     "Troppi reindirizzamenti": "Too many redirects",
     "Troppi tentativi, riprova più tardi": "Too many attempts, try again later",
     "Un'operazione precedente sulla radio è ancora in corso: riprova tra poco": "A previous operation on the radio is still in progress: try again shortly",
@@ -152,10 +198,31 @@
     "Valore cifrato non valido": "Invalid encrypted value",
     "Valore decifrato non valido": "Invalid decrypted value",
     "Valore salvato da un sistema senza DPAPI": "Value saved by a system without DPAPI",
+    "Verifica dell'impronta": "Verifying the checksum",
+    "Verifico": "Verifying",
     "Waypoint non trovato": "Waypoint not found",
+    "base64 non valido": "Invalid base64",
     "base_lat e base_lon vanno indicate insieme": "base_lat and base_lon must be given together",
+    "deve essere una stringa base64": "Must be a base64 string",
     "il backup e' vuoto o non e' un database MeshLens": "the backup is empty or is not a MeshLens database",
-    "preset: valore non valido": "preset: invalid value"
+    "map_mode deve essere auto, online oppure offline": "map_mode must be auto, online or offline",
+    "maps_source_url deve essere un URL https che termina con .pmtiles": "maps_source_url must be an https URL ending in .pmtiles",
+    "maps_source_url deve essere una stringa": "maps_source_url must be a string",
+    "mqtt deve essere un oggetto": "mqtt must be an object",
+    "mqtt.host non può essere vuoto": "mqtt.host cannot be empty",
+    "mqtt.port deve essere un numero tra 1 e 65535": "mqtt.port must be a number between 1 and 65535",
+    "mqtt_brokers deve essere una lista": "mqtt_brokers must be a list",
+    "mqtt_channels deve essere una lista di al massimo 20 nomi (da 1 a 32 caratteri)": "mqtt_channels must be a list of at most 20 names (1 to 32 characters)",
+    "mqtt_node_id deve essere vuoto oppure nel formato !xxxxxxxx": "mqtt_node_id must be empty or in the format !xxxxxxxx",
+    "mqtt_send_confirmed deve essere vero o falso": "mqtt_send_confirmed must be true or false",
+    "mqtt_send_confirmed_brokers deve essere una lista di id di broker": "mqtt_send_confirmed_brokers must be a list of broker ids",
+    "packet_log_mode deve essere off, archived oppure all": "packet_log_mode must be off, archived or all",
+    "preset: valore non valido": "preset: invalid value",
+    "saved_countries deve essere una lista di codici di 2 lettere maiuscole": "saved_countries must be a list of 2-letter uppercase codes",
+    "telegram_chat_id deve essere vuoto oppure un numero intero": "telegram_chat_id must be empty or an integer",
+    "telegram_token non ha il formato di un token di BotFather": "telegram_token is not in the format of a BotFather token",
+    "update_auto_check deve essere vero o falso": "update_auto_check must be true or false",
+    "update_repo deve avere il formato owner/nome": "update_repo must be in the format owner/name"
   },
   "patterns": [
     [
@@ -277,6 +344,210 @@
     [
       "^Attendi (\\d+) s$",
       "Wait $1 s"
+    ],
+    [
+      "^il PIN deve essere di (\\d+)-(\\d+) cifre$",
+      "The PIN must be $1-$2 digits long"
+    ],
+    [
+      "^Motivo di backup sconosciuto: (.+)$",
+      "Unknown backup reason: $1"
+    ],
+    [
+      "^PSK a un byte non valida: (.+)$",
+      "Invalid single-byte PSK: $1"
+    ],
+    [
+      "^lunghezza PSK non valida: (\\d+) byte$",
+      "Invalid PSK length: $1 bytes"
+    ],
+    [
+      "^Letta la sezione (.+)$",
+      "Section $1 read"
+    ],
+    [
+      "^Scrivo il canale (.+)$",
+      "Writing channel $1"
+    ],
+    [
+      "^Scrivo (.+)$",
+      "Writing $1"
+    ],
+    [
+      "^Indice di canale fuori intervallo \\(0-(\\d+)\\): (.+)$",
+      "Channel index out of range (0-$1): $2"
+    ],
+    [
+      "^Indice di canale non valido: (.+)$",
+      "Invalid channel index: $1"
+    ],
+    [
+      "^Percorso sconosciuto: (.+)$",
+      "Unknown path: $1"
+    ],
+    [
+      "^(.+): atteso vero/falso$",
+      "$1: expected true/false"
+    ],
+    [
+      "^(.+): atteso un numero intero$",
+      "$1: expected an integer"
+    ],
+    [
+      "^(.+): atteso un numero$",
+      "$1: expected a number"
+    ],
+    [
+      "^(.+): atteso un testo base64$",
+      "$1: expected a base64 text"
+    ],
+    [
+      "^(.+): atteso un testo$",
+      "$1: expected a text"
+    ],
+    [
+      "^(.+): atteso un elenco$",
+      "$1: expected a list"
+    ],
+    [
+      "^(.+): valore fuori intervallo \\((.+)\\.\\.(.+)\\)$",
+      "$1: value out of range ($2..$3)"
+    ],
+    [
+      "^(.+): valore non valido, ammessi: (.+)$",
+      "$1: invalid value, allowed: $2"
+    ],
+    [
+      "^(.+): base64 non valido$",
+      "$1: invalid base64"
+    ],
+    [
+      "^(.+): tipo non supportato$",
+      "$1: unsupported type"
+    ],
+    [
+      "^Impostazione mqtt sconosciuta: (.+)$",
+      "Unknown mqtt setting: $1"
+    ],
+    [
+      "^Impostazione del broker sconosciuta: (.+)$",
+      "Unknown broker setting: $1"
+    ],
+    [
+      "^Impostazione sconosciuta: (.+)$",
+      "Unknown setting: $1"
+    ],
+    [
+      "^mqtt\\.(.+) deve essere una lista di stringhe$",
+      "mqtt.$1 must be a list of strings"
+    ],
+    [
+      "^mqtt\\.(.+) deve essere una stringa$",
+      "mqtt.$1 must be a string"
+    ],
+    [
+      "^Chiave PSK non valida \\((.+)\\): (.+)$",
+      "Invalid PSK key ($1): $2"
+    ],
+    [
+      "^Broker (.+): channels deve essere una lista$",
+      "Broker $1: channels must be a list"
+    ],
+    [
+      "^Broker (.+): al massimo (\\d+) canali$",
+      "Broker $1: at most $2 channels"
+    ],
+    [
+      "^Broker (.+): ogni canale deve essere un oggetto$",
+      "Broker $1: each channel must be an object"
+    ],
+    [
+      "^Broker (.+): impostazione del canale sconosciuta: (.+)$",
+      "Broker $1: unknown channel setting: $2"
+    ],
+    [
+      "^Broker (.+): (.+) deve essere vero o falso$",
+      "Broker $1: $2 must be true or false"
+    ],
+    [
+      "^Broker (.+): (.+) deve essere una stringa$",
+      "Broker $1: $2 must be a string"
+    ],
+    [
+      "^Broker (.+): host vuoto$",
+      "Broker $1: empty host"
+    ],
+    [
+      "^Broker (.+): porta non valida$",
+      "Broker $1: invalid port"
+    ],
+    [
+      "^Broker (.+): indica almeno un topic$",
+      "Broker $1: specify at least one topic"
+    ],
+    [
+      "^Broker (.+): extra_keys deve essere una lista di stringhe$",
+      "Broker $1: extra_keys must be a list of strings"
+    ],
+    [
+      "^Broker (.+): chiave PSK non valida \\((.+)\\)$",
+      "Broker $1: invalid PSK key ($2)"
+    ],
+    [
+      "^Broker (.+): id non valido$",
+      "Broker $1: invalid id"
+    ],
+    [
+      "^Broker (.+): id già usato da un altro broker$",
+      "Broker $1: id already used by another broker"
+    ],
+    [
+      "^Canale (.+): il nome deve avere da (\\d+) a (\\d+) caratteri$",
+      "Channel $1: the name must be $2 to $3 characters long"
+    ],
+    [
+      "^Canale (.+): il nome non può contenere / # \\+$",
+      "Channel $1: the name cannot contain / # +"
+    ],
+    [
+      "^Canale (.+): nome già usato in questo broker$",
+      "Channel $1: name already used in this broker"
+    ],
+    [
+      "^Canale (.+): chiave PSK non valida \\((.+)\\)$",
+      "Channel $1: invalid PSK key ($2)"
+    ],
+    [
+      "^Il nome del broker deve avere da (\\d+) a (\\d+) caratteri$",
+      "The broker name must be $1 to $2 characters long"
+    ],
+    [
+      "^Al massimo (\\d+) broker$",
+      "At most $1 brokers"
+    ],
+    [
+      "^Impossibile cifrare (.+): (.+)$",
+      "Unable to encrypt $1: $2"
+    ],
+    [
+      "^notify_keywords deve essere una lista di al massimo (\\d+) parole \\(da (\\d+) a (\\d+) caratteri, senza spazi agli estremi\\)$",
+      "notify_keywords must be a list of at most $1 words ($2 to $3 characters, no leading or trailing spaces)"
+    ],
+    [
+      "^(.+) deve essere un numero intero positivo$",
+      "$1 must be a positive integer"
+    ],
+    [
+      "^(.+) deve essere un numero intero tra (\\d+) e (\\d+)$",
+      "$1 must be an integer between $2 and $3"
+    ],
+    [
+      "^(.+) deve essere vero o falso$",
+      "$1 must be true or false"
+    ],
+    [
+      "^(.+) deve essere una stringa$",
+      "$1 must be a string"
     ]
   ]
 }

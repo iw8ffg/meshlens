@@ -25,12 +25,23 @@ function patterns(): [RegExp, string][] {
   return compiled
 }
 
-export function translateServer(msg: string): string {
-  if (i18n.lang === 'it' || !msg) return msg
+/** Cerca la traduzione di `msg`; con `deep` traduce una volta anche i gruppi catturati dal modello
+ * (es. il motivo di una chiave PSK non valida, che e' a sua volta un messaggio del server). */
+function lookup(msg: string, deep: boolean): string {
   const exact = Object.hasOwn(cat.exact, msg) ? cat.exact[msg] : undefined
   if (exact !== undefined) return exact
   for (const [re, repl] of patterns()) {
-    if (re.test(msg)) return msg.replace(re, repl)
+    const m = re.exec(msg)
+    if (!m) continue
+    return repl.replace(/\$(\d)/g, (whole, d: string) => {
+      const g = m[Number(d)]
+      return g === undefined ? whole : deep ? lookup(g, false) : g
+    })
   }
   return msg
+}
+
+export function translateServer(msg: string): string {
+  if (i18n.lang === 'it' || !msg) return msg
+  return lookup(msg, true)
 }

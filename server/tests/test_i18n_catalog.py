@@ -4,6 +4,7 @@ deve avere la traduzione in web/src/lib/i18n/server-en.json.
 Il test scorre con `ast` i sorgenti di server/meshlens e raccoglie:
 - gli argomenti-messaggio delle chiamate alle classi d'errore elencate in ERROR_CALLS;
 - le costanti di modulo che hanno nome da messaggio (MSG_*, *_MSG, *_TEXT, ...);
+- i testi dei passi di avanzamento dei lavori (`step=`, `phase(n, ...)`, STEP_*);
 - i valori di `error=`/`.error =`/`_fail(...)` e le chiavi "detail"/"error" dei dizionari.
 Una `Constant` deve stare in `exact`; una `JoinedStr`, con una cifra al posto dei campi, deve
 corrispondere a un pattern.
@@ -38,14 +39,20 @@ ERROR_CALLS = {
     "BackupUnusable": 0,
     "SessionActive": 0,
     "NoRadioConnected": 0,
+    # i ValueError di validazione arrivano all'utente (come 400/422 o dentro un errore di lavoro)
+    "ValueError": 0,
 }
+# Moduli i cui ValueError sono invarianti interne, mai mostrate: non servono traduzioni.
+INTERNAL_VALUE_ERRORS = {"store.py", "tiles.py", "maps.py", "serving.py", "coverage.py"}
+# Chiamate che ricevono il testo di un passo di avanzamento di un lavoro: nome -> indice dell'argomento.
+STEP_CALLS = {"phase": 1, "_step": 1, "step": 0}
 KEYWORDS = {"detail", "message", "error"}
 MSG_CONST = re.compile(
-    r"^(MSG_.*|.*_MSG|.*_TEXT|TELEGRAM_(NO|NOT|BAD)_.*|WAYPOINT_.*|CONV_.*|REACTION_.*|INVALID_.*)$"
+    r"^(MSG_.*|STEP_.*|.*_MSG|.*_TEXT|TELEGRAM_(NO|NOT|BAD)_.*|WAYPOINT_.*|CONV_.*|REACTION_.*|INVALID_.*)$"
 )
 # costanti con nome da messaggio che non sono testi per l'utente
 NOT_MESSAGES = {"MSG_PORT_BUSY_RE"}
-DICT_KEYS = {"detail", "error"}
+DICT_KEYS = {"detail", "error", "step"}
 LETTERS = re.compile(r"[^\W\d_]{3,}")
 
 
@@ -87,6 +94,10 @@ def _collect():
     found: list[tuple[str, str, str]] = []  # (file, kind, text)
 
     def add(fname, node):
+        if isinstance(node, ast.IfExp):
+            add(fname, node.body)
+            add(fname, node.orelse)
+            return
         if isinstance(node, ast.Name):
             for v in consts.get(node.id, ()):
                 found.append((fname, "const", v))
@@ -100,6 +111,10 @@ def _collect():
             if isinstance(node, ast.Call):
                 f = node.func
                 name = f.id if isinstance(f, ast.Name) else f.attr if isinstance(f, ast.Attribute) else None
+                if name == "ValueError" and fname in INTERNAL_VALUE_ERRORS:
+                    continue
+                if name in STEP_CALLS and len(node.args) > STEP_CALLS[name]:
+                    add(fname, node.args[STEP_CALLS[name]])
                 if name in ERROR_CALLS:
                     idx = ERROR_CALLS[name]
                     if len(node.args) > idx:
@@ -110,7 +125,7 @@ def _collect():
                 elif name == "_fail" and len(node.args) > 1:
                     add(fname, node.args[1])
                 for kw in node.keywords:
-                    if kw.arg == "error" and name not in ERROR_CALLS:
+                    if kw.arg in ("error", "step") and name not in ERROR_CALLS:
                         add(fname, kw.value)
             elif isinstance(node, ast.Assign):
                 for tgt in node.targets:

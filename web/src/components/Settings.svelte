@@ -26,6 +26,7 @@
   import { channelNameError, fromServer, pskError } from '../lib/brokers'
   import { formatDate } from '../lib/format'
   import { i18n, setLang, t, LANGS, LANG_LABELS, type Lang, type MsgKey } from '../lib/i18n/index.svelte'
+  import { translateServer } from '../lib/i18n/server'
 
   let { onlogout }: { onlogout: () => void } = $props()
 
@@ -275,7 +276,7 @@
               <span class="ui-hint">{t('settings.net.expires', { date: formatDate(tls.not_after) })}</span>
             </div>
           {/if}
-          {#if tls?.error}<Banner kind="danger" title={tls.error} />{/if}
+          {#if tls?.error}<Banner kind="danger" title={translateServer(tls.error)} />{/if}
         </section>
       </Card>
 
