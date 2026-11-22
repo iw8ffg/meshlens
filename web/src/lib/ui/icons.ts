@@ -55,6 +55,8 @@ import IArrowLeft from '@lucide/svelte/icons/arrow-left'
 import IRuler from '@lucide/svelte/icons/ruler'
 import IBoxes from '@lucide/svelte/icons/boxes'
 import ILocateFixed from '@lucide/svelte/icons/locate-fixed'
+import IMaximize from '@lucide/svelte/icons/maximize-2'
+import IMinimize from '@lucide/svelte/icons/minimize-2'
 
 export const ICONS = {
   map: IMap,
@@ -112,6 +114,8 @@ export const ICONS = {
   ruler: IRuler,
   cluster: IBoxes,
   locate: ILocateFixed,
+  expand: IMaximize,
+  collapse: IMinimize,
 } as const satisfies Record<string, Component<any>>
 
 export type IconName = keyof typeof ICONS

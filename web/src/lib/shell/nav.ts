@@ -48,8 +48,28 @@ export function navActive(tab: Tab): Tab {
   return isMoreTab(tab) ? 'more' : tab
 }
 
-export function isPageTab(tab: Tab): boolean {
-  return PAGE_TABS.includes(tab)
+/** Pagina intera su desktop: Rete e Impostazioni sempre, Messaggi quando è espansa. */
+export function isPageTab(tab: Tab, chatExpanded = false): boolean {
+  return PAGE_TABS.includes(tab) || (tab === 'chat' && chatExpanded)
+}
+
+export const CHAT_EXPANDED_KEY = 'meshlens.chatExpanded'
+
+/** Messaggi a pagina intera (scelta ricordata nel browser); predefinito: pannello accanto alla mappa. */
+export function loadChatExpanded(storage: Pick<Storage, 'getItem'> | null): boolean {
+  try {
+    return storage?.getItem(CHAT_EXPANDED_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
+export function saveChatExpanded(storage: Pick<Storage, 'setItem'> | null, v: boolean): void {
+  try {
+    storage?.setItem(CHAT_EXPANDED_KEY, v ? '1' : '0')
+  } catch {
+    // localStorage non disponibile: vale solo per questa sessione
+  }
 }
 
 /** Su telefono: il pannello (Sheet) è visibile se non si è sulla mappa o c'è un nodo selezionato. */

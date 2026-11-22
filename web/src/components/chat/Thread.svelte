@@ -20,6 +20,7 @@
   import MessageActions from './MessageActions.svelte'
   import MessageQuote from './MessageQuote.svelte'
   import ReactionChips from './ReactionChips.svelte'
+  import type { Snippet } from 'svelte'
   import type { Message } from '../../lib/types'
 
   let {
@@ -30,6 +31,8 @@
     onback,
     onreply,
     onreact,
+    wide = false,
+    actions,
   }: {
     conv: string
     msgs: Message[]
@@ -38,6 +41,10 @@
     onback: () => void
     onreply: (m: Message) => void
     onreact: (m: Message, emoji: string) => void
+    /** Pagina espansa: l'elenco è già a sinistra, niente «indietro» */
+    wide?: boolean
+    /** Pulsanti a destra del titolo (es. Espandi) */
+    actions?: Snippet
   } = $props()
 
   const PAGE = 200
@@ -118,11 +125,14 @@
 
 <div class="thread">
   <header class="head">
-    <button type="button" class="back" onclick={onback}>
-      <span aria-hidden="true">‹</span>
-      <span>{t('chat.conversations')}</span>
-    </button>
+    {#if !wide}
+      <button type="button" class="back" onclick={onback}>
+        <span aria-hidden="true">‹</span>
+        <span>{t('chat.conversations')}</span>
+      </button>
+    {/if}
     <h2 class="title">{title}</h2>
+    {#if actions}<span class="actions">{@render actions()}</span>{/if}
   </header>
 
   {#if keyChanged}
@@ -230,6 +240,10 @@
   .back:focus-visible {
     outline: 2px solid var(--focus-ring);
     outline-offset: 2px;
+  }
+  .actions {
+    margin-left: auto;
+    flex: none;
   }
   .title {
     margin: 0;

@@ -24,7 +24,7 @@
   import Toast from './lib/ui/Toast.svelte'
   import { setNavigator } from './lib/shell/navigate'
   import { viewport } from './lib/viewport.svelte'
-  import { MORE_TABS, effectiveTab, isMoreTab, isPageTab, sheetVisible, type Tab } from './lib/shell/nav'
+  import { MORE_TABS, effectiveTab, isMoreTab, isPageTab, loadChatExpanded, saveChatExpanded, sheetVisible, type Tab } from './lib/shell/nav'
   import type { SheetSnap } from './lib/ui/sheetSnap'
   import { matchNode } from './lib/filters'
   import { myOrigin } from './lib/distance'
@@ -42,7 +42,7 @@
   import { t } from './lib/i18n/index.svelte'
   import { markOnline, markOffline, resetConn } from './lib/connection.svelte'
   import { serialRunner } from './lib/serial'
-  import { app, upsertNodes, addMessage, addRadioHistory, setMessageStatus, setStatus, setRadios, setAlerts, setTraceroute, persistFilter, persistFeedFilter, coverage, setCoverageSessions, applyCoverage, configUi, setConfigJob, setMapJob, setUpdateStatus, setUpdateJob, openChat, setWaypoints, upsertWaypoint, removeWaypoint } from './lib/stores.svelte'
+  import { app, upsertNodes, addMessage, addRadioHistory, setMessageStatus, setStatus, setRadios, setAlerts, setTraceroute, persistFilter, persistFeedFilter, coverage, setCoverageSessions, applyCoverage, configUi, setConfigJob, setMapJob, setUpdateStatus, setUpdateJob, openChat, carryOpenChat, setWaypoints, upsertWaypoint, removeWaypoint } from './lib/stores.svelte'
   import type { AuthStatus, Message, Node, Radio } from './lib/types'
 
   let auth = $state<AuthStatus | null>(null)
@@ -55,6 +55,14 @@
   let now = $state(Math.floor(Date.now() / 1000))
   let track = $state<[number, number][] | null>(null)
   let focus = $state<{ lat: number; lon: number; seq: number } | null>(null)
+  // Messaggi a pagina intera su desktop (pulsante Espandi), scelta ricordata
+  let chatExpanded = $state(loadChatExpanded(typeof localStorage === 'undefined' ? null : localStorage))
+  const chatWide = $derived(chatExpanded && !viewport.phone)
+  function setChatExpanded(v: boolean) {
+    carryOpenChat() // la chat viene ricreata nell'altra vista: la conversazione resta aperta
+    chatExpanded = v
+    saveChatExpanded(typeof localStorage === 'undefined' ? null : localStorage, v)
+  }
 
   const visible = $derived(
     [...app.nodes.values()].filter((n) => matchNode(n, app.filter, now)),
@@ -267,7 +275,7 @@
   {:else if activeTab === 'coverage'}
     <Coverage {now} />
   {:else if activeTab === 'chat'}
-    <Chat {now} onpick={pickId} />
+    <Chat {now} onpick={pickId} expanded={chatWide} canExpand={!viewport.phone} ontoggleexpand={() => setChatExpanded(!chatExpanded)} />
   {:else if activeTab === 'radio'}
     <Radios />
   {:else if activeTab === 'settings'}
@@ -297,8 +305,19 @@
       <div class="mapwrap"><MapView nodes={visible} total={app.nodes.size} {now} {track} {focus} onpick={pickId} /></div>
 
       {#if !viewport.phone}
-        {#if isPageTab(activeTab)}
-          <div class="page">{@render screens()}</div>
+        {#if isPageTab(activeTab, chatWide)}
+          <div class="page" class:chatpage={activeTab === 'chat'}>
+            {@render screens()}
+            {#if activeTab === 'chat' && selected}
+              <!-- Messaggi espansi: la scheda del nodo si apre sopra la chat, senza uscire dalla conversazione -->
+              <aside class="nodedrawer" aria-label={t('chat.nodeDrawer')}>
+                <div class="drawerbar">
+                  <Button icon="map" onclick={() => setChatExpanded(false)}>{t('chat.showOnMap')}</Button>
+                </div>
+                <NodeDetail node={selected} {now} ontrack={(tr) => (track = tr)} onclose={close} onchat={() => goTab('chat')} />
+              </aside>
+            {/if}
+          </div>
         {:else}
           <Panel>
             {#if selected}
@@ -362,6 +381,26 @@
     min-width: 0;
   }
   /* Pagine lunghe (Rete, Impostazioni): occupano tutta l'area sotto la barra */
+  .page.chatpage {
+    overflow: hidden;
+  }
+  .nodedrawer {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: min(420px, 100%);
+    overflow: auto;
+    background: var(--surface);
+    border-left: 1px solid var(--line-strong);
+    box-shadow: var(--shadow-lg, 0 8px 24px rgba(0, 0, 0, 0.18));
+    z-index: 2;
+  }
+  .drawerbar {
+    display: flex;
+    justify-content: flex-end;
+    padding: var(--space-2) var(--space-3) 0;
+  }
   .page {
     position: absolute;
     inset: 0;

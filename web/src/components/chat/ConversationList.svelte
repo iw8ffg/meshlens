@@ -3,6 +3,7 @@
   import { filterConversations, type ConvItem } from '../../lib/conversations'
   import { t, tn } from '../../lib/i18n/index.svelte'
   import Empty from '../../lib/ui/Empty.svelte'
+  import type { Snippet } from 'svelte'
   import type { Message } from '../../lib/types'
 
   // `now` serve all'orario relativo, `groups` alla ricerca nel testo dei messaggi caricati
@@ -12,7 +13,16 @@
     onopen,
     now,
     groups,
-  }: { items: ConvItem[]; active: string; onopen: (key: string) => void; now: number; groups: Map<string, Message[]> } = $props()
+    actions,
+  }: {
+    items: ConvItem[]
+    active: string
+    onopen: (key: string) => void
+    now: number
+    groups: Map<string, Message[]>
+    /** Pulsanti accanto alla ricerca (es. Espandi) */
+    actions?: Snippet
+  } = $props()
 
   let query = $state('')
   const shown = $derived(filterConversations(items, query, groups))
@@ -21,6 +31,7 @@
 <div class="convs">
   <div class="search">
     <input class="ui-input" type="search" aria-label={t('chat.searchConversations')} placeholder={t('chat.searchPlaceholder')} bind:value={query} />
+    {@render actions?.()}
   </div>
   {#if shown.length === 0}
     <Empty icon="chat" title={t('chat.noConversationMatch')} />
@@ -61,6 +72,9 @@
     color: var(--ink);
   }
   .search {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
     padding: var(--space-3);
     border-bottom: 1px solid var(--line);
     flex: none;

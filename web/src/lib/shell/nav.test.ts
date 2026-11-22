@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { t } from '../i18n/index.svelte'
+import { CHAT_EXPANDED_KEY, loadChatExpanded, saveChatExpanded } from './nav'
 import { PANEL_DEFAULT, PANEL_KEY, PANEL_MAX, PANEL_MIN, PHONE_NAV, clampPanelWidth, effectiveTab, isMoreTab, isPageTab, loadPanelWidth, navActive, savePanelWidth, sheetVisible } from './nav'
 
 describe('schede', () => {
@@ -22,6 +23,8 @@ describe('schede', () => {
   it('pagine lunghe e visibilità dello sheet', () => {
     expect(isPageTab('network')).toBe(true)
     expect(isPageTab('chat')).toBe(false)
+    expect(isPageTab('chat', true)).toBe(true)
+    expect(isPageTab('nodes', true)).toBe(false)
     expect(sheetVisible('map', false)).toBe(false)
     expect(sheetVisible('map', true)).toBe(true)
     expect(sheetVisible('nodes', false)).toBe(true)
@@ -50,5 +53,22 @@ describe('larghezza del pannello', () => {
     const bad = { getItem: () => { throw new Error('x') }, setItem: () => { throw new Error('x') } }
     expect(loadPanelWidth(bad)).toBe(PANEL_DEFAULT)
     expect(() => savePanelWidth(bad, 400)).not.toThrow()
+  })
+})
+
+describe('Messaggi espansi', () => {
+  it('predefinito ridotto, scelta salvata e riletta, storage rotto tollerato', () => {
+    const m = new Map<string, string>()
+    const st = { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => void m.set(k, v) }
+    expect(loadChatExpanded(st)).toBe(false)
+    saveChatExpanded(st, true)
+    expect(m.get(CHAT_EXPANDED_KEY)).toBe('1')
+    expect(loadChatExpanded(st)).toBe(true)
+    saveChatExpanded(st, false)
+    expect(loadChatExpanded(st)).toBe(false)
+    const broken = { getItem: () => { throw new Error('x') }, setItem: () => { throw new Error('x') } }
+    expect(loadChatExpanded(broken)).toBe(false)
+    expect(() => saveChatExpanded(broken, true)).not.toThrow()
+    expect(loadChatExpanded(null)).toBe(false)
   })
 })

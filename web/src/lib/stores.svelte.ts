@@ -28,11 +28,21 @@ export const app = $state({
 
 // Apertura di una conversazione dall'esterno (es. «Messaggio diretto»): callback, nessuno stato reattivo.
 // Se la chat non e' ancora montata la richiesta resta in attesa e la ritira alla creazione.
-const chatBridge = { open: null as ((key: string) => void) | null, pending: null as string | null }
+const chatBridge = { open: null as ((key: string) => void) | null, pending: null as string | null, current: null as string | null }
 
 export function openChat(key: string): void {
   if (chatBridge.open) chatBridge.open(key)
   else chatBridge.pending = key
+}
+
+/** La chat comunica la conversazione aperta (null = elenco). */
+export function setOpenChat(key: string | null): void {
+  chatBridge.current = key
+}
+
+/** Prima di ricreare la chat (pannello <-> pagina intera): la prossima riapre la conversazione aperta. */
+export function carryOpenChat(): void {
+  if (chatBridge.current) chatBridge.pending = chatBridge.current
 }
 
 /** La chat si registra alla creazione; restituisce la richiesta in attesa e la funzione di annullamento. */
@@ -43,7 +53,10 @@ export function attachChat(open: (key: string) => void): { pending: string | nul
   return {
     pending,
     detach: () => {
-      if (chatBridge.open === open) chatBridge.open = null
+      if (chatBridge.open === open) {
+        chatBridge.open = null
+        chatBridge.current = null
+      }
     },
   }
 }

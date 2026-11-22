@@ -3,6 +3,20 @@
 Il formato segue [Keep a Changelog](https://keepachangelog.com/it-IT/1.1.0/) e il progetto usa il [versionamento semantico](https://semver.org/lang/it/).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [1.4.3] - 2026-11-22
+
+### Italiano
+
+#### Aggiunto
+- **Messaggi a tutta pagina:** su computer il pulsante Espandi, accanto alla ricerca delle conversazioni, porta Messaggi a tutta pagina con l'elenco delle conversazioni a sinistra e quella aperta a destra. La scelta viene ricordata; Riduci riporta il pannello accanto alla mappa. Su telefono non cambia nulla.
+- **Scheda del nodo sopra la chat:** a tutta pagina, il clic sul nome di chi scrive apre la scheda del nodo senza lasciare la conversazione; «Mostra sulla mappa» torna alla vista con la mappa centrata sul nodo.
+
+### English
+
+#### Added
+- **Full-page messages:** on desktop the Expand button, next to the conversation search, turns Messages into a full page with the conversation list on the left and the open one on the right. The choice is remembered; Shrink brings back the panel next to the map. Nothing changes on phones.
+- **Node details over the chat:** in full page, clicking a sender's name opens the node details without leaving the conversation; "Show on map" goes back to the map view centred on the node.
+
 ## [1.4.2] - 2026-11-22
 
 ### Italiano
@@ -289,5 +303,6 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 [1.2.3]: https://github.com/iw8ffg/meshlens/releases/tag/v1.2.3
 [1.3.0]: https://github.com/iw8ffg/meshlens/releases/tag/v1.3.0
 [1.4.0]: https://github.com/iw8ffg/meshlens/releases/tag/v1.4.0
+[1.4.3]: https://github.com/iw8ffg/meshlens/releases/tag/v1.4.3
 [1.4.2]: https://github.com/iw8ffg/meshlens/releases/tag/v1.4.2
 [1.4.1]: https://github.com/iw8ffg/meshlens/releases/tag/v1.4.1
