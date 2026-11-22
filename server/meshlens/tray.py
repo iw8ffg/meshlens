@@ -3,6 +3,7 @@ import asyncio
 import json
 import logging
 import os
+import queue
 import socket
 import sys
 import threading
@@ -11,7 +12,7 @@ import urllib.request
 import webbrowser
 from pathlib import Path
 
-from . import __version__
+from . import __version__, watchdog
 from .paths import app_dir, is_frozen, logs_dir
 from .serving import Bind, make_servers, prepare_serving, serve_all
 from .tls import CertInfo
@@ -159,6 +160,32 @@ class ServerThread:
             maps.kill_children()  # niente go-pmtiles orfano
 
 
+class ToastQueue:
+    """Toast su un thread dedicato: Shell_NotifyIcon puo' bloccarsi e non deve fermare il loop."""
+
+    def __init__(self, notify):
+        self._notify = notify
+        self._q: queue.SimpleQueue = queue.SimpleQueue()
+        self._thread = threading.Thread(target=self._run, name="meshlens-toast", daemon=True)
+        self._thread.start()
+
+    def post(self, title: str, body: str) -> None:
+        self._q.put((title, body))  # non blocca mai
+
+    def _run(self) -> None:
+        while True:
+            item = self._q.get()
+            if item is None:
+                return
+            try:
+                self._notify(*item)
+            except Exception as e:  # noqa: BLE001 - un errore della shell non arriva mai al server
+                log.warning("Notifica di Windows non riuscita: %s", e)
+
+    def close(self) -> None:
+        self._q.put(None)
+
+
 APP_MUTEX = "MeshLensAppMutex"
 ERROR_ALREADY_EXISTS = 183
 
@@ -220,6 +247,7 @@ def run_tray(data_dir: Path, port: int = PORT, open_browser: bool = True) -> int
         _message_box(f"MeshLens non è riuscito ad avviarsi: {e}\n\n"
                      f"I dettagli sono nel file di log in {logs_dir()}.")
         return 1
+    watchdog.start(logs_dir())
     srv = ServerThread(app, binds, cert)
     rt.ctx.tls_errors = srv.errors  # GET /api/tls mostra anche la porta HTTPS occupata
     srv.start()
@@ -257,13 +285,8 @@ def run_tray(data_dir: Path, port: int = PORT, open_browser: bool = True) -> int
     # l'aggiornamento chiude tutto passando da qui
     rt.ctx.exit_callback = icon.stop
 
-    def toast(title: str, body: str) -> None:
-        try:
-            icon.notify(body, title)
-        except Exception as e:  # noqa: BLE001 - un errore della shell non arriva mai al server
-            log.warning("Notifica di Windows non riuscita: %s", e)
-
-    rt.ctx.toast = toast
+    toaster = ToastQueue(lambda title, body: icon.notify(body, title))
+    rt.ctx.toast = toaster.post
 
     def watch() -> None:  # se il server muore da solo, chiudi anche l'icona
         srv.thread.join()
@@ -275,5 +298,7 @@ def run_tray(data_dir: Path, port: int = PORT, open_browser: bool = True) -> int
     try:
         icon.run()
     finally:
-        srv.stop()  # il lifespan ferma radio, connettore MQTT e processi figli
+        toaster.close()
+        srv.stop()
+        watchdog.stop()  # il lifespan ferma radio, connettore MQTT e processi figli
     return 0

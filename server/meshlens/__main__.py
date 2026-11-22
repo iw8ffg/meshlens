@@ -63,10 +63,14 @@ def main(argv: list[str] | None = None) -> int:
         timer = threading.Timer(1.5, webbrowser.open, args=(f"http://127.0.0.1:{args.port}",))
         timer.daemon = True
         timer.start()
+    from . import watchdog
+    watchdog.start(logs_dir())
     try:
         asyncio.run(serve_all(servers, rt.ctx.tls_errors))
     except KeyboardInterrupt:  # uvicorn rilancia il Ctrl+C dopo l'arresto ordinato
         pass
+    finally:
+        watchdog.stop()
     return 0
 
 

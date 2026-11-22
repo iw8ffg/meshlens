@@ -33,6 +33,7 @@ from .mqtt_decode import EnvelopeDecoder
 from .mqtt_publish import MqttSender
 from . import packet_log as packet_log_mod
 from .netstats import NetStats
+from . import watchdog
 from .notify import Notifier
 from .packet_log import PacketLog
 from .pubsub_hub import PubSubHub
@@ -468,6 +469,7 @@ class Runtime:
             await self.radios.start()
         self.tasks = [
             asyncio.create_task(self.check_integrity()),
+            asyncio.create_task(self._every(1, watchdog.beat, first_now=True)),
             asyncio.create_task(self._every(2, self._publish_changed)),
             asyncio.create_task(self._every(5, self._publish_status)),
             asyncio.create_task(self._every(1, self.store.commit)),
