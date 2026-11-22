@@ -233,8 +233,9 @@ class EnvelopeDecoder:
     def decode_any(self, topic: str, payload: bytes, now: float) -> MeshEvent | RawPacket | None:
         """Come decode, ma puo' restituire un RawPacket (vedi raw_filter). Non solleva mai."""
         status = "undecodable"
+        parsed: list = []  # (env, packet, from_node, data): serve a _build_raw, senza decifrare di nuovo
         try:
-            return self._decode(topic, payload, now)
+            return self._decode(topic, payload, now, parsed)
         except _Empty:
             self.stats["empty"] += 1
             status = "empty"
@@ -243,31 +244,36 @@ class EnvelopeDecoder:
             status = "unsupported"
         except Exception:
             self.stats["undecodable"] += 1
-        return self._raw_or_none(topic, payload, now, status)
+        return self._raw_or_none(topic, payload, now, status, parsed)
 
     def _raw_or_none(self, topic: str, payload: bytes, now: float,
-                     status: str) -> RawPacket | None:
+                     status: str, parsed: list | None = None) -> RawPacket | None:
         flt = self.raw_filter
         if flt is None:
             return None
         try:
-            return self._build_raw(flt, topic, payload, now, status)
+            return self._build_raw(flt, topic, payload, now, status, parsed)
         except Exception:
             return None
 
     def _build_raw(self, flt, topic: str, payload: bytes, now: float,
-                   status: str) -> RawPacket | None:
+                   status: str, parsed: list | None = None) -> RawPacket | None:
         if "json" in topic.split("/"):
             return None
-        env = mqtt_pb2.ServiceEnvelope()
-        env.ParseFromString(payload)
-        if not env.HasField("packet"):
-            return None
-        packet = env.packet
-        from_node = getattr(packet, "from")
-        if not flt(from_node):
-            return None
-        data = self._extract_data(packet, from_node, env.channel_id or None)
+        if parsed:
+            env, packet, from_node, data = parsed[0]
+            if not flt(from_node):
+                return None
+        else:
+            env = mqtt_pb2.ServiceEnvelope()
+            env.ParseFromString(payload)
+            if not env.HasField("packet"):
+                return None
+            packet = env.packet
+            from_node = getattr(packet, "from")
+            if not flt(from_node):
+                return None
+            data = self._extract_data(packet, from_node, env.channel_id or None)
         if data is not None:
             meta = _meta(packet, data, bool(packet.encrypted))
         else:
@@ -279,8 +285,8 @@ class EnvelopeDecoder:
             rssi=packet.rx_rssi or None, gateway_id=env.gateway_id or None, radio_id=None,
             broker=self.broker, relay_node=packet.relay_node, status=status, meta=meta)
 
-    def _decode(self, topic: str, payload: bytes,
-                now: float) -> MeshEvent | RawPacket | None:
+    def _decode(self, topic: str, payload: bytes, now: float,
+                parsed: list | None = None) -> MeshEvent | RawPacket | None:
         if "json" in topic.split("/"):
             self.stats["json_topic"] += 1
             return None
@@ -296,9 +302,11 @@ class EnvelopeDecoder:
         packet = env.packet
         from_node = getattr(packet, "from")
         data = self._extract_data(packet, from_node, env.channel_id or None)
+        if parsed is not None:
+            parsed[:] = [(env, packet, from_node, data)]
         if data is None:
             self.stats["pki_encrypted" if packet.pki_encrypted else "undecodable"] += 1
-            return self._raw_or_none(topic, payload, now, "encrypted")
+            return self._raw_or_none(topic, payload, now, "encrypted", parsed)
         kind, body = _parse_payload(data)
         self.stats["ok"] += 1
         # il broker pubblico azzera hop_limit: i salti si deducono da relay_node

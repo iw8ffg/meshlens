@@ -4,7 +4,7 @@ import sqlite3
 import time
 from typing import Callable, TypeVar
 
-from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Path, Query
 
 from . import queries
 
@@ -80,6 +80,7 @@ def register_data_routes(app: FastAPI, ctx, require_auth) -> None:
                           None, pattern="^(ok|encrypted|unsupported|undecodable|empty)$"),
                       min_snr: float | None = None, since: float | None = None,
                       until: float | None = None, before_id: int | None = Query(None, ge=0),
+                      after_id: int | None = Query(None, ge=0, le=2**63 - 1),
                       limit: int = Query(100, ge=1)):
         num = None
         if node:
@@ -89,10 +90,10 @@ def register_data_routes(app: FastAPI, ctx, require_auth) -> None:
                 raise HTTPException(422, "Nodo non valido")
         f = queries.PacketFilter(num, kind, source, status, min_snr, since, until)
         limit = min(limit, queries.PACKET_LIMIT_MAX)
-        return await run_read(ctx, lambda c: queries.packet_list(c, f, limit, before_id))
+        return await run_read(ctx, lambda c: queries.packet_list(c, f, limit, before_id, after_id))
 
     @app.get("/api/packets/{pid}", dependencies=[Depends(require_auth)])
-    async def packet(pid: int):
+    async def packet(pid: int = Path(ge=0, le=2**63 - 1)):
         row = await run_read(ctx, lambda c: queries.packet_detail(c, pid))
         if row is None:
             raise HTTPException(404, "Pacchetto non trovato")

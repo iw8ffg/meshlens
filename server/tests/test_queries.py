@@ -130,6 +130,10 @@ def test_packet_list_filters_and_cursor():
     assert len(last["items"]) == 50 and last["next_before_id"] is None
     assert len(packet_list(conn, PacketFilter(), 5000, None)["items"]) == 200
 
+    new = packet_list(conn, PacketFilter(), 20, None, after_id=230)
+    assert [p["id"] for p in new["items"]] == list(range(231, 251)) and new["next_before_id"] is None
+    assert len(packet_list(conn, PacketFilter(), 10, None, after_id=0)["items"]) == 10
+
     def items(**kw):
         return packet_list(conn, PacketFilter(**kw), 200, None)["items"]
     assert items(kind="text") and all(p["kind"] == "text" for p in items(kind="text"))

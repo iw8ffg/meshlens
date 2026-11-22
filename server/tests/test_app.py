@@ -893,3 +893,22 @@ async def test_stop_flushes_packet_log_and_netstats(tmp_path):
     assert conn.execute("SELECT COUNT(*) FROM packets").fetchone()[0] == 1
     assert conn.execute("SELECT COUNT(*) FROM stats_hourly").fetchone()[0] == 1
     conn.close()
+
+
+async def test_mqtt_status_exposes_packet_log_dropped(tmp_path):
+    _, rt = build(tmp_path, connector_factory=FakeConnector, static_dir=None)
+    assert rt.mqtt_status()["packet_log_dropped"] == 0
+    rt.packet_log.dropped = 7
+    assert rt.mqtt_status()["packet_log_dropped"] == 7
+
+
+async def test_netstats_failure_does_not_stop_packet_log(tmp_path):
+    from meshlens.events import MeshEvent, TextData
+    _, rt = build(tmp_path, connector_factory=FakeConnector, static_dir=None)
+    seen = []
+    rt.netstats.observe = lambda *a: (_ for _ in ()).throw(RuntimeError("boom"))
+    rt.packet_log.observe = lambda *a: seen.append(a)
+    rt.on_event(MeshEvent(source="mqtt", from_node=1, to_node=2, packet_id=5, channel="c",
+                          rx_time=time.time(), snr=None, rssi=None, hops=None, gateway_id=None,
+                          radio_id=None, kind="text", payload=TextData("x")))
+    assert len(seen) == 1

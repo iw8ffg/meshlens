@@ -57,3 +57,8 @@ def test_from_dict_camelcase():
     d = telemetry_from_dict({"environmentMetrics": {"temperature": 20.0,
                                                     "relativeHumidity": 55.0}})
     assert d.metrics == {"temperature": 20.0, "relative_humidity": 55.0}
+
+
+def test_float32_values_are_rounded_to_clean_decimals():
+    msg = t.Telemetry(environment_metrics=t.EnvironmentMetrics(temperature=3.7))
+    assert parse_telemetry_msg(msg).metrics["temperature"] == 3.7

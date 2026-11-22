@@ -164,3 +164,21 @@ def test_inbox_base_exception_from_handler_does_not_wedge():
     assert len(loop.threadsafe) == 1  # rischedulato: _scheduled non e' rimasto vero
     loop.run_all()
     assert got == [1]
+
+
+def test_inbox_drops_raw_packets_before_events():
+    from meshlens.events import PacketMeta, RawPacket
+    raw = RawPacket(source="mqtt", from_node=1, to_node=2, packet_id=1, channel="c", rx_time=1.0,
+                    snr=None, rssi=None, gateway_id=None, radio_id=None, broker=None,
+                    relay_node=None, status="encrypted", meta=PacketMeta(None, None, None))
+    loop, got = FakeLoop(), []
+    inbox = EventInbox(loop, got.append, maxsize=8)
+    for i in range(4):
+        inbox.put(i)
+    for _ in range(10):  # raffica di grezzi: tolgono solo grezzi
+        inbox.put(raw)
+    for i in range(4, 8):  # eventi a coda piena: partono i grezzi, non gli eventi
+        inbox.put(i)
+    loop.run_all()
+    assert [x for x in got if not isinstance(x, RawPacket)] == list(range(8))
+    assert inbox.size() == 0

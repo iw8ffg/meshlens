@@ -115,7 +115,7 @@ def test_raw_packet_row(env):
     (r,) = rows(conn)
     assert r["status"] == "encrypted" and r["kind"] is None
     assert len(r["raw"]) <= 256 and r["size"] == len(r["raw"])
-    assert r["hops"] == 1 and r["summary"] is None
+    assert r["hops"] is None and r["summary"] is None  # MQTT: hop_limit non attendibile
     assert len(json.loads(r["receptions"])) == 2
 
 
@@ -171,3 +171,20 @@ def test_summarize_hex_bytes_and_cut_text():
     n = summarize(ev(kind="nodeinfo", payload=NodeInfoData("L", "S", "HW", "CLIENT", b"\x0a\xff")))
     assert n["public_key"] == "0aff"
     json.dumps(n)
+
+
+def test_raw_mqtt_hops_follow_relay_rule(env):
+    log, conn, _, _ = env
+    direct = raw_packet(pid=1, num=0xB2)
+    direct.relay_node = 0xB2  # relay == from & 0xFF: ricezione diretta
+    log.observe_raw(direct, True)
+    relayed = raw_packet(pid=2, num=0xB2)  # hop_start 3, hop_limit 2: ma il broker li azzera
+    relayed.relay_node = 0x11
+    log.observe_raw(relayed, True)
+    log.observe_raw(raw_packet(pid=3), True)  # relay sconosciuto
+    rf = raw_packet(pid=4)
+    rf.source = "rf"
+    log.observe_raw(rf, True)
+    log.flush(force=True)
+    assert [r["hops"] for r in rows(conn)] == [0, None, None, 1]
+    assert json.loads(rows(conn)[0]["receptions"])[0]["hops"] == 0

@@ -10,6 +10,8 @@ import logging
 import threading
 from typing import Callable
 
+from .events import RawPacket
+
 INBOX_MAX = 5000
 INBOX_BATCH = 200
 log = logging.getLogger(__name__)
@@ -25,22 +27,32 @@ class EventInbox:
         self.dropped = 0
         self.high_water = 0
         self._items: collections.deque = collections.deque()
+        # i RawPacket (solo ispettore) hanno una coda a parte: in una raffica si scartano per primi
+        self._raws: collections.deque = collections.deque()
         self._lock = threading.Lock()
         self._scheduled = False
 
     def size(self) -> int:
         with self._lock:
-            return len(self._items)
+            return len(self._items) + len(self._raws)
 
     def put(self, item: object) -> None:
-        """Da qualsiasi thread. Se la coda e' piena si scarta l'elemento piu' vecchio."""
+        """Da qualsiasi thread. Se la coda e' piena si scarta l'elemento piu' vecchio,
+        ma prima i pacchetti grezzi: gli eventi dei nodi hanno la precedenza."""
         with self._lock:
-            if len(self._items) >= self.maxsize:
-                self._items.popleft()
+            is_raw = isinstance(item, RawPacket)
+            total = len(self._items) + len(self._raws)
+            if is_raw and len(self._raws) >= max(1, self.maxsize // 4):
+                self._raws.popleft()
                 self.dropped += 1
-            self._items.append(item)
-            if len(self._items) > self.high_water:
-                self.high_water = len(self._items)
+                total -= 1
+            if total >= self.maxsize:
+                (self._raws if self._raws else self._items).popleft()
+                self.dropped += 1
+            (self._raws if is_raw else self._items).append(item)
+            size = len(self._items) + len(self._raws)
+            if size > self.high_water:
+                self.high_water = size
             if self._scheduled:
                 return
             self._scheduled = True
@@ -53,8 +65,10 @@ class EventInbox:
     def _drain(self) -> None:
         """Sul loop: consegna al massimo `batch` elementi, poi si rischedula se ne restano."""
         with self._lock:
-            n = min(self.batch, len(self._items))
-            taken = [self._items.popleft() for _ in range(n)]
+            taken = []
+            for q in (self._items, self._raws):
+                while q and len(taken) < self.batch:
+                    taken.append(q.popleft())
         try:
             for item in taken:
                 try:
@@ -67,7 +81,7 @@ class EventInbox:
 
     def _finish_drain(self) -> None:
         with self._lock:
-            if not self._items:
+            if not self._items and not self._raws:
                 # azzerato sotto lock a coda vuota: un put successivo rischedula da se'
                 self._scheduled = False
                 return

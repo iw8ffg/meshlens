@@ -172,7 +172,7 @@ def _packet_row(r: sqlite3.Row) -> dict:
 
 
 def packet_list(conn: sqlite3.Connection, f: PacketFilter, limit: int,
-                before_id: int | None) -> dict:
+                before_id: int | None, after_id: int | None = None) -> dict:
     limit = max(1, min(limit, PACKET_LIMIT_MAX))
     where, args = [], []
     if f.node is not None:
@@ -194,10 +194,15 @@ def packet_list(conn: sqlite3.Connection, f: PacketFilter, limit: int,
     if before_id is not None:
         where.append("p.id<?")
         args.append(before_id)
+    if after_id is not None:  # modalita' dal vivo: i nuovi dopo l'ultimo visto, in ordine crescente
+        where.append("p.id>?")
+        args.append(after_id)
     sql = (_PACKET_ROW_SQL + " FROM packets p LEFT JOIN nodes n ON n.num=p.from_num"
            + (" WHERE " + " AND ".join(where) if where else "")
-           + " ORDER BY p.id DESC LIMIT ?")
+           + (" ORDER BY p.id ASC LIMIT ?" if after_id is not None else " ORDER BY p.id DESC LIMIT ?"))
     items = [_packet_row(r) for r in conn.execute(sql, (*args, limit))]
+    if after_id is not None:
+        return {"items": items, "next_before_id": None}
     return {"items": items,
             "next_before_id": items[-1]["id"] if len(items) == limit else None}
 

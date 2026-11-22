@@ -149,16 +149,19 @@ class Store:
             "WHEN excluded.snr_max IS NULL THEN snr_max "
             "ELSE MAX(snr_max, excluded.snr_max) END", rows)
 
-    def trim_packets(self, max_rows: int, limit: int) -> int:
-        """Cancella al massimo `limit` pacchetti piu' vecchi oltre i `max_rows` piu' recenti."""
-        row = self.conn.execute(
-            "SELECT id FROM packets ORDER BY id DESC LIMIT 1 OFFSET ?", (max_rows,)).fetchone()
-        if row is None:
-            return 0
+    def packets_cutoff(self, max_rows: int) -> int | None:
+        """Id oltre il quale i pacchetti vanno tolti per restare entro `max_rows` (None se basta)."""
+        top = self.conn.execute("SELECT MAX(id) FROM packets").fetchone()[0]
+        if top is None or top - max_rows <= 0:
+            return None
+        return top - max_rows
+
+    def trim_packets(self, cutoff: int, limit: int) -> int:
+        """Cancella al massimo `limit` pacchetti con id <= `cutoff` (dal piu' vecchio)."""
         return self.conn.execute(
             "DELETE FROM packets WHERE id IN "
             "(SELECT id FROM packets WHERE id <= ? ORDER BY id LIMIT ?)",
-            (row[0], limit)).rowcount
+            (cutoff, limit)).rowcount
 
     @staticmethod
     def _node_from_row(row) -> dict:

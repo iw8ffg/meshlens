@@ -185,6 +185,7 @@ class Runtime:
         total = {k: sum(e.get(k) or 0 for e in entries) for k in _SUMMED}
         total["msgs_per_s"] = float(total["msgs_per_s"])
         total["queue_dropped"] += self.queue_dropped_retired
+        total["packet_log_dropped"] = getattr(self.packet_log, "dropped", 0)
         # anche i riavvii dei broker eliminati: il totale non torna indietro
         total["watchdog_restarts"] = sum(self.watchdog_restarts.values())
         drops: dict[str, int] = {k: 0 for k in _IDLE_DROPS}
@@ -380,8 +381,11 @@ class Runtime:
     async def trim_packets(self) -> int:
         """Tiene `packets` entro PACKETS_MAX_ROWS, a blocchi: tra un blocco e l'altro il loop e' libero."""
         total = 0
+        cutoff = self.store.packets_cutoff(packet_log_mod.PACKETS_MAX_ROWS)
+        if cutoff is None:
+            return 0
         while True:
-            n = self.store.trim_packets(packet_log_mod.PACKETS_MAX_ROWS, PURGE_CHUNK)
+            n = self.store.trim_packets(cutoff, PURGE_CHUNK)
             self.store.commit()
             total += n
             if n < PURGE_CHUNK:
@@ -597,9 +601,12 @@ def build(data_dir: Path, connector_factory=MqttConnector,
         archived = ev.source == "rf" or ingestor.is_archived(ev.from_node)
         try:
             netstats.observe(ev, outcome, archived)
+        except Exception:
+            log.exception("Statistiche della rete")  # mai a scapito dell'ingestione
+        try:
             packet_log.observe(ev, outcome, archived)
         except Exception:
-            log.exception("Osservatori dei pacchetti")  # mai a scapito dell'ingestione
+            log.exception("Registro dei pacchetti")
 
     rt.coverage, rt.on_event, rt.storeforward = coverage, on_event, sf
     rt.packet_log, rt.netstats = packet_log, netstats

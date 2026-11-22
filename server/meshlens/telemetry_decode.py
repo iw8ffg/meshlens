@@ -61,6 +61,8 @@ def parse_telemetry_msg(tel: telemetry_pb2.Telemetry) -> TelemetryData:
         if fd.cpp_type not in _NUMERIC or not isinstance(value, (int, float)):
             continue
         value = float(value)
+        if fd.cpp_type == FieldDescriptor.CPPTYPE_FLOAT and math.isfinite(value):
+            value = float(f"{value:.7g}")  # float32 -> 3.7000000476837 diventa 3.7
         if math.isfinite(value):
             metrics[fd.name] = value
     if not metrics:

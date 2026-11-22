@@ -331,3 +331,14 @@ def test_decode_any_unsupported_has_portnum():
     assert raw.status == "unsupported" and raw.meta.portnum == "ROUTING_APP"
     assert d.stats["unsupported_port"] == 1
     assert d.decode(T, make_envelope(5, b""), now=1.0) is None
+
+
+def test_build_raw_does_not_decrypt_twice(monkeypatch):
+    calls = []
+    d = EnvelopeDecoder([DEFAULT_KEY])
+    real = d._extract_data
+    monkeypatch.setattr(d, "_extract_data", lambda *a: (calls.append(1), real(*a))[1])
+    d.raw_filter = lambda n: True
+    payload = make_envelope(1, b"x" * 40, key=bytes(range(16)))
+    assert d.decode_any(T, payload, now=1.0).status == "encrypted"
+    assert len(calls) == 1  # il pacchetto grezzo riusa l'estrazione di _decode

@@ -417,13 +417,21 @@ def test_upsert_hourly_sums_and_max(store):
 
 def test_trim_packets_respects_cap(store):
     store.insert_packets([_pkt(float(i)) for i in range(25)])
-    assert store.trim_packets(10, 4) == 4
+    cutoff = store.packets_cutoff(10)
+    assert cutoff == 15
+    assert store.trim_packets(cutoff, 4) == 4
     ids = [r[0] for r in store.conn.execute("SELECT id FROM packets ORDER BY id")]
     assert ids == list(range(5, 26))
-    while store.trim_packets(10, 4):
+    while store.trim_packets(cutoff, 4):
         pass
     ids = [r[0] for r in store.conn.execute("SELECT id FROM packets ORDER BY id")]
     assert ids == list(range(16, 26))
+
+
+def test_packets_cutoff_none_when_within_cap(store):
+    assert store.packets_cutoff(10) is None
+    store.insert_packets([_pkt(float(i)) for i in range(10)])
+    assert store.packets_cutoff(10) is None
 
 
 def test_purge_covers_new_tables(store):

@@ -47,6 +47,13 @@ def _hops(hop_start: int | None, hop_limit: int | None) -> int | None:
     return hop_start - hop_limit
 
 
+def _raw_hops(raw: RawPacket) -> int | None:
+    if raw.source == "mqtt":  # il broker pubblico azzera hop_limit: vale la regola del relay
+        relay = raw.relay_node
+        return 0 if relay and relay == (raw.from_node & 0xFF) else None
+    return _hops(raw.meta.hop_start, raw.meta.hop_limit) if raw.meta else None
+
+
 def _reception(p: MeshEvent | RawPacket, hops: int | None) -> dict:
     return {"source": p.source, "broker": p.broker, "radio_id": p.radio_id,
             "gateway": p.gateway_id, "snr": p.snr, "rssi": p.rssi, "hops": hops,
@@ -116,7 +123,7 @@ class PacketLog:
     def observe_raw(self, raw: RawPacket, archived: bool) -> None:
         if not self._wanted(raw, archived):
             return
-        hops = _hops(raw.meta.hop_start, raw.meta.hop_limit) if raw.meta else None
+        hops = _raw_hops(raw)
         key = (raw.from_node, raw.packet_id)
         entry = self._buf.get(key)
         if entry is not None:

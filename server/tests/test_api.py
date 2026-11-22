@@ -669,6 +669,10 @@ async def test_packets_routes(ctx):
         d = await c.get("/api/packets/5")
         assert d.status_code == 200 and d.json()["raw_hex"] == "" and d.json()["receptions"] == []
         assert (await c.get("/api/packets/99999")).status_code == 404
+        assert (await c.get("/api/packets/99999999999999999999")).status_code == 422
+        assert (await c.get("/api/packets/-1")).status_code == 422
+        live = (await c.get("/api/packets?after_id=290&limit=5")).json()
+        assert [p["id"] for p in live["items"]] == [291, 292, 293, 294, 295]
 
 
 @pytest.mark.parametrize("path", ["telemetry", "positions", "metrics", "snr"])
