@@ -7,6 +7,7 @@ Scrive: python.txt (testi completi delle licenze delle dipendenze Python), i tes
 OFL (caratteri Noto) e MIT (sprite) da packaging/licenses, la licenza BSD-3 di go-pmtiles e,
 da web/node_modules (serve `npm ci` prima), OFL di IBM Plex, ISC di Lucide e MIT di flag-icons.
 """
+import os
 import shutil
 import subprocess
 import sys
@@ -43,7 +44,8 @@ def main(out: Path) -> None:
     res = subprocess.run(
         [sys.executable, "-m", "piplicenses", "--with-license-file", "--no-license-path",
          "--format=plain-vertical", "--ignore-packages", *IGNORE],
-        capture_output=True, text=True, encoding="utf-8", check=False)
+        capture_output=True, text=True, encoding="utf-8", check=False,
+        env={**os.environ, "PYTHONIOENCODING": "utf-8"})  # altrimenti stampa in cp1252
     if res.returncode:
         raise SystemExit(f"pip-licenses fallito: {res.stderr.strip()}")
     (out / "python.txt").write_text(res.stdout, encoding="utf-8")
