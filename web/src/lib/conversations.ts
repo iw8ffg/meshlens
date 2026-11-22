@@ -1,5 +1,5 @@
 import { MQTT_CONV, splitKey } from './chat'
-import { T } from './strings/messaggi'
+import { locale, t } from './i18n/index.svelte'
 import type { ConvSummary, Message, Radio } from './types'
 
 export interface ConvItem {
@@ -15,15 +15,15 @@ const PREVIEW_MAX = 80
 
 /** Etichetta di una conversazione: «Pubblico (MQTT)», «Radio · Canale» o «Radio · DM Nome». */
 export function convLabel(key: string, radios: Radio[], nodeName: (id: string) => string): string {
-  if (key === MQTT_CONV) return T.mqttConversation
+  if (key === MQTT_CONV) return t('chat.mqttConversation')
   const [kind, rid, rest] = splitKey(key)
   const radio = radios.find((r) => r.id === rid)
   const radioName = radio?.name ?? rid
   if (kind === 'ch') {
     const ch = radio?.channels.find((c) => String(c.index) === rest)
-    return T.channelConversation(radioName, ch?.name || T.channelFallback(rest))
+    return t('chat.channelConversation', { radio: radioName, channel: ch?.name || t('chat.channelFallback', { index: rest }) })
   }
-  return T.dmConversation(radioName, nodeName(rest))
+  return t('chat.dmConversation', { radio: radioName, name: nodeName(rest) })
 }
 
 /** Un riepilogo del server come messaggio, per calcolarne l'anteprima. */
@@ -65,7 +65,7 @@ export function buildConversations(args: {
       kind: splitKey(key)[0] === 'dm' ? 'dm' : 'ch',
     })
   }
-  items.sort((a, b) => b.lastTime - a.lastTime || a.label.localeCompare(b.label, 'it'))
+  items.sort((a, b) => b.lastTime - a.lastTime || a.label.localeCompare(b.label, locale()))
   const mqtt: ConvItem = { key: MQTT_CONV, label: label(MQTT_CONV), lastTime: 0, preview: '', unread: counts[MQTT_CONV] ?? 0, kind: 'mqtt' }
   return [mqtt, ...items]
 }
@@ -93,6 +93,6 @@ function truncate(s: string): string {
 export function previewText(m: Message, nodeName: (id: string) => string, localIds: Set<string>): string {
   const own = m.direction === 'out' || localIds.has(m.from)
   const text = m.text.replace(/\s+/g, ' ').trim()
-  if (m.emoji) return truncate(own ? T.ownReactionPreview(text) : T.reactionPreview(nodeName(m.from), text))
-  return truncate(own ? T.ownPreview(text) : text)
+  if (m.emoji) return truncate(own ? t('chat.ownReactionPreview', { emoji: text }) : t('chat.reactionPreview', { name: nodeName(m.from), emoji: text }))
+  return truncate(own ? t('chat.ownPreview', { text }) : text)
 }

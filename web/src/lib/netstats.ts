@@ -1,19 +1,24 @@
 // Statistiche della rete: etichette e calcoli per i grafici della pagina Rete.
 import type { NetworkStats } from './types'
 import { decSep } from './format'
+import { t, type MsgKey } from './i18n/index.svelte'
 
-export const KIND_LABEL: Record<string, string> = {
-  text: 'Messaggi',
-  position: 'Posizioni',
-  nodeinfo: 'Info nodo',
-  telemetry: 'Telemetria',
-  mapreport: 'Map report',
-  neighbors: 'Vicini',
-  traceroute: 'Traceroute',
-  rangetest: 'Range test',
+const KIND_KEYS: Record<string, MsgKey> = {
+  text: 'packets.kind.text',
+  position: 'packets.kind.position',
+  nodeinfo: 'packets.kind.nodeinfo',
+  telemetry: 'packets.kind.telemetry',
+  mapreport: 'packets.kind.mapreport',
+  neighbors: 'packets.kind.neighbors',
+  traceroute: 'packets.kind.traceroute',
+  rangetest: 'packets.kind.rangetest',
 }
 
-export const kindLabel = (k: string): string => KIND_LABEL[k] ?? k
+/** Tipo di pacchetto nella lingua corrente; un tipo ignoto mostra il codice. */
+export const kindLabel = (k: string): string => (Object.hasOwn(KIND_KEYS, k) ? t(KIND_KEYS[k]) : k)
+
+/** Tipi noti per il menu del filtro: [codice, etichetta]. */
+export const kindOptions = (): [string, string][] => Object.keys(KIND_KEYS).map((k) => [k, kindLabel(k)])
 
 /** Somma i pacchetti di tutti i tipi, ora per ora (ordinata per tempo). */
 export function packetsPerHour(rows: NetworkStats['packets']): { time: number; packets: number }[] {

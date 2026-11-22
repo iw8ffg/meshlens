@@ -1,16 +1,17 @@
 // Ponte a callback (senza stato reattivo) per cambiare scheda da componenti lontani da App.
 import type { Tab } from './nav'
+import { t } from '../i18n/index.svelte'
 
-let navigator: ((t: Tab) => void) | null = null
+let navigator: ((tab: Tab) => void) | null = null
 
-export function setNavigator(fn: ((t: Tab) => void) | null): void {
+export function setNavigator(fn: ((tab: Tab) => void) | null): void {
   navigator = fn
 }
 
 /** Apre la scheda; `false` se nessun navigatore è registrato. */
-export function navigate(t: Tab): boolean {
+export function navigate(tab: Tab): boolean {
   if (!navigator) return false
-  navigator(t)
+  navigator(tab)
   return true
 }
 
@@ -21,24 +22,18 @@ export interface EmptyHint {
 }
 
 export function emptyFeedHint(mqtt: { connected: boolean } | null): EmptyHint {
-  if (mqtt === null) return { title: 'Nessun messaggio', text: 'Nessun messaggio ricevuto finora.', action: null }
+  const title = t('chat.empty.title')
+  if (mqtt === null) return { title, text: t('chat.empty.feedNone'), action: null }
   if (!mqtt.connected) {
-    return {
-      title: 'Nessun messaggio',
-      text: 'MQTT non è connesso: controlla broker e argomento.',
-      action: { label: 'Apri Impostazioni', tab: 'settings' },
-    }
+    return { title, text: t('chat.empty.mqttDown'), action: { label: t('chat.empty.openSettings'), tab: 'settings' } }
   }
-  return { title: 'Nessun messaggio', text: 'Nessun messaggio ricevuto finora con i filtri attuali.', action: null }
+  return { title, text: t('chat.empty.feedFiltered'), action: null }
 }
 
 export function emptyRadioHint(connectedRadios: number): EmptyHint {
+  const title = t('chat.empty.title')
   if (connectedRadios === 0) {
-    return {
-      title: 'Nessun messaggio',
-      text: 'Collega una radio per leggere e inviare sui canali della tua rete.',
-      action: { label: 'Vai a Radio', tab: 'radio' },
-    }
+    return { title, text: t('chat.empty.noRadio'), action: { label: t('chat.empty.goRadio'), tab: 'radio' } }
   }
-  return { title: 'Nessun messaggio', text: 'Ancora nessun messaggio su questa conversazione.', action: null }
+  return { title, text: t('chat.empty.convNone'), action: null }
 }

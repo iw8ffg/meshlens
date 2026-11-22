@@ -2,6 +2,7 @@
   // Ricerca di un nodo sulla mappa: trova anche i nodi nascosti dai filtri.
   import { onMount } from 'svelte'
   import { app } from '../stores.svelte'
+  import { t } from '../i18n/index.svelte'
   import { matchNode } from '../filters'
   import { nodeName } from '../nodes'
   import { searchNodes } from './search'
@@ -22,8 +23,8 @@
 
   onMount(() => {
     input.focus()
-    const t = setInterval(() => (now = Math.floor(Date.now() / 1000)), 30_000)
-    return () => clearInterval(t)
+    const timer = setInterval(() => (now = Math.floor(Date.now() / 1000)), 30_000)
+    return () => clearInterval(timer)
   })
 
   // Focus altrove con la ricerca vuota: si chiude (i controlli mappa gestiscono da soli il proprio pulsante)
@@ -61,30 +62,30 @@
     bind:this={input}
     bind:value={q}
     type="search"
-    placeholder="Cerca un nodo sulla mappa…"
-    aria-label="Cerca un nodo sulla mappa"
+    placeholder={t('map.search.placeholder')}
+    aria-label={t('map.search.aria')}
     aria-controls="map-search-list"
     aria-activedescendant={results[active] ? `map-search-${active}` : undefined}
     autocomplete="off"
     onkeydown={onkey}
   />
-  <button type="button" class="close" aria-label="Chiudi ricerca" title="Chiudi ricerca" onclick={onclose}><Icon name="x" size={18} /></button>
+  <button type="button" class="close" aria-label={t('map.search.close')} title={t('map.search.close')} onclick={onclose}><Icon name="x" size={18} /></button>
   </div>
   {#if q.trim()}
     {#if results.length}
-      <ul id="map-search-list" role="listbox" aria-label="Risultati">
+      <ul id="map-search-list" role="listbox" aria-label={t('map.search.results')}>
         {#each results as n, i (n.id)}
           <li role="presentation">
             <button type="button" id="map-search-{i}" role="option" aria-selected={i === active} class:act={i === active} tabindex="-1" onclick={() => onpick(n.id)}>
               <span class="name">{nodeName(n)}</span>
               <span class="id">{n.id}</span>
-              {#if !matchNode(n, app.filter, now)}<span class="hid" title="Nascosto dai filtri"><Icon name="filter" size={16} /></span>{/if}
+              {#if !matchNode(n, app.filter, now)}<span class="hid" title={t('map.search.hidden')}><Icon name="filter" size={16} /></span>{/if}
             </button>
           </li>
         {/each}
       </ul>
     {:else}
-      <p class="none" role="status">Nessun nodo con posizione trovato</p>
+      <p class="none" role="status">{t('map.search.none')}</p>
     {/if}
   {/if}
 </div>

@@ -29,13 +29,13 @@ test('cardinal', () => {
 test('myOrigin: la radio connessa vince sul browser', () => {
   const nodes = new Map([['!a', node('!a', 45, 9)]])
   const o = myOrigin(nodes, [radio('r1', 'connected', '!a')], { lat: 1, lon: 1 })
-  expect(o).toEqual({ lat: 45, lon: 9, label: 'dalla radio R-r1' })
+  expect(o).toEqual({ lat: 45, lon: 9, label: 'dalla radio R-r1', kind: 'radio' })
 })
 
 test('myOrigin: radio senza posizione, ricade sul browser', () => {
   const nodes = new Map([['!a', node('!a', null, null)]])
   const o = myOrigin(nodes, [radio('r1', 'connected', '!a')], { lat: 1, lon: 2 })
-  expect(o).toEqual({ lat: 1, lon: 2, label: 'dalla tua posizione' })
+  expect(o).toEqual({ lat: 1, lon: 2, label: 'dalla tua posizione', kind: 'browser' })
 })
 
 test('myOrigin: nodo is_local_radio con posizione', () => {

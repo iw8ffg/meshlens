@@ -2,6 +2,7 @@
   import { onMount } from 'svelte'
   import { getCountries } from '../lib/api'
   import { app } from '../lib/stores.svelte'
+  import { t } from '../lib/i18n/index.svelte'
   import { activeFilters, clearFilter, clearAllFilters } from '../lib/filters'
   import Icon from '../lib/ui/Icon.svelte'
 
@@ -23,16 +24,16 @@
 
 {#if items.length > 0}
   <div class="af" class:compact>
-    {#if !compact}<span class="lead">Filtri attivi:</span>{/if}
+    {#if !compact}<span class="lead">{t('nodes.activeFilters')}</span>{/if}
     {#each items as a (a.key)}
       <span class="ui-chip chip">
         {a.label}
-        <button type="button" class="x" aria-label={`Togli filtro ${a.label}`} onclick={() => (app.filter = clearFilter(app.filter, a.key))}>
+        <button type="button" class="x" aria-label={t('nodes.removeFilter', { label: a.label })} onclick={() => (app.filter = clearFilter(app.filter, a.key))}>
           <Icon name="x" size={14} />
         </button>
       </span>
     {/each}
-    <button type="button" class="ui-chip reset" onclick={() => (app.filter = clearAllFilters(app.filter))}>Azzera filtri</button>
+    <button type="button" class="ui-chip reset" onclick={() => (app.filter = clearAllFilters(app.filter))}>{t('nodes.clearFilters')}</button>
   </div>
 {/if}
 

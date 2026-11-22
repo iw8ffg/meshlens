@@ -2,7 +2,7 @@ import { localNodeIds } from './chat'
 import { loadNotifyPrefs, shouldNotify } from './notify'
 import { navigate } from './shell/navigate'
 import { app, openChat } from './stores.svelte'
-import { T } from './strings/messaggi'
+import { t } from './i18n/index.svelte'
 import { getActiveConv, noteIncoming } from './unread.svelte'
 import type { Message } from './types'
 
@@ -14,7 +14,7 @@ export function onIncoming(m: Message): void {
   const permission = typeof Notification === 'undefined' ? 'denied' : Notification.permission
   if (!shouldNotify(m, key, loadNotifyPrefs(localStorage), permission, !visible)) return
   try {
-    const n = new Notification(T.dmNotifyTitle(m.from_name || m.from), { body: m.text, tag: key })
+    const n = new Notification(t('chat.dmNotifyTitle', { name: m.from_name || m.from }), { body: m.text, tag: key })
     n.onclick = () => {
       window.focus()
       openChat(key)

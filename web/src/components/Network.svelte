@@ -1,6 +1,7 @@
 <script lang="ts">
   import { app } from '../lib/stores.svelte'
   import { ago } from '../lib/format'
+  import { t, tn } from '../lib/i18n/index.svelte'
   import { sortNodes, type SortKey } from '../lib/network'
   import { loadView, saveView } from '../lib/viewstate'
   import { alertTone } from '../lib/alerts'
@@ -20,18 +21,18 @@
 
   let { nodes, now, onpick }: { nodes: Node[]; now: number; onpick: (n: Node) => void } = $props()
 
-  const COLS: (Column & { key: SortKey })[] = [
-    { key: 'name', label: 'Nodo', fix: true, sortable: true },
-    { key: 'last_heard', label: 'Ultimo', sortable: true },
-    { key: 'role', label: 'Ruolo', sortable: true },
-    { key: 'firmware', label: 'Firmware', sortable: true },
-    { key: 'battery', label: 'Batteria', sortable: true },
-    { key: 'voltage', label: 'Volt', num: true, sortable: true },
+  const COLS = $derived<(Column & { key: SortKey })[]>([
+    { key: 'name', label: t('network.col.node'), fix: true, sortable: true },
+    { key: 'last_heard', label: t('network.col.last'), sortable: true },
+    { key: 'role', label: t('network.col.role'), sortable: true },
+    { key: 'firmware', label: t('network.col.firmware'), sortable: true },
+    { key: 'battery', label: t('network.col.battery'), sortable: true },
+    { key: 'voltage', label: t('network.col.volt'), num: true, sortable: true },
     { key: 'snr', label: 'SNR', sortable: true },
-    { key: 'hops', label: 'Salti', num: true, sortable: true },
-    { key: 'channel_util', label: 'Can. %', num: true, sortable: true },
-    { key: 'air_util_tx', label: 'Tx %', num: true, sortable: true },
-  ]
+    { key: 'hops', label: t('nodes.hops'), num: true, sortable: true },
+    { key: 'channel_util', label: t('network.col.channel'), num: true, sortable: true },
+    { key: 'air_util_tx', label: t('network.col.tx'), num: true, sortable: true },
+  ])
 
   const hasMine = $derived(nodes.some((n) => n.is_mine))
   // Scelta dell'utente; finche' non tocca l'interruttore vale "acceso se esiste un nodo mio"
@@ -48,7 +49,7 @@
 
   // Esporta le righe mostrate: filtrate e ordinate
   function exportCsv() {
-    downloadText(`meshlens-rete-${fileStamp(new Date())}.csv`, 'text/csv', networkCsv(rows))
+    downloadText(`${t('network.csvFile')}-${fileStamp(new Date())}.csv`, 'text/csv', networkCsv(rows))
   }
 
   function sortBy(k: string) {
@@ -64,10 +65,10 @@
 
 <div class="net">
   <div class="bar">
-    <Switch checked={onlyMine} label="Solo i miei nodi" onchange={(v) => (mineChoice = v)} />
-    <Switch checked={onlyFav} label="Solo preferiti" onchange={(v) => (onlyFav = v)} />
-    <span class="ui-muted">{rows.length} {rows.length === 1 ? 'nodo' : 'nodi'}</span>
-    <Button icon="download" disabled={rows.length === 0} onclick={exportCsv}>Esporta CSV</Button>
+    <Switch checked={onlyMine} label={t('network.onlyMine')} onchange={(v) => (mineChoice = v)} />
+    <Switch checked={onlyFav} label={t('nodes.filter.favorites')} onchange={(v) => (onlyFav = v)} />
+    <span class="ui-muted">{tn('network.nodes', rows.length)}</span>
+    <Button icon="download" disabled={rows.length === 0} onclick={exportCsv}>{t('network.exportCsv')}</Button>
   </div>
 
   {#if alertRows.length > 0}
@@ -81,16 +82,16 @@
   {/if}
 
   {#if onlyMine && !hasMine}
-    <Empty icon="star" title="Nessun nodo seguito">Apri un nodo e premi «Mio nodo» per seguirlo qui.</Empty>
+    <Empty icon="star" title={t('network.empty.mineTitle')}>{t('network.empty.mineHint')}</Empty>
   {:else if onlyFav && rows.length === 0 && !nodes.some((n) => n.is_favorite)}
-    <Empty icon="star" title="Nessun preferito">Apri un nodo e premi «Preferito» per trovarlo qui.</Empty>
+    <Empty icon="star" title={t('network.empty.favTitle')}>{t('network.empty.favHint')}</Empty>
   {:else if rows.length === 0}
-    <Empty icon="network" title="Nessun nodo" />
+    <Empty icon="network" title={t('network.empty.none')} />
   {:else}
-    <Table columns={COLS} {rows} rowKey={(n) => n.id} sortKey={key} sortDir={dir} onsort={sortBy} selectedKey={app.selectedId} onrowclick={onpick} caption="Nodi della rete">
+    <Table columns={COLS} {rows} rowKey={(n) => n.id} sortKey={key} sortDir={dir} onsort={sortBy} selectedKey={app.selectedId} onrowclick={onpick} caption={t('network.caption')}>
       {#snippet cell(n, c)}
         {#if c.key === 'name'}
-          <b>{nodeName(n)}</b>{#if n.is_mine}<span class="mk house" title="Mio nodo"><Icon name="house" size={14} /></span>{/if}{#if n.is_favorite}<span class="mk fav" title="Preferito"><Icon name="star" size={14} /></span>{/if}
+          <b>{nodeName(n)}</b>{#if n.is_mine}<span class="mk house" title={t('nodes.mine')}><Icon name="house" size={14} /></span>{/if}{#if n.is_favorite}<span class="mk fav" title={t('nodes.favorite')}><Icon name="star" size={14} /></span>{/if}
         {:else if c.key === 'last_heard'}
           {ago(contactMinutes(n.last_heard, now))}
         {:else if c.key === 'role'}

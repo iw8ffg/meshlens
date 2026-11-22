@@ -1,6 +1,7 @@
 <script lang="ts">
   import { getJSON, metrics, snr, telemetry } from '../lib/api'
   import { ago, num } from '../lib/format'
+  import { t, type MsgKey } from '../lib/i18n/index.svelte'
   import { batterySeries, pctRange, voltageSeries, type Pt } from '../lib/chart'
   import { dupeRatio, formatMetric, metricInfo, orderMetrics } from '../lib/metrics'
   import type { AppSettings } from '../lib/settings'
@@ -9,11 +10,11 @@
 
   let { nodeId }: { nodeId: string } = $props()
 
-  const PERIODS = [
-    { label: '24 h', hours: 24 },
-    { label: '7 g', hours: 168 },
-    { label: '30 g', hours: 720 },
-    { label: '90 g', hours: 2160 },
+  const PERIODS: { labelKey: MsgKey; hours: number }[] = [
+    { labelKey: 'nodes.age24h', hours: 24 },
+    { labelKey: 'nodes.age7d', hours: 168 },
+    { labelKey: 'nodes.period30d', hours: 720 },
+    { labelKey: 'nodes.period90d', hours: 2160 },
   ]
   const MAX_SENSOR_CHARTS = 8
 
@@ -22,7 +23,7 @@
   let met = $state<MetricsResponse>({ latest: {}, series: {} })
   let snrPts = $state<SnrPoint[]>([])
   let loading = $state(false)
-  let error = $state('')
+  let error = $state(false)
   let threshold = $state(20)
   let loadedAt = $state(0)
 
@@ -43,16 +44,16 @@
     met = { latest: {}, series: {} }
     snrPts = []
     loading = true
-    error = ''
+    error = false
     const current = () => id === nodeId && h === hours
     // Una richiesta fallita (es. telemetria 404 di un nodo non in memoria) non nasconde le altre
     Promise.allSettled([telemetry(id, h), metrics(id, h), snr(id, h)])
-      .then(([t, m, s]) => {
+      .then(([tl, m, s]) => {
         if (!current()) return
-        if (t.status === 'fulfilled') tel = [...t.value].sort((a, b) => a.time - b.time)
+        if (tl.status === 'fulfilled') tel = [...tl.value].sort((a, b) => a.time - b.time)
         if (m.status === 'fulfilled') met = m.value
         if (s.status === 'fulfilled') snrPts = [...s.value].sort((a, b) => a.time - b.time)
-        if (t.status === 'rejected' && m.status === 'rejected' && s.status === 'rejected') error = 'Dati non disponibili'
+        if (tl.status === 'rejected' && m.status === 'rejected' && s.status === 'rejected') error = true
         loadedAt = Date.now() / 1000
       })
       .finally(() => {
@@ -91,7 +92,7 @@
       .filter((k) => metricInfo(k).chart !== false && met.series[k].length > 0)
       .slice(0, MAX_SENSOR_CHARTS)
       .map((k) => {
-        const pts: Pt[] = met.series[k].map(([t, v]) => ({ t, v }))
+        const pts: Pt[] = met.series[k].map(([time, v]) => ({ t: time, v }))
         return { key: k, info: metricInfo(k), pts, ext: extent([pts]) }
       }),
   )
@@ -99,62 +100,62 @@
   const empty = $derived(!hasBat && !hasChan && !hasSnr && !hasSensors)
 </script>
 
-<h3>Telemetria</h3>
-<div class="periods" role="group" aria-label="Periodo">
+<h3>{t('nodes.charts.title')}</h3>
+<div class="periods" role="group" aria-label={t('nodes.charts.period')}>
   {#each PERIODS as p (p.hours)}
-    <button type="button" class="ui-chip" aria-pressed={hours === p.hours} onclick={() => (hours = p.hours)}>{p.label}</button>
+    <button type="button" class="ui-chip" aria-pressed={hours === p.hours} onclick={() => (hours = p.hours)}>{t(p.labelKey)}</button>
   {/each}
 </div>
 {#if error}
-  <p class="msg">{error}</p>
+  <p class="msg">{t('nodes.charts.unavailable')}</p>
 {:else if loading && empty}
-  <p class="none">Caricamento…</p>
+  <p class="none">{t('shell.loading')}</p>
 {:else if empty}
-  <p class="none">Nessun dato nel periodo</p>
+  <p class="none">{t('nodes.charts.noData')}</p>
 {:else}
   {#if hasBat}
-    <h4>Batteria e tensione</h4>
+    <h4>{t('nodes.charts.batteryVoltage')}</h4>
     <LineChart
-      label="Grafico batteria e tensione"
+      label={t('nodes.charts.batteryVoltageAria')}
       x0={batExt[0]}
       x1={batExt[1]}
       left={[0, 100]}
-      threshold={{ value: threshold, label: `Soglia ${threshold}%` }}
+      threshold={{ value: threshold, label: t('nodes.charts.threshold', { n: threshold }) }}
       series={[
-        { key: 'battery', label: 'Batteria', unit: '%', digits: 0, color: 'ok', axis: 'left', points: bat },
-        { key: 'voltage', label: 'Tensione', unit: 'V', digits: 2, color: 'accent', dash: true, axis: 'right', points: volt },
+        { key: 'battery', label: t('nodes.charts.battery'), unit: '%', digits: 0, color: 'ok', axis: 'left', points: bat },
+        { key: 'voltage', label: t('nodes.charts.voltage'), unit: 'V', digits: 2, color: 'accent', dash: true, axis: 'right', points: volt },
       ]}
     />
   {/if}
   {#if hasChan}
-    <h4>Uso del canale e trasmissione</h4>
+    <h4>{t('nodes.charts.channelAir')}</h4>
     <LineChart
-      label="Grafico uso del canale e trasmissione"
+      label={t('nodes.charts.channelAirAria')}
       x0={chanExt[0]}
       x1={chanExt[1]}
       left={chanRange}
       series={[
-        { key: 'channel_util', label: 'Uso del canale', unit: '%', digits: 1, color: 'accent', points: chan },
-        { key: 'air_util_tx', label: 'Trasmissione', unit: '%', digits: 1, color: 'amber', dash: true, points: air },
+        { key: 'channel_util', label: t('nodes.charts.channelUtil'), unit: '%', digits: 1, color: 'accent', points: chan },
+        { key: 'air_util_tx', label: t('nodes.charts.airTx'), unit: '%', digits: 1, color: 'amber', dash: true, points: air },
       ]}
     />
   {/if}
   {#if hasSnr}
-    <h4>Segnale (SNR)</h4>
+    <h4>{t('nodes.charts.signal')}</h4>
     <LineChart
-      label="Grafico del segnale SNR"
+      label={t('nodes.charts.signalAria')}
       x0={snrExt[0]}
       x1={snrExt[1]}
       series={[
-        { key: 'snr_rf', label: 'Radio', unit: 'dB', digits: 1, color: 'radio', points: snrRf },
+        { key: 'snr_rf', label: t('nodes.sourceRadio'), unit: 'dB', digits: 1, color: 'radio', points: snrRf },
         { key: 'snr_mqtt', label: 'MQTT', unit: 'dB', digits: 1, color: 'mqtt', dash: true, points: snrMq },
       ]}
     />
   {/if}
   {#if hasSensors}
-    <h4>Sensori</h4>
+    <h4>{t('nodes.charts.sensors')}</h4>
     {#if latestKeys.length > 0}
-      <p class="sub">Ultimi valori</p>
+      <p class="sub">{t('nodes.charts.latest')}</p>
       <dl class="latest">
         {#each latestKeys as k (k)}
           <dt>{metricInfo(k).label}</dt>
@@ -164,12 +165,12 @@
           </dd>
         {/each}
       </dl>
-      {#if dupe !== null}<p class="sub">Duplicati ricevuti: {num(dupe * 100, 0)} %</p>{/if}
+      {#if dupe !== null}<p class="sub">{t('nodes.charts.dupes', { pct: num(dupe * 100, 0) })}</p>{/if}
     {/if}
     {#each sensorCharts as c (c.key)}
       <p class="sub">{c.info.label}</p>
       <LineChart
-        label={`Grafico: ${c.info.label}`}
+        label={t('nodes.charts.chartOf', { name: c.info.label })}
         x0={c.ext[0]}
         x1={c.ext[1]}
         series={[{ key: c.key, label: c.info.label, unit: c.info.unit, digits: c.info.digits, color: 'accent', points: c.pts }]}

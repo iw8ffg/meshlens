@@ -8,7 +8,7 @@
   import { keyChangedRecently, routingErrorText, threadItems } from '../../lib/reactions'
   import { app, addRadioHistory } from '../../lib/stores.svelte'
   import { markRead } from '../../lib/unread.svelte'
-  import { T } from '../../lib/strings/messaggi'
+  import { t } from '../../lib/i18n/index.svelte'
   import Badge from '../../lib/ui/Badge.svelte'
   import BrokerBadge from '../../lib/ui/BrokerBadge.svelte'
   import Banner from '../../lib/ui/Banner.svelte'
@@ -46,7 +46,7 @@
   let nearBottom = true
   let loadingOlder = $state(false)
   let exhausted = $state(false)
-  let olderError = $state('')
+  let olderError = $state(false)
 
   const nodeName = (id: string) => app.nodes.get(id)?.long_name || app.nodes.get(id)?.short_name || id
   const title = $derived(convLabel(conv, app.radios, nodeName))
@@ -64,13 +64,13 @@
   async function loadOlder() {
     const oldest = app.radioMessages.length ? app.radioMessages[0].time : Math.floor(Date.now() / 1000)
     loadingOlder = true
-    olderError = ''
+    olderError = false
     try {
       const list = await getJSON<Message[]>(`/messages/radio?limit=${PAGE}&before=${oldest}`)
       if (list.length < PAGE) exhausted = true
       addRadioHistory(list)
     } catch {
-      olderError = 'Impossibile caricare i messaggi precedenti'
+      olderError = true
     } finally {
       loadingOlder = false
     }
@@ -104,15 +104,15 @@
   let lastMarked = 0
   $effect(() => {
     const c = conv
-    const t = msgs.length ? msgs[msgs.length - 1].time : 0
+    const newest = msgs.length ? msgs[msgs.length - 1].time : 0
     const v = visible
     if (c !== markedConv) {
       markedConv = c
       lastMarked = 0
     }
-    if (c === MQTT_CONV || !v || t <= lastMarked) return
-    lastMarked = t
-    void markRead(c, t)
+    if (c === MQTT_CONV || !v || newest <= lastMarked) return
+    lastMarked = newest
+    void markRead(c, newest)
   })
 </script>
 
@@ -120,14 +120,14 @@
   <header class="head">
     <button type="button" class="back" onclick={onback}>
       <span aria-hidden="true">‹</span>
-      <span>{T.backToList}</span>
+      <span>{t('chat.conversations')}</span>
     </button>
     <h2 class="title">{title}</h2>
   </header>
 
   {#if keyChanged}
     <div class="keywarn">
-      <Banner kind="warn" title={T.keyChangedBanner(nodeName(keyChanged.id), formatDate(keyChanged.key_changed ?? null))} />
+      <Banner kind="warn" title={t('chat.keyChangedBanner', { name: nodeName(keyChanged.id), date: formatDate(keyChanged.key_changed ?? null) })} />
     </div>
   {/if}
 
@@ -141,10 +141,10 @@
     >
       {#if !exhausted}
         <li class="older">
-          <Button onclick={loadOlder} disabled={loadingOlder}>{loadingOlder ? 'Caricamento…' : 'Carica precedenti'}</Button>
+          <Button onclick={loadOlder} disabled={loadingOlder}>{loadingOlder ? t('shell.loading') : t('chat.loadOlder')}</Button>
         </li>
       {/if}
-      {#if olderError}<li role="alert"><Banner kind="danger" title={olderError} /></li>{/if}
+      {#if olderError}<li role="alert"><Banner kind="danger" title={t('chat.olderError')} /></li>{/if}
       {#if msgs.length === 0}
         {@const hint = emptyRadioHint(app.radios.filter((r) => r.state === 'connected').length)}
         <li>
@@ -160,7 +160,7 @@
         {@const m = it.msg}
         {@const out = m.direction === 'out'}
         {#if it.orphan}
-          <li class="orphan">{T.orphanReaction(m.text, out ? T.you : (m.from_name ?? nodeName(m.from)))}</li>
+          <li class="orphan">{t('chat.orphanReaction', { emoji: m.text, name: out ? t('chat.you') : (m.from_name ?? nodeName(m.from)) })}</li>
         {:else}
           <li class="msg" class:out data-mkey={m.key}>
             <div class="bubble">
@@ -170,9 +170,9 @@
               <MessageQuote replyTo={it.replyTo} missing={it.replyMissing} {nodeName} onjump={jumpTo} />
               <p class="text">{m.text}</p>
               <div class="meta">
-                {#if m.pki}<Icon name="lock" size={14} label={T.pkiAria} />{/if}
+                {#if m.pki}<Icon name="lock" size={14} label={t('chat.pkiAria')} />{/if}
                 <span>{ago((now - m.time) / 60)}</span>
-                {#if m.via === 'mqtt'}<Badge kind="info">via MQTT</Badge>{/if}
+                {#if m.via === 'mqtt'}<Badge kind="info">{t('chat.status.viaMqtt')}</Badge>{/if}
                 <BrokerBadge id={m.broker} />
                 {#if out && m.status}
                   <span class="st" class:bad={m.status === 'failed'} role="img" title={statusAria(m.status, m.via)} aria-label={statusAria(m.status, m.via)}>

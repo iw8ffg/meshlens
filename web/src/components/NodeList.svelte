@@ -1,5 +1,6 @@
 <script lang="ts">
   import { app } from '../lib/stores.svelte'
+  import { t } from '../lib/i18n/index.svelte'
   import { activeFilters, clearAllFilters } from '../lib/filters'
   import Button from '../lib/ui/Button.svelte'
   import { ago } from '../lib/format'
@@ -28,10 +29,10 @@
 </script>
 
 {#if sorted.length === 0}
-  <Empty icon="search" title="Nessun nodo con questi filtri">
-    Allarga l'ultimo contatto o togli qualche nazione.
+  <Empty icon="search" title={t('nodes.empty.title')}>
+    {t('nodes.empty.hint')}
     {#snippet action()}
-      {#if hasFilters}<Button onclick={() => (app.filter = clearAllFilters(app.filter))}>Azzera filtri</Button>{/if}
+      {#if hasFilters}<Button onclick={() => (app.filter = clearAllFilters(app.filter))}>{t('nodes.clearFilters')}</Button>{/if}
     {/snippet}
   </Empty>
 {:else}
@@ -44,7 +45,7 @@
         <button type="button" class:sel={app.selectedId === n.id} onclick={() => onpick(n)}>
           <Flag code={n.country} />
           <span class="id">
-            <span class="name">{nodeName(n)}{#if n.is_mine || n.is_local_radio}<span class="mk house" title="Mio nodo"><Icon name="house" size={14} /></span>{/if}{#if n.is_favorite}<span class="mk fav" title="Preferito"><Icon name="star" size={14} /></span>{/if}</span>
+            <span class="name">{nodeName(n)}{#if n.is_mine || n.is_local_radio}<span class="mk house" title={t('nodes.mine')}><Icon name="house" size={14} /></span>{/if}{#if n.is_favorite}<span class="mk fav" title={t('nodes.favorite')}><Icon name="star" size={14} /></span>{/if}</span>
             <span class="sub ui-mono">{n.id}</span>
           </span>
           {#if src}<SourceMark source={src} />{/if}
@@ -54,9 +55,9 @@
               {#if n.last_snr !== null}<SnrBadge value={n.last_snr} />{/if}
               {#if bat}<BatteryBadge pct={bat.pct} usb={bat.usb} />{/if}
               {#if showDistance}
-                <span class="hops" title="Distanza">{distanceLabel(n)}</span>
+                <span class="hops" title={t('nodes.distance')}>{distanceLabel(n)}</span>
               {:else}
-                <span class="hops" title="Salti">{hopsLabel(n.hops, n.hops_min)}</span>
+                <span class="hops" title={t('nodes.hops')}>{hopsLabel(n.hops, n.hops_min)}</span>
               {/if}
             </span>
           </span>

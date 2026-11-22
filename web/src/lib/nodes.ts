@@ -3,6 +3,7 @@ import { num } from './format'
 import type { SourceKind } from './ui/logic'
 import type { Alert, Node } from './types'
 import { alertLabel } from './alerts'
+import { t, type MsgKey } from './i18n/index.svelte'
 
 export const nodeName = (n: Pick<Node, 'long_name' | 'short_name' | 'id'>): string => n.long_name || n.short_name || n.id
 
@@ -28,16 +29,17 @@ export function contactMinutes(lastHeard: number | null, now: number): number | 
   return Math.max(0, (now - lastHeard) / 60)
 }
 
-export const AGE_OPTIONS: { label: string; hours: number | null }[] = [
-  { label: 'Tutti', hours: null },
-  { label: '2 h', hours: 2 },
-  { label: '24 h', hours: 24 },
-  { label: '7 g', hours: 168 },
+/** Periodi del filtro «Ultimo contatto»; `labelKey` si traduce con t() al momento di mostrarlo. */
+export const AGE_OPTIONS: { labelKey: MsgKey; hours: number | null }[] = [
+  { labelKey: 'nodes.ageAll', hours: null },
+  { labelKey: 'nodes.age2h', hours: 2 },
+  { labelKey: 'nodes.age24h', hours: 24 },
+  { labelKey: 'nodes.age7d', hours: 168 },
 ]
 
-export const SOURCE_OPTIONS: { label: string; value: string }[] = [
-  { label: 'Radio', value: 'rf' },
-  { label: 'MQTT', value: 'mqtt' },
+export const SOURCE_OPTIONS: { labelKey: MsgKey; value: string }[] = [
+  { labelKey: 'nodes.sourceRadio', value: 'rf' },
+  { labelKey: 'nodes.sourceMqtt', value: 'mqtt' },
 ]
 
 /** Aggiunge o toglie `v` senza modificare l'elenco. */
@@ -45,7 +47,7 @@ export function toggleIn<T>(list: T[], v: T): T[] {
   return list.includes(v) ? list.filter((x) => x !== v) : [...list, v]
 }
 
-/** Avviso in italiano per una riga della Rete: «Batteria al 12%» / «Silenzioso da 30 h». */
+/** Avviso (nella lingua corrente) per una riga della Rete: «Batteria al 12%» / «Silenzioso da 30 h». */
 export function alertText(a: Pick<Alert, 'kind' | 'value' | 'detail'> & { node_name?: string }): string {
   return alertLabel(a)
 }
@@ -68,7 +70,7 @@ export function fmtOpt(v: number | null | undefined, decimals = 1, unit = ''): s
 
 /** Salti per l'interfaccia: «0 (diretto)», numero, «≥ 1» (noto solo che non e' diretto) o «—». */
 export function hopsLabel(hops: number | null | undefined, hopsMin?: number | null): string {
-  if (typeof hops === 'number') return hops === 0 ? '0 (diretto)' : String(hops)
+  if (typeof hops === 'number') return hops === 0 ? t('nodes.hopsDirect') : String(hops)
   if (typeof hopsMin === 'number' && hopsMin >= 1) return `≥ ${hopsMin}`
   return '—'
 }

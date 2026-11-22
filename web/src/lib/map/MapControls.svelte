@@ -2,7 +2,7 @@
   // Controlli della mappa: zoom e adatta ai nodi, poi gli strumenti (cerca, Dove sono, righello, raggruppa); 44 px su telefono.
   import Icon from '../ui/Icon.svelte'
   import { viewport } from '../viewport.svelte'
-  import { T } from '../strings/waypoint'
+  import { t } from '../i18n/index.svelte'
 
   interface Props {
     onzoomin: () => void
@@ -24,21 +24,21 @@
 </script>
 
 <div class="stack">
-  <div class="controls" role="group" aria-label="Controlli mappa">
-    <button type="button" aria-label="Ingrandisci" title="Ingrandisci" onclick={onzoomin}><Icon name="plus" size={18} /></button>
-    <button type="button" aria-label="Riduci" title="Riduci" onclick={onzoomout}><Icon name="minus" size={18} /></button>
-    <button type="button" aria-label="Mostra tutti i nodi" title="Mostra tutti i nodi" onclick={onfit}><Icon name="globe" size={18} /></button>
+  <div class="controls" role="group" aria-label={t('map.controls.group')}>
+    <button type="button" aria-label={t('map.controls.zoomIn')} title={t('map.controls.zoomIn')} onclick={onzoomin}><Icon name="plus" size={18} /></button>
+    <button type="button" aria-label={t('map.controls.zoomOut')} title={t('map.controls.zoomOut')} onclick={onzoomout}><Icon name="minus" size={18} /></button>
+    <button type="button" aria-label={t('map.controls.fit')} title={t('map.controls.fit')} onclick={onfit}><Icon name="globe" size={18} /></button>
   </div>
-  <div class="controls" role="group" aria-label="Strumenti mappa">
+  <div class="controls" role="group" aria-label={t('map.controls.tools')}>
     {#if viewport.phone}
-      <button type="button" class:on={toolsOpen} aria-expanded={toolsOpen} aria-label="Strumenti" title="Strumenti" onclick={() => (toolsOpen = !toolsOpen)}><Icon name="more" size={18} /></button>
+      <button type="button" class:on={toolsOpen} aria-expanded={toolsOpen} aria-label={t('map.controls.toolsShort')} title={t('map.controls.toolsShort')} onclick={() => (toolsOpen = !toolsOpen)}><Icon name="more" size={18} /></button>
     {/if}
     {#if showTools}
-    <button type="button" aria-label="Cerca nodo" title="Cerca nodo" onclick={onsearch}><Icon name="search" size={18} /></button>
-    <button type="button" aria-label="Dove sono" title="Dove sono" aria-busy={locating} disabled={locating} onclick={onlocate}><Icon name={locating ? 'spinner' : 'locate'} size={18} /></button>
-    <button type="button" class:on={ruler} aria-pressed={ruler} aria-label="Righello" title="Righello" onclick={onruler}><Icon name="ruler" size={18} /></button>
-    <button type="button" class:on={cluster} aria-pressed={cluster} aria-label="Raggruppa nodi" title="Raggruppa nodi" onclick={oncluster}><Icon name="cluster" size={18} /></button>
-    <button type="button" class:on={waypoints} aria-pressed={waypoints} aria-label={T.layerToggleAria} title={T.layerToggleAria} onclick={onwaypoints}><Icon name="flag" size={18} /></button>
+    <button type="button" aria-label={t('map.controls.search')} title={t('map.controls.search')} onclick={onsearch}><Icon name="search" size={18} /></button>
+    <button type="button" aria-label={t('map.controls.locate')} title={t('map.controls.locate')} aria-busy={locating} disabled={locating} onclick={onlocate}><Icon name={locating ? 'spinner' : 'locate'} size={18} /></button>
+    <button type="button" class:on={ruler} aria-pressed={ruler} aria-label={t('map.controls.ruler')} title={t('map.controls.ruler')} onclick={onruler}><Icon name="ruler" size={18} /></button>
+    <button type="button" class:on={cluster} aria-pressed={cluster} aria-label={t('map.controls.cluster')} title={t('map.controls.cluster')} onclick={oncluster}><Icon name="cluster" size={18} /></button>
+    <button type="button" class:on={waypoints} aria-pressed={waypoints} aria-label={t('waypoints.layerToggleAria')} title={t('waypoints.layerToggleAria')} onclick={onwaypoints}><Icon name="flag" size={18} /></button>
     {/if}
   </div>
 </div>

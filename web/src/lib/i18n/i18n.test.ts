@@ -73,6 +73,30 @@ describe('t', () => {
   })
 })
 
+/** Valori che restano uguali in inglese (sigle, nomi di protocollo, termini Meshtastic). */
+const SAME_OK = new Set([
+  'MeshLens', 'MQTT', 'SNR', 'Radio', 'Firmware', 'Traceroute', 'Map report', 'Range test', 'Base', 'Gateway', 'Portnum',
+  'N', 'NE', 'E', 'SE', 'S', 'via MQTT', 'MQTT ({channel})', 'Menu', 'Auto', 'Broker', '{n} min', 'Lingua / Language',
+  // Task 11: sigle, nomi propri e termini Meshtastic/GitHub uguali in ogni lingua
+  'Range Test', 'Preset', 'EIRP: {v} dBm', 'RMSE', 'Router', 'USB', 'Bluetooth', '(Meshtastic?)', 'Tracker', 'LoRa', 'Uplink', 'Downlink',
+  'Config · {sec}', 'Host', 'Password', 'TLS', 'Area', 'PIN', 'Telegram',
+  'GitHub → Settings → Developer settings → Personal access tokens → Fine-grained tokens → Generate new token.',
+  'Repository access: Only select repositories → iw8ffg/meshlens.', 'Permissions: Contents → Read-only.',
+])
+
+describe('test_en_complete', () => {
+  it('ogni chiave italiana ha un valore inglese non vuoto e diverso dall italiano (salvo SAME_OK e valori senza parole)', () => {
+    const noWords = (s: string) => !/\p{L}{3,}/u.test(s.replace(/\{\w+\}/g, ''))
+    const bad: string[] = []
+    for (const k of Object.keys(itCat) as MsgKey[]) {
+      const en = enCat[k]
+      if (typeof en !== 'string' || en.trim() === '') bad.push(`${k}: vuota`)
+      else if (en === itCat[k] && !SAME_OK.has(en) && !noWords(en)) bad.push(`${k}: uguale all italiano («${en}»)`)
+    }
+    expect(bad).toEqual([])
+  })
+})
+
 describe('tn', () => {
   it('plurale in inglese e in italiano', () => {
     setLang('en')

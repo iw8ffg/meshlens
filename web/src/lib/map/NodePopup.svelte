@@ -5,6 +5,7 @@
   import Icon from '../ui/Icon.svelte'
   import type { IconName } from '../ui/icons'
   import { onDestroy } from 'svelte'
+  import { t } from '../i18n/index.svelte'
 
   interface Props {
     title: string
@@ -40,8 +41,8 @@
   <div class="head">
     {#if source}<SourceMark {source} size={18} />{/if}
     <b class="title">{title}</b>
-    {#if mine}<span class="flag mine" title="Mio nodo">⌂ Mio nodo</span>{/if}
-    {#if favorite}<span class="flag fav" title="Preferito">★ Preferito</span>{/if}
+    {#if mine}<span class="flag mine" title={t('nodes.mine')}>⌂ {t('nodes.mine')}</span>{/if}
+    {#if favorite}<span class="flag fav" title={t('nodes.favorite')}>★ {t('nodes.favorite')}</span>{/if}
   </div>
   {#if subtitle}<div class="sub">{subtitle}</div>{/if}
   {#if rows.length > 0}
@@ -61,7 +62,7 @@
         </button>
       {/each}
     </div>
-    <div class="copied" role="status">{copied ? 'Copiato' : ''}</div>
+    <div class="copied" role="status">{copied ? t('waypoints.copied') : ''}</div>
   {/if}
 </div>
 

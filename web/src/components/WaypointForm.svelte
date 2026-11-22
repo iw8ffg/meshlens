@@ -9,7 +9,7 @@
   import { app } from '../lib/stores.svelte'
   import { sendWaypoint } from '../lib/api'
   import { validateWaypoint, WP_ICONS } from '../lib/waypoints'
-  import { T } from '../lib/strings/waypoint'
+  import { t } from '../lib/i18n/index.svelte'
 
   interface Props {
     lat: number
@@ -20,12 +20,12 @@
 
   type Expiry = 'never' | '1' | '24' | '168'
   const EXPIRY_H: Record<Expiry, number | null> = { never: null, '1': 1, '24': 24, '168': 168 }
-  const expiryItems: { value: Expiry; label: string }[] = [
-    { value: 'never', label: T.expiryNever },
-    { value: '1', label: T.expiry1h },
-    { value: '24', label: T.expiry24h },
-    { value: '168', label: T.expiry7d },
-  ]
+  const expiryItems = $derived<{ value: Expiry; label: string }[]>([
+    { value: 'never', label: t('waypoints.expiryNever') },
+    { value: '1', label: t('waypoints.expiry1h') },
+    { value: '24', label: t('nodes.age24h') },
+    { value: '168', label: t('waypoints.expiry7d') },
+  ])
 
   const uid = $props.id()
   let name = $state('')
@@ -48,7 +48,7 @@
   async function submit() {
     if (busy) return
     if (!radio) {
-      error = T.needRadio
+      error = t('waypoints.needRadio')
       return
     }
     const la = Number(latText.replace(',', '.'))
@@ -65,61 +65,61 @@
       await sendWaypoint(radio.id, { name: name.trim(), description, icon, lat: la, lon: lo, expire_h: expireH, channel_index: Number(channelValue) })
       onclose()
     } catch (e) {
-      error = T.sendFailed(e instanceof Error ? e.message : 'errore')
+      error = t('waypoints.sendFailed', { detail: e instanceof Error ? e.message : t('waypoints.unknownError') })
     } finally {
       busy = false
     }
   }
 </script>
 
-<Modal open title={T.formTitle} confirmLabel={T.send} cancelLabel={T.cancel} onconfirm={submit} oncancel={onclose}>
+<Modal open title={t('waypoints.formTitle')} confirmLabel={t('chat.send')} cancelLabel={t('common.cancel')} onconfirm={submit} oncancel={onclose}>
   <form class="wf" onsubmit={(e) => { e.preventDefault(); void submit() }}>
     {#if radios.length === 0}
-      <Banner kind="warn" title={T.needRadio} />
+      <Banner kind="warn" title={t('waypoints.needRadio')} />
     {/if}
-    <Field label={T.name} hint={T.nameHint} for="{uid}-name">
+    <Field label={t('waypoints.name')} hint={t('waypoints.nameHint')} for="{uid}-name">
       {#snippet children({ describedby })}
         <input id="{uid}-name" class="ui-input" bind:value={name} autocomplete="off" aria-describedby={describedby} />
       {/snippet}
     </Field>
-    <Field label={T.description} hint={T.descriptionHint} for="{uid}-desc">
+    <Field label={t('waypoints.description')} hint={t('waypoints.descriptionHint')} for="{uid}-desc">
       {#snippet children({ describedby })}
         <input id="{uid}-desc" class="ui-input" bind:value={description} autocomplete="off" aria-describedby={describedby} />
       {/snippet}
     </Field>
     <div class="ui-field">
-      <span class="ui-lbl" id="{uid}-icons">{T.icon}</span>
+      <span class="ui-lbl" id="{uid}-icons">{t('waypoints.icon')}</span>
       <div class="icons" role="group" aria-labelledby="{uid}-icons">
         {#each WP_ICONS as ic (ic)}
-          <button type="button" class="ic" aria-pressed={icon === ic} aria-label={T.iconAria(ic)} onclick={() => (icon = ic)}>{ic}</button>
+          <button type="button" class="ic" aria-pressed={icon === ic} aria-label={t('waypoints.iconAria', { icon: ic })} onclick={() => (icon = ic)}>{ic}</button>
         {/each}
       </div>
     </div>
     <div class="ui-field">
-      <span class="ui-lbl">{T.expiry}</span>
-      <Segmented items={expiryItems} bind:value={expiry} label={T.expiry} />
+      <span class="ui-lbl">{t('waypoints.expiry')}</span>
+      <Segmented items={expiryItems} bind:value={expiry} label={t('waypoints.expiry')} />
     </div>
     <div class="two">
-      <Field label={T.lat} for="{uid}-lat">
+      <Field label={t('waypoints.lat')} for="{uid}-lat">
         {#snippet children()}<input id="{uid}-lat" class="ui-input mono" inputmode="decimal" bind:value={latText} />{/snippet}
       </Field>
-      <Field label={T.lon} for="{uid}-lon">
+      <Field label={t('waypoints.lon')} for="{uid}-lon">
         {#snippet children()}<input id="{uid}-lon" class="ui-input mono" inputmode="decimal" bind:value={lonText} />{/snippet}
       </Field>
     </div>
     {#if radios.length > 0}
       <div class="two">
-        <Field label={T.radio} for="{uid}-radio">
+        <Field label={t('waypoints.radio')} for="{uid}-radio">
           {#snippet children()}
             <Select id="{uid}-radio" value={radio?.id} onchange={(e) => (radioId = e.currentTarget.value)}>
               {#each radios as r (r.id)}<option value={r.id}>{r.name}</option>{/each}
             </Select>
           {/snippet}
         </Field>
-        <Field label={T.channel} for="{uid}-ch">
+        <Field label={t('chat.channel')} for="{uid}-ch">
           {#snippet children()}
             <Select id="{uid}-ch" value={channelValue} onchange={(e) => (channel = e.currentTarget.value)}>
-              {#each channels as c (c.index)}<option value={String(c.index)}>{T.channelOption(c.index, c.name)}</option>{/each}
+              {#each channels as c (c.index)}<option value={String(c.index)}>{c.name ? `${c.index} · ${c.name}` : t('chat.channelFallback', { index: c.index })}</option>{/each}
             </Select>
           {/snippet}
         </Field>

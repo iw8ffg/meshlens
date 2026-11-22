@@ -1,4 +1,5 @@
 import type { Message, MessageStatus, Radio } from './types'
+import { t } from './i18n/index.svelte'
 
 export const MAX_BYTES = 200
 export const BROADCAST = '!ffffffff'
@@ -54,13 +55,13 @@ export function statusIcon(status: MessageStatus | null | undefined): string {
 export function statusLabel(status: MessageStatus | null | undefined): string {
   switch (status) {
     case 'sending':
-      return 'In invio'
+      return t('chat.status.sending')
     case 'sent':
-      return 'Inviato'
+      return t('chat.status.sent')
     case 'acked':
-      return 'Consegnato'
+      return t('chat.status.acked')
     case 'failed':
-      return 'Non consegnato'
+      return t('chat.status.failed')
     default:
       return ''
   }

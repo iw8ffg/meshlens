@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { T } from '../../lib/strings/messaggi'
+  import { t } from '../../lib/i18n/index.svelte'
   import type { Message } from '../../lib/types'
 
   interface Props {
@@ -11,16 +11,16 @@
   }
   let { replyTo, missing, nodeName, onjump }: Props = $props()
 
-  const who = $derived(replyTo ? (replyTo.direction === 'out' ? T.you : (replyTo.from_name ?? nodeName(replyTo.from))) : '')
+  const who = $derived(replyTo ? (replyTo.direction === 'out' ? t('chat.you') : (replyTo.from_name ?? nodeName(replyTo.from))) : '')
   const preview = $derived(replyTo ? (replyTo.text.length > 60 ? `${replyTo.text.slice(0, 60)}…` : replyTo.text) : '')
 </script>
 
 {#if replyTo}
-  <button type="button" class="quote" title={T.quoteGoto(who)} onclick={() => onjump(replyTo.key)}>
-    {T.quoteLabel(who, preview)}
+  <button type="button" class="quote" title={t('chat.quoteGoto', { name: who })} onclick={() => onjump(replyTo.key)}>
+    {t('chat.quoteLabel', { name: who, preview })}
   </button>
 {:else if missing}
-  <span class="quote gone">{T.replyMissing}</span>
+  <span class="quote gone">{t('chat.replyMissing')}</span>
 {/if}
 
 <style>

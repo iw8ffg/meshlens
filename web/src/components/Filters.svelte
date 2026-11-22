@@ -2,6 +2,7 @@
   import { onMount } from 'svelte'
   import { getCountries } from '../lib/api'
   import { app } from '../lib/stores.svelte'
+  import { t, tn, type MsgKey } from '../lib/i18n/index.svelte'
   import { AGE_OPTIONS, SOURCE_OPTIONS, toggleIn } from '../lib/nodes'
   import Flag from '../lib/ui/Flag.svelte'
   import Icon from '../lib/ui/Icon.svelte'
@@ -11,7 +12,7 @@
   type Country = { code: string; name: string; nodes: number }
 
   let countries = $state<Country[]>([])
-  let error = $state('')
+  let error = $state<MsgKey | ''>('')
 
   async function loadCountries() {
     error = ''
@@ -23,42 +24,42 @@
         return b.nodes - a.nodes
       })
     } catch {
-      error = 'Elenco nazioni non disponibile'
+      error = 'nodes.countriesError'
     }
   }
 
   onMount(loadCountries)
 
-  const countryLabel = $derived(app.filter.countries.length === 0 ? 'tutte' : String(app.filter.countries.length))
+  const countryLabel = $derived(app.filter.countries.length === 0 ? t('nodes.countriesAllLower') : String(app.filter.countries.length))
 </script>
 
 <div class="filters">
   <div class="search">
     <Icon name="search" size={18} />
-    <input class="ui-input" type="search" placeholder="Cerca nome, id, modello o ruolo…" aria-label="Cerca nodi" bind:value={app.filter.text} />
+    <input class="ui-input" type="search" placeholder={t('nodes.search.placeholder')} aria-label={t('nodes.search.aria')} bind:value={app.filter.text} />
   </div>
-  <div class="row" role="group" aria-label="Ultimo contatto">
-    {#each AGE_OPTIONS as o (o.label)}
-      <button type="button" class="ui-chip" aria-pressed={app.filter.maxAgeH === o.hours} onclick={() => (app.filter.maxAgeH = o.hours)}>{o.label}</button>
+  <div class="row" role="group" aria-label={t('nodes.lastContact')}>
+    {#each AGE_OPTIONS as o (o.labelKey)}
+      <button type="button" class="ui-chip" aria-pressed={app.filter.maxAgeH === o.hours} onclick={() => (app.filter.maxAgeH = o.hours)}>{t(o.labelKey)}</button>
     {/each}
   </div>
-  <div class="row" role="group" aria-label="Fonte">
+  <div class="row" role="group" aria-label={t('nodes.source')}>
     {#each SOURCE_OPTIONS as o (o.value)}
-      <button type="button" class="ui-chip" aria-pressed={app.filter.sources.includes(o.value)} onclick={() => (app.filter.sources = toggleIn(app.filter.sources, o.value))}>{o.label}</button>
+      <button type="button" class="ui-chip" aria-pressed={app.filter.sources.includes(o.value)} onclick={() => (app.filter.sources = toggleIn(app.filter.sources, o.value))}>{t(o.labelKey)}</button>
     {/each}
   </div>
-  <div class="row" role="group" aria-label="Preferiti">
-    <button type="button" class="ui-chip" aria-pressed={!!app.filter.favorites} onclick={() => (app.filter.favorites = !app.filter.favorites)}>Preferiti</button>
+  <div class="row" role="group" aria-label={t('nodes.favorites')}>
+    <button type="button" class="ui-chip" aria-pressed={!!app.filter.favorites} onclick={() => (app.filter.favorites = !app.filter.favorites)}>{t('nodes.favorites')}</button>
   </div>
-  <Check bind:checked={app.filter.links} label="Collegamenti" />
+  <Check bind:checked={app.filter.links} label={t('nodes.links')} />
   <details>
-    <summary>Nazioni ({countryLabel})</summary>
-    {#if error}<p class="err">{error} <Button onclick={loadCountries}>Riprova</Button></p>{/if}
+    <summary>{t('nodes.countriesSummary', { scope: countryLabel })}</summary>
+    {#if error}<p class="err">{t(error)} <Button onclick={loadCountries}>{t('common.retry')}</Button></p>{/if}
     <div class="row wrap">
-      <button type="button" class="ui-chip" aria-pressed={app.filter.countries.length === 0} onclick={() => (app.filter.countries = [])}>Tutte</button>
+      <button type="button" class="ui-chip" aria-pressed={app.filter.countries.length === 0} onclick={() => (app.filter.countries = [])}>{t('nodes.countriesAll')}</button>
       {#each countries as c (c.code)}
         <button type="button" class="ui-chip" aria-pressed={app.filter.countries.includes(c.code)} onclick={() => (app.filter.countries = toggleIn(app.filter.countries, c.code))}>
-          {#if c.code !== 'none'}<Flag code={c.code} name={c.name} />{/if}{c.code === 'none' ? 'Sconosciuta' : c.name}
+          {#if c.code !== 'none'}<Flag code={c.code} name={c.name} />{/if}{c.code === 'none' ? t('nodes.countryUnknown') : c.name}
           <span class="n">{c.nodes}</span>
         </button>
       {/each}

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { NODE_SORTS, type NodeSortKey } from '../lib/nodesort'
+  import { t } from '../lib/i18n/index.svelte'
   import Field from '../lib/ui/Field.svelte'
   import Select from '../lib/ui/Select.svelte'
 
@@ -15,11 +16,11 @@
 </script>
 
 <div class="sortbar">
-  <Field label="Ordina per" for="{uid}-sort" hint={hasOrigin ? undefined : 'Serve la posizione della tua radio o del browser'}>
+  <Field label={t('nodes.sortBy')} for="{uid}-sort" hint={hasOrigin ? undefined : t('nodes.sortNeedOrigin')}>
     {#snippet children({ describedby })}
       <Select id="{uid}-sort" aria-describedby={describedby} value={shown} onchange={pick}>
         {#each NODE_SORTS as s (s.key)}
-          <option value={s.key} disabled={s.key === 'distance' && !hasOrigin}>{s.label}</option>
+          <option value={s.key} disabled={s.key === 'distance' && !hasOrigin}>{t(s.labelKey)}</option>
         {/each}
       </Select>
     {/snippet}

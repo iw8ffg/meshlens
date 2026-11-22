@@ -12,7 +12,7 @@ vi.mock('./distance', async (orig) => {
 
 const node = (id: string, extra: Partial<Node> = {}) => ({ id, long_name: null, short_name: null, last_heard: null, lat: null, lon: null, hops: null, hops_min: null, last_snr: null, ...extra }) as Node
 const ids = (ns: Node[]) => ns.map((n) => n.id)
-const MILANO: Origin = { lat: 45.4642, lon: 9.19, label: 'test' }
+const MILANO: Origin = { lat: 45.4642, lon: 9.19, label: 'test', kind: 'browser' }
 
 test('per nome con collazione italiana', () => {
   const nodes = [node('b', { long_name: 'b' }), node('acc', { long_name: 'À' }), node('a', { long_name: 'a' })]

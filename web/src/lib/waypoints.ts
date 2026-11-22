@@ -1,8 +1,7 @@
 // Waypoint: dati per il layer della mappa, validazione del modulo di invio, etichetta di scadenza.
 import type { Feature, FeatureCollection, Point } from 'geojson'
 import type { Waypoint } from './types'
-import { T } from './strings/waypoint'
-import { locale } from './i18n/index.svelte'
+import { locale, t } from './i18n/index.svelte'
 
 export const WP_ICONS = ['📍', '🏠', '⛺', '🚗', '🚩', '📡', '🏥', '⛽', '🔥', '💧', '🍴', '⭐'] as const
 
@@ -47,20 +46,20 @@ export interface WaypointFormValues {
   expireH: number | null
 }
 
-/** Primo errore del modulo (testo da strings/waypoint), null se valido. */
+/** Primo errore del modulo (testo nella lingua corrente), null se valido. */
 export function validateWaypoint(f: WaypointFormValues): string | null {
   const name = f.name.trim()
-  if (name === '') return T.errName
-  if (bytes(name) > WP_NAME_MAX) return T.errNameLong
-  if (bytes(f.description) > WP_DESC_MAX) return T.errDescLong
-  if (!Number.isFinite(f.lat) || !Number.isFinite(f.lon) || Math.abs(f.lat) > 90 || Math.abs(f.lon) > 180) return T.errCoords
-  if (f.expireH !== null && (!Number.isInteger(f.expireH) || f.expireH < 1 || f.expireH > 720)) return T.errExpire
+  if (name === '') return t('waypoints.errName')
+  if (bytes(name) > WP_NAME_MAX) return t('waypoints.errNameLong')
+  if (bytes(f.description) > WP_DESC_MAX) return t('waypoints.errDescLong')
+  if (!Number.isFinite(f.lat) || !Number.isFinite(f.lon) || Math.abs(f.lat) > 90 || Math.abs(f.lon) > 180) return t('waypoints.errCoords')
+  if (f.expireH !== null && (!Number.isInteger(f.expireH) || f.expireH < 1 || f.expireH > 720)) return t('waypoints.errExpire')
   return null
 }
 
 export function expiryLabel(expire: number | null, nowS: number): string {
-  if (expire === null) return T.noExpiry
-  if (expire <= nowS) return T.expired
+  if (expire === null) return t('waypoints.noExpiry')
+  if (expire <= nowS) return t('waypoints.expired')
   const d = new Date(expire * 1000)
-  return T.expiresAt(new Intl.DateTimeFormat(locale(), { dateStyle: 'medium', timeStyle: 'short' }).format(d))
+  return t('waypoints.expiresAt', { date: new Intl.DateTimeFormat(locale(), { dateStyle: 'medium', timeStyle: 'short' }).format(d) })
 }

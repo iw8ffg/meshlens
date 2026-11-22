@@ -5,7 +5,7 @@
   import Icon from '../ui/Icon.svelte'
   import { copyText } from '../clipboard'
   import { expiryLabel, WP_ICONS } from '../waypoints'
-  import { T } from '../strings/waypoint'
+  import { t } from '../i18n/index.svelte'
   import type { Waypoint } from '../types'
 
   interface Props {
@@ -39,17 +39,17 @@
     <b class="title">{wp.name}</b>
   </div>
   {#if wp.description}<p class="desc">{wp.description}</p>{/if}
-  <div class="sub">{T.author(author)}</div>
+  <div class="sub">{t('waypoints.author', { name: author })}</div>
   <div class="sub">{expiryLabel(wp.expire, now)}</div>
   <div class="acts">
     <button type="button" class="act" onclick={copy}>
       <Icon name="copy" size={16} />
-      <span>{copied ? T.copied : T.copyCoords}</span>
+      <span>{copied ? t('waypoints.copied') : t('waypoints.copyCoords')}</span>
     </button>
     {#if wp.mine}
       <button type="button" class="act danger" onclick={ondelete}>
         <Icon name="trash" size={16} />
-        <span>{T.deleteForAll}</span>
+        <span>{t('waypoints.deleteForAll')}</span>
       </button>
     {/if}
   </div>

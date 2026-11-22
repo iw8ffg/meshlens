@@ -1,7 +1,7 @@
 <script lang="ts">
   import { ago } from '../../lib/format'
   import { filterConversations, type ConvItem } from '../../lib/conversations'
-  import { T } from '../../lib/strings/messaggi'
+  import { t, tn } from '../../lib/i18n/index.svelte'
   import Empty from '../../lib/ui/Empty.svelte'
   import type { Message } from '../../lib/types'
 
@@ -20,10 +20,10 @@
 
 <div class="convs">
   <div class="search">
-    <input class="ui-input" type="search" aria-label={T.searchConversations} placeholder={T.searchPlaceholder} bind:value={query} />
+    <input class="ui-input" type="search" aria-label={t('chat.searchConversations')} placeholder={t('chat.searchPlaceholder')} bind:value={query} />
   </div>
   {#if shown.length === 0}
-    <Empty icon="chat" title={T.noConversationMatch} />
+    <Empty icon="chat" title={t('chat.noConversationMatch')} />
   {:else}
     <ul class="list">
       {#each shown as it (it.key)}
@@ -40,9 +40,9 @@
               {#if it.lastTime > 0}<span class="time">{ago((now - it.lastTime) / 60)}</span>{/if}
             </span>
             <span class="bottom">
-              <span class="preview">{it.kind === 'mqtt' ? T.mqttConversationHint : it.preview || T.noMessagesYet}</span>
+              <span class="preview">{it.kind === 'mqtt' ? t('chat.mqttConversationHint') : it.preview || t('chat.noMessagesYet')}</span>
               {#if it.unread > 0}
-                <span class="count" role="img" aria-label={T.unreadAria(it.unread)}>{it.unread}</span>
+                <span class="count" role="img" aria-label={tn('shell.unread', it.unread)}>{it.unread}</span>
               {/if}
             </span>
           </button>

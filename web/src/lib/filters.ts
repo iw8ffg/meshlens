@@ -1,4 +1,5 @@
 import type { Node } from './types'
+import { t, tn } from './i18n/index.svelte'
 
 export type NodeFilter = {
   countries: string[]
@@ -29,21 +30,22 @@ export function matchNode(n: Node, f: NodeFilter, now: number): boolean {
 
 export type ActiveFilter = { key: 'countries' | 'age' | 'sources' | 'text' | 'favorites'; label: string }
 
-const AGE_LABEL: Record<number, string> = { 2: '2 h', 24: '24 h', 168: '7 g' }
-const SOURCE_LABEL: Record<string, string> = { rf: 'Radio', mqtt: 'MQTT' }
+const ageLabel = (h: number): string =>
+  h === 2 ? t('nodes.age2h') : h === 24 ? t('nodes.age24h') : h === 168 ? t('nodes.age7d') : t('nodes.ageHours', { n: h })
+const sourceLabel = (s: string): string => (s === 'rf' ? t('nodes.sourceRadio') : s === 'mqtt' ? t('nodes.sourceMqtt') : s)
 
 /** Elenco dei filtri che nascondono qualcosa, con l'etichetta da mostrare. `links` non è un filtro. */
 export function activeFilters(f: NodeFilter, countryName: (code: string) => string): ActiveFilter[] {
   const out: ActiveFilter[] = []
   if (f.countries.length === 1) {
-    out.push({ key: 'countries', label: f.countries[0] === 'none' ? 'Nazione sconosciuta' : countryName(f.countries[0]) })
+    out.push({ key: 'countries', label: f.countries[0] === 'none' ? t('common.unknownCountry') : countryName(f.countries[0]) })
   } else if (f.countries.length > 1) {
-    out.push({ key: 'countries', label: `${f.countries.length} nazioni` })
+    out.push({ key: 'countries', label: tn('nodes.filter.countries', f.countries.length) })
   }
-  if (f.maxAgeH !== null) out.push({ key: 'age', label: `Ultimo contatto: ${AGE_LABEL[f.maxAgeH] ?? `${f.maxAgeH} h`}` })
-  if (f.sources.length > 0) out.push({ key: 'sources', label: `Fonte: ${f.sources.map((s) => SOURCE_LABEL[s] ?? s).join(', ')}` })
-  if (f.text.trim()) out.push({ key: 'text', label: `Ricerca: “${f.text.trim()}”` })
-  if (f.favorites) out.push({ key: 'favorites', label: 'Solo preferiti' })
+  if (f.maxAgeH !== null) out.push({ key: 'age', label: t('nodes.filter.age', { value: ageLabel(f.maxAgeH) }) })
+  if (f.sources.length > 0) out.push({ key: 'sources', label: t('nodes.filter.sources', { value: f.sources.map(sourceLabel).join(', ') }) })
+  if (f.text.trim()) out.push({ key: 'text', label: t('nodes.filter.text', { value: f.text.trim() }) })
+  if (f.favorites) out.push({ key: 'favorites', label: t('nodes.filter.favorites') })
   return out
 }
 

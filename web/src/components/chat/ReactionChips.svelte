@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { T } from '../../lib/strings/messaggi'
+  import { t } from '../../lib/i18n/index.svelte'
   import type { ReactionChip } from '../../lib/reactions'
 
   let { reactions }: { reactions: ReactionChip[] } = $props()
@@ -8,7 +8,7 @@
 {#if reactions.length}
   <ul class="chips">
     {#each reactions as r (r.emoji)}
-      <li class="chip" class:mine={r.mine} title={T.reactionTitle(r.emoji, r.names.join(', '))}>
+      <li class="chip" class:mine={r.mine} title={t('chat.reactionTitle', { emoji: r.emoji, names: r.names.join(', ') })}>
         <span class="em">{r.emoji}</span>
         {#if r.count > 1}<span class="n">{r.count}</span>{/if}
       </li>

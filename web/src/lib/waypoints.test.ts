@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { WP_ICONS, expiryLabel, validateWaypoint, waypointData, wpImageChar, wpImageName } from './waypoints'
-import { T } from './strings/waypoint'
+import { t } from './i18n/index.svelte'
 import type { Waypoint } from './types'
 
 const wp = (o: Partial<Waypoint>): Waypoint => ({
@@ -30,20 +30,20 @@ describe('waypointData', () => {
 describe('validateWaypoint', () => {
   it('valido', () => expect(validateWaypoint(ok)).toBeNull())
   it('nome vuoto o solo spazi', () => {
-    expect(validateWaypoint({ ...ok, name: '' })).toBe(T.errName)
-    expect(validateWaypoint({ ...ok, name: '  ' })).toBe(T.errName)
+    expect(validateWaypoint({ ...ok, name: '' })).toBe(t('waypoints.errName'))
+    expect(validateWaypoint({ ...ok, name: '  ' })).toBe(t('waypoints.errName'))
   })
-  it('nome di 31 byte (à × 16)', () => expect(validateWaypoint({ ...ok, name: 'à'.repeat(16) })).toBe(T.errNameLong))
-  it('descrizione oltre 100 byte', () => expect(validateWaypoint({ ...ok, description: 'a'.repeat(101) })).toBe(T.errDescLong))
+  it('nome di 31 byte (à × 16)', () => expect(validateWaypoint({ ...ok, name: 'à'.repeat(16) })).toBe(t('waypoints.errNameLong')))
+  it('descrizione oltre 100 byte', () => expect(validateWaypoint({ ...ok, description: 'a'.repeat(101) })).toBe(t('waypoints.errDescLong')))
   it('coordinate fuori intervallo o non finite', () => {
-    expect(validateWaypoint({ ...ok, lat: 91 })).toBe(T.errCoords)
-    expect(validateWaypoint({ ...ok, lon: -181 })).toBe(T.errCoords)
-    expect(validateWaypoint({ ...ok, lat: NaN })).toBe(T.errCoords)
+    expect(validateWaypoint({ ...ok, lat: 91 })).toBe(t('waypoints.errCoords'))
+    expect(validateWaypoint({ ...ok, lon: -181 })).toBe(t('waypoints.errCoords'))
+    expect(validateWaypoint({ ...ok, lat: NaN })).toBe(t('waypoints.errCoords'))
   })
 })
 
 describe('expiryLabel', () => {
-  it('mai', () => expect(expiryLabel(null, 1000)).toBe(T.noExpiry))
+  it('mai', () => expect(expiryLabel(null, 1000)).toBe(t('waypoints.noExpiry')))
   it('data it-IT', () => expect(expiryLabel(2000000000, 1000)).toMatch(/^Scade il .*2033/))
-  it('scaduto', () => expect(expiryLabel(10, 1000)).toBe(T.expired))
+  it('scaduto', () => expect(expiryLabel(10, 1000)).toBe(t('waypoints.expired')))
 })

@@ -6,6 +6,7 @@
   import type { Point } from 'geojson'
   import 'maplibre-gl/dist/maplibre-gl.css'
   import { app, coverage, maps, openChat } from '../lib/stores.svelte'
+  import { i18n, t } from '../lib/i18n/index.svelte'
   import { viewport } from '../lib/viewport.svelte'
   import { navigate } from '../lib/shell/navigate'
   import { haversineM, myOrigin } from '../lib/distance'
@@ -52,7 +53,6 @@
   import WaypointForm from './WaypointForm.svelte'
   import { addWaypointLayers, bindWaypointImages } from '../lib/map/WaypointLayer'
   import { waypointData } from '../lib/waypoints'
-  import { T as WT } from '../lib/strings/waypoint'
   import { deleteWaypoint } from '../lib/api'
   import type { Waypoint } from '../lib/types'
   import ActiveFilters from './ActiveFilters.svelte'
@@ -93,7 +93,8 @@
   let timer: ReturnType<typeof setTimeout> | null = null
   let linkList: Link[] = []
   let popup: maplibregl.Popup | null = null
-  const SOURCE_LABEL: Record<string, string> = { neighborinfo: 'NeighborInfo', traceroute: 'traceroute', rf_direct: 'ricezione diretta', mqtt_gateway: 'gateway MQTT (ricezione diretta)' }
+  const linkSourceLabel = (s: string): string =>
+    s === 'neighborinfo' ? 'NeighborInfo' : s === 'traceroute' ? 'traceroute' : s === 'rf_direct' ? t('map.popup.rfDirect') : s === 'mqtt_gateway' ? t('map.legend.gateway') : s
 
   const src = (id: string) => map?.getSource(id) as maplibregl.GeoJSONSource | undefined
 
@@ -145,8 +146,6 @@
   // Impostato da onMount: rilegge modalita' e stile-info e aggiorna la mappa viva
   let reloadCfg: (() => void) | null = null
   let seenVersion = maps.version
-  const NOTICE = 'Mappa non disponibile offline: scaricala da Impostazioni → Mappe offline'
-  const NOTICE_ONLINE = 'Mappa online non raggiungibile'
   const BACKOFF_START_MS = 30_000
   const BACKOFF_MAX_MS = 600_000
   const ONLINE_TIMEOUT_MS = 8000
@@ -283,10 +282,10 @@
       return fallbackStyle(tk)
     }
 
-    const noticeFor = (t: EffectiveMode): string => {
-      if (t !== 'fallback') return ''
-      if (mode === 'online') return NOTICE_ONLINE
-      return mode === 'offline' || !navigator.onLine ? NOTICE : ''
+    const noticeFor = (eff: EffectiveMode): string => {
+      if (eff !== 'fallback') return ''
+      if (mode === 'online') return t('map.notice.onlineDown')
+      return mode === 'offline' || !navigator.onLine ? t('map.notice.offlineMissing') : ''
     }
 
     const fetchStyle = async (signal: AbortSignal): Promise<void> => {
@@ -518,26 +517,26 @@
     popup = p
   }
 
-  const snrText = (v: unknown) => (typeof v === 'number' ? `${signed(v, 1)} dB` : 'sconosciuto')
+  const snrText = (v: unknown) => (typeof v === 'number' ? `${signed(v, 1)} dB` : t('map.popup.unknown'))
 
   function showNodePopup(at: maplibregl.LngLat, id: string) {
     const n = app.nodes.get(id)
     if (!n) return
     const long = n.long_name && n.long_name !== (n.short_name || '') ? n.long_name : undefined
     const rows = [
-      { label: 'Ultimo contatto', value: timeAgo(n.last_heard, now) },
+      { label: t('nodes.lastContact'), value: timeAgo(n.last_heard, now) },
       { label: 'SNR', value: snrText(n.last_snr) },
-      { label: 'Salti', value: hopsLabel(n.hops, n.hops_min) },
+      { label: t('nodes.hops'), value: hopsLabel(n.hops, n.hops_min) },
     ]
     const pos = n.lat !== null && n.lon !== null ? { lat: n.lat, lon: n.lon } : null
     const origin = myOrigin(app.nodes, app.radios, geopos.pos)
-    const isOrigin = origin !== null && origin.label !== 'dalla tua posizione' && (n.is_local_radio === true || app.radios.some((r) => r.state === 'connected' && r.my_node_id === id))
-    if (origin && pos && !isOrigin) rows.push({ label: 'Distanza', value: `${formatMeters(haversineM(origin, pos))} ${origin.label}` })
+    const isOrigin = origin !== null && origin.kind !== 'browser' && (n.is_local_radio === true || app.radios.some((r) => r.state === 'connected' && r.my_node_id === id))
+    if (origin && pos && !isOrigin) rows.push({ label: t('nodes.distance'), value: `${formatMeters(haversineM(origin, pos))} ${origin.label}` })
     const radio = app.radios.find((r) => r.state === 'connected')
     const actions: NonNullable<PopupProps['actions']> = []
     if (radio) {
       actions.push({
-        label: 'Messaggio diretto',
+        label: t('nodes.detail.directMessage'),
         icon: 'send',
         onclick: () => {
           openChat(`dm:${radio.id}:${id}`)
@@ -547,15 +546,15 @@
       })
     }
     actions.push({
-      label: 'Dettagli',
+      label: t('map.popup.details'),
       icon: 'info',
       onclick: () => {
         onpick(id)
         popup?.remove()
       },
     })
-    actions.push({ label: 'Copia id', icon: 'copy', onclick: () => copyText(id) })
-    if (pos) actions.push({ label: 'Copia coordinate', icon: 'pin', onclick: () => copyText(`${pos.lat.toFixed(5)}, ${pos.lon.toFixed(5)}`) })
+    actions.push({ label: t('map.popup.copyId'), icon: 'copy', onclick: () => copyText(id) })
+    if (pos) actions.push({ label: t('waypoints.copyCoords'), icon: 'pin', onclick: () => copyText(`${pos.lat.toFixed(5)}, ${pos.lon.toFixed(5)}`) })
     openPopup(at, {
       title: nodeName(id),
       subtitle: long ?? id,
@@ -594,11 +593,11 @@
   function showContextMenu(at: maplibregl.LngLat) {
     if (picking || tool !== 'none') return
     openPopup(at, {
-      title: WT.contextTitle,
+      title: t('waypoints.contextTitle'),
       subtitle: `${at.lat.toFixed(5)}, ${at.lng.toFixed(5)}`,
       actions: [
         {
-          label: WT.contextAdd,
+          label: t('waypoints.contextAdd'),
           icon: 'plus',
           onclick: () => {
             popup?.remove()
@@ -616,7 +615,7 @@
       await deleteWaypoint(w.id)
       wpDelete = null
     } catch (e) {
-      wpError = WT.deleteFailed(e instanceof Error ? e.message : 'errore')
+      wpError = t('waypoints.deleteFailed', { detail: e instanceof Error ? e.message : t('waypoints.unknownError') })
     }
   }
 
@@ -627,31 +626,31 @@
 
   function showLinkPopup(at: maplibregl.LngLat, p: Record<string, unknown>) {
     const age = Number(p.age_h)
-    const eta = age < 1 ? 'meno di 1 h fa' : `${num(Math.round(age))} h fa`
+    const eta = age < 1 ? t('map.popup.lessThanHour') : t('common.hourAgo', { n: num(Math.round(age)) })
     const a = app.nodes.get(String(p.from_id))
     const b = app.nodes.get(String(p.to_id))
     const rows = [
       { label: 'SNR', value: snrText(p.snr) },
-      { label: 'Fonte', value: SOURCE_LABEL[String(p.source)] ?? String(p.source) },
-      { label: 'Visto', value: eta },
+      { label: t('nodes.source'), value: linkSourceLabel(String(p.source)) },
+      { label: t('map.popup.seen'), value: eta },
     ]
     if (a && b && a.lat !== null && a.lon !== null && b.lat !== null && b.lon !== null) {
-      rows.push({ label: 'Lunghezza', value: formatMeters(haversineM({ lat: a.lat, lon: a.lon }, { lat: b.lat, lon: b.lon })) })
+      rows.push({ label: t('map.popup.length'), value: formatMeters(haversineM({ lat: a.lat, lon: a.lon }, { lat: b.lat, lon: b.lon })) })
     }
     openPopup(at, { title: `${nodeName(String(p.from_id))} ↔ ${nodeName(String(p.to_id))}`, rows })
   }
 
   function showCoveragePopup(at: maplibregl.LngLat, p: Record<string, unknown>, missing: boolean) {
     openPopup(at, {
-      title: `${typeof p.seq === 'number' ? `Pacchetto ${p.seq}` : 'Pacchetto'}`,
+      title: typeof p.seq === 'number' ? t('map.popup.packetN', { n: p.seq }) : t('map.popup.packet'),
       subtitle: formatDate(Number(p.time)),
       rows: missing
-        ? [{ label: 'Esito', value: 'non ricevuto' }]
+        ? [{ label: t('map.popup.outcome'), value: t('map.popup.notReceived') }]
         : [
             { label: 'SNR', value: snrText(p.snr) },
-            { label: 'RSSI', value: typeof p.rssi === 'number' ? `${signed(p.rssi)} dBm` : 'sconosciuto' },
-            { label: 'Salti', value: typeof p.hops === 'number' ? num(p.hops) : 'sconosciuto' },
-            { label: 'Distanza base', value: typeof p.distance_m === 'number' ? formatMeters(p.distance_m) : 'sconosciuta' },
+            { label: 'RSSI', value: typeof p.rssi === 'number' ? `${signed(p.rssi)} dBm` : t('map.popup.unknown') },
+            { label: t('nodes.hops'), value: typeof p.hops === 'number' ? num(p.hops) : t('map.popup.unknown') },
+            { label: t('map.popup.baseDistance'), value: typeof p.distance_m === 'number' ? formatMeters(p.distance_m) : t('map.popup.unknownF') },
           ],
     })
   }
@@ -766,7 +765,7 @@
       pushMe()
       map?.easeTo({ center: [p.lon, p.lat], zoom: Math.max(map.getZoom(), 13) })
     } catch (err) {
-      showNotice(err instanceof Error ? err.message : 'Posizione non disponibile')
+      showNotice(err instanceof Error ? err.message : t('map.geo.unavailable'))
     } finally {
       locating = false
     }
@@ -813,7 +812,7 @@
       const id = coverage.openId
       cancelPick()
       if (id === null) return
-      const msg = (err: unknown) => (err instanceof Error ? err.message : 'Errore')
+      const msg = (err: unknown) => (err instanceof Error ? err.message : t('map.error'))
       try {
         const s = await patchCoverage(id, { base_lat: e.lngLat.lat, base_lon: e.lngLat.lng })
         const i = coverage.sessions.findIndex((x) => x.id === id)
@@ -826,7 +825,7 @@
         const d = await coverageSession(id)
         if (coverage.openId === id) coverage.detail = d
       } catch {
-        pickError = 'Posizione salvata, ricarico non riuscito'
+        pickError = t('map.cov.savedReloadFailed')
       }
     }
     map.on('click', pickHandler)
@@ -891,8 +890,8 @@
       return
     }
     void loadLinks()
-    const t = setInterval(loadLinks, 60_000)
-    return () => clearInterval(t)
+    const timer = setInterval(loadLinks, 60_000)
+    return () => clearInterval(timer)
   })
   $effect(() => {
     void nodes // le posizioni dei nodi cambiano le estremita' delle linee
@@ -917,6 +916,12 @@
         pickError = ''
       })
     }
+  })
+  // Cambio lingua: i popup (HTML montato da MapLibre) si chiudono, cosi' al prossimo clic si rigenerano nella lingua nuova.
+  // I layer della mappa non contengono testi tradotti, quindi non serve setStyle.
+  $effect(() => {
+    void i18n.lang
+    untrack(() => popup?.remove())
   })
   // Modalita' mappa, mappe scaricate o eliminate: si applica alla mappa viva senza rimontarla
   $effect(() => {
@@ -956,11 +961,11 @@
 />
 <Legend collapse={searchOpen || tool === 'ruler'} />
 {#if offlineBadge}
-  <div class="badge" role="status"><Icon name="cloudoff" size={16} />Mappa offline</div>
+  <div class="badge" role="status"><Icon name="cloudoff" size={16} />{t('map.offlineBadge')}</div>
 {/if}
 {#snippet noNodesCard()}
   <div class="nonodes" role="status">
-    <span>Nessun nodo con i filtri attivi</span>
+    <span>{t('map.noNodes')}</span>
     <ActiveFilters compact />
   </div>
 {/snippet}
@@ -979,16 +984,16 @@
     <div class="covbar">
       <div class="row">
         <b>{coverage.detail.name}</b>
-        <Button onclick={closeTest}>Chiudi prova</Button>
+        <Button onclick={closeTest}>{t('map.cov.close')}</Button>
       </div>
       {#if coverage.detail.base_lat === null}
-        <p>Posizione della base sconosciuta: tocca la mappa per impostarla</p>
+        <p>{t('map.cov.baseUnknown')}</p>
       {/if}
       {#if picking}
-        <p>Tocca la mappa nel punto in cui si trova la base.</p>
-        <Button kind="ghost" onclick={cancelPick}>Annulla</Button>
+        <p>{t('map.cov.pickBase')}</p>
+        <Button kind="ghost" onclick={cancelPick}>{t('common.cancel')}</Button>
       {:else}
-        <Button onclick={startPick}>Imposta posizione base</Button>
+        <Button onclick={startPick}>{t('map.cov.setBase')}</Button>
       {/if}
       {#if pickError}<p class="err">{pickError}</p>{/if}
     </div>
@@ -1001,8 +1006,8 @@
 {#if wpForm}
   <WaypointForm lat={wpForm.lat} lon={wpForm.lon} onclose={() => (wpForm = null)} />
 {/if}
-<Modal open={wpDelete !== null} title={WT.deleteTitle} confirmLabel={WT.deleteConfirm} cancelLabel={WT.cancel} danger onconfirm={confirmDelete} oncancel={() => (wpDelete = null)}>
-  {#if wpDelete}<p>{WT.deleteBody(wpDelete.name)}</p>{/if}
+<Modal open={wpDelete !== null} title={t('waypoints.deleteTitle')} confirmLabel={t('waypoints.deleteConfirm')} cancelLabel={t('common.cancel')} danger onconfirm={confirmDelete} oncancel={() => (wpDelete = null)}>
+  {#if wpDelete}<p>{t('waypoints.deleteBody', { name: wpDelete.name })}</p>{/if}
   {#if wpError}<p class="err">{wpError}</p>{/if}
 </Modal>
 

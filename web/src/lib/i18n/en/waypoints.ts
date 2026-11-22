@@ -1,4 +1,41 @@
-// Testi inglesi: area «waypoints». Il tipo obbliga a tradurre ogni chiave italiana.
+// Testi inglesi: area «waypoints» (waypoint: popup, modulo, scadenza). Chiavi `waypoints.*`. Il tipo obbliga a tradurre ogni chiave italiana.
 import type { waypoints as itArea } from '../it/waypoints'
 
-export const waypoints: Record<keyof typeof itArea, string> = {}
+export const waypoints: Record<keyof typeof itArea, string> = {
+  'waypoints.layerToggleAria': 'Show or hide waypoints',
+  'waypoints.noExpiry': 'Does not expire',
+  'waypoints.expiresAt': 'Expires on {date}',
+  'waypoints.expired': 'Expired',
+  'waypoints.author': 'From {name}',
+  'waypoints.copyCoords': 'Copy coordinates',
+  'waypoints.copied': 'Copied',
+  'waypoints.deleteForAll': 'Delete for everyone',
+  'waypoints.deleteTitle': 'Delete the waypoint?',
+  'waypoints.deleteBody': '“{name}” will be deleted for all the nodes that receive it.',
+  'waypoints.deleteConfirm': 'Delete',
+  'waypoints.contextAdd': 'Add waypoint here',
+  'waypoints.contextTitle': 'Position on the map',
+  'waypoints.formTitle': 'New waypoint',
+  'waypoints.name': 'Name',
+  'waypoints.nameHint': 'Up to 30 bytes',
+  'waypoints.description': 'Description',
+  'waypoints.descriptionHint': 'Up to 100 bytes',
+  'waypoints.icon': 'Icon',
+  'waypoints.iconAria': 'Icon {icon}',
+  'waypoints.expiry': 'Expiry',
+  'waypoints.expiryNever': 'Never',
+  'waypoints.expiry1h': '1 h',
+  'waypoints.expiry7d': '7 days',
+  'waypoints.radio': 'Radio',
+  'waypoints.lat': 'Latitude',
+  'waypoints.lon': 'Longitude',
+  'waypoints.needRadio': 'Connect a radio to send waypoints: they are not published over MQTT',
+  'waypoints.errName': 'Enter a name',
+  'waypoints.errNameLong': 'The name exceeds 30 bytes',
+  'waypoints.errDescLong': 'The description exceeds 100 bytes',
+  'waypoints.errCoords': 'The coordinates are not valid',
+  'waypoints.errExpire': 'The expiry is not valid',
+  'waypoints.sendFailed': 'Sending failed: {detail}',
+  'waypoints.deleteFailed': 'Deletion failed: {detail}',
+  'waypoints.unknownError': 'error',
+}

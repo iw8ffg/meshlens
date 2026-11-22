@@ -9,58 +9,6 @@ const SOURCES = import.meta.glob('/src/**/*.svelte', { query: '?raw', import: 'd
 
 /** Componenti non ancora migrati (percorsi relativi a src/, con «/»). Task 10 e 11 li tolgono. */
 const PENDING = new Set<string>([
-  // --- Task 10: mappa, nodi, rete, messaggi ---
-  'components/ActiveFilters.svelte',
-  'components/Chat.svelte',
-  'components/Filters.svelte',
-  'components/MapView.svelte',
-  'components/MessageFeed.svelte',
-  'components/Network.svelte',
-  'components/NetworkPage.svelte',
-  'components/NetworkStats.svelte',
-  'components/NodeCharts.svelte',
-  'components/NodeDetail.svelte',
-  'components/NodeList.svelte',
-  'components/NodeSortBar.svelte',
-  'components/PacketDetail.svelte',
-  'components/PacketInspector.svelte',
-  'components/Traceroute.svelte',
-  'components/WaypointForm.svelte',
-  'components/charts/BarChart.svelte',
-  'components/charts/LineChart.svelte',
-  'components/chat/Composer.svelte',
-  'components/chat/ConversationList.svelte',
-  'components/chat/MessageActions.svelte',
-  'components/chat/MessageQuote.svelte',
-  'components/chat/ReactionChips.svelte',
-  'components/chat/Thread.svelte',
-  'lib/map/Legend.svelte',
-  'lib/map/MapControls.svelte',
-  'lib/map/MapSearch.svelte',
-  'lib/map/NodePopup.svelte',
-  'lib/map/RulerBar.svelte',
-  'lib/map/WaypointPopup.svelte',
-  // --- Task 11: copertura, previsione, radio, S&F, configurazione, impostazioni, mappe, aggiornamenti, accesso ---
-  'components/ConfigAdvanced.svelte',
-  'components/ConfigDiff.svelte',
-  'components/ConfigField.svelte',
-  'components/ConfigPanel.svelte',
-  'components/Coverage.svelte',
-  'components/CoveragePlanFlow.svelte',
-  'components/CoverageRestoreBox.svelte',
-  'components/CoverageSetup.svelte',
-  'components/Login.svelte',
-  'components/OfflineMaps.svelte',
-  'components/Prediction.svelte',
-  'components/Radios.svelte',
-  'components/Settings.svelte',
-  'components/StoreForward.svelte',
-  'components/Updates.svelte',
-  'components/settings/Brokers.svelte',
-  'components/settings/Devices.svelte',
-  'components/settings/Diagnostics.svelte',
-  'components/settings/Maintenance.svelte',
-  'components/settings/Notifications.svelte',
 ])
 
 /** Parole o sigle che restano uguali in ogni lingua (nomi propri, protocolli, unita'). */
@@ -96,6 +44,11 @@ const ALLOW = [
   'kHz',
   'km',
   'min',
+  'GeoJSON',
+  'KML',
+  'OpenStreetMap',
+  'contributors',
+  'Protomaps',
 ]
 const ALLOW_RE = new RegExp(`\\b(?:${ALLOW.join('|')})\\b`, 'gi')
 
@@ -165,6 +118,10 @@ describe('nessun testo italiano nel markup dei componenti migrati', () => {
 
   it('PENDING contiene solo file che esistono', () => {
     for (const p of PENDING) expect(files, p).toContain(p)
+  })
+
+  it('PENDING e' vuoto: ogni componente e' stato migrato', () => {
+    expect([...PENDING]).toEqual([])
   })
 
   for (const f of files.filter((x) => !PENDING.has(x))) {

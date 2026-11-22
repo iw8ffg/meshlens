@@ -1,15 +1,15 @@
 // Compositore unico «Invia via»: radio o MQTT (funzioni pure).
 import { MAX_BYTES, MQTT_CONV, byteLength, splitKey, statusLabel } from './chat'
 import type { Message, MessageStatus, Radio } from './types'
+import { t } from './i18n/index.svelte'
 
 export const DEFAULT_MQTT_CHANNEL = 'LongFast'
 export const MQTT_VIA = 'mqtt'
 /** Testo della conferma alla prima pubblicazione MQTT (identico a quello del server). */
-export const PUBLIC_WARNING =
-  'Il messaggio sarà pubblico sul broker mqtt.meshtastic.org e potrà essere ritrasmesso via radio dai gateway'
-export const NO_RADIO_REASON = 'Collega una radio'
-export const MQTT_DOWN_REASON = 'MQTT non connesso'
-export const MQTT_NODE_REASON = 'Imposta il tuo id nodo in Impostazioni → MQTT'
+export const publicWarning = (): string => t('chat.send.publicWarning')
+export const noRadioReason = (): string => t('chat.send.noRadio')
+export const mqttDownReason = (): string => t('chat.send.mqttDown')
+export const mqttNodeReason = (): string => t('chat.send.mqttNode')
 
 export const radioVia = (radioId: string): string => `radio:${radioId}`
 export const viaRadioId = (via: string): string => (via.startsWith('radio:') ? via.slice(6) : '')
@@ -47,18 +47,18 @@ const NODE_ID = /^![0-9a-f]{8}$/i
 export function viaOptions(i: ViaInput): ViaOption[] {
   const out: ViaOption[] = []
   if (i.radios.length === 0) {
-    out.push({ value: 'radio:', label: 'Radio', disabled: true, reason: NO_RADIO_REASON })
+    out.push({ value: 'radio:', label: t('chat.send.radio'), disabled: true, reason: noRadioReason() })
   }
   for (const r of i.radios) {
     const ok = r.state === 'connected'
     const ch = i.radioChannelName?.(r)
-    out.push({ value: radioVia(r.id), label: ch ? `Radio «${r.name}» (${ch})` : `Radio «${r.name}»`, disabled: !ok, reason: ok ? null : NO_RADIO_REASON })
+    out.push({ value: radioVia(r.id), label: ch ? t('chat.send.radioNamedChannel', { name: r.name, channel: ch }) : t('chat.send.radioNamed', { name: r.name }), disabled: !ok, reason: ok ? null : noRadioReason() })
   }
   const identity = NODE_ID.test(i.mqttNodeId) || i.radios.some((r) => r.state === 'connected' && !!r.my_node_id)
   let reason: string | null = null
-  if (!i.mqttConnected) reason = MQTT_DOWN_REASON
-  else if (!identity || i.unknownNode) reason = MQTT_NODE_REASON
-  out.push({ value: MQTT_VIA, label: `MQTT (${i.mqttChannel || DEFAULT_MQTT_CHANNEL})`, disabled: reason !== null, reason })
+  if (!i.mqttConnected) reason = mqttDownReason()
+  else if (!identity || i.unknownNode) reason = mqttNodeReason()
+  out.push({ value: MQTT_VIA, label: t('chat.send.mqttChannel', { channel: i.mqttChannel || DEFAULT_MQTT_CHANNEL }), disabled: reason !== null, reason })
   return out
 }
 
@@ -138,14 +138,14 @@ export function classifyMqttError(e: { status: number; code: string | null; mess
   kind: MqttErrorKind
   message: string
 } {
-  if (e.status === 409 && e.code === 'confirm_required') return { kind: 'confirm', message: e.message || PUBLIC_WARNING }
-  if (e.code === 'unknown_node') return { kind: 'unknown_node', message: MQTT_NODE_REASON }
-  if (e.status === 503 || e.code === 'mqtt_disconnected') return { kind: 'disconnected', message: MQTT_DOWN_REASON }
+  if (e.status === 409 && e.code === 'confirm_required') return { kind: 'confirm', message: e.message || publicWarning() }
+  if (e.code === 'unknown_node') return { kind: 'unknown_node', message: mqttNodeReason() }
+  if (e.status === 503 || e.code === 'mqtt_disconnected') return { kind: 'disconnected', message: mqttDownReason() }
   if (e.status === 429 || e.code === 'rate_limited') {
-    const msg = /attendi|wait/i.test(e.message) ? e.message : e.retryAfter ? `Attendi ${e.retryAfter} s` : 'Troppi messaggi: riprova tra poco'
+    const msg = /attendi|wait/i.test(e.message) ? e.message : e.retryAfter ? t('chat.send.wait', { n: e.retryAfter }) : t('chat.send.tooMany')
     return { kind: 'rate_limited', message: msg }
   }
-  return { kind: 'other', message: e.message || 'Invio non riuscito' }
+  return { kind: 'other', message: e.message || t('chat.send.failed') }
 }
 
 /** Dopo la conferma dell'utente si rimanda lo stesso messaggio con confirm_public: true. */
@@ -156,6 +156,6 @@ export function resendBody(pending: MqttSendBody): MqttSendBody {
 /** Etichetta accessibile dello stato: «Inviato · via MQTT». */
 export function statusAria(status: MessageStatus | null | undefined, via: Message['via']): string {
   const s = statusLabel(status)
-  if (!s) return via === 'mqtt' ? 'via MQTT' : ''
-  return via === 'mqtt' ? `${s} · via MQTT` : s
+  if (!s) return via === 'mqtt' ? t('chat.status.viaMqtt') : ''
+  return via === 'mqtt' ? `${s} · ${t('chat.status.viaMqtt')}` : s
 }

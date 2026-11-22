@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { MQTT_CONV, groupMessages } from './chat'
 import { buildConversations, filterConversations, previewText } from './conversations'
-import { T } from './strings/messaggi'
+import { t } from './i18n/index.svelte'
 import type { ConvSummary, Message, Radio } from './types'
 
 const radio = (id: string, my: string, channels: [number, string][]): Radio =>
@@ -64,7 +64,7 @@ describe('previewText', () => {
     expect(previewText(msg({ from: '!a', to: '!b', direction: 'out' }), nodeName, local).startsWith('Tu: ')).toBe(true)
   })
   it('una reazione dà T.reactionPreview', () => {
-    expect(previewText(msg({ text: '👍', emoji: true, reply_id: 5 }), nodeName, local)).toBe(T.reactionPreview('Bruno', '👍'))
+    expect(previewText(msg({ text: '👍', emoji: true, reply_id: 5 }), nodeName, local)).toBe(t('chat.reactionPreview', { name: 'Bruno', emoji: '👍' }))
   })
   it('100 caratteri diventano 80 più «…»', () => {
     expect(previewText(msg({ text: 'a'.repeat(100) }), nodeName, local)).toBe('a'.repeat(80) + '…')

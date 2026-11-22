@@ -3,15 +3,17 @@ import { haversineM, type Origin } from './distance'
 import { compareLastHeard } from './format'
 import { nodeName } from './nodes'
 import type { Node } from './types'
+import { locale } from './i18n/index.svelte'
+import type { MsgKey } from './i18n/index.svelte'
 
 export type NodeSortKey = 'recent' | 'name' | 'snr' | 'hops' | 'distance'
 
-export const NODE_SORTS: { key: NodeSortKey; label: string }[] = [
-  { key: 'recent', label: 'Recenti' },
-  { key: 'name', label: 'Nome' },
-  { key: 'snr', label: 'SNR' },
-  { key: 'hops', label: 'Salti' },
-  { key: 'distance', label: 'Distanza' },
+export const NODE_SORTS: { key: NodeSortKey; labelKey: MsgKey }[] = [
+  { key: 'recent', labelKey: 'nodes.sort.recent' },
+  { key: 'name', labelKey: 'nodes.sort.name' },
+  { key: 'snr', labelKey: 'nodes.sort.snr' },
+  { key: 'hops', labelKey: 'nodes.sort.hops' },
+  { key: 'distance', labelKey: 'nodes.sort.distance' },
 ]
 
 /**
@@ -36,7 +38,7 @@ export function sortNodeList(nodes: Node[], key: NodeSortKey, origin: Origin | n
   switch (key) {
     case 'name':
       return [...nodes].sort(
-        (a, b) => nodeName(a).localeCompare(nodeName(b), 'it') || compareLastHeard(a.last_heard, b.last_heard),
+        (a, b) => nodeName(a).localeCompare(nodeName(b), locale()) || compareLastHeard(a.last_heard, b.last_heard),
       )
     case 'snr':
       return byValue(nodes, (n) => n.last_snr, (x, y) => y - x)

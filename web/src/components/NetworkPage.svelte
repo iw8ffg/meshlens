@@ -1,5 +1,6 @@
 <script lang="ts">
   import { loadView, saveView, type NetView } from '../lib/viewstate'
+  import { t } from '../lib/i18n/index.svelte'
   import Segmented from '../lib/ui/Segmented.svelte'
   import Network from './Network.svelte'
   import NetworkStats from './NetworkStats.svelte'
@@ -8,11 +9,11 @@
 
   let { nodes, now, onpick }: { nodes: Node[]; now: number; onpick: (n: Node) => void } = $props()
 
-  const VIEWS: { value: NetView; label: string }[] = [
-    { value: 'nodes', label: 'Nodi' },
-    { value: 'stats', label: 'Statistiche' },
-    { value: 'packets', label: 'Pacchetti' },
-  ]
+  const VIEWS = $derived<{ value: NetView; label: string }[]>([
+    { value: 'nodes', label: t('network.view.nodes') },
+    { value: 'stats', label: t('network.view.stats') },
+    { value: 'packets', label: t('network.view.packets') },
+  ])
 
   const saved = loadView(localStorage).netView
   let view = $state<NetView>(saved)
@@ -25,7 +26,7 @@
 
 <div class="page">
   <div class="views">
-    <Segmented items={VIEWS} bind:value={view} label="Vista della rete" onchange={(v) => saveView(localStorage, { netView: v })} />
+    <Segmented items={VIEWS} bind:value={view} label={t('network.viewAria')} onchange={(v) => saveView(localStorage, { netView: v })} />
   </div>
   {#if view === 'stats'}
     <NetworkStats onpick={pickId} />

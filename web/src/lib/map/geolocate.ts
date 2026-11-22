@@ -1,10 +1,12 @@
+import { t } from '../i18n/index.svelte'
+
 // «Dove sono»: posizione del browser con messaggi chiari quando non è disponibile.
 export function geoErrorText(code: number | 'insecure' | 'unsupported'): string {
-  if (code === 'insecure') return 'La posizione del browser richiede HTTPS: attivalo in Impostazioni → Rete, oppure usa MeshLens su questo PC'
-  if (code === 'unsupported') return 'Questo browser non fornisce la posizione'
-  if (code === 1) return 'Permesso di posizione negato: consentilo nelle impostazioni del browser'
-  if (code === 3) return "Posizione non trovata in tempo: riprova all'aperto"
-  return 'Posizione non disponibile'
+  if (code === 'insecure') return t('map.geo.insecure')
+  if (code === 'unsupported') return t('map.geo.unsupported')
+  if (code === 1) return t('map.geo.denied')
+  if (code === 3) return t('map.geo.timeout')
+  return t('map.geo.unavailable')
 }
 
 export function locate(geo: Geolocation | undefined, secure: boolean): Promise<{ lat: number; lon: number; accuracy: number; time: number }> {

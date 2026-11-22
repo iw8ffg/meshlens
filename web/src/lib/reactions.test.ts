@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { keyChangedRecently, routingErrorText, threadItems } from './reactions'
-import { T } from './strings/messaggi'
+import { t } from './i18n/index.svelte'
 import type { Message, Node } from './types'
 
 let seq = 0
@@ -56,7 +56,7 @@ describe('threadItems', () => {
 
 describe('routingErrorText', () => {
   it('codice noto dalla tabella', () => {
-    expect(routingErrorText('PKI_UNKNOWN_PUBKEY')).toBe(T.routingErrors.PKI_UNKNOWN_PUBKEY)
+    expect(routingErrorText('PKI_UNKNOWN_PUBKEY')).toBe(t('chat.routing.PKI_UNKNOWN_PUBKEY'))
     expect(routingErrorText('TIMEOUT')).toBe('Nessuna conferma entro il tempo massimo')
   })
   it('codice ignoto', () => {

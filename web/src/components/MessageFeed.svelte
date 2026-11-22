@@ -5,7 +5,7 @@
   import { statusIcon } from '../lib/chat'
   import { statusAria } from '../lib/send'
   import { routingErrorText, threadItems } from '../lib/reactions'
-  import { T } from '../lib/strings/messaggi'
+  import { t, tn, type MsgKey } from '../lib/i18n/index.svelte'
   import Badge from '../lib/ui/Badge.svelte'
   import BrokerBadge from '../lib/ui/BrokerBadge.svelte'
   import Banner from '../lib/ui/Banner.svelte'
@@ -31,7 +31,7 @@
 
   const LIMIT = 200
   let older = $state<Message[]>([])
-  let error = $state('')
+  let error = $state<MsgKey | ''>('')
   let loading = $state(false)
   let exhausted = $state(false)
 
@@ -67,7 +67,7 @@
         // dal piu' vecchio al piu' recente: il limite dello store scarta i piu' vecchi
         for (const m of [...list].reverse()) addMessage(m)
       })
-      .catch(() => (error = 'Messaggi non disponibili'))
+      .catch(() => (error = 'chat.feedUnavailable'))
   }
 
   function showAll() {
@@ -96,7 +96,7 @@
       if (list.length < LIMIT) exhausted = true
       older = [...older, ...list]
     } catch {
-      error = 'Impossibile caricare i messaggi precedenti'
+      error = 'chat.olderError'
     } finally {
       loading = false
     }
@@ -106,11 +106,11 @@
 <div class="feed">
   <details class="ff">
     <summary>
-      Filtro messaggi ({app.feedFilter.countries.length === 0 ? 'tutte le nazioni' : `${app.feedFilter.countries.length} nazioni`})
+      {t('chat.feedFilter', { scope: app.feedFilter.countries.length === 0 ? t('chat.allCountries').toLowerCase() : tn('nodes.filter.countries', app.feedFilter.countries.length) })}
     </summary>
-    <Check bind:checked={app.feedFilter.includeUnknown} label="Includi nodi senza posizione" />
+    <Check bind:checked={app.feedFilter.includeUnknown} label={t('chat.includeUnknown')} />
     <div class="chips">
-      <button type="button" class="ui-chip" aria-pressed={app.feedFilter.countries.length === 0} onclick={() => (app.feedFilter.countries = [])}>Tutte le nazioni</button>
+      <button type="button" class="ui-chip" aria-pressed={app.feedFilter.countries.length === 0} onclick={() => (app.feedFilter.countries = [])}>{t('chat.allCountries')}</button>
       {#each countries as c (c.code)}
         <button type="button" class="ui-chip" aria-pressed={app.feedFilter.countries.includes(c.code)} onclick={() => toggle(c.code)}>
           <Flag code={c.code} name={c.name} />{c.name}
@@ -120,14 +120,14 @@
   </details>
   {#if hidden > 0}
     <div class="hid" role="status">
-      <span>{hidden} {hidden === 1 ? 'messaggio nascosto' : 'messaggi nascosti'} dal filtro</span>
-      <Button onclick={showAll}>Mostra tutti</Button>
+      <span>{tn('chat.hiddenByFilter', hidden)}</span>
+      <Button onclick={showAll}>{t('chat.showAll')}</Button>
     </div>
   {/if}
   {#if error}
     <div class="pad">
-      <Banner kind="danger" title={error}>
-        {#snippet action()}<Button onclick={loadFirst}>Riprova</Button>{/snippet}
+      <Banner kind="danger" title={t(error)}>
+        {#snippet action()}<Button onclick={loadFirst}>{t('common.retry')}</Button>{/snippet}
       </Banner>
     </div>
   {/if}
@@ -144,24 +144,24 @@
       {@const m = it.msg}
       {@const out = m.direction === 'out'}
       {#if it.orphan}
-        <li class="orphan">{T.orphanReaction(m.text, out ? T.you : (m.from_name ?? nodeName(m.from)))}</li>
+        <li class="orphan">{t('chat.orphanReaction', { emoji: m.text, name: out ? t('chat.you') : (m.from_name ?? nodeName(m.from)) })}</li>
       {:else}
       <li class:out data-mkey={m.key}>
         <div class="head">
-          <Flag code={m.country} name={m.country ?? 'Posizione sconosciuta'} />
+          <Flag code={m.country} name={m.country ?? t('chat.unknownPosition')} />
           {#if out}
-            <b class="name">Tu</b>
+            <b class="name">{t('chat.you')}</b>
           {:else}
             <button type="button" class="name" onclick={() => onpick(m.from)}>{m.from_name ?? m.from}</button>
           {/if}
           {#if m.channel}<Badge>{m.channel}</Badge>{/if}
-          {#if out}<Badge kind="info">via MQTT</Badge>{/if}
+          {#if out}<Badge kind="info">{t('chat.status.viaMqtt')}</Badge>{/if}
           <BrokerBadge id={m.broker} />
           <span class="t">{ago((now - m.time) / 60)}</span>
           {#if out && m.status}
             <span class="st" role="img" title={statusAria(m.status, m.via)} aria-label={statusAria(m.status, m.via)}>{statusIcon(m.status)}</span>
           {/if}
-          {#if m.pki}<Icon name="lock" size={14} label={T.pkiAria} />{/if}
+          {#if m.pki}<Icon name="lock" size={14} label={t('chat.pkiAria')} />{/if}
           <MessageActions msg={m} {onreply} {onreact} />
         </div>
         <MessageQuote replyTo={it.replyTo} missing={it.replyMissing} {nodeName} onjump={jumpTo} />
@@ -173,7 +173,7 @@
     {/each}
   </ul>
   {#if !exhausted && shown.length > 0}
-    <div class="more"><Button onclick={loadOlder} disabled={loading}>{loading ? 'Caricamento…' : 'Carica precedenti'}</Button></div>
+    <div class="more"><Button onclick={loadOlder} disabled={loading}>{loading ? t('shell.loading') : t('chat.loadOlder')}</Button></div>
   {/if}
 </div>
 

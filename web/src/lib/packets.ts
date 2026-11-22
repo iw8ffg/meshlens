@@ -1,5 +1,6 @@
 // Ispettore dei pacchetti: filtri, interrogazione e testi.
 import type { Node } from './types'
+import { t, tn, type MsgKey } from './i18n/index.svelte'
 
 export type PacketFilters = {
   node: string
@@ -15,13 +16,19 @@ export const PAGE_SIZE = 100
 
 const PERIOD_HOURS: Record<PacketFilters['period'], number | null> = { '1h': 1, '6h': 6, '24h': 24, all: null }
 
-export const STATUS_LABEL: Record<string, string> = {
-  ok: 'Decodificato',
-  encrypted: 'Cifrato',
-  unsupported: 'Tipo non gestito',
-  undecodable: 'Non decodificabile',
-  empty: 'Vuoto',
+const STATUS_KEYS: Record<string, MsgKey> = {
+  ok: 'packets.status.ok',
+  encrypted: 'packets.status.encrypted',
+  unsupported: 'packets.status.unsupported',
+  undecodable: 'packets.status.undecodable',
+  empty: 'packets.status.empty',
 }
+
+/** Stato di decodifica nella lingua corrente; uno stato ignoto mostra il codice. */
+export const statusLabel = (s: string): string => (Object.hasOwn(STATUS_KEYS, s) ? t(STATUS_KEYS[s]) : s)
+
+/** Stati noti per il menu del filtro: [codice, etichetta]. */
+export const statusOptions = (): [string, string][] => Object.keys(STATUS_KEYS).map((k) => [k, statusLabel(k)])
 
 /** Parametri della richiesta: i campi vuoti si omettono; `nodeId` è il nodo già risolto. */
 export function packetQuery(f: PacketFilters, now: number, beforeId: number | null, nodeId: string | null, afterId: number | null = null): string {
@@ -82,7 +89,7 @@ export function relayCandidates(relay: number | null, nodes: Iterable<Node>): No
 }
 
 export function hopsText(p: { hops: number | null; hop_start: number | null; hop_limit: number | null }): string {
-  if (p.hops !== null) return p.hops === 1 ? '1 salto' : `${p.hops} salti`
-  if (p.hop_start !== null) return `partito con ${p.hop_start}, rimasti ${p.hop_limit ?? '–'}`
+  if (p.hops !== null) return tn('packets.hops', p.hops)
+  if (p.hop_start !== null) return t('packets.hopsStart', { start: p.hop_start, left: p.hop_limit ?? '–' })
   return '–'
 }

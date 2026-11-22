@@ -1,9 +1,10 @@
 <script lang="ts">
-  import { locale } from '../lib/i18n/index.svelte'
+  import { locale, t } from '../lib/i18n/index.svelte'
   import { onMount } from 'svelte'
   import { getJSON, packets as fetchPackets } from '../lib/api'
-  import { KIND_LABEL, kindLabel } from '../lib/netstats'
-  import { hopsText, packetQuery, PAGE_SIZE, resolveNode, STATUS_LABEL, type PacketFilters } from '../lib/packets'
+  import { num } from '../lib/format'
+  import { kindLabel, kindOptions } from '../lib/netstats'
+  import { hopsText, packetQuery, PAGE_SIZE, resolveNode, statusOptions, type PacketFilters } from '../lib/packets'
   import type { AppSettings } from '../lib/settings'
   import type { Node, PacketRow } from '../lib/types'
   import { viewport } from '../lib/viewport.svelte'
@@ -26,27 +27,27 @@
   const NODE_DEBOUNCE_MS = 300
   const BROADCAST = '!ffffffff'
 
-  const COLS: Column[] = [
-    { key: 'time', label: 'Ora', fix: true },
-    { key: 'from', label: 'Da' },
-    { key: 'to', label: 'A' },
-    { key: 'kind', label: 'Tipo' },
-    { key: 'source', label: 'Fonte' },
+  const COLS = $derived<Column[]>([
+    { key: 'time', label: t('packets.col.time'), fix: true },
+    { key: 'from', label: t('packets.col.from') },
+    { key: 'to', label: t('packets.col.to') },
+    { key: 'kind', label: t('packets.col.kind') },
+    { key: 'source', label: t('nodes.source') },
     { key: 'snr', label: 'SNR', num: true },
-    { key: 'hops', label: 'Salti' },
-    { key: 'copies', label: 'Copie', num: true },
-  ]
-  const SOURCES: { value: PacketFilters['source']; label: string }[] = [
-    { value: '', label: 'Tutte' },
-    { value: 'rf', label: 'Radio' },
+    { key: 'hops', label: t('nodes.hops') },
+    { key: 'copies', label: t('packets.col.copies'), num: true },
+  ])
+  const SOURCES = $derived<{ value: PacketFilters['source']; label: string }[]>([
+    { value: '', label: t('packets.all.f') },
+    { value: 'rf', label: t('nodes.sourceRadio') },
     { value: 'mqtt', label: 'MQTT' },
-  ]
-  const PERIODS: { value: PacketFilters['period']; label: string }[] = [
-    { value: '1h', label: 'Ultima ora' },
-    { value: '6h', label: '6 h' },
-    { value: '24h', label: '24 h' },
-    { value: 'all', label: 'Tutto' },
-  ]
+  ])
+  const PERIODS = $derived<{ value: PacketFilters['period']; label: string }[]>([
+    { value: '1h', label: t('packets.period.1h') },
+    { value: '6h', label: t('packets.period.6h') },
+    { value: '24h', label: t('nodes.age24h') },
+    { value: 'all', label: t('packets.period.all') },
+  ])
 
   let mode = $state<AppSettings['packet_log_mode'] | null>(null)
   let f = $state<PacketFilters>({ node: '', kind: '', source: '', status: '', minSnr: null, period: '1h' })
@@ -57,7 +58,7 @@
   let items = $state<PacketRow[]>([])
   let next = $state<number | null>(null)
   let loading = $state(false)
-  let error = $state('')
+  let error = $state(false)
   let selected = $state<number | null>(null)
   let innerWidth = $state(0)
   /** Si incrementa a ogni nuova interrogazione: le risposte di una precedente si scartano. */
@@ -83,8 +84,8 @@
 
   $effect(() => {
     const text = f.node
-    const t = setTimeout(() => (nodeQuery = text), NODE_DEBOUNCE_MS)
-    return () => clearTimeout(t)
+    const timer = setTimeout(() => (nodeQuery = text), NODE_DEBOUNCE_MS)
+    return () => clearTimeout(timer)
   })
 
   // Prima pagina: si rilegge a ogni cambio di filtro
@@ -101,7 +102,7 @@
     }
     const my = ++gen
     loading = true
-    error = ''
+    error = false
     fetchPackets(packetQuery(filters, Date.now() / 1000, null, id))
       .then((r) => {
         if (my !== gen) return
@@ -109,7 +110,7 @@
         next = r.next_before_id
       })
       .catch(() => {
-        if (my === gen) error = 'Pacchetti non disponibili'
+        if (my === gen) error = true
       })
       .finally(() => {
         if (my === gen) loading = false
@@ -127,7 +128,7 @@
       items = [...items, ...r.items.filter((p) => !seen.has(p.id))]
       next = r.next_before_id
     } catch {
-      if (my === gen) error = 'Pacchetti non disponibili'
+      if (my === gen) error = true
     } finally {
       if (my === gen) loading = false
     }
@@ -169,12 +170,12 @@
     const on = live
     const active = mode !== null && mode !== 'off' && !nodeUnknown
     if (!on || !active) return
-    const t = setInterval(poll, LIVE_MS)
-    return () => clearInterval(t)
+    const timer = setInterval(poll, LIVE_MS)
+    return () => clearInterval(timer)
   })
 
-  const timeText = (t: number) => new Date(t * 1000).toLocaleTimeString(locale())
-  const label = (id: string) => (id === BROADCAST ? 'Tutti' : (names.get(id) ?? id))
+  const timeText = (sec: number) => new Date(sec * 1000).toLocaleTimeString(locale())
+  const label = (id: string) => (id === BROADCAST ? t('packets.all.m') : (names.get(id) ?? id))
   const rowKey = (p: PacketRow) => String(p.id)
 </script>
 
@@ -183,51 +184,51 @@
 
 <div class="insp">
   {#if mode === 'off'}
-    <Banner kind="warn" title="L'ispettore è spento. Attivalo in Impostazioni → Conservazione." />
+    <Banner kind="warn" title={t('packets.off')} />
   {:else}
     <div class="filters">
-      <Field label="Nodo" for="pk-node">
-        {#snippet children()}<input id="pk-node" class="ui-input" type="text" placeholder="!xxxxxxxx o nome" bind:value={f.node} />{/snippet}
+      <Field label={t('packets.filter.node')} for="pk-node">
+        {#snippet children()}<input id="pk-node" class="ui-input" type="text" placeholder={t('packets.filter.nodePlaceholder')} bind:value={f.node} />{/snippet}
       </Field>
-      <Field label="Tipo" for="pk-kind">
+      <Field label={t('packets.col.kind')} for="pk-kind">
         {#snippet children()}
           <Select id="pk-kind" bind:value={f.kind}>
-            <option value="">Tutti</option>
-            {#each Object.entries(KIND_LABEL) as [k, l] (k)}<option value={k}>{l}</option>{/each}
+            <option value="">{t('packets.all.m')}</option>
+            {#each kindOptions() as [k, l] (k)}<option value={k}>{l}</option>{/each}
           </Select>
         {/snippet}
       </Field>
-      <Field label="Stato" for="pk-status">
+      <Field label={t('packets.filter.status')} for="pk-status">
         {#snippet children()}
           <Select id="pk-status" bind:value={f.status}>
-            <option value="">Tutti</option>
-            {#each Object.entries(STATUS_LABEL) as [k, l] (k)}<option value={k}>{l}</option>{/each}
+            <option value="">{t('packets.all.m')}</option>
+            {#each statusOptions() as [k, l] (k)}<option value={k}>{l}</option>{/each}
           </Select>
         {/snippet}
       </Field>
-      <Field label="SNR minimo" for="pk-snr">
+      <Field label={t('packets.filter.minSnr')} for="pk-snr">
         {#snippet children()}<input id="pk-snr" class="ui-input ui-mono" type="number" step="0.5" bind:value={f.minSnr} />{/snippet}
       </Field>
       <div class="seg">
-        <span class="ui-lbl">Fonte</span>
-        <Segmented items={SOURCES} bind:value={f.source} label="Fonte" />
+        <span class="ui-lbl">{t('nodes.source')}</span>
+        <Segmented items={SOURCES} bind:value={f.source} label={t('nodes.source')} />
       </div>
       <div class="seg">
-        <span class="ui-lbl">Periodo</span>
-        <Segmented items={PERIODS} bind:value={f.period} label="Periodo" />
+        <span class="ui-lbl">{t('packets.filter.period')}</span>
+        <Segmented items={PERIODS} bind:value={f.period} label={t('packets.filter.period')} />
       </div>
-      <Switch bind:checked={live} label="In diretta" />
+      <Switch bind:checked={live} label={t('packets.live')} />
     </div>
-    {#if nodeUnknown}<p class="ui-hint err">Nodo non trovato</p>{:else if nodeId !== null}<p class="ui-muted">{`Nodo: ${nodeMatch}`}</p>{/if}
-    {#if error}<Banner kind="danger" title={error} />{/if}
+    {#if nodeUnknown}<p class="ui-hint err">{t('packets.nodeNotFound')}</p>{:else if nodeId !== null}<p class="ui-muted">{t('packets.nodeIs', { name: nodeMatch })}</p>{/if}
+    {#if error}<Banner kind="danger" title={t('packets.unavailable')} />{/if}
 
     <div class="body" class:split={wide}>
       {#if !(selected !== null && !wide)}
         <div class="list">
           {#if items.length === 0 && !loading && !nodeUnknown}
-            <Empty icon="network" title="Nessun pacchetto" />
+            <Empty icon="network" title={t('packets.empty')} />
           {:else if items.length > 0}
-            <Table columns={COLS} rows={items} {rowKey} selectedKey={selected === null ? null : String(selected)} onrowclick={(p) => (selected = p.id)} caption="Pacchetti ricevuti">
+            <Table columns={COLS} rows={items} {rowKey} selectedKey={selected === null ? null : String(selected)} onrowclick={(p) => (selected = p.id)} caption={t('packets.caption')}>
               {#snippet cell(p, c)}
                 {#if c.key === 'time'}
                   {timeText(p.time)}
@@ -240,7 +241,7 @@
                 {:else if c.key === 'source'}
                   <SourceMark source={p.source === 'rf' ? 'radio' : 'mqtt'} size={16} />
                 {:else if c.key === 'snr'}
-                  {p.snr === null ? '–' : p.snr.toFixed(1).replace('-', '−')}
+                  {p.snr === null ? '–' : num(p.snr, 1).replace('-', '−')}
                 {:else if c.key === 'hops'}
                   {hopsText(p)}
                 {:else}
@@ -250,7 +251,7 @@
             </Table>
           {/if}
           {#if next !== null}
-            <div class="more"><Button disabled={loading} onclick={more}>Carica altri</Button></div>
+            <div class="more"><Button disabled={loading} onclick={more}>{t('packets.loadMore')}</Button></div>
           {/if}
         </div>
       {/if}

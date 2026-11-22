@@ -2,6 +2,7 @@
   import { onMount } from 'svelte'
   import { networkStats } from '../lib/api'
   import { num } from '../lib/format'
+  import { t, type MsgKey } from '../lib/i18n/index.svelte'
   import { kindLabel, kindTotals, packetsPerHour, snrBinLabel } from '../lib/netstats'
   import type { NetworkStats } from '../lib/types'
   import { chartTime } from '../lib/chart'
@@ -15,22 +16,22 @@
 
   let { onpick }: { onpick: (id: string) => void } = $props()
 
-  const PERIODS = [
-    { label: '24 h', hours: 24 },
-    { label: '7 g', hours: 168 },
-    { label: '30 g', hours: 720 },
+  const PERIODS: { labelKey: MsgKey; hours: number }[] = [
+    { labelKey: 'nodes.age24h', hours: 24 },
+    { labelKey: 'nodes.age7d', hours: 168 },
+    { labelKey: 'nodes.period30d', hours: 720 },
   ]
   const REFRESH_MS = 60_000
-  const TOP_COLS: Column[] = [
-    { key: 'name', label: 'Nodo', fix: true },
-    { key: 'packets', label: 'Pacchetti', num: true },
-    { key: 'per_hour', label: "All'ora", num: true },
-  ]
+  const TOP_COLS = $derived<Column[]>([
+    { key: 'name', label: t('network.col.node'), fix: true },
+    { key: 'packets', label: t('network.stats.packets'), num: true },
+    { key: 'per_hour', label: t('network.stats.perHour'), num: true },
+  ])
 
   let hours = $state(24)
   let data = $state<NetworkStats | null>(null)
   let loading = $state(false)
-  let error = $state('')
+  let error = $state(false)
   /** Incrementato da «Aggiorna» e dal timer: l'effetto ricarica. */
   let tick = $state(0)
 
@@ -38,14 +39,14 @@
     const h = hours
     void tick
     loading = true
-    error = ''
+    error = false
     let stale = false
     networkStats(h)
       .then((s) => {
         if (!stale) data = s
       })
       .catch(() => {
-        if (!stale) error = 'Statistiche non disponibili'
+        if (!stale) error = true
       })
       .finally(() => {
         if (!stale) loading = false
@@ -64,7 +65,7 @@
   const kinds = $derived(data ? kindTotals(data.packets) : [])
   const onlineSeries = $derived(
     data
-      ? [{ key: 'online', label: 'Nodi online', unit: '', digits: 0, color: 'accent' as const, points: data.online.map((p) => ({ t: p.time, v: p.nodes })) }]
+      ? [{ key: 'online', label: t('network.stats.onlineNodes'), unit: '', digits: 0, color: 'accent' as const, points: data.online.map((p) => ({ t: p.time, v: p.nodes })) }]
       : [],
   )
   const onlineMax = $derived(Math.max(1, ...(data?.online.map((p) => p.nodes) ?? [1])))
@@ -75,30 +76,30 @@
 
 <div class="stats">
   <div class="bar">
-    <div class="periods" role="group" aria-label="Periodo">
+    <div class="periods" role="group" aria-label={t('nodes.charts.period')}>
       {#each PERIODS as p (p.hours)}
-        <button type="button" class="ui-chip" aria-pressed={hours === p.hours} onclick={() => (hours = p.hours)}>{p.label}</button>
+        <button type="button" class="ui-chip" aria-pressed={hours === p.hours} onclick={() => (hours = p.hours)}>{t(p.labelKey)}</button>
       {/each}
     </div>
-    <Button icon="refresh" disabled={loading} onclick={() => tick++}>Aggiorna</Button>
+    <Button icon="refresh" disabled={loading} onclick={() => tick++}>{t('network.stats.refresh')}</Button>
   </div>
-  <p class="ui-muted note">Le statistiche riguardano i nodi archiviati: nazioni salvate, nodi miei e preferiti, nodi sentiti via radio.</p>
-  <p class="ui-muted note">I pacchetti all'ora comprendono tutto il traffico ricevuto.</p>
+  <p class="ui-muted note">{t('network.stats.note1')}</p>
+  <p class="ui-muted note">{t('network.stats.note2')}</p>
 
   {#if error}
-    <Banner kind="danger" title={error} />
+    <Banner kind="danger" title={t('network.stats.unavailable')} />
   {/if}
 
   {#if data && data.totals.packets === 0}
-    <Empty icon="network" title="Ancora nessun dato" />
+    <Empty icon="network" title={t('network.stats.noData')} />
   {:else if data}
     <Card>
-      <h3>Nodi online nel tempo</h3>
+      <h3>{t('network.stats.onlineTitle')}</h3>
       {#if data.online.length === 0}
-        <p class="ui-muted">Nessun dato nel periodo</p>
+        <p class="ui-muted">{t('nodes.charts.noData')}</p>
       {:else}
         <LineChart
-          label="Grafico dei nodi online nel tempo"
+          label={t('network.stats.onlineAria')}
           x0={data.since}
           x1={Math.max(data.since + 1, data.online[data.online.length - 1].time)}
           left={[0, onlineMax]}
@@ -108,11 +109,11 @@
     </Card>
 
     <Card>
-      <h3>Pacchetti all'ora</h3>
+      <h3>{t('network.stats.perHourTitle')}</h3>
       <BarChart
-        label="Grafico dei pacchetti all'ora"
+        label={t('network.stats.perHourAria')}
         bars={perHour.map((p) => ({ label: chartTime(p.time, data!.hours), values: [p.packets] }))}
-        series={[{ label: 'Pacchetti', color: 'accent' }]}
+        series={[{ label: t('network.stats.packets'), color: 'accent' }]}
       />
       <ul class="plain">
         {#each kinds as k (k.kind)}
@@ -122,53 +123,53 @@
     </Card>
 
     <Card>
-      <h3>Distribuzione dell'SNR</h3>
+      <h3>{t('network.stats.snrTitle')}</h3>
       <BarChart
-        label="Grafico della distribuzione dell'SNR"
+        label={t('network.stats.snrAria')}
         bars={data.snr.bins.map((lo, i) => ({ label: snrBinLabel(lo), values: [data!.snr.rf[i] ?? 0, data!.snr.mqtt[i] ?? 0] }))}
         series={[
-          { label: 'Radio', color: 'radio' },
+          { label: t('nodes.sourceRadio'), color: 'radio' },
           { label: 'MQTT', color: 'mqtt' },
         ]}
       />
     </Card>
 
     <Card>
-      <h3>Salti</h3>
+      <h3>{t('nodes.hops')}</h3>
       <BarChart
-        label="Grafico dei nodi per numero di salti"
-        bars={data.hops.map((h) => ({ label: h.hops === null ? 'sconosciuti' : String(h.hops), values: [h.nodes] }))}
-        series={[{ label: 'Nodi', color: 'accent' }]}
+        label={t('network.stats.hopsAria')}
+        bars={data.hops.map((h) => ({ label: h.hops === null ? t('network.stats.hopsUnknown') : String(h.hops), values: [h.nodes] }))}
+        series={[{ label: t('network.stats.nodes'), color: 'accent' }]}
       />
     </Card>
 
     <Card>
-      <h3>Nodi più attivi</h3>
-      <Table columns={TOP_COLS} rows={data.top} rowKey={(t) => t.id} onrowclick={(t) => onpick(t.id)} caption="Nodi più attivi">
-        {#snippet cell(t, c)}
+      <h3>{t('network.stats.topTitle')}</h3>
+      <Table columns={TOP_COLS} rows={data.top} rowKey={(r) => r.id} onrowclick={(r) => onpick(r.id)} caption={t('network.stats.topTitle')}>
+        {#snippet cell(r, c)}
           {#if c.key === 'name'}
-            <b>{t.name}</b>
+            <b>{r.name}</b>
           {:else if c.key === 'packets'}
-            {num(t.packets, 0)}
+            {num(r.packets, 0)}
           {:else}
-            {num(t.per_hour, 1)}
+            {num(r.per_hour, 1)}
           {/if}
         {/snippet}
       </Table>
     </Card>
 
     <Card>
-      <h3>Modelli</h3>
+      <h3>{t('network.stats.models')}</h3>
       <ul class="hbars">
         {#each data.hardware as h (h.value)}
           <li><span class="lbl">{h.value}</span><span class="track"><span class="fill" style:width="{(h.nodes / maxHardware) * 100}%"></span></span><span class="n">{num(h.nodes, 0)}</span></li>
         {/each}
       </ul>
-      {#if data.other_hardware > 0}<p class="ui-muted">Altri: {num(data.other_hardware, 0)}</p>{/if}
+      {#if data.other_hardware > 0}<p class="ui-muted">{t('network.stats.others', { n: num(data.other_hardware, 0) })}</p>{/if}
     </Card>
 
     <Card>
-      <h3>Ruoli</h3>
+      <h3>{t('network.stats.roles')}</h3>
       <ul class="hbars">
         {#each data.roles as r (r.value)}
           <li><span class="lbl">{r.value}</span><span class="track"><span class="fill" style:width="{(r.nodes / maxRole) * 100}%"></span></span><span class="n">{num(r.nodes, 0)}</span></li>
@@ -176,7 +177,7 @@
       </ul>
     </Card>
   {:else if loading}
-    <p class="ui-muted">Caricamento…</p>
+    <p class="ui-muted">{t('shell.loading')}</p>
   {/if}
 </div>
 

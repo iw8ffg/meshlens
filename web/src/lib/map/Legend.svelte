@@ -3,6 +3,7 @@
   import Icon from '../ui/Icon.svelte'
   import SourceMark from '../ui/SourceMark.svelte'
   import { viewport } from '../viewport.svelte'
+  import { t } from '../i18n/index.svelte'
 
   let { collapse = false }: { collapse?: boolean } = $props()
   let open = $state(!viewport.phone)
@@ -15,34 +16,34 @@
 
 <div class="legend" class:open>
   <button type="button" class="toggle" aria-expanded={open} aria-controls="map-legend-body" onclick={() => (open = !open)}>
-    <Icon name="layers" size={18} /><span>Legenda</span><Icon name={open ? 'chevD' : 'chevU'} size={16} />
+    <Icon name="layers" size={18} /><span>{t('map.legend.title')}</span><Icon name={open ? 'chevD' : 'chevU'} size={16} />
   </button>
   {#if open}
     <div id="map-legend-body" class="body">
       <div class="grp">
-        <div class="h">Ultimo contatto</div>
-        <div class="it"><i class="dot" style="background:var(--contact-fresh)"></i>meno di 2 h</div>
-        <div class="it"><i class="dot" style="background:var(--contact-recent)"></i>meno di 24 h</div>
-        <div class="it"><i class="dot" style="background:var(--contact-old)"></i>oltre 24 h</div>
+        <div class="h">{t('nodes.lastContact')}</div>
+        <div class="it"><i class="dot" style="background:var(--contact-fresh)"></i>{t('map.legend.fresh')}</div>
+        <div class="it"><i class="dot" style="background:var(--contact-recent)"></i>{t('map.legend.recent')}</div>
+        <div class="it"><i class="dot" style="background:var(--contact-old)"></i>{t('map.legend.old')}</div>
       </div>
       <div class="grp">
-        <div class="h">Fonte (anello)</div>
-        <div class="it"><SourceMark source="radio" size={18} />Radio</div>
+        <div class="h">{t('map.legend.source')}</div>
+        <div class="it"><SourceMark source="radio" size={18} />{t('nodes.sourceRadio')}</div>
         <div class="it"><SourceMark source="mqtt" size={18} />MQTT</div>
-        <div class="it"><SourceMark source="both" size={18} />Radio e MQTT</div>
+        <div class="it"><SourceMark source="both" size={18} />{t('common.sourceBoth')}</div>
       </div>
       <div class="grp">
-        <div class="h">Collegamenti (SNR)</div>
-        <div class="it"><i class="bar" style="background:var(--snr-good)"></i>da 0 dB</div>
-        <div class="it"><i class="bar" style="background:var(--snr-mid)"></i>da −10 a 0 dB</div>
-        <div class="it"><i class="bar" style="background:var(--snr-bad)"></i>sotto −10 dB</div>
-        <div class="it"><i class="bar dashed" style="color:var(--snr-none)"></i>tratteggio: traceroute</div>
-        <div class="it"><i class="bar dotted" style="color:var(--snr-none)"></i>gateway MQTT (ricezione diretta)</div>
+        <div class="h">{t('map.legend.links')}</div>
+        <div class="it"><i class="bar" style="background:var(--snr-good)"></i>{t('map.legend.snrGood')}</div>
+        <div class="it"><i class="bar" style="background:var(--snr-mid)"></i>{t('map.legend.snrMid')}</div>
+        <div class="it"><i class="bar" style="background:var(--snr-bad)"></i>{t('map.legend.snrBad')}</div>
+        <div class="it"><i class="bar dashed" style="color:var(--snr-none)"></i>{t('map.legend.traceroute')}</div>
+        <div class="it"><i class="bar dotted" style="color:var(--snr-none)"></i>{t('map.legend.gateway')}</div>
       </div>
       <div class="grp">
-        <div class="it"><span class="star">★</span>Preferito</div>
-        <div class="it"><span class="house">⌂</span>Mio nodo</div>
-        <div class="it"><i class="dot dashed" style="color:var(--src-mqtt)"></i>Posizione approssimata</div>
+        <div class="it"><span class="star">★</span>{t('nodes.favorite')}</div>
+        <div class="it"><span class="house">⌂</span>{t('nodes.mine')}</div>
+        <div class="it"><i class="dot dashed" style="color:var(--src-mqtt)"></i>{t('map.legend.approx')}</div>
       </div>
     </div>
   {/if}

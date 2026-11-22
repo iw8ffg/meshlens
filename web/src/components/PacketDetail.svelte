@@ -1,9 +1,9 @@
 <script lang="ts">
-  import { locale } from '../lib/i18n/index.svelte'
+  import { locale, t } from '../lib/i18n/index.svelte'
   import { packet as fetchPacket } from '../lib/api'
   import { copyText } from '../lib/clipboard'
   import { kindLabel } from '../lib/netstats'
-  import { hexDump, hopsText, relayCandidates, STATUS_LABEL } from '../lib/packets'
+  import { hexDump, hopsText, relayCandidates, statusLabel } from '../lib/packets'
   import type { Node, PacketDetail } from '../lib/types'
   import Banner from '../lib/ui/Banner.svelte'
   import Button from '../lib/ui/Button.svelte'
@@ -21,7 +21,7 @@
   const BROADCAST = '!ffffffff'
 
   let data = $state<PacketDetail | null>(null)
-  let error = $state('')
+  let error = $state(false)
   let copied = $state(false)
   let copyTimer: ReturnType<typeof setTimeout> | undefined
 
@@ -30,14 +30,14 @@
   $effect(() => {
     const pid = id
     data = null
-    error = ''
+    error = false
     let stale = false
     fetchPacket(pid)
       .then((d) => {
         if (!stale) data = d
       })
       .catch(() => {
-        if (!stale) error = 'Pacchetto non disponibile'
+        if (!stale) error = true
       })
     return () => {
       stale = true
@@ -45,12 +45,12 @@
   })
 
   const names = $derived(new Map(nodes.map((n) => [n.id, n.long_name ?? n.short_name ?? n.id])))
-  const label = (nid: string) => (nid === BROADCAST ? 'Tutti' : (names.get(nid) ?? nid))
+  const label = (nid: string) => (nid === BROADCAST ? t('packets.all.m') : (names.get(nid) ?? nid))
   const dump = $derived(data ? hexDump(data.raw_hex) : [])
   const relayHex = (r: number) => r.toString(16).padStart(2, '0')
   const relays = $derived(data ? relayCandidates(data.relay_node, nodes) : [])
   const summaryText = $derived(data?.summary ? JSON.stringify(data.summary, null, 2) : '')
-  const when = (t: number) => new Date(t * 1000).toLocaleString(locale())
+  const when = (sec: number) => new Date(sec * 1000).toLocaleString(locale())
   const num1 = (v: number | null) => (v === null ? '–' : String(v).replace('-', '−'))
 
   async function copyHex() {
@@ -65,54 +65,54 @@
 
 <Card>
   <div class="head">
-    {#if !wide}<Button icon="chevL" onclick={onclose}>Indietro</Button>{/if}
+    {#if !wide}<Button icon="chevL" onclick={onclose}>{t('packets.back')}</Button>{/if}
     {#if data}
       <h3>{kindLabel(data.kind)}</h3>
-      <span class="ui-muted">{STATUS_LABEL[data.status] ?? data.status} · {when(data.time)}</span>
+      <span class="ui-muted">{statusLabel(data.status)} · {when(data.time)}</span>
     {/if}
-    {#if wide}<Button icon="x" onclick={onclose}>Chiudi</Button>{/if}
+    {#if wide}<Button icon="x" onclick={onclose}>{t('common.close')}</Button>{/if}
   </div>
 
   {#if error}
-    <Banner kind="danger" title={error} />
+    <Banner kind="danger" title={t('packets.detail.unavailable')} />
   {:else if !data}
-    <p class="ui-muted">Caricamento…</p>
+    <p class="ui-muted">{t('shell.loading')}</p>
   {:else}
     <dl>
-      <dt>Da</dt>
+      <dt>{t('packets.col.from')}</dt>
       <dd><button type="button" class="lnk" onclick={() => onpick(data!.from)}>{data.from_name ?? label(data.from)}</button> <span class="ui-mono ui-muted">{data.from}</span></dd>
-      <dt>A</dt>
+      <dt>{t('packets.col.to')}</dt>
       <dd>
-        {#if data.to === BROADCAST}Tutti{:else}<button type="button" class="lnk" onclick={() => onpick(data!.to)}>{label(data.to)}</button> <span class="ui-mono ui-muted">{data.to}</span>{/if}
+        {#if data.to === BROADCAST}{t('packets.all.m')}{:else}<button type="button" class="lnk" onclick={() => onpick(data!.to)}>{label(data.to)}</button> <span class="ui-mono ui-muted">{data.to}</span>{/if}
       </dd>
-      <dt>Id del pacchetto</dt>
+      <dt>{t('packets.detail.packetId')}</dt>
       <dd class="ui-mono">{data.packet_id ?? '–'}</dd>
-      <dt>Canale</dt>
+      <dt>{t('chat.channel')}</dt>
       <dd>{data.channel ?? '–'}</dd>
-      <dt>Portnum</dt>
+      <dt>{t('packets.detail.portnum')}</dt>
       <dd class="ui-mono">{data.portnum ?? '–'}</dd>
-      <dt>Fonte</dt>
-      <dd><SourceMark source={data.source === 'rf' ? 'radio' : 'mqtt'} size={16} /> {data.source === 'rf' ? (data.radio_id ?? 'Radio') : (data.broker ?? 'MQTT')}</dd>
+      <dt>{t('nodes.source')}</dt>
+      <dd><SourceMark source={data.source === 'rf' ? 'radio' : 'mqtt'} size={16} /> {data.source === 'rf' ? (data.radio_id ?? t('nodes.sourceRadio')) : (data.broker ?? 'MQTT')}</dd>
       <dt>SNR</dt>
       <dd class="ui-mono">{num1(data.snr)}</dd>
       <dt>RSSI</dt>
       <dd class="ui-mono">{num1(data.rssi)}</dd>
-      <dt>Salti</dt>
+      <dt>{t('nodes.hops')}</dt>
       <dd>{hopsText(data)}</dd>
-      <dt>Ritrasmettitore</dt>
+      <dt>{t('packets.detail.relay')}</dt>
       <dd>
         {#if data.relay_node === null || data.relay_node === 0}–{:else}
           <span class="ui-mono">…{relayHex(data.relay_node)}</span>
           {#each relays as n (n.id)} <button type="button" class="lnk" onclick={() => onpick(n.id)}>{n.long_name ?? n.short_name ?? n.id}</button>{/each}
         {/if}
       </dd>
-      <dt>Gateway</dt>
+      <dt>{t('packets.detail.gateway')}</dt>
       <dd class="ui-mono">{data.gateway ?? '–'}</dd>
-      <dt>Copie</dt>
+      <dt>{t('packets.col.copies')}</dt>
       <dd>{data.copies}</dd>
     </dl>
 
-    <h4>Ricezioni</h4>
+    <h4>{t('packets.detail.receptions')}</h4>
     {#if data.receptions.length === 0}
       <p class="ui-muted">–</p>
     {:else}
@@ -120,7 +120,7 @@
         {#each data.receptions as r, i (i)}
           <li>
             <SourceMark source={r.source === 'rf' ? 'radio' : 'mqtt'} size={16} />
-            <span>{r.source === 'rf' ? (r.radio_id ?? 'Radio') : (r.broker ?? 'MQTT')}</span>
+            <span>{r.source === 'rf' ? (r.radio_id ?? t('nodes.sourceRadio')) : (r.broker ?? 'MQTT')}</span>
             <span class="ui-mono">{when(r.time)}</span>
             <span class="ui-mono">SNR {num1(r.snr)}</span>
             <span class="ui-mono">RSSI {num1(r.rssi)}</span>
@@ -130,19 +130,19 @@
       </ul>
     {/if}
 
-    <h4>Contenuto</h4>
+    <h4>{t('packets.detail.content')}</h4>
     {#if summaryText}<pre class="ui-mono sum">{summaryText}</pre>{:else}<p class="ui-muted">–</p>{/if}
 
-    <h4>Dati grezzi</h4>
+    <h4>{t('packets.detail.raw')}</h4>
     {#if dump.length === 0}
       <p class="ui-muted">–</p>
     {:else}
-      <div class="dump ui-mono" role="table" aria-label="Dati grezzi">
+      <div class="dump ui-mono" role="table" aria-label={t('packets.detail.raw')}>
         {#each dump as row (row.offset)}
           <div class="ln" role="row"><span class="off">{row.offset}</span><span class="hx">{row.hex}</span><span class="as">{row.ascii}</span></div>
         {/each}
       </div>
-      <Button icon="copy" onclick={copyHex}>{copied ? 'Copiato' : 'Copia esadecimale'}</Button>
+      <Button icon="copy" onclick={copyHex}>{copied ? t('packets.detail.copied') : t('packets.detail.copyHex')}</Button>
     {/if}
   {/if}
 </Card>

@@ -2,6 +2,7 @@
   import { untrack } from 'svelte'
   import { ApiError, traceroute, traceroutes } from '../lib/api'
   import { formatDate, signed } from '../lib/format'
+  import { t } from '../lib/i18n/index.svelte'
   import Banner from '../lib/ui/Banner.svelte'
   import Button from '../lib/ui/Button.svelte'
   import Select from '../lib/ui/Select.svelte'
@@ -72,8 +73,8 @@
     const id = node.id
     const c = app.traceroutes.get(id)
     if (c?.status !== 'pending') return
-    const t = setTimeout(() => refresh(id), 65_000)
-    return () => clearTimeout(t)
+    const timer = setTimeout(() => refresh(id), 65_000)
+    return () => clearTimeout(timer)
   })
 
   async function run() {
@@ -83,7 +84,7 @@
     try {
       setTraceroute(await traceroute(id, radioId || undefined))
     } catch (e) {
-      if (id === node.id) error = e instanceof ApiError ? e.message : 'Traceroute non riuscito'
+      if (id === node.id) error = e instanceof ApiError ? e.message : t('nodes.tr.failedRun')
     } finally {
       busy = false
     }
@@ -105,48 +106,48 @@
     return hops.map((h, i) => (i === 0 ? name(h.id) : `${name(h.id)} (${snr(h.snr)})`)).join(' → ')
   }
 
-  function failure(t: Traceroute): string {
-    if (t.status === 'timeout') return 'Nessuna risposta entro 60 s'
-    return t.error ? `Non riuscito: ${t.error}` : 'Non riuscito'
+  function failure(tr: Traceroute): string {
+    if (tr.status === 'timeout') return t('nodes.tr.timeout')
+    return tr.error ? t('nodes.tr.failedWith', { error: tr.error }) : t('nodes.tr.failed')
   }
 
   const pending = $derived(busy || current?.status === 'pending')
   const older = $derived(history.filter((h) => h.id !== current?.id))
 </script>
 
-<h3>Traceroute</h3>
+<h3>{t('nodes.tr.title')}</h3>
 <div class="row">
-  <Button icon="route" disabled={connected.length === 0 || pending} onclick={run}>{pending ? 'In corso…' : 'Traceroute'}</Button>
+  <Button icon="route" disabled={connected.length === 0 || pending} onclick={run}>{pending ? t('nodes.tr.running') : t('nodes.tr.title')}</Button>
   {#if connected.length > 1}
-    <Select bind:value={radioId} aria-label="Radio per il traceroute">
-      <option value="">Radio automatica</option>
+    <Select bind:value={radioId} aria-label={t('nodes.tr.radioAria')}>
+      <option value="">{t('nodes.tr.radioAuto')}</option>
       {#each connected as r (r.id)}<option value={r.id}>{r.name}</option>{/each}
     </Select>
   {/if}
 </div>
-{#if connected.length === 0}<p class="none">Collega una radio</p>{/if}
+{#if connected.length === 0}<p class="none">{t('nodes.tr.connectRadio')}</p>{/if}
 {#if error}<div class="gap"><Banner kind="danger" title={error} /></div>{/if}
 {#if pending}
-  <p class="none" role="status">In corso… (max 60 s)</p>
+  <p class="none" role="status">{t('nodes.tr.runningMax')}</p>
 {:else if current}
   {#if current.status === 'ok'}
-    <p class="res"><b>Andata</b> {path(current.forward)}</p>
-    <p class="res"><b>Ritorno</b> {path(current.back)}</p>
+    <p class="res"><b>{t('nodes.tr.forward')}</b> {path(current.forward)}</p>
+    <p class="res"><b>{t('nodes.tr.back')}</b> {path(current.back)}</p>
   {:else}
     <div class="gap"><Banner kind="warn" title={failure(current)} /></div>
   {/if}
 {/if}
 {#if older.length > 0}
   <ul class="hist">
-    {#each older as t (t.id)}
+    {#each older as h (h.id)}
       <li>
-        <span class="when ui-mono">{formatDate(t.time)}</span>
-        {#if t.status === 'ok'}
-          {path(t.forward)}
-        {:else if t.status === 'pending'}
-          In corso…
+        <span class="when ui-mono">{formatDate(h.time)}</span>
+        {#if h.status === 'ok'}
+          {path(h.forward)}
+        {:else if h.status === 'pending'}
+          {t('nodes.tr.running')}
         {:else}
-          {failure(t)}
+          {failure(h)}
         {/if}
       </li>
     {/each}

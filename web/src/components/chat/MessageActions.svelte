@@ -2,7 +2,7 @@
   import { tick } from 'svelte'
   import Icon from '../../lib/ui/Icon.svelte'
   import { REACTIONS } from '../../lib/reactions'
-  import { T } from '../../lib/strings/messaggi'
+  import { t } from '../../lib/i18n/index.svelte'
   import type { Message } from '../../lib/types'
 
   interface Props {
@@ -41,8 +41,8 @@
 
   function onwindowclick(e: MouseEvent) {
     if (!open) return
-    const t = e.target as Node
-    if (!menu?.contains(t) && !btn?.contains(t)) open = false
+    const target = e.target as Node
+    if (!menu?.contains(target) && !btn?.contains(target)) open = false
   }
 
   function onmenukey(e: KeyboardEvent) {
@@ -71,8 +71,8 @@
       type="button"
       class="trg"
       bind:this={btn}
-      aria-label={T.messageActions}
-      title={T.messageActions}
+      aria-label={t('chat.messageActions')}
+      title={t('chat.messageActions')}
       aria-haspopup="menu"
       aria-expanded={open}
       onclick={toggle}
@@ -82,11 +82,11 @@
     {#if open}
       <div class="menu" role="menu" tabindex="-1" bind:this={menu} onkeydown={onmenukey}>
         <button type="button" role="menuitem" class="item" onclick={pickReply}>
-          <Icon name="reply" size={16} />{T.reply}
+          <Icon name="reply" size={16} />{t('chat.reply')}
         </button>
         <div class="emojis">
           {#each REACTIONS as e (e)}
-            <button type="button" role="menuitem" class="em" aria-label={T.reactWith(e)} title={T.reactWith(e)} onclick={() => pickReaction(e)}>{e}</button>
+            <button type="button" role="menuitem" class="em" aria-label={t('chat.reactWith', { emoji: e })} title={t('chat.reactWith', { emoji: e })} onclick={() => pickReaction(e)}>{e}</button>
           {/each}
         </div>
       </div>

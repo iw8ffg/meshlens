@@ -1,6 +1,7 @@
 <script lang="ts">
   // Scheda del righello (in alto a sinistra, stile della scheda copertura).
   import Button from '../ui/Button.svelte'
+  import { t } from '../i18n/index.svelte'
 
   interface Props {
     text: string
@@ -13,8 +14,8 @@
 <div class="rulerbar" role="status">
   <b>{text}</b>
   <div class="row">
-    <Button onclick={onclear}>Ricomincia</Button>
-    <Button kind="ghost" onclick={onclose}>Chiudi righello</Button>
+    <Button onclick={onclear}>{t('map.ruler.restart')}</Button>
+    <Button kind="ghost" onclick={onclose}>{t('map.ruler.close')}</Button>
   </div>
 </div>
 

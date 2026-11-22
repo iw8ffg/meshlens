@@ -6,9 +6,9 @@
   import { loadDraft, saveDraft } from '../../lib/drafts'
   import {
     MQTT_VIA,
-    PUBLIC_WARNING,
     byteCount,
     classifyMqttError,
+    publicWarning,
     mqttBody,
     mqttChannelNames,
     pickRadioChannel,
@@ -21,7 +21,7 @@
   } from '../../lib/send'
   import { keepAboveKeyboard } from '../../lib/keyboard'
   import { app, addMessage } from '../../lib/stores.svelte'
-  import { T } from '../../lib/strings/messaggi'
+  import { t } from '../../lib/i18n/index.svelte'
   import Banner from '../../lib/ui/Banner.svelte'
   import Button from '../../lib/ui/Button.svelte'
   import Field from '../../lib/ui/Field.svelte'
@@ -47,7 +47,7 @@
   let mqttChans = $state<string[]>([DEFAULT_MQTT_CHANNEL])
   let mqttBroker = $state('')
   let mqttNodeId = $state('')
-  let confirmText = $state(PUBLIC_WARNING)
+  let confirmText = $state('')
   let unknownNode = $state(false)
   let sending = $state(false)
   let error = $state('')
@@ -176,7 +176,7 @@
     const inConv = dmTo ? splitKey(conv)[1] === radioId : conv === `ch:${radioId}:${radioChan}`
     if (!inConv) {
       const ch = viaRadio?.channels.find((c) => String(c.index) === radioChan)
-      notice = `Inviato via radio · ${dmTo ? `DM ${nodeName(dmTo)}` : ch?.name || `Canale ${radioChan}`}`
+      notice = t('chat.sentRadio', { to: dmTo ? t('chat.dmShort', { name: nodeName(dmTo) }) : ch?.name || t('chat.channelFallback', { index: radioChan }) })
     }
   }
 
@@ -185,7 +185,7 @@
       const r = await mqttSend(body)
       sent(r.message, from, clear)
       const bn = brokerLabel(body.broker, brokers)
-      notice = `Pubblicato su MQTT · ${bn ? `${bn} · ` : ''}${body.channel}`
+      notice = t('chat.sentMqtt', { to: `${bn ? `${bn} · ` : ''}${body.channel}` })
     } catch (e) {
       const info = classifyMqttError(
         e instanceof ApiError ? { status: e.status, code: e.code, message: e.message, retryAfter: e.retryAfter } : { status: 0, code: null, message: '' },
@@ -214,7 +214,7 @@
       if (via === MQTT_VIA) await sendMqtt(mqttBody(text, mqttChan, dmTo || null, false, mqttBroker, rid), from)
       else await sendRadio(from, text, rid ? { id: rid, emoji: false } : null)
     } catch (e) {
-      error = e instanceof Error && e.message ? e.message : 'Invio non riuscito'
+      error = e instanceof Error && e.message ? e.message : t('chat.send.failed')
     } finally {
       sending = false
     }
@@ -244,7 +244,7 @@
     const rid = target.packet_id
     if (!rid || sending) return
     if (!hasChoice || via === '') {
-      error = T.reactionNoVia
+      error = t('chat.reactionNoVia')
       return
     }
     const from = conv
@@ -257,7 +257,7 @@
         await sendMqtt(mqttBody(emoji, ch, reactionDest(target, dmTo || null), false, mqttBroker, rid, true), from, false)
       } else await sendRadio(from, emoji, { id: rid, emoji: true })
     } catch (e) {
-      error = e instanceof Error && e.message ? e.message : 'Invio non riuscito'
+      error = e instanceof Error && e.message ? e.message : t('chat.send.failed')
     } finally {
       sending = false
     }
@@ -270,13 +270,13 @@
     }
   }
 
-  const placeholder = $derived(dmTo ? 'Messaggio diretto…' : via === MQTT_VIA ? 'Messaggio pubblico su MQTT…' : 'Messaggio sul canale…')
+  const placeholder = $derived(dmTo ? t('chat.placeholderDm') : via === MQTT_VIA ? t('chat.placeholderMqtt') : t('chat.placeholderChannel'))
 </script>
 
 <form class="composer" use:keepAboveKeyboard onsubmit={(e) => (e.preventDefault(), submit())}>
   {#if notice}<Toast kind="ok" onclose={() => (notice = '')}>{notice}</Toast>{/if}
   <fieldset class="via">
-    <legend>Invia via</legend>
+    <legend>{t('chat.sendVia')}</legend>
     {#each shownOptions as o (o.value)}
       <label class="opt" class:dis={o.disabled}>
         <input type="radio" name="{uid}-via" value={o.value} bind:group={via} disabled={o.disabled} aria-describedby={o.reason ? `${uid}-why-${o.value}` : undefined} />
@@ -288,7 +288,7 @@
 
   {#if via === MQTT_VIA}
     <BrokerPicker id="{uid}-brk" {brokers} bind:value={mqttBroker} />
-    <Field label="Canale MQTT" for="{uid}-mch" hint={dmTo ? `Diretto a ${nodeName(dmTo)}` : undefined}>
+    <Field label={t('chat.mqttChannelLabel')} for="{uid}-mch" hint={dmTo ? t('chat.directTo', { name: nodeName(dmTo) }) : undefined}>
       {#snippet children({ describedby })}
         <Select id="{uid}-mch" bind:value={mqttChan} aria-describedby={describedby}>
           {#each mqttChans as c (c)}<option value={c}>{c}</option>{/each}
@@ -297,12 +297,12 @@
     </Field>
   {:else if viaRadio}
     {#if dmTo}
-      <p class="to">Messaggio diretto a <b>{nodeName(dmTo)}</b></p>
+      <p class="to">{t('chat.directMessageTo')} <b>{nodeName(dmTo)}</b></p>
     {:else}
-      <Field label="Canale" for="{uid}-rch">
+      <Field label={t('chat.channel')} for="{uid}-rch">
         {#snippet children({ describedby })}
           <Select id="{uid}-rch" bind:value={radioChan} aria-describedby={describedby}>
-            {#each viaRadio.channels as c (c.index)}<option value={String(c.index)}>{c.name || `Canale ${c.index}`}</option>{/each}
+            {#each viaRadio.channels as c (c.index)}<option value={String(c.index)}>{c.name || t('chat.channelFallback', { index: c.index })}</option>{/each}
           </Select>
         {/snippet}
       </Field>
@@ -312,10 +312,10 @@
   {#if replyTo}
     <div class="reply">
       <span class="rq">
-        <b>{T.replyingTo(replyTo.direction === 'out' ? T.you : (replyTo.from_name ?? nodeName(replyTo.from)))}</b>
+        <b>{t('chat.replyingTo', { name: replyTo.direction === 'out' ? t('chat.you') : (replyTo.from_name ?? nodeName(replyTo.from)) })}</b>
         <span class="rp">{replyTo.text}</span>
       </span>
-      <button type="button" class="rx" aria-label={T.cancelReply} title={T.cancelReply} onclick={oncancelreply}>
+      <button type="button" class="rx" aria-label={t('chat.cancelReply')} title={t('chat.cancelReply')} onclick={oncancelreply}>
         <Icon name="x" size={16} />
       </button>
     </div>
@@ -324,7 +324,7 @@
   <textarea
     class="ui-input ta"
     rows="2"
-    aria-label="Messaggio"
+    aria-label={t('chat.messageLabel')}
     aria-describedby="{uid}-cnt"
     {placeholder}
     bind:value={text}
@@ -333,14 +333,14 @@
     disabled={!hasChoice}
   ></textarea>
   <div class="row">
-    <span class="count ui-mono" class:over={bc.over} id="{uid}-cnt">{bc.bytes}/{MAX_BYTES} byte{bc.over ? ' — troppo lungo' : ''}</span>
-    <Button type="submit" kind="primary" icon="send" disabled={!canSend} title="Ctrl+Invio">{sending ? 'Invio…' : 'Invia'}</Button>
+    <span class="count ui-mono" class:over={bc.over} id="{uid}-cnt">{bc.bytes}/{MAX_BYTES} {t('chat.bytes')}{bc.over ? ` — ${t('chat.tooLong')}` : ''}</span>
+    <Button type="submit" kind="primary" icon="send" disabled={!canSend} title={t('chat.sendShortcut')}>{sending ? t('chat.sending') : t('chat.send')}</Button>
   </div>
   {#if error}<Banner kind="danger" title={error} />{/if}
 </form>
 
-<Modal open={confirmOpen} title="Pubblicare su MQTT?" confirmLabel="Pubblica" oncancel={cancelPublic} onconfirm={confirmPublic}>
-  <p class="warn">{confirmText}</p>
+<Modal open={confirmOpen} title={t('chat.publishTitle')} confirmLabel={t('chat.publish')} oncancel={cancelPublic} onconfirm={confirmPublic}>
+  <p class="warn">{confirmText || publicWarning()}</p>
 </Modal>
 
 <style>

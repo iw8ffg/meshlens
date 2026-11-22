@@ -1,9 +1,10 @@
 import { expect, test } from 'vitest'
+import { setLang } from './i18n/index.svelte'
 import { MAX_BYTES } from './chat'
 import { keyboardLift } from './keyboard'
 import {
-  MQTT_NODE_REASON,
-  PUBLIC_WARNING,
+  mqttNodeReason,
+  publicWarning,
   byteCount,
   classifyMqttError,
   mqttBody,
@@ -58,9 +59,9 @@ test('viaOptions: MQTT non connesso e id nodo mancante', () => {
   expect(down[1]).toMatchObject({ disabled: true, reason: 'MQTT non connesso' })
   const noId = viaOptions({ radios: [rad('a', 'disconnected', null)], mqttConnected: true, mqttNodeId: '', unknownNode: false })
   expect(noId[0]).toMatchObject({ disabled: true, reason: 'Collega una radio' })
-  expect(noId[1]).toMatchObject({ disabled: true, reason: MQTT_NODE_REASON })
+  expect(noId[1]).toMatchObject({ disabled: true, reason: mqttNodeReason() })
   const unknown = viaOptions({ radios: [rad('a', 'connected', '!aabbccdd')], mqttConnected: true, mqttNodeId: '', unknownNode: true })
-  expect(unknown[1].reason).toBe(MQTT_NODE_REASON)
+  expect(unknown[1].reason).toBe(mqttNodeReason())
 })
 
 test('pickVia: scelta persistente, conversazione, ripiego', () => {
@@ -89,8 +90,8 @@ test('mqttChannelNames: LongFast per primo, senza doppioni', () => {
 test('conferma MQTT: 409 chiede conferma e il reinvio porta confirm_public', () => {
   const r = classifyMqttError({ status: 409, code: 'confirm_required', message: '' })
   expect(r.kind).toBe('confirm')
-  expect(r.message).toBe(PUBLIC_WARNING)
-  expect(PUBLIC_WARNING).toBe('Il messaggio sarà pubblico sul broker mqtt.meshtastic.org e potrà essere ritrasmesso via radio dai gateway')
+  expect(r.message).toBe(publicWarning())
+  expect(publicWarning()).toBe('Il messaggio sarà pubblico sul broker mqtt.meshtastic.org e potrà essere ritrasmesso via radio dai gateway')
   const first = mqttBody('  ciao ', 'LongFast', null, false)
   expect(first).toEqual({ text: 'ciao', channel: 'LongFast' })
   expect(resendBody(first)).toEqual({ text: 'ciao', channel: 'LongFast', confirm_public: true })
@@ -98,7 +99,7 @@ test('conferma MQTT: 409 chiede conferma e il reinvio porta confirm_public', () 
 })
 
 test('classifyMqttError: nodo, 429, 503, generico', () => {
-  expect(classifyMqttError({ status: 400, code: 'unknown_node', message: 'Collega una radio o imposta il tuo id nodo' })).toEqual({ kind: 'unknown_node', message: MQTT_NODE_REASON })
+  expect(classifyMqttError({ status: 400, code: 'unknown_node', message: 'Collega una radio o imposta il tuo id nodo' })).toEqual({ kind: 'unknown_node', message: mqttNodeReason() })
   expect(classifyMqttError({ status: 429, code: 'rate_limited', message: 'Attendi 7 s' })).toEqual({ kind: 'rate_limited', message: 'Attendi 7 s' })
   expect(classifyMqttError({ status: 429, code: null, message: 'Too Many Requests', retryAfter: 5 }).message).toBe('Attendi 5 s')
   expect(classifyMqttError({ status: 503, code: 'mqtt_disconnected', message: 'MQTT non connesso' }).kind).toBe('disconnected')
@@ -135,7 +136,7 @@ test('classifyMqttError: la conferma usa il testo del server (broker giusto)', (
   const r = classifyMqttError({ status: 409, code: 'confirm_required', message: 'Il messaggio sarà pubblico sul broker mio.example e potrà essere ritrasmesso' })
   expect(r.kind).toBe('confirm')
   expect(r.message).toContain('mio.example')
-  expect(classifyMqttError({ status: 409, code: 'confirm_required', message: '' }).message).toBe(PUBLIC_WARNING)
+  expect(classifyMqttError({ status: 409, code: 'confirm_required', message: '' }).message).toBe(publicWarning())
 })
 
 test('mqttBody: reply_id ed emoji solo se indicati', () => {
@@ -151,4 +152,15 @@ test('mqttBody: reply_id ed emoji solo se indicati', () => {
   expect('reply_id' in plain).toBe(false)
   expect('emoji' in plain).toBe(false)
   expect('emoji' in mqttBody('x', 'LongFast', null, false, undefined, null, true)).toBe(false)
+})
+
+test('in inglese: etichette, motivi e stato', () => {
+  setLang('en')
+  try {
+    expect(viaOptions({ radios: [], mqttConnected: false, mqttNodeId: '', unknownNode: false })[0]).toMatchObject({ label: 'Radio', reason: 'Connect a radio' })
+    expect(statusAria('sent', 'mqtt')).toBe('Sent · via MQTT')
+    expect(classifyMqttError({ status: 429, code: null, message: 'x', retryAfter: 5 }).message).toBe('Wait 5 s')
+  } finally {
+    setLang('it')
+  }
 })

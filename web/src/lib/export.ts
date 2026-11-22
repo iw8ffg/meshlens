@@ -1,6 +1,7 @@
 import type { Feature, FeatureCollection, Geometry } from 'geojson'
 import { coverageGeoJSON } from './coverage'
 import type { CoverageDetail, Node } from './types'
+import { t } from './i18n/index.svelte'
 
 export type SnrClass = 'good' | 'mid' | 'bad' | 'none'
 const SNR_CLASSES: SnrClass[] = ['good', 'mid', 'bad', 'none']
@@ -24,7 +25,7 @@ export function csv(header: string[], rows: Cell[][]): string {
 const iso = (t: number | null | undefined): string => (t === null || t === undefined || !Number.isFinite(t) ? '' : new Date(t * 1000).toISOString())
 
 export function networkCsv(nodes: Node[]): string {
-  const header = ['id', 'nome', 'nome_breve', 'modello', 'ruolo', 'firmware', 'nazione', 'ultimo_contatto', 'batteria', 'tensione', 'snr', 'salti', 'uso_canale', 'tx_aria', 'lat', 'lon', 'fonti']
+  const header = t('export.networkHeader').split(',')
   return csv(
     header,
     nodes.map((n) => [n.id, n.long_name, n.short_name, n.hw_model, n.role, n.firmware, n.country, iso(n.last_heard), n.battery, n.voltage, n.last_snr, n.hops, n.channel_util, n.air_util_tx, n.lat, n.lon, n.sources.join('+')]),
@@ -86,7 +87,7 @@ export function coverageKml(detail: CoverageDetail, colors: Record<SnrClass, str
   const marks: string[] = []
   for (const p of detail.points) {
     if (p.lat === null || p.lon === null) continue
-    const desc = `SNR ${withUnit(p.snr, 'dB')}, RSSI ${withUnit(p.rssi, 'dBm')}, salti ${p.hops ?? '–'}, seq ${p.seq ?? '–'}`
+    const desc = t('export.kmlPoint', { snr: withUnit(p.snr, 'dB'), rssi: withUnit(p.rssi, 'dBm'), hops: p.hops ?? '–', seq: p.seq ?? '–' })
     marks.push(
       `    <Placemark><name>${xml(String(p.seq ?? p.id))}</name><description>${xml(desc)}</description><styleUrl>#snr-${snrClass(p.snr)}</styleUrl>` +
         `<Point><coordinates>${p.lon},${p.lat},0</coordinates></Point></Placemark>`,
@@ -95,12 +96,12 @@ export function coverageKml(detail: CoverageDetail, colors: Record<SnrClass, str
   const track = [...detail.track].sort((a, b) => a.time - b.time)
   if (track.length > 1) {
     marks.push(
-      '    <Placemark><name>Percorso</name><Style><LineStyle><color>ffffffff</color><width>2</width></LineStyle></Style>' +
-        `<LineString><coordinates>${track.map((t) => `${t.lon},${t.lat},0`).join(' ')}</coordinates></LineString></Placemark>`,
+      `    <Placemark><name>${xml(t('export.kmlTrack'))}</name><Style><LineStyle><color>ffffffff</color><width>2</width></LineStyle></Style>` +
+        `<LineString><coordinates>${track.map((pt) => `${pt.lon},${pt.lat},0`).join(' ')}</coordinates></LineString></Placemark>`,
     )
   }
   if (detail.base_lat !== null && detail.base_lon !== null) {
-    marks.push(`    <Placemark><name>Base</name><Point><coordinates>${detail.base_lon},${detail.base_lat},0</coordinates></Point></Placemark>`)
+    marks.push(`    <Placemark><name>${xml(t('export.kmlBase'))}</name><Point><coordinates>${detail.base_lon},${detail.base_lat},0</coordinates></Point></Placemark>`)
   }
   return (
     '<?xml version="1.0" encoding="UTF-8"?>\n' +
@@ -112,13 +113,13 @@ export function coverageKml(detail: CoverageDetail, colors: Record<SnrClass, str
 export function coverageCsv(detail: CoverageDetail): string {
   const rows: { time: number; row: Cell[] }[] = []
   for (const p of detail.points) {
-    rows.push({ time: p.time, row: [p.seq, p.segment, iso(p.time), p.lat, p.lon, p.snr, p.rssi, p.hops, p.distance_m, 'ricevuto'] })
+    rows.push({ time: p.time, row: [p.seq, p.segment, iso(p.time), p.lat, p.lon, p.snr, p.rssi, p.hops, p.distance_m, t('export.received')] })
   }
   for (const m of detail.missing_points) {
-    rows.push({ time: m.time, row: [m.seq, null, iso(m.time), m.lat, m.lon, null, null, null, null, 'mancante'] })
+    rows.push({ time: m.time, row: [m.seq, null, iso(m.time), m.lat, m.lon, null, null, null, null, t('export.missing')] })
   }
   rows.sort((a, b) => a.time - b.time)
-  return csv(['seq', 'segmento', 'ora', 'lat', 'lon', 'snr', 'rssi', 'salti', 'distanza_m', 'stato'], rows.map((r) => r.row))
+  return csv(t('export.coverageHeader').split(','), rows.map((r) => r.row))
 }
 
 /** `AAAAMMGG` in ora locale. */
@@ -129,7 +130,7 @@ export function fileStamp(d: Date): string {
 
 /** Parte di nome file sicura: minuscole, solo a-z 0-9 e trattini, al massimo 40 caratteri. */
 export function slug(s: string): string {
-  const t = s
+  const out = s
     .normalize('NFD')
     .replace(/[̀-ͯ]/g, '')
     .toLowerCase()
@@ -137,7 +138,7 @@ export function slug(s: string): string {
     .replace(/^-+|-+$/g, '')
     .slice(0, 40)
     .replace(/-+$/g, '')
-  return t || 'senza-nome'
+  return out || t('export.unnamed')
 }
 
 /** Colori `--snr-*` dai token CSS, per i file KML. */

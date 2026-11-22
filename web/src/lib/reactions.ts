@@ -1,5 +1,6 @@
 // Risposte e reazioni: raggruppamento dei messaggi di una conversazione e testi d'errore (funzioni pure).
-import { T } from './strings/messaggi'
+import { it as itCatalog } from './i18n/it'
+import { t, type MsgKey } from './i18n/index.svelte'
 import type { Message, Node } from './types'
 
 export const REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏'] as const
@@ -65,16 +66,17 @@ export function threadItems(msgs: Message[], nodeName: (id: string) => string, l
   return out
 }
 
-/** Motivo di un recapito fallito, in italiano; un codice ignoto mostra il codice. */
+/** Motivo di un recapito fallito, nella lingua corrente; un codice ignoto mostra il codice. */
 export function routingErrorText(code: string | null | undefined): string {
-  if (!code) return T.routingErrorUnknown('?')
-  return Object.hasOwn(T.routingErrors, code) ? T.routingErrors[code] : T.routingErrorUnknown(code)
+  if (!code) return t('chat.routingErrorUnknown', { code: '?' })
+  const key = `chat.routing.${code}`
+  return Object.hasOwn(itCatalog, key) ? t(key as MsgKey) : t('chat.routingErrorUnknown', { code })
 }
 
 const KEY_CHANGED_WINDOW_S = 7 * 86400
 
 /** Vero se la chiave pubblica del nodo e' cambiata negli ultimi 7 giorni. */
 export function keyChangedRecently(node: Node | undefined, nowS: number): boolean {
-  const t = node?.key_changed
-  return t != null && nowS - t <= KEY_CHANGED_WINDOW_S
+  const changed = node?.key_changed
+  return changed != null && nowS - changed <= KEY_CHANGED_WINDOW_S
 }
