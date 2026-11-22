@@ -133,13 +133,14 @@
   }
 
   async function poll() {
-    if (polling) return
+    // prima pagina non ancora arrivata: niente after_id=0 (con «Tutto» darebbe le righe più vecchie)
+    if (polling || items.length === 0) return
     polling = true
     const my = gen
     try {
       // Dall'ultimo id visto, a pagine: si prosegue finché la pagina è piena
       for (let page = 0; page < LIVE_MAX_PAGES; page++) {
-        const r = await fetchPackets(packetQuery(f, Date.now() / 1000, null, nodeId, items[0]?.id ?? 0))
+        const r = await fetchPackets(packetQuery(f, Date.now() / 1000, null, nodeId, items[0].id))
         if (my !== gen) return
         if (r.items.length > 0) {
           const seen = new Set(items.map((p) => p.id))

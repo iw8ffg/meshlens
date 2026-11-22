@@ -897,7 +897,7 @@ async def test_stop_flushes_packet_log_and_netstats(tmp_path):
 
 async def test_mqtt_status_exposes_packet_log_dropped(tmp_path):
     _, rt = build(tmp_path, connector_factory=FakeConnector, static_dir=None)
-    assert rt.mqtt_status()["packet_log_dropped"] == 0
+    assert rt.mqtt_status()["packet_log_dropped"] == 0 and rt.mqtt_status()["raw_dropped"] == 0
     rt.packet_log.dropped = 7
     assert rt.mqtt_status()["packet_log_dropped"] == 7
 

@@ -85,11 +85,11 @@ def _idle_status() -> dict:
     return {"connected": False, "msgs_per_s": 0.0, "undecodable": 0,
             "connected_since": None, "last_msg_age_s": None, "reconnects": 0,
             "last_error": None, "last_error_at": None, "decoded": 0,
-            "drops": {k: 0 for k in _IDLE_DROPS}, "queue_dropped": 0, "queue_size": 0}
+            "drops": {k: 0 for k in _IDLE_DROPS}, "queue_dropped": 0, "raw_dropped": 0, "queue_size": 0}
 
 
 _SUMMED = ("msgs_per_s", "undecodable", "decoded", "reconnects", "queue_size",
-           "queue_dropped", "watchdog_restarts")
+           "queue_dropped", "raw_dropped", "watchdog_restarts")
 
 
 @dataclass
@@ -121,6 +121,7 @@ class Runtime:
     backups: BackupManager | None = None
     db_health: str = "in corso"  # quick_check in un thread all'avvio
     watchdog_restarts: dict = field(default_factory=dict)  # id broker -> riavvii
+    raw_dropped_retired: int = 0
     queue_dropped_retired: int = 0  # scarti della coda dei connettori gia' fermati
     _connector_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     monotonic: Callable[[], float] = time.monotonic
@@ -185,6 +186,7 @@ class Runtime:
         total = {k: sum(e.get(k) or 0 for e in entries) for k in _SUMMED}
         total["msgs_per_s"] = float(total["msgs_per_s"])
         total["queue_dropped"] += self.queue_dropped_retired
+        total["raw_dropped"] += self.raw_dropped_retired
         total["packet_log_dropped"] = getattr(self.packet_log, "dropped", 0)
         # anche i riavvii dei broker eliminati: il totale non torna indietro
         total["watchdog_restarts"] = sum(self.watchdog_restarts.values())
@@ -219,6 +221,7 @@ class Runtime:
             self.learned_keys[broker_id] = dict(learned)
         await asyncio.to_thread(old.stop)
         self.queue_dropped_retired += getattr(getattr(old, "inbox", None), "dropped", 0)
+        self.raw_dropped_retired += getattr(getattr(old, "inbox", None), "raw_dropped", 0)
 
     async def restart_connector(self, broker_id: str, reason: str, expected=None) -> None:
         """`expected`: il connettore giudicato da riavviare; se nel frattempo e' cambiato

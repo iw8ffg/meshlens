@@ -179,6 +179,7 @@ def test_inbox_drops_raw_packets_before_events():
         inbox.put(raw)
     for i in range(4, 8):  # eventi a coda piena: partono i grezzi, non gli eventi
         inbox.put(i)
+    assert inbox.dropped == 0 and inbox.raw_dropped == 8
     loop.run_all()
     assert [x for x in got if not isinstance(x, RawPacket)] == list(range(8))
     assert inbox.size() == 0

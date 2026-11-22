@@ -24,7 +24,8 @@ class EventInbox:
         self.handler = handler
         self.maxsize = maxsize
         self.batch = batch
-        self.dropped = 0
+        self.dropped = 0  # eventi dei nodi scartati
+        self.raw_dropped = 0  # pacchetti grezzi scartati (solo ispettore)
         self.high_water = 0
         self._items: collections.deque = collections.deque()
         # i RawPacket (solo ispettore) hanno una coda a parte: in una raffica si scartano per primi
@@ -44,11 +45,15 @@ class EventInbox:
             total = len(self._items) + len(self._raws)
             if is_raw and len(self._raws) >= max(1, self.maxsize // 4):
                 self._raws.popleft()
-                self.dropped += 1
+                self.raw_dropped += 1
                 total -= 1
             if total >= self.maxsize:
-                (self._raws if self._raws else self._items).popleft()
-                self.dropped += 1
+                if self._raws:
+                    self._raws.popleft()
+                    self.raw_dropped += 1
+                else:
+                    self._items.popleft()
+                    self.dropped += 1
             (self._raws if is_raw else self._items).append(item)
             size = len(self._items) + len(self._raws)
             if size > self.high_water:

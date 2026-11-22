@@ -113,7 +113,7 @@ class MqttConnector:
                 "last_error": self._last_error, "last_error_at": self._last_error_at,
                 "decoded": stats["ok"],
                 "drops": {k: stats[k] for k in DROP_KEYS},
-                "queue_dropped": self.inbox.dropped, "queue_size": self.inbox.size()}
+                "queue_dropped": self.inbox.dropped, "raw_dropped": self.inbox.raw_dropped, "queue_size": self.inbox.size()}
 
     # ---- callback (thread paho); firme tolleranti a paho v1 e v2 ----
     def _on_connect(self, client, userdata, *args):
