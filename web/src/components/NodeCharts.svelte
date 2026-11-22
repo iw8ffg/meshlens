@@ -45,16 +45,15 @@
     loading = true
     error = ''
     const current = () => id === nodeId && h === hours
-    Promise.all([telemetry(id, h), metrics(id, h), snr(id, h)])
+    // Una richiesta fallita (es. telemetria 404 di un nodo non in memoria) non nasconde le altre
+    Promise.allSettled([telemetry(id, h), metrics(id, h), snr(id, h)])
       .then(([t, m, s]) => {
         if (!current()) return
-        tel = [...t].sort((a, b) => a.time - b.time)
-        met = m
-        snrPts = [...s].sort((a, b) => a.time - b.time)
+        if (t.status === 'fulfilled') tel = [...t.value].sort((a, b) => a.time - b.time)
+        if (m.status === 'fulfilled') met = m.value
+        if (s.status === 'fulfilled') snrPts = [...s.value].sort((a, b) => a.time - b.time)
+        if (t.status === 'rejected' && m.status === 'rejected' && s.status === 'rejected') error = 'Dati non disponibili'
         loadedAt = Date.now() / 1000
-      })
-      .catch(() => {
-        if (current()) error = 'Dati non disponibili'
       })
       .finally(() => {
         if (current()) loading = false

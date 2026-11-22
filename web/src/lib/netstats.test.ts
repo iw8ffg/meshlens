@@ -35,7 +35,8 @@ describe('netstats', () => {
     expect(barRects([0, 0], 10, 10).map((b) => b.h)).toEqual([0, 0])
   })
   it('snrBinLabel', () => {
-    expect(snrBinLabel(-20)).toBe('−20…−17,5')
+    expect(snrBinLabel(-20)).toBe('≤ −17,5')
+    expect(snrBinLabel(-17.5)).toBe('−17,5…−15')
     expect(snrBinLabel(15)).toBe('≥ 15')
   })
   it('kindLabel: ripiego sulla chiave', () => {

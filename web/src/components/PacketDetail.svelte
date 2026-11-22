@@ -22,6 +22,9 @@
   let data = $state<PacketDetail | null>(null)
   let error = $state('')
   let copied = $state(false)
+  let copyTimer: ReturnType<typeof setTimeout> | undefined
+
+  $effect(() => () => clearTimeout(copyTimer))
 
   $effect(() => {
     const pid = id
@@ -52,7 +55,10 @@
   async function copyHex() {
     if (!data) return
     copied = await copyText(data.raw_hex)
-    if (copied) setTimeout(() => (copied = false), 2000)
+    if (copied) {
+      clearTimeout(copyTimer)
+      copyTimer = setTimeout(() => (copied = false), 2000)
+    }
   }
 </script>
 

@@ -45,11 +45,13 @@ export function barRects(values: number[], w: number, h: number, gap = 2): { x: 
 }
 
 const SNR_STEP = 2.5
+const SNR_FIRST = -20
 const SNR_LAST = 15
 const fmt = (n: number) => String(n).replace('.', ',').replace('-', '−')
 
-/** Etichetta di un bin dell'SNR: «−20…−17,5»; l'ultimo e' «≥ 15». */
+/** Etichetta di un bin dell'SNR: «−17,5…−15»; il primo e' «≤ −17,5», l'ultimo e' «≥ 15». */
 export function snrBinLabel(lo: number): string {
   if (lo >= SNR_LAST) return `≥ ${fmt(SNR_LAST)}`
+  if (lo <= SNR_FIRST) return `≤ ${fmt(lo + SNR_STEP)}`
   return `${fmt(lo)}…${fmt(lo + SNR_STEP)}`
 }

@@ -2,7 +2,7 @@
   import { onMount } from 'svelte'
   import { getJSON, packets as fetchPackets } from '../lib/api'
   import { KIND_LABEL, kindLabel } from '../lib/netstats'
-  import { hopsText, packetQuery, resolveNode, STATUS_LABEL, type PacketFilters } from '../lib/packets'
+  import { hopsText, packetQuery, PAGE_SIZE, resolveNode, STATUS_LABEL, type PacketFilters } from '../lib/packets'
   import type { AppSettings } from '../lib/settings'
   import type { Node, PacketRow } from '../lib/types'
   import { viewport } from '../lib/viewport.svelte'
@@ -21,6 +21,8 @@
 
   const LIVE_MS = 5000
   const LIVE_MAX_ROWS = 500
+  const LIVE_MAX_PAGES = 10
+  const NODE_DEBOUNCE_MS = 300
   const BROADCAST = '!ffffffff'
 
   const COLS: Column[] = [
@@ -46,7 +48,10 @@
   ]
 
   let mode = $state<AppSettings['packet_log_mode'] | null>(null)
-  let f = $state<PacketFilters>({ node: '', kind: '', source: '', status: '', minSnr: '', period: '1h' })
+  let f = $state<PacketFilters>({ node: '', kind: '', source: '', status: '', minSnr: null, period: '1h' })
+  /** Il testo del nodo dopo una pausa: ogni tasto non rilancia l'interrogazione. */
+  let nodeQuery = $state('')
+  let polling = false
   let live = $state(false)
   let items = $state<PacketRow[]>([])
   let next = $state<number | null>(null)
@@ -57,21 +62,34 @@
   /** Si incrementa a ogni nuova interrogazione: le risposte di una precedente si scartano. */
   let gen = 0
 
-  const nodeText = $derived(f.node.trim())
+  const nodeText = $derived(nodeQuery.trim())
   const nodeId = $derived(resolveNode(nodeText, nodes))
   const nodeUnknown = $derived(nodeText !== '' && nodeId === null)
   const wide = $derived(!viewport.phone && innerWidth >= 1100)
   const names = $derived(new Map(nodes.map((n) => [n.id, n.long_name ?? n.short_name ?? n.id])))
+  const nodeMatch = $derived(nodeId === null ? '' : (names.get(nodeId) ?? nodeId))
 
-  onMount(() => {
+  function loadMode() {
     getJSON<AppSettings>('/settings')
       .then((s) => (mode = s.packet_log_mode ?? 'archived'))
-      .catch(() => (mode = 'archived'))
+      .catch(() => (mode ??= 'archived'))
+  }
+  onMount(loadMode)
+  // La modalità si cambia in Impostazioni: al ritorno sulla pagina si rilegge
+  function onVisible() {
+    if (document.visibilityState === 'visible') loadMode()
+  }
+
+  $effect(() => {
+    const text = f.node
+    const t = setTimeout(() => (nodeQuery = text), NODE_DEBOUNCE_MS)
+    return () => clearTimeout(t)
   })
 
   // Prima pagina: si rilegge a ogni cambio di filtro
   $effect(() => {
-    const filters = { ...f }
+    // il testo del nodo arriva da `nodeId` (con pausa): qui non si legge `f.node`
+    const filters: PacketFilters = { node: '', kind: f.kind, source: f.source, status: f.status, minSnr: f.minSnr, period: f.period }
     const id = nodeId
     const unknown = nodeUnknown
     const m = mode
@@ -115,18 +133,32 @@
   }
 
   async function poll() {
+    if (polling) return
+    polling = true
     const my = gen
-    const newest = items[0]?.time
-    const q = new URLSearchParams(packetQuery(f, Date.now() / 1000, null, nodeId))
-    if (newest !== undefined) q.set('since', String(newest))
     try {
-      const r = await fetchPackets(q.toString())
-      if (my !== gen) return
-      const seen = new Set(items.map((p) => p.id))
-      const fresh = r.items.filter((p) => !seen.has(p.id))
-      if (fresh.length > 0) items = [...fresh, ...items].slice(0, LIVE_MAX_ROWS)
+      // Dall'ultimo id visto, a pagine: si prosegue finché la pagina è piena
+      for (let page = 0; page < LIVE_MAX_PAGES; page++) {
+        const r = await fetchPackets(packetQuery(f, Date.now() / 1000, null, nodeId, items[0]?.id ?? 0))
+        if (my !== gen) return
+        if (r.items.length > 0) {
+          const seen = new Set(items.map((p) => p.id))
+          const fresh = r.items.filter((p) => !seen.has(p.id)).reverse()
+          const merged = [...fresh, ...items]
+          if (merged.length > LIVE_MAX_ROWS) {
+            items = merged.slice(0, LIVE_MAX_ROWS)
+            // «Carica altri» riparte dall'ultima riga tenuta, senza buchi
+            next = items[items.length - 1].id
+          } else {
+            items = merged
+          }
+        }
+        if (r.items.length < PAGE_SIZE) break
+      }
     } catch {
       // al prossimo giro
+    } finally {
+      polling = false
     }
   }
 
@@ -144,7 +176,8 @@
   const rowKey = (p: PacketRow) => String(p.id)
 </script>
 
-<svelte:window bind:innerWidth />
+<svelte:window bind:innerWidth onfocus={loadMode} />
+<svelte:document onvisibilitychange={onVisible} />
 
 <div class="insp">
   {#if mode === 'off'}
@@ -183,7 +216,7 @@
       </div>
       <Switch bind:checked={live} label="In diretta" />
     </div>
-    {#if nodeUnknown}<p class="ui-hint err">Nodo non trovato</p>{/if}
+    {#if nodeUnknown}<p class="ui-hint err">Nodo non trovato</p>{:else if nodeId !== null}<p class="ui-muted">{`Nodo: ${nodeMatch}`}</p>{/if}
     {#if error}<Banner kind="danger" title={error} />{/if}
 
     <div class="body" class:split={wide}>

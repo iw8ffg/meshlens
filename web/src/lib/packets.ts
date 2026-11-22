@@ -6,7 +6,8 @@ export type PacketFilters = {
   kind: string
   source: '' | 'rf' | 'mqtt'
   status: string
-  minSnr: string
+  /** Un `<input type="number">` con bind:value dà numero o null (vuoto). */
+  minSnr: number | null
   period: '1h' | '6h' | '24h' | 'all'
 }
 
@@ -23,17 +24,17 @@ export const STATUS_LABEL: Record<string, string> = {
 }
 
 /** Parametri della richiesta: i campi vuoti si omettono; `nodeId` è il nodo già risolto. */
-export function packetQuery(f: PacketFilters, now: number, beforeId: number | null, nodeId: string | null): string {
+export function packetQuery(f: PacketFilters, now: number, beforeId: number | null, nodeId: string | null, afterId: number | null = null): string {
   const q = new URLSearchParams()
   if (nodeId) q.set('node', nodeId)
   if (f.kind) q.set('kind', f.kind)
   if (f.source) q.set('source', f.source)
   if (f.status) q.set('status', f.status)
-  const snr = f.minSnr.trim() === '' ? NaN : Number(f.minSnr)
-  if (Number.isFinite(snr)) q.set('min_snr', String(snr))
+  if (typeof f.minSnr === 'number' && Number.isFinite(f.minSnr)) q.set('min_snr', String(f.minSnr))
   const h = PERIOD_HOURS[f.period]
   if (h !== null) q.set('since', String(Math.floor(now - h * 3600)))
   if (beforeId !== null) q.set('before_id', String(beforeId))
+  if (afterId !== null) q.set('after_id', String(afterId))
   q.set('limit', String(PAGE_SIZE))
   return q.toString()
 }

@@ -10,7 +10,9 @@ type Cell = string | number | null | undefined
 function cell(v: Cell): string {
   if (v === null || v === undefined) return ''
   // Virgola decimale: Excel in italiano apre il file in colonne con i numeri veri
-  const s = typeof v === 'number' ? (Number.isFinite(v) ? String(v).replace('.', ',') : '') : v
+  let s = typeof v === 'number' ? (Number.isFinite(v) ? String(v).replace('.', ',') : '') : v
+  // Un testo che Excel leggerebbe come formula (nomi dei nodi dalla rete) si disinnesca con «'»
+  if (typeof v === 'string' && /^[=+\-@\t\r]/.test(s)) s = `'${s}`
   return /[;"\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
 }
 

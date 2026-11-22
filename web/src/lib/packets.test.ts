@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { hexDump, hopsText, packetQuery, relayCandidates, resolveNode, type PacketFilters } from './packets'
 import type { Node } from './types'
 
-const EMPTY: PacketFilters = { node: '', kind: '', source: '', status: '', minSnr: '', period: '1h' }
+const EMPTY: PacketFilters = { node: '', kind: '', source: '', status: '', minSnr: null, period: '1h' }
 const node = (num: number, short: string | null, long: string | null) =>
   ({ id: `!${num.toString(16).padStart(8, '0')}`, num, short_name: short, long_name: long }) as Node
 
@@ -11,13 +11,23 @@ describe('packetQuery', () => {
     expect(packetQuery(EMPTY, 10000, null, null)).toBe(`since=${10000 - 3600}&limit=100`)
   })
   it('min_snr non numerico omesso, before_id presente', () => {
-    const q = new URLSearchParams(packetQuery({ ...EMPTY, minSnr: 'abc', period: 'all' }, 10000, 42, null))
+    const q = new URLSearchParams(packetQuery({ ...EMPTY, minSnr: Number.NaN, period: 'all' }, 10000, 42, null))
     expect(q.has('min_snr')).toBe(false)
     expect(q.has('since')).toBe(false)
     expect(q.get('before_id')).toBe('42')
   })
+  it('min_snr: numero (anche 0) presente, null omesso', () => {
+    expect(new URLSearchParams(packetQuery({ ...EMPTY, minSnr: 0 }, 10000, null, null)).get('min_snr')).toBe('0')
+    expect(new URLSearchParams(packetQuery({ ...EMPTY, minSnr: -7.5 }, 10000, null, null)).get('min_snr')).toBe('-7.5')
+    expect(new URLSearchParams(packetQuery({ ...EMPTY, minSnr: null }, 10000, null, null)).has('min_snr')).toBe(false)
+  })
+  it('after_id per la modalità in diretta', () => {
+    const q = new URLSearchParams(packetQuery(EMPTY, 10000, null, null, 77))
+    expect(q.get('after_id')).toBe('77')
+    expect(q.has('before_id')).toBe(false)
+  })
   it('tutti i filtri', () => {
-    const q = new URLSearchParams(packetQuery({ ...EMPTY, kind: 'text', source: 'rf', status: 'ok', minSnr: '-5' }, 10000, null, '!0000abcd'))
+    const q = new URLSearchParams(packetQuery({ ...EMPTY, kind: 'text', source: 'rf', status: 'ok', minSnr: -5 }, 10000, null, '!0000abcd'))
     expect(q.get('node')).toBe('!0000abcd')
     expect(q.get('kind')).toBe('text')
     expect(q.get('source')).toBe('rf')

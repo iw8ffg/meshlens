@@ -38,6 +38,21 @@ function detail(over: Partial<CoverageDetail> = {}): CoverageDetail {
   }
 }
 
+describe('csv: formule', () => {
+  it('prefissa con apice i testi che iniziano come formule, non i numeri', () => {
+    const out = csv(['n'], [['=HYPERLINK("x")'], ['+1'], ['-2+3'], ['@SUM(A1)'], ['\tx'], ['\rx'], ['ok'], [-5]])
+    const lines = out.split('\r\n')
+    expect(lines).toContain(`"'=HYPERLINK(""x"")"`)
+    expect(lines).toContain("'+1")
+    expect(lines).toContain("'-2+3")
+    expect(lines).toContain("'@SUM(A1)")
+    expect(lines).toContain("'\tx")
+    expect(out).toContain('"\'\rx"')
+    expect(lines).toContain('ok')
+    expect(lines).toContain('-5')
+  })
+})
+
 describe('csv', () => {
   it('BOM, separatore ;, virgola decimale, CRLF', () => {
     expect(csv(['a', 'b'], [['x;y', 'di "lui"'], [1.5, null]])).toBe('﻿a;b\r\n"x;y";"di ""lui"""\r\n1,5;\r\n')
