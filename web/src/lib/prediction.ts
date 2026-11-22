@@ -2,6 +2,7 @@
 import { getJSON, send } from './api'
 import type { MapTokens } from './map/tokens'
 import { decSep } from './format'
+import { t } from './i18n/index.svelte'
 
 export interface PredictionParams {
   lat: number
@@ -95,31 +96,31 @@ export function defaultParams(pos?: { lat: number; lon: number }): PredictionPar
 
 type NumKey = Exclude<keyof PredictionParams, 'preset'>
 
-/** Campi numerici con etichetta italiana, unita' e limiti (come lato server). */
+/** Campi numerici con etichetta nella lingua corrente (getter), unita' e limiti (come lato server). */
 export const PARAM_FIELDS: { key: NumKey; label: string; unit: string; min: number; max: number; step: number }[] = [
-  { key: 'lat', label: 'Latitudine', unit: '°', min: -85, max: 85, step: 0.0001 },
-  { key: 'lon', label: 'Longitudine', unit: '°', min: -180, max: 180, step: 0.0001 },
-  { key: 'height_m', label: 'Altezza antenna', unit: 'm', min: 0.5, max: 200, step: 0.5 },
-  { key: 'tx_power_dbm', label: 'Potenza', unit: 'dBm', min: 0, max: 30, step: 1 },
-  { key: 'antenna_gain_dbi', label: 'Guadagno antenna', unit: 'dBi', min: -5, max: 15, step: 0.5 },
-  { key: 'cable_loss_db', label: 'Perdita cavo', unit: 'dB', min: 0, max: 20, step: 0.5 },
-  { key: 'rx_height_m', label: 'Altezza ricevitore', unit: 'm', min: 0.5, max: 30, step: 0.5 },
-  { key: 'rx_gain_dbi', label: 'Guadagno ricevitore', unit: 'dBi', min: -5, max: 15, step: 0.5 },
-  { key: 'frequency_mhz', label: 'Frequenza', unit: 'MHz', min: 863, max: 870, step: 0.025 },
-  { key: 'radius_km', label: 'Raggio', unit: 'km', min: 1, max: 50, step: 1 },
+  { key: 'lat', get label() { return t('prediction.f.lat') }, unit: '°', min: -85, max: 85, step: 0.0001 },
+  { key: 'lon', get label() { return t('prediction.f.lon') }, unit: '°', min: -180, max: 180, step: 0.0001 },
+  { key: 'height_m', get label() { return t('prediction.f.height_m') }, unit: 'm', min: 0.5, max: 200, step: 0.5 },
+  { key: 'tx_power_dbm', get label() { return t('prediction.f.tx_power_dbm') }, unit: 'dBm', min: 0, max: 30, step: 1 },
+  { key: 'antenna_gain_dbi', get label() { return t('prediction.f.antenna_gain_dbi') }, unit: 'dBi', min: -5, max: 15, step: 0.5 },
+  { key: 'cable_loss_db', get label() { return t('prediction.f.cable_loss_db') }, unit: 'dB', min: 0, max: 20, step: 0.5 },
+  { key: 'rx_height_m', get label() { return t('prediction.f.rx_height_m') }, unit: 'm', min: 0.5, max: 30, step: 0.5 },
+  { key: 'rx_gain_dbi', get label() { return t('prediction.f.rx_gain_dbi') }, unit: 'dBi', min: -5, max: 15, step: 0.5 },
+  { key: 'frequency_mhz', get label() { return t('prediction.f.frequency_mhz') }, unit: 'MHz', min: 863, max: 870, step: 0.025 },
+  { key: 'radius_km', get label() { return t('prediction.f.radius_km') }, unit: 'km', min: 1, max: 50, step: 1 },
 ]
 
 const fmt = (n: number) => decSep(String(n)).replace('-', '−')
 
-/** Primo errore dei parametri, in italiano; null se tutto e' valido. */
+/** Primo errore dei parametri, nella lingua corrente; null se tutto e' valido. */
 export function validateParams(p: PredictionParams): string | null {
   for (const f of PARAM_FIELDS) {
     const v = p[f.key]
     if (typeof v !== 'number' || !Number.isFinite(v) || v < f.min || v > f.max) {
-      return `${f.label}: tra ${fmt(f.min)} e ${fmt(f.max)} ${f.unit}`
+      return t('prediction.range', { label: f.label, min: fmt(f.min), max: fmt(f.max), unit: f.unit })
     }
   }
-  if (!(PRESET_OPTIONS as readonly string[]).includes(p.preset)) return 'Preset: valore non valido'
+  if (!(PRESET_OPTIONS as readonly string[]).includes(p.preset)) return t('prediction.badPreset')
   return null
 }
 

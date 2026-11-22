@@ -1,4 +1,34 @@
 // Testi inglesi: area «sf». Il tipo obbliga a tradurre ogni chiave italiana.
 import type { sf as itArea } from '../it/sf'
 
-export const sf: Record<keyof typeof itArea, string> = {}
+export const sf: Record<keyof typeof itArea, string> = {
+  'sf.window.60': '1 hour',
+  'sf.window.240': '4 hours',
+  'sf.window.720': '12 hours',
+  'sf.window.1440': '24 hours',
+  'sf.job.waiting': 'Waiting for the router…',
+  'sf.job.received': 'Received {n}',
+  'sf.job.receivedOf': 'Received {n} of {total}',
+  'sf.job.dup': '{base}, {d} already present',
+  'sf.job.none': 'No messages to recover',
+  'sf.job.done': 'Completed: {n} messages recovered',
+  'sf.badId': 'Invalid router ID: use the format !xxxxxxxx',
+  'sf.routerLabel': '{name} · seen {seen}',
+  'sf.routerLabelStats': '{name} · seen {seen} · {saved} of {max} messages',
+  'sf.failed': 'Operation failed',
+  'sf.probeSent': 'Request sent: the router\'s statistics will arrive shortly',
+  'sf.title': 'Recover missed messages',
+  'sf.recover': 'Recover',
+  'sf.router': 'Router',
+  'sf.other': 'Other node…',
+  'sf.otherId': 'Router node ID',
+  'sf.otherHint': 'Format !xxxxxxxx',
+  'sf.probe': 'Check router',
+  'sf.window': 'Window',
+  'sf.windowAria': 'Time window',
+  'sf.channel': 'Channel',
+  'sf.channelN': 'Channel {n}',
+  'sf.publicWarn': 'Routers refuse requests on the public channel: choose a private channel shared with the router.',
+  'sf.note': 'The router only sends messages it has not already sent you, up to its maximum.',
+  'sf.progress': 'Recovery progress',
+}

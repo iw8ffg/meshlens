@@ -1,5 +1,6 @@
 <script lang="ts">
   import { MASK, enumLabel, fieldInput } from '../lib/config'
+  import { t } from '../lib/i18n/index.svelte'
   import type { ConfigValue, SchemaField } from '../lib/types'
   import Switch from '../lib/ui/Switch.svelte'
 
@@ -48,8 +49,8 @@
         {disabled}
         value={value === null || value === undefined ? '' : Number(value)}
         onchange={(e) => {
-          const t = e.currentTarget.value
-          if (t !== '' && Number.isFinite(Number(t))) onchange(Number(t))
+          const raw = e.currentTarget.value
+          if (raw !== '' && Number.isFinite(Number(raw))) onchange(Number(raw))
         }}
       />
     {:else if kind === 'secret'}
@@ -59,7 +60,7 @@
         type="password"
         autocomplete="off"
         {disabled}
-        placeholder="Invariato (segreto: si può solo sostituire)"
+        placeholder={t('config.field.secretPh')}
         value={value === MASK || value === undefined ? '' : String(value)}
         oninput={(e) => onchange(e.currentTarget.value === '' ? MASK : e.currentTarget.value)}
       />

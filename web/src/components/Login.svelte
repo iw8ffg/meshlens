@@ -7,6 +7,7 @@
   import Logo from '../lib/shell/Logo.svelte'
   import MeshtasticBadge from '../lib/shell/MeshtasticBadge.svelte'
   import { pinError } from '../lib/settings'
+  import { t } from '../lib/i18n/index.svelte'
   import type { AuthStatus } from '../lib/types'
 
   let { status, onsuccess }: { status: AuthStatus; onsuccess: () => void } = $props()
@@ -52,7 +53,7 @@
       return
     }
     if (setup && pin !== confirm) {
-      message = 'I due PIN non coincidono'
+      message = t('login.mismatch')
       return
     }
     busy = true
@@ -64,13 +65,13 @@
     } catch (err) {
       if (err instanceof ApiError && err.status === 429) {
         if (err.retryAfter) startLock(err.retryAfter)
-        message = err.retryAfter ? 'Troppi tentativi' : 'Troppi tentativi: riprova tra qualche minuto'
+        message = err.retryAfter ? t('login.tooMany') : t('login.tooManyLater')
       } else if (err instanceof ApiError && err.status === 401) {
-        message = 'PIN errato'
+        message = t('login.wrong')
       } else if (err instanceof ApiError && err.status === 400) {
         message = err.message.charAt(0).toUpperCase() + err.message.slice(1)
       } else {
-        message = 'Errore di accesso'
+        message = t('login.error')
       }
     } finally {
       busy = false
@@ -85,12 +86,12 @@
       <h1>MeshLens</h1>
     </div>
     {#if remote}
-      <Banner kind="info" title="Configura MeshLens dal PC">Il primo PIN si sceglie dal computer su cui gira MeshLens.</Banner>
+      <Banner kind="info" title={t('login.remoteTitle')}>{t('login.remoteBody')}</Banner>
     {:else}
       <form onsubmit={submit} novalidate>
-        <h2>{setup ? 'Scegli un PIN' : 'Inserisci il PIN'}</h2>
-        {#if setup}<p class="ui-muted sub">Da {minLen} a 12 cifre. Servirà per aprire MeshLens da questo e dagli altri dispositivi.</p>{/if}
-        <Field label="PIN" for="pin" hint={setup ? undefined : 'Da 4 a 12 cifre'}>
+        <h2>{setup ? t('login.setupTitle') : t('login.enterTitle')}</h2>
+        {#if setup}<p class="ui-muted sub">{t('login.setupSub', { min: minLen })}</p>{/if}
+        <Field label={t('login.pin')} for="pin" hint={setup ? undefined : t('login.hint')}>
           {#snippet children({ describedby, invalid })}
             <input
               id="pin"
@@ -107,7 +108,7 @@
           {/snippet}
         </Field>
         {#if setup}
-          <Field label="Ripeti il PIN" for="pin2" error={confirm && pin !== confirm ? 'I due PIN non coincidono' : undefined}>
+          <Field label={t('login.repeat')} for="pin2" error={confirm && pin !== confirm ? t('login.mismatch') : undefined}>
             {#snippet children({ describedby, invalid })}
               <input
                 id="pin2"
@@ -125,9 +126,9 @@
           </Field>
         {/if}
         <Button type="submit" kind="primary" block disabled={busy || lock > 0}>
-          {#if busy}Verifica in corso…{:else if lock > 0}Riprova tra {lock} s{:else}{setup ? 'Imposta PIN' : 'Entra'}{/if}
+          {#if busy}{t('login.verifying')}{:else if lock > 0}{t('login.retryIn', { n: lock })}{:else}{setup ? t('login.set') : t('login.enter')}{/if}
         </Button>
-        {#if message}<Banner kind="danger" title={message}>{#if lock > 0}Riprova tra {lock} secondi.{/if}</Banner>{/if}
+        {#if message}<Banner kind="danger" title={message}>{#if lock > 0}{t('login.retryBanner', { n: lock })}{/if}</Banner>{/if}
       </form>
     {/if}
   </div>

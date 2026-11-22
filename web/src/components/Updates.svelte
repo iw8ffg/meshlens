@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { locale } from '../lib/i18n/index.svelte'
+  import { locale, t } from '../lib/i18n/index.svelte'
+  import { translateServer } from '../lib/i18n/server'
   import { onMount } from 'svelte'
   import { ApiError, checkUpdate, downloadUpdate, getJSON, installUpdate, send, updateStatus } from '../lib/api'
   import { formatBytes, jobPercent } from '../lib/maps'
@@ -18,7 +19,7 @@
   let replacing = $state(false)
   let tokenInput = $state('')
   let autoCheck = $state(true)
-  let loadError = $state('')
+  let loadFailed = $state(false)
   let error = $state('')
   let info = $state('')
   let busy = $state(false)
@@ -49,7 +50,7 @@
       tokenSet = !!s.update_token
       autoCheck = s.update_auto_check ?? true
     } catch {
-      loadError = 'Impostazioni di aggiornamento non disponibili'
+      loadFailed = true
     }
     try {
       version = (await getJSON<{ version: string }>('/version')).version
@@ -62,8 +63,8 @@
   // Download in corso: rilegge lo stato ogni 3 s (rete di sicurezza se il WebSocket non arriva)
   $effect(() => {
     if (!running) return
-    const t = setInterval(() => void loadStatus(), 3000)
-    return () => clearInterval(t)
+    const timer = setInterval(() => void loadStatus(), 3000)
+    return () => clearInterval(timer)
   })
 
   async function saveSettings(body: Record<string, unknown>, done: string) {
@@ -73,7 +74,7 @@
       info = done
       return true
     } catch (e) {
-      error = errMsg(e, 'Salvataggio non riuscito')
+      error = errMsg(e, t('updates.saveFailed'))
       return false
     }
   }
@@ -85,7 +86,7 @@
       replacing = false
       return
     }
-    if (await saveSettings({ update_token: v }, 'Token salvato')) {
+    if (await saveSettings({ update_token: v }, t('updates.tokenSaved'))) {
       tokenSet = true
       tokenInput = ''
       replacing = false
@@ -93,7 +94,7 @@
   }
 
   async function removeToken() {
-    if (await saveSettings({ update_token: '' }, 'Token rimosso')) {
+    if (await saveSettings({ update_token: '' }, t('updates.tokenRemoved'))) {
       tokenSet = false
       tokenInput = ''
       replacing = false
@@ -101,7 +102,7 @@
   }
 
   async function toggleAuto(value: boolean) {
-    if (!(await saveSettings({ update_auto_check: value }, 'Impostazione salvata'))) autoCheck = !value
+    if (!(await saveSettings({ update_auto_check: value }, t('updates.settingSaved')))) autoCheck = !value
   }
 
   async function check() {
@@ -110,7 +111,7 @@
     try {
       setUpdateStatus(await checkUpdate())
     } catch (e) {
-      error = errMsg(e, 'Controllo non riuscito')
+      error = errMsg(e, t('updates.checkFailed'))
     } finally {
       busy = false
     }
@@ -122,7 +123,7 @@
     try {
       setUpdateJob(await downloadUpdate())
     } catch (e) {
-      error = errMsg(e, 'Download non avviato')
+      error = errMsg(e, t('updates.downloadNotStarted'))
     } finally {
       busy = false
     }
@@ -136,7 +137,7 @@
       installing = true
       confirming = false
     } catch (e) {
-      error = errMsg(e, 'Installazione non avviata')
+      error = errMsg(e, t('updates.installNotStarted'))
     } finally {
       busy = false
     }
@@ -151,21 +152,21 @@
 
 <Card>
   <section class="sec">
-    <h3>Aggiornamenti</h3>
-    {#if loadError}
-      <Banner kind="danger" title={loadError} />
+    <h3>{t('updates.title')}</h3>
+    {#if loadFailed}
+      <Banner kind="danger" title={t('updates.loadFailed')} />
     {/if}
-    <p class="line">Versione attuale: <b class="ui-mono">{status?.current ?? (version || '—')}</b></p>
+    <p class="line">{t('updates.version')} <b class="ui-mono">{status?.current ?? (version || '—')}</b></p>
     <p class="line" class:err={!!status?.error} role="status">{updateLabel(status)}</p>
-    {#if status?.checked_at}<p class="muted">Ultimo controllo: {when(status.checked_at)}</p>{/if}
+    {#if status?.checked_at}<p class="muted">{t('updates.lastCheck', { when: when(status.checked_at) })}</p>{/if}
 
     <div class="tok">
-      <span class="ui-lbl" id="upd-token-label">Token GitHub (repository privato)</span>
+      <span class="ui-lbl" id="upd-token-label">{t('updates.tokenLabel')}</span>
       {#if tokenSet && !replacing}
         <div class="row">
           <span class="mask ui-mono" aria-labelledby="upd-token-label">••••</span>
-          <Button onclick={() => (replacing = true)}>Sostituisci</Button>
-          <Button kind="danger" onclick={removeToken}>Rimuovi token</Button>
+          <Button onclick={() => (replacing = true)}>{t('updates.replace')}</Button>
+          <Button kind="danger" onclick={removeToken}>{t('updates.removeToken')}</Button>
         </div>
       {:else}
         <div class="row">
@@ -174,69 +175,69 @@
             type="password"
             autocomplete="off"
             aria-labelledby="upd-token-label"
-            placeholder={tokenSet ? 'Nuovo token (vuoto = invariato)' : 'github_pat_…'}
+            placeholder={tokenSet ? t('updates.tokenNewPh') : 'github_pat_…'}
             bind:value={tokenInput}
           />
-          <Button kind="primary" onclick={saveToken}>Salva token</Button>
-          {#if replacing}<Button onclick={() => ((replacing = false), (tokenInput = ''))}>Annulla</Button>{/if}
+          <Button kind="primary" onclick={saveToken}>{t('updates.saveToken')}</Button>
+          {#if replacing}<Button onclick={() => ((replacing = false), (tokenInput = ''))}>{t('common.cancel')}</Button>{/if}
         </div>
       {/if}
       <details>
-        <summary>Come creare il token</summary>
+        <summary>{t('updates.howTo')}</summary>
         <ol class="guide">
-          <li>GitHub → Settings → Developer settings → Personal access tokens → Fine-grained tokens → Generate new token.</li>
-          <li>Repository access: Only select repositories → iw8ffg/meshlens.</li>
-          <li>Permissions: Contents → Read-only.</li>
-          <li>Copia il token e incollalo qui.</li>
+          <li>{t('updates.guide1')}</li>
+          <li>{t('updates.guide2')}</li>
+          <li>{t('updates.guide3')}</li>
+          <li>{t('updates.guide4')}</li>
         </ol>
-        <p class="muted">Il token deve essere creato dal proprietario del repository. Se sei un collaboratore, usa un token classico con permesso «repo».</p>
+        <p class="muted">{t('updates.guideNote')}</p>
       </details>
     </div>
 
-    <Switch bind:checked={autoCheck} label="Controlla automaticamente ogni giorno" onchange={toggleAuto} />
+    <Switch bind:checked={autoCheck} label={t('updates.auto')} onchange={toggleAuto} />
 
     <div class="row">
-      <Button icon="refresh" disabled={busy || running || installing} onclick={check}>Controlla ora</Button>
+      <Button icon="refresh" disabled={busy || running || installing} onclick={check}>{t('updates.checkNow')}</Button>
     </div>
 
     {#if status?.available}
       {#if status.notes}
         <div class="notes">
-          <b>Novità di {status.latest}</b>
+          <b>{t('updates.news', { v: status.latest ?? '' })}</b>
           <pre>{status.notes}</pre>
         </div>
       {/if}
 
       {#if running && job}
         <div class="job" role="status">
-          <div>Download in corso…</div>
+          <div>{t('updates.downloading')}</div>
           {#if percent !== null}
-            <Progress value={percent} label="Avanzamento del download" text="{percent}% ({formatBytes(job.bytes_done)} di {formatBytes(job.bytes_total ?? 0)})" />
+            <Progress value={percent} label={t('updates.progress')} text={t('updates.progressText', { pct: percent, done: formatBytes(job.bytes_done), total: formatBytes(job.bytes_total ?? 0) })} />
           {:else}
-            <Progress value={100} label="Download in corso" text={formatBytes(job.bytes_done)} />
+            <Progress value={100} label={t('updates.inProgress')} text={formatBytes(job.bytes_done)} />
           {/if}
         </div>
       {:else if job?.status === 'failed'}
-        <Banner kind="danger" title="Download non riuscito">{job.error ?? 'errore sconosciuto'}</Banner>
+        <Banner kind="danger" title={t('updates.failed')}>{job.error ? translateServer(job.error) : t('updates.unknownError')}</Banner>
       {:else if job?.status === 'done'}
-        <Banner kind="ok" title="Download completato e verificato" />
+        <Banner kind="ok" title={t('updates.verified')} />
       {/if}
 
       {#if installing}
-        <Banner kind="info" title="Installazione in corso">MeshLens si riapre a breve.</Banner>
+        <Banner kind="info" title={t('updates.installing')}>{t('updates.reopens')}</Banner>
       {:else}
         <div class="row">
           {#if !running && job?.status !== 'done'}
             <Button kind="primary" icon="download" disabled={busy} onclick={download}>
-              {job?.status === 'failed' ? 'Riprova download' : 'Scarica'}
+              {job?.status === 'failed' ? t('updates.retry') : t('updates.download')}
             </Button>
           {/if}
           <Button kind="primary" icon="power" disabled={!installable || busy} onclick={() => (confirming = true)}>
-            Installa e riavvia
+            {t('updates.install')}
           </Button>
         </div>
         {#if status.frozen === false}
-          <p class="muted">L'installazione è disponibile solo nella versione installata di MeshLens (non in sviluppo).</p>
+          <p class="muted">{t('updates.devOnly')}</p>
         {/if}
       {/if}
     {/if}
@@ -246,8 +247,8 @@
   </section>
 </Card>
 
-<Modal open={confirming} title="Installare l'aggiornamento?" confirmLabel="Installa" onconfirm={install} oncancel={() => (confirming = false)}>
-  <p>MeshLens si chiuderà per qualche secondo e si riaprirà aggiornato</p>
+<Modal open={confirming} title={t('updates.confirm.title')} confirmLabel={t('updates.confirm.ok')} onconfirm={install} oncancel={() => (confirming = false)}>
+  <p>{t('updates.confirm.body')}</p>
 </Modal>
 
 <style>

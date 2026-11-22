@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { locale } from '../lib/i18n/index.svelte'
+  import { locale, t, type MsgKey } from '../lib/i18n/index.svelte'
+  import { translateServer } from '../lib/i18n/server'
   import { onMount, untrack } from 'svelte'
   import { ApiError, cancelMapJob, deleteMap, downloadMap, estimateMap, getJSON, mapsState, send } from '../lib/api'
   import { bboxFromBounds, formatBytes, isStaleSnapshot, jobPercent } from '../lib/maps'
@@ -15,21 +16,21 @@
   import Select from '../lib/ui/Select.svelte'
   import Skeleton from '../lib/ui/Skeleton.svelte'
 
-  const MODES: [string, string][] = [
-    ['auto', 'Automatica'],
-    ['online', 'Solo online'],
-    ['offline', 'Solo offline'],
+  const MODE_KEYS: [string, MsgKey][] = [
+    ['auto', 'maps.mode.auto'],
+    ['online', 'maps.mode.online'],
+    ['offline', 'maps.mode.offline'],
   ]
-  const LABEL: Record<MapKind, string> = { world: 'Mondo (base)', italy: 'Italia', area: 'Area' }
+  const KIND_KEYS: Record<MapKind, MsgKey> = { world: 'maps.kind.world', italy: 'maps.kind.italy', area: 'maps.kind.area' }
 
   let snap = $state<MapsState | null>(null)
-  let loadError = $state('')
+  let loadFailed = $state(false)
   let error = $state('')
   let info = $state('')
   let busy = $state(false)
   let mode = $state('auto')
   let sourceUrl = $state('')
-  let areaName = $state('Area visibile')
+  let areaName = $state(t('maps.defaultArea'))
   // Download in attesa di conferma (stima gia' ricevuta)
   let pending = $state<{ kind: MapKind; bbox?: Bbox; name?: string; est: MapEstimate } | null>(null)
   let askArea = $state(false)
@@ -48,9 +49,9 @@
       // il lavoro dell'istantanea e' piu' recente se id o stato differiscono (WS perso)
       if (j && !isStaleSnapshot(maps.job, j)
           && (maps.job?.id !== j.id || maps.job?.status !== j.status)) setMapJob(j)
-      loadError = ''
+      loadFailed = false
     } catch {
-      loadError = 'Mappe offline non disponibili'
+      loadFailed = true
     }
   }
 
@@ -78,8 +79,8 @@
   // Con un lavoro in corso rilegge lo stato ogni 5 s (rete di sicurezza se il WS non arriva)
   $effect(() => {
     if (!running) return
-    const t = setInterval(() => void load(), 5000)
-    return () => clearInterval(t)
+    const timer = setInterval(() => void load(), 5000)
+    return () => clearInterval(timer)
   })
 
   // Fine download o eliminazione da altrove: rilegge l'elenco (nessuna scrittura su stati letti qui)
@@ -101,9 +102,9 @@
     try {
       await send('PUT', '/settings', { map_mode: value })
       bumpMaps()
-      info = 'Modalità salvata'
+      info = t('maps.modeSaved')
     } catch (e) {
-      error = errMsg(e, 'Salvataggio non riuscito')
+      error = errMsg(e, t('maps.saveFailed'))
     }
   }
 
@@ -111,9 +112,9 @@
     error = info = ''
     try {
       await send('PUT', '/settings', { maps_source_url: sourceUrl.trim() })
-      info = 'Fonte salvata'
+      info = t('maps.sourceSaved')
     } catch (e) {
-      error = errMsg(e, 'Salvataggio non riuscito')
+      error = errMsg(e, t('maps.saveFailed'))
     }
   }
 
@@ -125,7 +126,7 @@
       pending = { kind, bbox, name, est }
       askArea = false
     } catch (e) {
-      error = errMsg(e, 'Stima non riuscita')
+      error = errMsg(e, t('maps.estimateFailed'))
     } finally {
       busy = false
     }
@@ -135,12 +136,12 @@
     error = info = ''
     const b = maps.bounds
     if (!b) {
-      error = 'Area visibile non disponibile: apri la mappa'
+      error = t('maps.noBounds')
       return
     }
     const name = areaName.trim()
     if (!name) {
-      error = "Scrivi un nome per l'area"
+      error = t('maps.needName')
       return
     }
     void ask('area', bboxFromBounds(b), name)
@@ -155,7 +156,7 @@
       maps.job = await downloadMap(p.kind, p.bbox, p.name)
       pending = null
     } catch (e) {
-      error = errMsg(e, 'Download non avviato')
+      error = errMsg(e, t('maps.downloadNotStarted'))
     } finally {
       busy = false
     }
@@ -166,7 +167,7 @@
     try {
       await cancelMapJob(job.id)
     } catch (e) {
-      error = errMsg(e, 'Annullamento non riuscito')
+      error = errMsg(e, t('maps.cancelFailed'))
     }
   }
 
@@ -178,7 +179,7 @@
       bumpMaps()
       await load()
     } catch (e) {
-      error = errMsg(e, 'Eliminazione non riuscita')
+      error = errMsg(e, t('maps.deleteFailed'))
     }
   }
 
@@ -191,32 +192,32 @@
 
 <Card>
   <section class="sec">
-    <h3>Mappe offline</h3>
-    {#if loadError}
-      <Banner kind="danger" title={loadError} />
+    <h3>{t('maps.title')}</h3>
+    {#if loadFailed}
+      <Banner kind="danger" title={t('maps.loadFailed')} />
     {:else if !snap}
       <Skeleton tall />
     {:else}
-      <Field label="Modalità mappa" for="map-mode">
+      <Field label={t('maps.mapMode')} for="map-mode">
         {#snippet children()}
           <Select id="map-mode" bind:value={mode} onchange={saveMode}>
-            {#each MODES as [v, l] (v)}<option value={v}>{l}</option>{/each}
+            {#each MODE_KEYS as [v, k] (v)}<option value={v}>{t(k)}</option>{/each}
           </Select>
         {/snippet}
       </Field>
-      <p class="muted">Spazio libero: <span class="ui-mono">{formatBytes(snap.disk_free_bytes)}</span></p>
+      <p class="muted">{t('maps.free')} <span class="ui-mono">{formatBytes(snap.disk_free_bytes)}</span></p>
 
       {#if snap.maps.length === 0}
-        <p class="muted">Nessuna mappa scaricata.</p>
+        <p class="muted">{t('maps.none')}</p>
       {:else}
         <ul class="maps">
           {#each snap.maps as m (m.id)}
             <li>
               <div>
-                <b>{m.name}</b> · {LABEL[m.kind]} · <span class="ui-mono">{formatBytes(m.size_bytes)}</span>
-                <div class="muted">Dati del {dataDate(m.source_date)} · scaricata il {when(m.created)}</div>
+                <b>{m.name}</b> · {t(KIND_KEYS[m.kind])} · <span class="ui-mono">{formatBytes(m.size_bytes)}</span>
+                <div class="muted">{t('maps.dataFrom', { date: dataDate(m.source_date), when: when(m.created) })}</div>
               </div>
-              <Button icon="trash" disabled={running} onclick={() => (toDelete = m.id)}>Elimina</Button>
+              <Button icon="trash" disabled={running} onclick={() => (toDelete = m.id)}>{t('maps.delete')}</Button>
             </li>
           {/each}
         </ul>
@@ -224,44 +225,44 @@
 
       {#if running && job}
         <div class="job" role="status">
-          <div>{job.name}: {job.step}</div>
+          <div>{job.name}: {translateServer(job.step ?? '')}</div>
           {#if percent !== null}
-            <Progress value={percent} label="Avanzamento del download" text="{percent}% ({formatBytes(job.bytes_done)} di {formatBytes(job.bytes_total ?? 0)})" />
+            <Progress value={percent} label={t('maps.progress')} text={t('maps.progressText', { pct: percent, done: formatBytes(job.bytes_done), total: formatBytes(job.bytes_total ?? 0) })} />
           {:else}
-            <Progress value={100} label="Download in corso" text={formatBytes(job.bytes_done)} />
+            <Progress value={100} label={t('maps.inProgress')} text={formatBytes(job.bytes_done)} />
           {/if}
-          <div><Button icon="x" onclick={cancel}>Annulla</Button></div>
+          <div><Button icon="x" onclick={cancel}>{t('common.cancel')}</Button></div>
         </div>
       {:else if job && job.status === 'failed'}
-        <Banner kind="danger" title="Download non riuscito">{job.error ?? 'errore sconosciuto'}</Banner>
+        <Banner kind="danger" title={t('maps.failed')}>{job.error ? translateServer(job.error) : t('maps.unknownError')}</Banner>
       {:else if job && job.status === 'cancelled'}
-        <p class="muted">Download annullato.</p>
+        <p class="muted">{t('maps.cancelled')}</p>
       {:else if job && job.status === 'done'}
-        <Banner kind="ok" title="Download completato">{job.name}</Banner>
+        <Banner kind="ok" title={t('maps.done')}>{job.name}</Banner>
       {/if}
 
       {#if !running}
         <div class="row">
-          <Button icon="download" disabled={busy || !!pending} onclick={() => ask('world')}>Scarica mondo (base)</Button>
-          <Button icon="download" disabled={busy || !!pending} onclick={() => ask('italy')}>Scarica Italia</Button>
-          <Button icon="map" disabled={busy || !!pending} onclick={() => (askArea = !askArea)}>Scarica area visibile</Button>
+          <Button icon="download" disabled={busy || !!pending} onclick={() => ask('world')}>{t('maps.getWorld')}</Button>
+          <Button icon="download" disabled={busy || !!pending} onclick={() => ask('italy')}>{t('maps.getItaly')}</Button>
+          <Button icon="map" disabled={busy || !!pending} onclick={() => (askArea = !askArea)}>{t('maps.getArea')}</Button>
         </div>
         {#if askArea}
           <div class="row">
-            <input class="ui-input grow" type="text" aria-label="Nome dell'area" maxlength="60" bind:value={areaName} />
-            <Button kind="primary" disabled={busy} onclick={askVisible}>Continua</Button>
+            <input class="ui-input grow" type="text" aria-label={t('maps.areaNameAria')} maxlength="60" bind:value={areaName} />
+            <Button kind="primary" disabled={busy} onclick={askVisible}>{t('maps.continue')}</Button>
           </div>
         {/if}
       {/if}
 
       <details>
-        <summary>Avanzate</summary>
-        <Field label="Fonte personalizzata (URL .pmtiles)" for="map-src">
+        <summary>{t('maps.advanced')}</summary>
+        <Field label={t('maps.source')} for="map-src">
           {#snippet children()}
             <input id="map-src" class="ui-input" type="text" placeholder="https://…/mappa.pmtiles" bind:value={sourceUrl} />
           {/snippet}
         </Field>
-        <div class="gap"><Button onclick={saveSource}>Salva fonte</Button></div>
+        <div class="gap"><Button onclick={saveSource}>{t('maps.saveSource')}</Button></div>
       </details>
       <p class="muted">© OpenStreetMap contributors · Protomaps</p>
       {#if error}<Banner kind="danger" title={error} />{/if}
@@ -272,32 +273,32 @@
 
 <Modal
   open={pending !== null}
-  title="Conferma download"
-  confirmLabel="Scarica"
+  title={t('maps.confirm.title')}
+  confirmLabel={t('maps.confirm.get')}
   onconfirm={confirmDownload}
   oncancel={() => (pending = null)}
 >
   {#if pending}
     <p class="wrapany">
-      <b>{pending.kind === 'area' ? pending.name : LABEL[pending.kind]}</b>: circa <span class="ui-mono">{formatBytes(pending.est.estimate_bytes)}</span>.<br />
-      Fonte: {pending.est.source_url}<br />
-      Dati del {dataDate(pending.est.source_date)}.
+      <b>{pending.kind === 'area' ? pending.name : t(KIND_KEYS[pending.kind])}</b>: {t('maps.confirm.about')} <span class="ui-mono">{formatBytes(pending.est.estimate_bytes)}</span>.<br />
+      {t('maps.confirm.source', { url: pending.est.source_url })}<br />
+      {t('maps.confirm.data', { date: dataDate(pending.est.source_date) })}
     </p>
     {#if pending.est.needs_tool}
-      <p>Verrà scaricato anche lo strumento ufficiale go-pmtiles (≈ {Math.round(pending.est.tool_size_bytes / 1_000_000)} MB) da GitHub.</p>
+      <p>{t('maps.confirm.tool', { mb: Math.round(pending.est.tool_size_bytes / 1_000_000) })}</p>
     {/if}
   {/if}
 </Modal>
 <Modal
   open={toDeleteMap !== null}
-  title="Eliminare la mappa?"
+  title={t('maps.del.title')}
   danger
-  confirmLabel="Sì, elimina"
-  cancelLabel="No"
+  confirmLabel={t('maps.del.yes')}
+  cancelLabel={t('maps.del.no')}
   onconfirm={() => toDeleteMap && remove(toDeleteMap)}
   oncancel={() => (toDelete = null)}
 >
-  <p>Eliminare "{toDeleteMap?.name ?? ''}"? Dovrai scaricarla di nuovo per usarla offline.</p>
+  <p>{t('maps.del.body', { name: toDeleteMap?.name ?? '' })}</p>
 </Modal>
 
 <style>

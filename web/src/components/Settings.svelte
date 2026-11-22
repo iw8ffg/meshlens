@@ -10,7 +10,7 @@
   import Skeleton from '../lib/ui/Skeleton.svelte'
   import Switch from '../lib/ui/Switch.svelte'
   import MeshtasticBadge from '../lib/shell/MeshtasticBadge.svelte'
-  import { getTheme, THEME_LABELS, type ThemePref } from '../lib/theme'
+  import { getTheme, type ThemePref } from '../lib/theme'
   import { getJSON, getCountries, send, ApiError } from '../lib/api'
   import Flag from '../lib/ui/Flag.svelte'
   import OfflineMaps from './OfflineMaps.svelte'
@@ -25,7 +25,7 @@
   import { channelOptions, checkMqttNodeId, httpsNote, type AppSettings, type Broker, type MqttChannel, type TlsInfo } from '../lib/settings'
   import { channelNameError, fromServer, pskError } from '../lib/brokers'
   import { formatDate } from '../lib/format'
-  import { i18n, setLang, t, LANGS, LANG_LABELS, type Lang } from '../lib/i18n/index.svelte'
+  import { i18n, setLang, t, LANGS, LANG_LABELS, type Lang, type MsgKey } from '../lib/i18n/index.svelte'
 
   let { onlogout }: { onlogout: () => void } = $props()
 
@@ -52,7 +52,8 @@
   let nodeId = $state('')
   let version = $state('')
   let themePref = $state<ThemePref>('auto')
-  const themeItems = (Object.keys(THEME_LABELS) as ThemePref[]).map((v) => ({ value: v, label: THEME_LABELS[v] }))
+  const THEME_KEYS: Record<ThemePref, MsgKey> = { auto: 'shell.themeAuto', dark: 'shell.themeDark', light: 'shell.themeLight' }
+  const themeItems = $derived((Object.keys(THEME_KEYS) as ThemePref[]).map((v) => ({ value: v, label: t(THEME_KEYS[v]) })))
   const langItems = LANGS.map((l: Lang) => ({ value: l, label: LANG_LABELS[l] }))
   const nodeIdCheck = $derived(checkMqttNodeId(nodeId))
   const dirty = $derived(JSON.stringify(brokers) !== brokersSnap)
@@ -64,7 +65,7 @@
     ),
   )
   let loaded = $state(false)
-  let loadError = $state('')
+  let loadFailed = $state(false)
   let error = $state('')
   let ok = $state('')
   let busy = $state(false)
@@ -107,7 +108,7 @@
       apply(await getJSON<AppSettings>('/settings'))
       loaded = true
     } catch {
-      loadError = 'Impostazioni non disponibili'
+      loadFailed = true
     }
     getJSON<TlsInfo>('/tls')
       .then((t) => (tls = t))
@@ -165,9 +166,9 @@
         mqtt_brokers: brokers,
       })
       if (res && typeof res === 'object' && 'mqtt_brokers' in res) apply(res)
-      ok = 'Impostazioni salvate'
+      ok = t('settings.saved')
     } catch (err) {
-      error = err instanceof ApiError ? err.message : 'Salvataggio non riuscito'
+      error = err instanceof ApiError ? err.message : t('settings.saveFailed')
     } finally {
       busy = false
     }
@@ -184,15 +185,15 @@
 </script>
 
 <div class="settings">
-  <h2>Impostazioni</h2>
+  <h2>{t('settings.title')}</h2>
 
   <Card>
     <section class="sec">
-      <h3>Aspetto</h3>
+      <h3>{t('settings.appearance')}</h3>
       <div class="fld">
-        <span class="ui-lbl">Tema</span>
-        <Segmented items={themeItems} bind:value={themePref} label="Tema" onchange={(v) => getTheme().setPref(v)} />
-        <span class="ui-hint">Auto segue il tema del dispositivo.</span>
+        <span class="ui-lbl">{t('shell.theme')}</span>
+        <Segmented items={themeItems} bind:value={themePref} label={t('shell.theme')} onchange={(v) => getTheme().setPref(v)} />
+        <span class="ui-hint">{t('settings.themeHint')}</span>
       </div>
       <div class="fld">
         <span class="ui-lbl">{t('shell.language')}</span>
@@ -201,8 +202,8 @@
     </section>
   </Card>
 
-  {#if loadError}
-    <Banner kind="danger" title={loadError} />
+  {#if loadFailed}
+    <Banner kind="danger" title={t('settings.loadFailed')} />
   {:else if !loaded}
     <Skeleton tall />
     <Skeleton tall />
@@ -210,7 +211,7 @@
     <form onsubmit={save}>
       <Card>
         <section class="sec">
-          <h3>Nazioni da salvare nello storico</h3>
+          <h3>{t('settings.countries')}</h3>
           <ul class="countries">
             {#each options as c (c.code)}
               <li>
@@ -227,22 +228,22 @@
 
       <Card>
         <section class="sec">
-          <h3>Conservazione</h3>
+          <h3>{t('settings.retention')}</h3>
           <div class="grid">
-            <Field label="Messaggi (giorni)" for="set-ret-msg">{#snippet children()}<input id="set-ret-msg" class="ui-input ui-mono" type="number" min="1" bind:value={retMsg} />{/snippet}</Field>
-            <Field label="Posizioni (giorni)" for="set-ret-pos">{#snippet children()}<input id="set-ret-pos" class="ui-input ui-mono" type="number" min="1" bind:value={retPos} />{/snippet}</Field>
-            <Field label="Telemetria (giorni)" for="set-ret-tel">{#snippet children()}<input id="set-ret-tel" class="ui-input ui-mono" type="number" min="1" bind:value={retTel} />{/snippet}</Field>
-            <Field label="Limite spazio (MB)" for="set-cap">{#snippet children()}<input id="set-cap" class="ui-input ui-mono" type="number" min="1" bind:value={capMb} />{/snippet}</Field>
-            <Field label="Pacchetti (ore)" for="set-ret-pkt">{#snippet children()}<input id="set-ret-pkt" class="ui-input ui-mono" type="number" min="1" max="168" bind:value={retPackets} />{/snippet}</Field>
-            <Field label="Ispettore dei pacchetti" for="set-pkt-mode">{#snippet children()}
+            <Field label={t('settings.ret.messages')} for="set-ret-msg">{#snippet children()}<input id="set-ret-msg" class="ui-input ui-mono" type="number" min="1" bind:value={retMsg} />{/snippet}</Field>
+            <Field label={t('settings.ret.positions')} for="set-ret-pos">{#snippet children()}<input id="set-ret-pos" class="ui-input ui-mono" type="number" min="1" bind:value={retPos} />{/snippet}</Field>
+            <Field label={t('settings.ret.telemetry')} for="set-ret-tel">{#snippet children()}<input id="set-ret-tel" class="ui-input ui-mono" type="number" min="1" bind:value={retTel} />{/snippet}</Field>
+            <Field label={t('settings.ret.cap')} for="set-cap">{#snippet children()}<input id="set-cap" class="ui-input ui-mono" type="number" min="1" bind:value={capMb} />{/snippet}</Field>
+            <Field label={t('settings.ret.packets')} for="set-ret-pkt">{#snippet children()}<input id="set-ret-pkt" class="ui-input ui-mono" type="number" min="1" max="168" bind:value={retPackets} />{/snippet}</Field>
+            <Field label={t('settings.ret.inspector')} for="set-pkt-mode">{#snippet children()}
               <Select id="set-pkt-mode" bind:value={packetMode}>
-                <option value="off">Spento</option>
-                <option value="archived">Nodi archiviati e radio</option>
-                <option value="all">Tutto il traffico</option>
+                <option value="off">{t('settings.ret.off')}</option>
+                <option value="archived">{t('settings.ret.archived')}</option>
+                <option value="all">{t('settings.ret.all')}</option>
               </Select>
             {/snippet}</Field>
           </div>
-          <p class="ui-hint">Con «Tutto il traffico» il broker pubblico occupa molto spazio: si tengono al massimo 300 000 pacchetti.</p>
+          <p class="ui-hint">{t('settings.ret.hint')}</p>
         </section>
       </Card>
 
@@ -250,10 +251,10 @@
 
       <Card>
         <section class="sec">
-          <h3>Avvisi (solo nodi miei)</h3>
+          <h3>{t('settings.alerts.title')}</h3>
           <div class="grid">
-            <Field label="Avviso batteria sotto (%)" for="set-batt">{#snippet children()}<input id="set-batt" class="ui-input ui-mono" type="number" min="1" max="99" bind:value={batteryPct} />{/snippet}</Field>
-            <Field label="Avviso nodo silenzioso dopo (ore)" for="set-silent">{#snippet children()}<input id="set-silent" class="ui-input ui-mono" type="number" min="1" max="168" bind:value={silentH} />{/snippet}</Field>
+            <Field label={t('settings.alerts.battery')} for="set-batt">{#snippet children()}<input id="set-batt" class="ui-input ui-mono" type="number" min="1" max="99" bind:value={batteryPct} />{/snippet}</Field>
+            <Field label={t('settings.alerts.silent')} for="set-silent">{#snippet children()}<input id="set-silent" class="ui-input ui-mono" type="number" min="1" max="168" bind:value={silentH} />{/snippet}</Field>
           </div>
         </section>
       </Card>
@@ -262,16 +263,16 @@
 
       <Card>
         <section class="sec">
-          <h3>Rete</h3>
-          <Switch bind:checked={lan} label="Accesso dalla rete locale" />
-          <p class="ui-hint">Richiede il riavvio di MeshLens.</p>
-          <Switch bind:checked={lanHttps} disabled={!lan} label="Usa HTTPS per l'accesso dalla rete" />
+          <h3>{t('settings.net.title')}</h3>
+          <Switch bind:checked={lan} label={t('settings.net.lan')} />
+          <p class="ui-hint">{t('settings.net.restart')}</p>
+          <Switch bind:checked={lanHttps} disabled={!lan} label={t('settings.net.https')} />
           {#if lan && lanHttps}<p class="ui-hint">{httpsNote(tls?.port)}</p>{/if}
           {#if tls?.fingerprint_sha256}
             <div class="fld">
-              <span class="ui-lbl">Impronta del certificato (SHA-256)</span>
+              <span class="ui-lbl">{t('settings.net.fp')}</span>
               <code class="ui-mono fp">{tls.fingerprint_sha256}</code>
-              <span class="ui-hint">Scade il {formatDate(tls.not_after)}</span>
+              <span class="ui-hint">{t('settings.net.expires', { date: formatDate(tls.not_after) })}</span>
             </div>
           {/if}
           {#if tls?.error}<Banner kind="danger" title={tls.error} />{/if}
@@ -282,14 +283,14 @@
 
       <Card>
         <section class="sec">
-          <h3>MQTT</h3>
+          <h3>{t('settings.mqtt.title')}</h3>
           <MqttStatusDetail status={app.status?.mqtt ?? null} />
           <Brokers bind:brokers {dirty} onimported={applyBrokers} />
           <Field
-            label="Il tuo id nodo per MQTT"
+            label={t('settings.mqtt.nodeId')}
             for="set-nodeid"
             error={nodeIdCheck.ok ? undefined : nodeIdCheck.error}
-            hint="È l'id con cui scrivi nella rete MQTT pubblica. Se lo lasci vuoto si usa quello della radio collegata."
+            hint={t('settings.mqtt.nodeIdHint')}
           >
             {#snippet children({ describedby, invalid })}
               <input id="set-nodeid" class="ui-input ui-mono" class:err={invalid} type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="!a1b2c3d4" aria-describedby={describedby} aria-invalid={invalid} bind:value={nodeId} />
@@ -300,12 +301,12 @@
 
       <Card>
         <section class="sec">
-          <h3>Canali da ascoltare (MQTT)</h3>
+          <h3>{t('settings.chan.title')}</h3>
           <Segmented
-            label="Canali da ascoltare"
+            label={t('settings.chan.aria')}
             items={[
-              { value: 'all', label: 'Tutti i canali' },
-              { value: 'chosen', label: 'Solo i canali scelti' },
+              { value: 'all', label: t('settings.chan.all') },
+              { value: 'chosen', label: t('settings.chan.chosen') },
             ]}
             value={onlyChosen ? 'chosen' : 'all'}
             onchange={(v) => (onlyChosen = v === 'chosen')}
@@ -317,18 +318,18 @@
                   <input type="checkbox" disabled={!onlyChosen} checked={chosen.includes(c.name)} onchange={() => toggleChannel(c.name)} />
                   <span class="bx">{#if chosen.includes(c.name)}<Icon name="check" size={14} />{/if}</span>
                   <span>{c.name}</span>
-                  <span class="n ui-mono">{c.count} nell'ultima ora</span>
+                  <span class="n ui-mono">{t('settings.chan.count', { n: c.count })}</span>
                 </label>
               </li>
             {/each}
           </ul>
-          <p class="ui-hint">LongFast è il canale pubblico predefinito; gli altri sono preset usati da meno nodi. I canali non scelti vengono ignorati del tutto (nodi, mappa, messaggi, archivio). La radio non è mai filtrata.</p>
+          <p class="ui-hint">{t('settings.chan.hint')}</p>
         </section>
       </Card>
 
       {#if error}<Banner kind="danger" title={error} />{/if}
       {#if ok}<Banner kind="ok" title={ok} />{/if}
-      <div><Button type="submit" kind="primary" disabled={busy || !nodeIdCheck.ok || !brokersOk}>Salva</Button></div>
+      <div><Button type="submit" kind="primary" disabled={busy || !nodeIdCheck.ok || !brokersOk}>{t('settings.save')}</Button></div>
     </form>
 
     <OfflineMaps />
@@ -339,17 +340,15 @@
 
   <Card>
     <section class="sec">
-      <h3>Informazioni</h3>
+      <h3>{t('settings.about.title')}</h3>
       <p class="line">MeshLens <b class="ui-mono">{version || '—'}</b></p>
-      <p class="ui-hint">
-        Software libero con licenza GNU GPL v3 (file LICENSE). Le componenti di terze parti (font IBM Plex con licenza OFL, icone Lucide con licenza ISC, bandiere flag-icons con licenza MIT, Protomaps e le librerie Python) sono elencate con le rispettive licenze nel file THIRD_PARTY_NOTICES.
-      </p>
-      <p class="ui-hint">Dati delle mappe © OpenStreetMap contributors, disponibili con licenza ODbL (Open Database License).</p>
+      <p class="ui-hint">{t('settings.about.license')}</p>
+      <p class="ui-hint">{t('settings.about.map')}</p>
       <MeshtasticBadge />
     </section>
   </Card>
 
-  <div class="out"><Button icon="power" onclick={logout}>Esci</Button></div>
+  <div class="out"><Button icon="power" onclick={logout}>{t('settings.logout')}</Button></div>
 </div>
 
 <style>

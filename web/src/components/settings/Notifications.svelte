@@ -3,8 +3,8 @@
   import { ApiError, getJSON, notifyStatus, notifyTest, send, telegramFindChat, type NotifyStatus } from '../../lib/api'
   import { loadNotifyPrefs, notifySupported, saveNotifyPrefs } from '../../lib/notify'
   import { parseKeywords, type AppSettings } from '../../lib/settings'
-  import { T as TM } from '../../lib/strings/messaggi'
-  import { T } from '../../lib/strings/notifiche'
+  import { t } from '../../lib/i18n/index.svelte'
+  import { translateServer } from '../../lib/i18n/server'
   import Banner from '../../lib/ui/Banner.svelte'
   import Button from '../../lib/ui/Button.svelte'
   import Card from '../../lib/ui/Card.svelte'
@@ -35,7 +35,7 @@
   let testResult = $state<{ kind: 'ok' | 'warn'; text: string } | null>(null)
 
   let loaded = $state(false)
-  let loadError = $state('')
+  let loadFailed = $state(false)
   let error = $state('')
   let info = $state('')
   let busy = $state(false)
@@ -65,7 +65,7 @@
       tokenSet = !!s.telegram_token
       loaded = true
     } catch {
-      loadError = T.loadFailed
+      loadFailed = true
     }
     await refreshStatus()
   })
@@ -107,7 +107,7 @@
       info = done
       return true
     } catch (e) {
-      error = errMsg(e, T.saveFailed)
+      error = errMsg(e, t('notify.saveFailed'))
       return false
     }
   }
@@ -119,7 +119,7 @@
       replacing = false
       return
     }
-    if (await put({ telegram_token: v }, T.tokenSaved)) {
+    if (await put({ telegram_token: v }, t('notify.tokenSaved'))) {
       tokenSet = true
       tokenInput = ''
       replacing = false
@@ -127,7 +127,7 @@
   }
 
   async function removeToken() {
-    if (await put({ telegram_token: '' }, T.tokenRemoved)) {
+    if (await put({ telegram_token: '' }, t('notify.tokenRemoved'))) {
       tokenSet = false
       tokenInput = ''
       replacing = false
@@ -142,7 +142,7 @@
       chatId = r.chat_id
       chatTitle = r.title
     } catch (e) {
-      error = errMsg(e, T.findChatFailed)
+      error = errMsg(e, t('notify.findChatFailed'))
     } finally {
       busy = false
     }
@@ -161,7 +161,7 @@
         notify_new_node: newNode,
         notify_keywords: keywords,
       },
-      T.saved,
+      t('notify.saved'),
     )
     if (done) keywordsText = keywords.join(', ')
     busy = false
@@ -173,9 +173,9 @@
     testResult = null
     try {
       await notifyTest(channel)
-      testResult = { kind: 'ok', text: T.testSent }
+      testResult = { kind: 'ok', text: t('notify.testSent') }
     } catch (e) {
-      testResult = { kind: 'warn', text: T.testFailed(errMsg(e, T.saveFailed)) }
+      testResult = { kind: 'warn', text: t('notify.testFailed', { reason: errMsg(e, t('notify.saveFailed')) }) }
     } finally {
       testing = null
     }
@@ -185,34 +185,34 @@
 
 <Card>
   <section class="sec">
-    <h3>{T.sectionTitle}</h3>
-    {#if loadError}
-      <Banner kind="danger" title={loadError} />
+    <h3>{t('notify.title')}</h3>
+    {#if loadFailed}
+      <Banner kind="danger" title={t('notify.loadFailed')} />
     {:else if !loaded}
-      <p class="muted">{T.loadFailed}</p>
+      <p class="muted">{t('notify.loadFailed')}</p>
     {:else}
       <div class="grp">
-        <h4>{T.deviceGroup}</h4>
-        <Switch bind:checked={dmOn} disabled={!supported} label={T.dmSwitch} onchange={setDm} />
-        {#if !supported}<p class="ui-hint">{TM.notifyUnsupported}</p>{/if}
-        {#if dmDenied}<Banner kind="warn" title={T.permissionDenied} />{/if}
+        <h4>{t('notify.deviceGroup')}</h4>
+        <Switch bind:checked={dmOn} disabled={!supported} label={t('notify.dmSwitch')} onchange={setDm} />
+        {#if !supported}<p class="ui-hint">{t('chat.notifyUnsupported')}</p>{/if}
+        {#if dmDenied}<Banner kind="warn" title={t('notify.permissionDenied')} />{/if}
       </div>
 
       <div class="grp">
-        <h4>{T.externalGroup}</h4>
+        <h4>{t('notify.externalGroup')}</h4>
 
-        <Switch bind:checked={toast} disabled={!toastAvailable} label={T.toastSwitch} />
-        {#if status && !toastAvailable}<p class="ui-hint">{T.toastUnavailable}</p>{/if}
+        <Switch bind:checked={toast} disabled={!toastAvailable} label={t('notify.toastSwitch')} />
+        {#if status && !toastAvailable}<p class="ui-hint">{t('notify.toastUnavailable')}</p>{/if}
 
-        <Switch bind:checked={telegram} label={T.telegramSwitch} />
+        <Switch bind:checked={telegram} label={t('notify.telegramSwitch')} />
 
         <div class="tok">
-          <span class="ui-lbl" id="notif-token-label">{T.tokenLabel}</span>
+          <span class="ui-lbl" id="notif-token-label">{t('notify.tokenLabel')}</span>
           {#if tokenSet && !replacing}
             <div class="row">
-              <span class="ui-hint" aria-labelledby="notif-token-label">{T.tokenSet}</span>
-              <Button onclick={() => (replacing = true)}>{T.tokenChange}</Button>
-              <Button kind="danger" onclick={removeToken} disabled={busy}>{T.tokenRemove}</Button>
+              <span class="ui-hint" aria-labelledby="notif-token-label">{t('notify.tokenSet')}</span>
+              <Button onclick={() => (replacing = true)}>{t('notify.tokenChange')}</Button>
+              <Button kind="danger" onclick={removeToken} disabled={busy}>{t('notify.tokenRemove')}</Button>
             </div>
           {:else}
             <div class="row">
@@ -221,21 +221,21 @@
                 type="password"
                 autocomplete="off"
                 aria-labelledby="notif-token-label"
-                placeholder={T.tokenPlaceholder}
+                placeholder={t('notify.tokenPlaceholder')}
                 onkeydown={noSubmit}
                 bind:value={tokenInput}
               />
-              <Button kind="primary" onclick={saveToken} disabled={busy}>{T.tokenSave}</Button>
-              {#if replacing}<Button onclick={() => ((replacing = false), (tokenInput = ''))}>{T.tokenCancel}</Button>{/if}
+              <Button kind="primary" onclick={saveToken} disabled={busy}>{t('notify.tokenSave')}</Button>
+              {#if replacing}<Button onclick={() => ((replacing = false), (tokenInput = ''))}>{t('common.cancel')}</Button>{/if}
             </div>
           {/if}
         </div>
 
         <Field
-          label={T.chatLabel}
+          label={t('notify.chatLabel')}
           for="notif-chat"
-          error={chatOk ? undefined : T.chatInvalid}
-          hint={chatTitle ? T.chatFound(chatTitle) : T.chatHint}
+          error={chatOk ? undefined : t('notify.chatInvalid')}
+          hint={chatTitle ? t('notify.chatFound', { title: chatTitle }) : t('notify.chatHint')}
         >
           {#snippet children({ describedby, invalid })}
             <div class="row">
@@ -253,34 +253,34 @@
                 onkeydown={noSubmit}
                 bind:value={chatId}
               />
-              <Button disabled={!tokenSet || busy} onclick={findChat}>{T.findChat}</Button>
+              <Button disabled={!tokenSet || busy} onclick={findChat}>{t('notify.findChat')}</Button>
             </div>
           {/snippet}
         </Field>
 
         <div class="row">
-          <Button disabled={!toastAvailable || testing !== null} onclick={() => test('toast')}>{T.sendTestToast}</Button>
-          <Button disabled={!tokenSet || !chatOk || testing !== null} onclick={() => test('telegram')}>{T.sendTestTelegram}</Button>
+          <Button disabled={!toastAvailable || testing !== null} onclick={() => test('toast')}>{t('notify.sendTestToast')}</Button>
+          <Button disabled={!tokenSet || !chatOk || testing !== null} onclick={() => test('telegram')}>{t('notify.sendTestTelegram')}</Button>
         </div>
         {#if testResult}
           <Toast kind={testResult.kind} onclose={() => (testResult = null)}>{testResult.text}</Toast>
         {/if}
 
         {#if status?.telegram_last_error}
-          <Banner kind="warn" title={T.telegramLastError(status.telegram_last_error)} />
+          <Banner kind="warn" title={t('notify.telegramLastError', { reason: translateServer(status.telegram_last_error) })} />
         {/if}
 
-        <Check bind:checked={mineStatus} label={T.mineStatus} />
-        <Check bind:checked={newNode} label={T.newNode} />
+        <Check bind:checked={mineStatus} label={t('notify.mineStatus')} />
+        <Check bind:checked={newNode} label={t('notify.newNode')} />
 
-        <Field label={T.keywordsLabel} for="notif-keywords" hint={T.keywordsHint}>
+        <Field label={t('notify.keywordsLabel')} for="notif-keywords" hint={t('notify.keywordsHint')}>
           {#snippet children({ describedby })}
             <textarea id="notif-keywords" class="ui-input ui-mono" rows="2" aria-describedby={describedby} bind:value={keywordsText}></textarea>
           {/snippet}
         </Field>
 
         <div class="row">
-          <Button kind="primary" disabled={busy || !chatOk} onclick={saveExternal}>{T.saveNotify}</Button>
+          <Button kind="primary" disabled={busy || !chatOk} onclick={saveExternal}>{t('notify.save')}</Button>
         </div>
       </div>
 

@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { locale } from '../lib/i18n/index.svelte'
+  import { locale, t } from '../lib/i18n/index.svelte'
+  import { translateServer } from '../lib/i18n/server'
   import { untrack } from 'svelte'
   import { ApiError } from '../lib/api'
   import { formatDate, signed } from '../lib/format'
@@ -45,7 +46,7 @@
   const finished = $derived(coverage.sessions.filter((s) => s.ended !== null))
   const mb = $derived(estimate ? (estimate.download_bytes / 1_000_000).toLocaleString(locale(), { maximumFractionDigits: 1 }) : '')
 
-  const msg = (e: unknown) => (e instanceof ApiError ? e.message : 'Operazione non riuscita')
+  const msg = (e: unknown) => (e instanceof ApiError ? e.message : t('prediction.error'))
 
   // Scegliere un sito copia la sua posizione nei parametri; scrive solo `params`
   $effect(() => {
@@ -177,15 +178,15 @@
 
 <Card>
   <section class="pred">
-    <h3>Copertura prevista</h3>
+    <h3>{t('prediction.title')}</h3>
 
-    <Field label="Sito" for="pred-site">
+    <Field label={t('prediction.site')} for="pred-site">
       {#snippet children()}
         <Select id="pred-site" bind:value={siteSel} disabled={running}>
           {#each sites as n (n.id)}
             <option value={n.id}>{n.long_name || n.short_name || n.id}</option>
           {/each}
-          <option value={MANUAL}>Coordinate manuali</option>
+          <option value={MANUAL}>{t('prediction.manual')}</option>
         </Select>
       {/snippet}
     </Field>
@@ -201,43 +202,43 @@
           </Field>
         {/if}
       {/each}
-      <Field label="Preset" for="pred-preset">
+      <Field label={t('prediction.preset')} for="pred-preset">
         {#snippet children()}
           <Select id="pred-preset" bind:value={params.preset} disabled={running}>
             {#each PRESET_OPTIONS as p (p)}<option value={p}>{p}</option>{/each}
           </Select>
         {/snippet}
       </Field>
-      <Field label="Nome (facoltativo)" for="pred-name">
+      <Field label={t('prediction.name')} for="pred-name">
         {#snippet children()}
           <input id="pred-name" class="ui-input" maxlength="80" bind:value={name} disabled={running} />
         {/snippet}
       </Field>
     </div>
 
-    <p class="meta">EIRP: {signed(eirpDbm(params), 1)} dBm</p>
-    {#if legal}<Banner kind="warn" title="Oltre il limite di legge EU 868 (500 mW ERP)" />{/if}
+    <p class="meta">{t('prediction.eirp', { v: signed(eirpDbm(params), 1) })}</p>
+    {#if legal}<Banner kind="warn" title={t('prediction.legal')} />{/if}
     {#if invalid}<p class="err" role="alert">{invalid}</p>{/if}
     {#if error}<Banner kind="danger" title={error} />{/if}
 
     <div class="row">
-      <Button kind="primary" icon="coverage" disabled={busy || running || !!invalid} onclick={calc}>Calcola</Button>
+      <Button kind="primary" icon="coverage" disabled={busy || running || !!invalid} onclick={calc}>{t('prediction.calc')}</Button>
     </div>
 
     {#if job && running}
       <div class="job" role="status">
-        <Progress value={percent} label="Avanzamento del calcolo" text="{job.step ?? ''} · {job.done}/{job.total}" />
-        <div><Button icon="x" onclick={cancel}>Annulla</Button></div>
+        <Progress value={percent} label={t('prediction.progress')} text="{job.step ? translateServer(job.step) : ''} · {job.done}/{job.total}" />
+        <div><Button icon="x" onclick={cancel}>{t('common.cancel')}</Button></div>
       </div>
     {:else if job && job.status === 'failed'}
-      <Banner kind="danger" title={job.error || 'Calcolo non riuscito'} />
+      <Banner kind="danger" title={job.error ? translateServer(job.error) : t('prediction.failed')} />
     {:else if job && job.status === 'cancelled'}
-      <Banner kind="info" title="Calcolo annullato" />
+      <Banner kind="info" title={t('prediction.cancelled')} />
     {/if}
 
-    <h4>Previsioni salvate</h4>
+    <h4>{t('prediction.saved')}</h4>
     {#if prediction.list.length === 0}
-      <p class="meta">Nessuna previsione salvata.</p>
+      <p class="meta">{t('prediction.none')}</p>
     {:else}
       <ul class="list">
         {#each prediction.list as p (p.id)}
@@ -245,61 +246,61 @@
           <li>
             <div class="info">
               <b>{label(p)}</b>
-              <small>{formatDate(p.created)} · {p.params.preset} · {p.params.radius_km} km · {p.covered_km2.toLocaleString(locale(), { maximumFractionDigits: 1 })} km²</small>
+              <small>{t('prediction.item.meta', { date: formatDate(p.created), preset: p.params.preset, radius: p.params.radius_km, area: p.covered_km2.toLocaleString(locale(), { maximumFractionDigits: 1 }) })}</small>
             </div>
             <div class="row">
               {#if on}
-                <Button onclick={() => (prediction.shown = null)}>Nascondi</Button>
+                <Button onclick={() => (prediction.shown = null)}>{t('prediction.hide')}</Button>
               {:else}
-                <Button onclick={() => show(p.id)}>Mostra</Button>
+                <Button onclick={() => show(p.id)}>{t('prediction.show')}</Button>
               {/if}
-              <Button kind="danger" icon="trash" onclick={() => (confirmDeleteId = p.id)}>Elimina</Button>
+              <Button kind="danger" icon="trash" onclick={() => (confirmDeleteId = p.id)}>{t('prediction.delete')}</Button>
             </div>
           </li>
         {/each}
       </ul>
     {/if}
 
-    <div class="legend" role="group" aria-label="Legenda">
-      <span class="chip good"><i></i>Buono (≥ 10 dB di margine)</span>
-      <span class="chip mid"><i></i>Al limite (0–10 dB)</span>
-      <span class="chip weak"><i></i>Debole (fino a −10 dB)</span>
+    <div class="legend" role="group" aria-label={t('prediction.legend')}>
+      <span class="chip good"><i></i>{t('prediction.legend.good')}</span>
+      <span class="chip mid"><i></i>{t('prediction.legend.mid')}</span>
+      <span class="chip weak"><i></i>{t('prediction.legend.weak')}</span>
     </div>
 
     {#if prediction.shown}
-      <h4>Confronto con una prova</h4>
+      <h4>{t('prediction.cmp.title')}</h4>
       <div class="row">
-        <Select aria-label="Prova da confrontare" bind:value={sessionSel}>
-          <option value="">Scegli una prova…</option>
+        <Select aria-label={t('prediction.cmp.pickAria')} bind:value={sessionSel}>
+          <option value="">{t('prediction.cmp.pick')}</option>
           {#each finished as s (s.id)}<option value={String(s.id)}>{s.name}</option>{/each}
         </Select>
-        <Button disabled={busy || sessionSel === ''} onclick={runCompare}>Confronta</Button>
+        <Button disabled={busy || sessionSel === ''} onclick={runCompare}>{t('prediction.cmp.run')}</Button>
       </div>
       {#if compare && compareFor === prediction.shown.id}
         <dl class="cmp">
-          <dt>Accordo</dt><dd>{pct(compare.agreement_pct)}</dd>
-          <dt>Ricevuti dentro / fuori</dt><dd>{compare.received_covered} / {compare.received_uncovered}</dd>
-          <dt>Persi dentro / fuori</dt><dd>{compare.missing_covered} / {compare.missing_uncovered}</dd>
-          <dt>Scarto medio RSSI</dt><dd>{db(compare.rssi_bias_db)}</dd>
-          <dt>RMSE</dt><dd>{db(compare.rssi_rmse_db)}</dd>
+          <dt>{t('prediction.cmp.agreement')}</dt><dd>{pct(compare.agreement_pct)}</dd>
+          <dt>{t('prediction.cmp.received')}</dt><dd>{compare.received_covered} / {compare.received_uncovered}</dd>
+          <dt>{t('prediction.cmp.missing')}</dt><dd>{compare.missing_covered} / {compare.missing_uncovered}</dd>
+          <dt>{t('prediction.cmp.bias')}</dt><dd>{db(compare.rssi_bias_db)}</dd>
+          <dt>{t('prediction.cmp.rmse')}</dt><dd>{db(compare.rssi_rmse_db)}</dd>
         </dl>
       {/if}
     {/if}
 
-    <p class="attr">Altitudine: AWS Terrain Tiles (SRTM, EU-DEM © Copernicus, GMTED2010, ETOPO1). Modello ITM © NTIA.</p>
+    <p class="attr">{t('prediction.attr')}</p>
   </section>
 </Card>
 
-<Modal open={estimate !== null} title="Scaricare i dati di altitudine?" confirmLabel="Scarica e calcola" cancelLabel="Annulla"
+<Modal open={estimate !== null} title={t('prediction.dl.title')} confirmLabel={t('prediction.dl.confirm')} cancelLabel={t('common.cancel')}
   onconfirm={() => start(true)} oncancel={() => (estimate = null)}>
   {#if estimate}
-    <p>Servono {estimate.tiles_missing} riquadri di altitudine (circa {mb} MB) da AWS Terrain Tiles. Verranno conservati per l'uso offline.</p>
+    <p>{t('prediction.dl.body', { n: estimate.tiles_missing, mb })}</p>
   {/if}
 </Modal>
 
-<Modal open={confirmDeleteId !== null} title="Eliminare la previsione?" danger confirmLabel="Elimina" onconfirm={remove}
+<Modal open={confirmDeleteId !== null} title={t('prediction.del.title')} danger confirmLabel={t('prediction.delete')} onconfirm={remove}
   oncancel={() => (confirmDeleteId = null)}>
-  <p>Eliminare definitivamente questa previsione? L'operazione non si può annullare.</p>
+  <p>{t('prediction.del.body')}</p>
 </Modal>
 
 <style>

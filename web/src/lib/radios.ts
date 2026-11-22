@@ -1,4 +1,5 @@
 import type { Port, RadioState } from './types'
+import { t } from './i18n/index.svelte'
 
 /** Prima le porte probabili Meshtastic, poi per nome del dispositivo; non modifica l'input. */
 export function sortPorts(ports: Port[]): Port[] {
@@ -20,14 +21,14 @@ export function stateClass(state: RadioState): 'green' | 'yellow' | 'red' | 'gra
 export function stateLabel(state: RadioState): string {
   switch (state) {
     case 'connected':
-      return 'Connessa'
+      return t('radios.state.connected')
     case 'connecting':
-      return 'Connessione…'
+      return t('radios.state.connecting')
     case 'reconnecting':
-      return 'Riconnessione…'
+      return t('radios.state.reconnecting')
     case 'error':
-      return 'Errore'
+      return t('radios.state.error')
     default:
-      return 'Scollegata'
+      return t('radios.state.disconnected')
   }
 }

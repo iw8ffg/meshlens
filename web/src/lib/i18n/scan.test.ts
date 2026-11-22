@@ -72,6 +72,7 @@ function words(text: string): string[] {
   return (
     text
       .replace(/&[a-z]+;|&#\d+;/gi, ' ')
+      .replace(/https?:\/\/\S*/gi, ' ')
       .replace(ALLOW_RE, ' ')
       .match(/\p{L}{3,}/gu) ?? []
   )
@@ -120,7 +121,7 @@ describe('nessun testo italiano nel markup dei componenti migrati', () => {
     for (const p of PENDING) expect(files, p).toContain(p)
   })
 
-  it('PENDING e' vuoto: ogni componente e' stato migrato', () => {
+  it('PENDING deve essere vuoto: ogni componente risulta migrato', () => {
     expect([...PENDING]).toEqual([])
   })
 

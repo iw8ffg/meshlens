@@ -4,6 +4,8 @@
   import { MASK, pathLabel } from '../lib/config'
   import { prepareStatus } from '../lib/coverage'
   import { app, configJobs, setConfigJob } from '../lib/stores.svelte'
+  import { t } from '../lib/i18n/index.svelte'
+  import { translateServer } from '../lib/i18n/server'
   import type { CoveragePlan } from '../lib/types'
   import Button from '../lib/ui/Button.svelte'
   import Badge from '../lib/ui/Badge.svelte'
@@ -69,7 +71,7 @@
     if (v === MASK) return MASK
     return typeof v === 'object' ? JSON.stringify(v) : String(v)
   }
-  const roleOf = (role: string) => (role === 'mobile' ? 'Mobile' : 'Base')
+  const roleOf = (role: string) => (role === 'mobile' ? t('coverage.role.mobile') : t('coverage.role.base'))
 
   async function apply() {
     busy = true
@@ -79,7 +81,7 @@
       for (const j of r.jobs) setConfigJob(j)
       jobIds = r.jobs.map((j) => j.id)
     } catch (e) {
-      error = e instanceof ApiError ? e.message : 'Operazione non riuscita'
+      error = e instanceof ApiError ? e.message : t('coverage.failedOp')
     } finally {
       busy = false
     }
@@ -87,22 +89,22 @@
 </script>
 
 <div class="flow">
-  <h3>{kind === 'prepare' ? 'Anteprima: prepara le radio' : 'Anteprima: ripristina la configurazione'}</h3>
+  <h3>{kind === 'prepare' ? t('coverage.flow.prepare') : t('coverage.flow.restore')}</h3>
   {#each plan.steps as s (s.node_id)}
     <div class="step">
       <div><b>{roleOf(s.role)}</b> <span class="ui-mono muted">{s.node_id}</span></div>
       {#if s.preview.changes.length === 0}
-        <p class="muted">Nessuna modifica.</p>
+        <p class="muted">{t('coverage.flow.none')}</p>
       {:else}
         <div class="ui-tblwrap">
           <table class="ui-tbl">
-            <thead><tr><th>Campo</th><th>Attuale</th><th>Nuovo</th></tr></thead>
+            <thead><tr><th>{t('coverage.flow.field')}</th><th>{t('coverage.flow.current')}</th><th>{t('coverage.flow.new')}</th></tr></thead>
             <tbody>
               {#each s.preview.changes as c (c.path)}
                 <tr class:risky={c.risky}>
                   <td class="wrap">
                     {pathLabel(c.path)}
-                    {#if c.risky}<br /><Badge kind="danger" icon="alert">A rischio{c.reason ? `: ${c.reason}` : ''}</Badge>{/if}
+                    {#if c.risky}<br /><Badge kind="danger" icon="alert">{t('coverage.flow.risky')}{c.reason ? `: ${translateServer(c.reason)}` : ''}</Badge>{/if}
                   </td>
                   <td class="wrap ui-mono">{show(c.old)}</td>
                   <td class="wrap ui-mono">{show(c.new)}</td>
@@ -112,26 +114,26 @@
           </table>
         </div>
       {/if}
-      <p class="muted">Prima di scrivere viene salvata una copia di: {s.preview.backup_sections.join(', ') || '–'}.</p>
+      <p class="muted">{t('coverage.flow.backup', { sections: s.preview.backup_sections.join(', ') || '–' })}</p>
     </div>
   {/each}
 
   {#if !started}
     {#if risky}
-      <Check risk bind:checked={understood} label="Ho capito che queste modifiche possono isolare le radio dalla rete" />
+      <Check risk bind:checked={understood} label={t('coverage.flow.ack')} />
     {/if}
     <div class="btns">
-      <Button kind="primary" disabled={busy || empty || (risky && !understood)} onclick={apply}>Applica</Button>
-      <Button onclick={oncancel}>Annulla</Button>
+      <Button kind="primary" disabled={busy || empty || (risky && !understood)} onclick={apply}>{t('coverage.flow.apply')}</Button>
+      <Button onclick={oncancel}>{t('common.cancel')}</Button>
     </div>
   {:else}
-    <ul class="prog" aria-label="Avanzamento">
+    <ul class="prog" aria-label={t('coverage.flow.progress')}>
       {#each status.nodes as n (n.node_id)}
         <li class={n.state}><b>{n.role}</b>: {n.text}</li>
       {/each}
     </ul>
     <p class:err={status.failed} class="sum">{status.summary}</p>
-    {#if status.finished}<div><Button onclick={oncancel}>Chiudi</Button></div>{/if}
+    {#if status.finished}<div><Button onclick={oncancel}>{t('common.close')}</Button></div>{/if}
   {/if}
   {#if error}<Banner kind="danger" title={error} />{/if}
 </div>

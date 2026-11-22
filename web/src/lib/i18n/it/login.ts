@@ -1,2 +1,21 @@
 // Testi italiani: area «login». Chiavi piatte a punti (login.*), una frase per chiave.
-export const login = {} as const
+export const login = {
+  'login.mismatch': 'I due PIN non coincidono',
+  'login.tooMany': 'Troppi tentativi',
+  'login.tooManyLater': 'Troppi tentativi: riprova tra qualche minuto',
+  'login.wrong': 'PIN errato',
+  'login.error': 'Errore di accesso',
+  'login.remoteTitle': 'Configura MeshLens dal PC',
+  'login.remoteBody': 'Il primo PIN si sceglie dal computer su cui gira MeshLens.',
+  'login.setupTitle': 'Scegli un PIN',
+  'login.enterTitle': 'Inserisci il PIN',
+  'login.setupSub': 'Da {min} a 12 cifre. Servirà per aprire MeshLens da questo e dagli altri dispositivi.',
+  'login.pin': 'PIN',
+  'login.hint': 'Da 4 a 12 cifre',
+  'login.repeat': 'Ripeti il PIN',
+  'login.verifying': 'Verifica in corso…',
+  'login.retryIn': 'Riprova tra {n} s',
+  'login.set': 'Imposta PIN',
+  'login.enter': 'Entra',
+  'login.retryBanner': 'Riprova tra {n} secondi.',
+} as const

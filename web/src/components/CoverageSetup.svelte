@@ -2,6 +2,7 @@
   import { ApiError, coverageCheck, preparePlan, startCoverage } from '../lib/api'
   import { checklist, validInterval } from '../lib/coverage'
   import { app, coverage } from '../lib/stores.svelte'
+  import { t } from '../lib/i18n/index.svelte'
   import type { CoverageCheck, CoverageMode, CoveragePlan } from '../lib/types'
   import CoveragePlanFlow from './CoveragePlanFlow.svelte'
   import Banner from '../lib/ui/Banner.svelte'
@@ -38,7 +39,7 @@
     try {
       plan = await preparePlan({ radio_id: radioId, mobile_id: mobileId, interval_s: interval, private_channel: privateChannel })
     } catch (e) {
-      prepError = e instanceof Error ? e.message : 'Errore'
+      prepError = e instanceof Error ? e.message : t('coverage.error')
     } finally {
       prepBusy = false
     }
@@ -109,7 +110,7 @@
       if (!coverage.sessions.some((x) => x.id === s.id)) coverage.sessions.unshift(s)
     } catch (e) {
       if (e instanceof ApiError && e.code === 'approx_position') askApprox = e.message
-      else error = e instanceof Error ? e.message : 'Errore'
+      else error = e instanceof Error ? e.message : t('coverage.error')
     } finally {
       busy = false
     }
@@ -118,43 +119,43 @@
 
 <Card>
   <section class="setup">
-    <h3>Nuova prova</h3>
-    <Field label="Radio di base" for="cov-radio">
+    <h3>{t('coverage.setup.title')}</h3>
+    <Field label={t('coverage.setup.baseRadio')} for="cov-radio">
       {#snippet children()}
         <Select id="cov-radio" bind:value={() => radioId, (v) => (radioPick = v)} disabled={!connected.length}>
           {#each connected as r (r.id)}<option value={r.id}>{r.name}</option>{/each}
-          {#if !connected.length}<option value="">Nessuna radio collegata</option>{/if}
+          {#if !connected.length}<option value="">{t('coverage.setup.noRadio')}</option>{/if}
         </Select>
       {/snippet}
     </Field>
-    <Field label="Nodo mobile" for="cov-mobile">
+    <Field label={t('coverage.setup.mobile')} for="cov-mobile">
       {#snippet children()}
-        <input class="ui-input" type="search" aria-label="Cerca il nodo mobile" placeholder="Cerca per nome o id" bind:value={query} />
+        <input class="ui-input" type="search" aria-label={t('coverage.setup.searchAria')} placeholder={t('coverage.setup.searchPh')} bind:value={query} />
         <Select id="cov-mobile" bind:value={() => mobileId, (v) => (mobilePick = v)} disabled={!candidates.length}>
           {#each candidates as n (n.id)}<option value={n.id}>{label(n)}</option>{/each}
-          {#if !candidates.length}<option value="">Nessun nodo trovato</option>{/if}
+          {#if !candidates.length}<option value="">{t('coverage.setup.noNode')}</option>{/if}
         </Select>
       {/snippet}
     </Field>
     <div class="fld">
-      <span class="ui-lbl" id="cov-mode">Modalità</span>
+      <span class="ui-lbl" id="cov-mode">{t('coverage.setup.mode')}</span>
       <Segmented
-        label="Modalità"
+        label={t('coverage.setup.mode')}
         items={[
-          { value: 'rangetest', label: 'Range Test' },
-          { value: 'position', label: 'Solo posizione' },
+          { value: 'rangetest', label: t('coverage.setup.rangetest') },
+          { value: 'position', label: t('coverage.setup.position') },
         ]}
         bind:value={mode}
       />
-      <span class="ui-hint">Range Test è la modalità consigliata.</span>
+      <span class="ui-hint">{t('coverage.setup.modeHint')}</span>
     </div>
-    <Field label="Intervallo (secondi)" for="cov-int" error={validInterval(interval) ? undefined : "L'intervallo deve essere tra 10 e 600 secondi."}>
+    <Field label={t('coverage.setup.interval')} for="cov-int" error={validInterval(interval) ? undefined : t('coverage.setup.intervalErr')}>
       {#snippet children({ invalid })}
         <input id="cov-int" class="ui-input ui-mono" class:err={invalid} type="number" min="10" max="600" bind:value={interval} />
       {/snippet}
     </Field>
 
-    <ul class="guide" aria-label="Guida">
+    <ul class="guide" aria-label={t('coverage.setup.guide')}>
       {#each steps as s (s.key)}
         <li>
           <span class="mark" class:ok={s.ok === true} class:warn={s.ok === false}>
@@ -168,10 +169,10 @@
       {/each}
     </ul>
 
-    <Check bind:checked={privateChannel} label="Usa un canale privato temporaneo a precisione piena (le due radio saranno isolate dalla rete pubblica durante la prova)" />
+    <Check bind:checked={privateChannel} label={t('coverage.setup.private')} />
     <div class="btns">
-      <Button disabled={prepBusy || !radioId || !mobileId || !validInterval(interval) || !!plan} onclick={prepare}>Prepara le radio</Button>
-      <Button kind="primary" disabled={!canStart} onclick={() => start(false)}>Avvia prova</Button>
+      <Button disabled={prepBusy || !radioId || !mobileId || !validInterval(interval) || !!plan} onclick={prepare}>{t('coverage.setup.prepare')}</Button>
+      <Button kind="primary" disabled={!canStart} onclick={() => start(false)}>{t('coverage.setup.start')}</Button>
     </div>
     {#if prepError}<Banner kind="danger" title={prepError} />{/if}
     {#if plan}
@@ -181,29 +182,29 @@
     {/if}
 
     {#if askApprox}
-      <Banner kind="warn" title="Posizioni approssimate">
+      <Banner kind="warn" title={t('coverage.setup.approx')}>
         {askApprox}
         {#snippet action()}
-          <Button disabled={busy} onclick={() => start(true)}>Continua</Button>
-          <Button kind="ghost" onclick={() => (askApprox = '')}>Annulla</Button>
+          <Button disabled={busy} onclick={() => start(true)}>{t('coverage.setup.continue')}</Button>
+          <Button kind="ghost" onclick={() => (askApprox = '')}>{t('common.cancel')}</Button>
         {/snippet}
       </Banner>
     {/if}
     {#if error}<Banner kind="danger" title={error} />{/if}
 
     <button class="link" aria-expanded={showHelp} onclick={() => (showHelp = !showHelp)}>
-      <Icon name={showHelp ? 'chevD' : 'chevR'} size={16} /> Come preparare le radio
+      <Icon name={showHelp ? 'chevD' : 'chevR'} size={16} /> {t('coverage.setup.howto')}
     </button>
     {#if showHelp}
       <div class="help">
         <ol>
-          <li>Imposta lo stesso canale privato su entrambe le radio, con posizione a precisione piena.</li>
-          <li>Sul nodo mobile attiva Range Test come mittente, ogni 30 s.</li>
-          <li>Sulla base attiva Range Test come ricevitore (mittente 0).</li>
-          <li>Sul mobile imposta la posizione ogni 30 s, con smart position a intervallo minimo 30 s.</li>
-          <li>A fine prova spegni il modulo Range Test.</li>
+          <li>{t('coverage.setup.help1')}</li>
+          <li>{t('coverage.setup.help2')}</li>
+          <li>{t('coverage.setup.help3')}</li>
+          <li>{t('coverage.setup.help4')}</li>
+          <li>{t('coverage.setup.help5')}</li>
         </ol>
-        <p>Durante la prova il telefono non serve: MeshLens registra da solo.</p>
+        <p>{t('coverage.setup.helpNote')}</p>
       </div>
     {/if}
   </section>

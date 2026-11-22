@@ -1,12 +1,14 @@
 import type { UpdateJob, UpdateStatus } from './types'
+import { t } from './i18n/index.svelte'
+import { translateServer } from './i18n/server'
 
 /** Riga di sintesi dello stato aggiornamenti. */
 export function updateLabel(s: UpdateStatus | null): string {
-  if (!s) return 'Non ancora controllato'
-  if (s.error) return s.error
-  if (s.available && s.latest) return `Disponibile MeshLens ${s.latest}`
-  if (s.latest === null && s.checked_at === null) return 'Non ancora controllato'
-  return 'MeshLens è aggiornato'
+  if (!s) return t('updates.label.never')
+  if (s.error) return translateServer(s.error)
+  if (s.available && s.latest) return t('updates.label.available', { v: s.latest })
+  if (s.latest === null && s.checked_at === null) return t('updates.label.never')
+  return t('updates.label.current')
 }
 
 /** L'installazione e' possibile solo con aggiornamento disponibile, download completato e versione installata. */

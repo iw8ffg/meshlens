@@ -2,6 +2,7 @@
   import { onDestroy, onMount } from 'svelte'
   import { ApiError, getJSON, send } from '../../lib/api'
   import { ago } from '../../lib/format'
+  import { t } from '../../lib/i18n/index.svelte'
   import { deviceLabel, pinError } from '../../lib/settings'
   import type { AuthStatus, SessionInfo } from '../../lib/types'
   import Banner from '../../lib/ui/Banner.svelte'
@@ -39,7 +40,7 @@
       sessions = await getJSON<SessionInfo[]>('/auth/sessions')
       listError = ''
     } catch (e) {
-      listError = errMsg(e, 'Elenco dei dispositivi non disponibile')
+      listError = errMsg(e, t('settings.dev.listFailed'))
     }
   }
 
@@ -63,20 +64,20 @@
       return
     }
     if (next !== confirm) {
-      pinMsg = 'I due PIN non coincidono'
+      pinMsg = t('settings.dev.mismatch')
       return
     }
     busy = true
     try {
       await send('POST', '/auth/pin', { current_pin: current, new_pin: next })
       current = next = confirm = ''
-      pinOk = 'PIN cambiato: gli altri dispositivi dovranno inserire quello nuovo'
+      pinOk = t('settings.dev.changed')
       await Promise.all([loadStatus(), loadSessions()])
     } catch (e) {
-      if (e instanceof ApiError && e.status === 403) pinMsg = 'PIN attuale errato'
+      if (e instanceof ApiError && e.status === 403) pinMsg = t('settings.dev.wrong')
       else if (e instanceof ApiError && e.status === 429)
-        pinMsg = e.retryAfter ? `Troppi tentativi: riprova tra ${e.retryAfter} secondi` : 'Troppi tentativi: riprova più tardi'
-      else pinMsg = errMsg(e, 'Cambio del PIN non riuscito')
+        pinMsg = e.retryAfter ? t('settings.dev.tooMany', { n: e.retryAfter }) : t('settings.dev.tooManyLater')
+      else pinMsg = errMsg(e, t('settings.dev.changeFailed'))
     } finally {
       busy = false
     }
@@ -87,7 +88,7 @@
     try {
       await send('DELETE', `/auth/sessions/${encodeURIComponent(s.id)}`)
     } catch (e) {
-      if (!(e instanceof ApiError && e.status === 404)) listError = errMsg(e, 'Uscita non riuscita')
+      if (!(e instanceof ApiError && e.status === 404)) listError = errMsg(e, t('settings.dev.logoutFailed'))
     }
     await loadSessions()
   }
@@ -97,7 +98,7 @@
     try {
       await send('POST', '/auth/sessions/revoke-others')
     } catch (e) {
-      listError = errMsg(e, 'Uscita non riuscita')
+      listError = errMsg(e, t('settings.dev.logoutFailed'))
     }
     await loadSessions()
   }
@@ -105,51 +106,51 @@
 
 <Card>
   <section class="sec">
-    <h3>Accesso e dispositivi</h3>
+    <h3>{t('settings.dev.title')}</h3>
     {#if status?.pin_short}
-      <Banner kind="warn" title="Il PIN ha meno di 6 cifre: per l'accesso dalla rete cambialo con uno più lungo" />
+      <Banner kind="warn" title={t('settings.dev.pinShort')} />
     {/if}
 
     <!-- niente <form>: questa scheda sta dentro il modulo delle impostazioni -->
     <div class="pin" role="group" aria-labelledby="pin-title">
-      <h4 id="pin-title">Cambia PIN</h4>
+      <h4 id="pin-title">{t('settings.dev.changePin')}</h4>
       <div class="grid">
-        <Field label="PIN attuale" for="pin-cur">
+        <Field label={t('settings.dev.current')} for="pin-cur">
           {#snippet children()}
             <input id="pin-cur" class="ui-input ui-mono" type="password" inputmode="numeric" autocomplete="current-password" maxlength="12" disabled={busy} bind:value={current} onkeydown={onPinKey} />
           {/snippet}
         </Field>
-        <Field label="Nuovo PIN" for="pin-new" hint={lan ? 'Da 6 a 12 cifre' : 'Da 4 a 12 cifre'}>
+        <Field label={t('settings.dev.new')} for="pin-new" hint={lan ? t('settings.dev.hint6') : t('settings.dev.hint4')}>
           {#snippet children({ describedby })}
             <input id="pin-new" class="ui-input ui-mono" type="password" inputmode="numeric" autocomplete="new-password" maxlength="12" aria-describedby={describedby} disabled={busy} bind:value={next} onkeydown={onPinKey} />
           {/snippet}
         </Field>
-        <Field label="Ripeti il nuovo PIN" for="pin-conf" error={confirm && next !== confirm ? 'I due PIN non coincidono' : undefined}>
+        <Field label={t('settings.dev.repeat')} for="pin-conf" error={confirm && next !== confirm ? t('settings.dev.mismatch') : undefined}>
           {#snippet children({ describedby, invalid })}
             <input id="pin-conf" class="ui-input ui-mono" class:err={invalid} type="password" inputmode="numeric" autocomplete="new-password" maxlength="12" aria-describedby={describedby} aria-invalid={invalid} disabled={busy} bind:value={confirm} onkeydown={onPinKey} />
           {/snippet}
         </Field>
       </div>
-      <div><Button onclick={changePin} disabled={busy || !current || !next || !confirm}>Cambia PIN</Button></div>
+      <div><Button onclick={changePin} disabled={busy || !current || !next || !confirm}>{t('settings.dev.changePin')}</Button></div>
       {#if pinMsg}<Banner kind="danger" title={pinMsg} />{/if}
       {#if pinOk}<Banner kind="ok" title={pinOk} />{/if}
     </div>
 
-    <h4>Dispositivi collegati</h4>
+    <h4>{t('settings.dev.connected')}</h4>
     {#if listError}<Banner kind="danger" title={listError} />{/if}
     <ul class="devices">
       {#each sessions as s (s.id)}
         <li>
           <div class="who">
-            <span class="name">{deviceLabel(s.user_agent)}{#if s.current} <span class="me">· Questo dispositivo</span>{/if}</span>
-            <span class="muted"><span class="ui-mono">{s.ip ?? 'IP sconosciuto'}</span> · ultimo accesso {ago((now - s.last_seen) / 60)}</span>
+            <span class="name">{deviceLabel(s.user_agent)}{#if s.current} <span class="me">{t('settings.dev.thisDevice')}</span>{/if}</span>
+            <span class="muted"><span class="ui-mono">{s.ip ?? t('settings.dev.unknownIp')}</span> · {t('settings.dev.lastSeen', { ago: ago((now - s.last_seen) / 60) })}</span>
           </div>
-          {#if !s.current}<Button onclick={() => revoke(s)}>Esci</Button>{/if}
+          {#if !s.current}<Button onclick={() => revoke(s)}>{t('settings.dev.logout')}</Button>{/if}
         </li>
       {/each}
     </ul>
     {#if others > 0}
-      <div><Button kind="danger" onclick={revokeOthers}>Esci da tutti gli altri</Button></div>
+      <div><Button kind="danger" onclick={revokeOthers}>{t('settings.dev.logoutOthers')}</Button></div>
     {/if}
   </section>
 </Card>

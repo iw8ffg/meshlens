@@ -2,6 +2,8 @@
   import { getJSON, send, ApiError } from '../lib/api'
   import { app, setRadios, openConfig } from '../lib/stores.svelte'
   import { sortPorts, stateLabel } from '../lib/radios'
+  import { t } from '../lib/i18n/index.svelte'
+  import { translateServer } from '../lib/i18n/server'
   import Button from '../lib/ui/Button.svelte'
   import Card from '../lib/ui/Card.svelte'
   import Badge from '../lib/ui/Badge.svelte'
@@ -34,7 +36,7 @@
   const sortedPorts = $derived(sortPorts(ports))
 
   function msg(e: unknown): string {
-    return e instanceof ApiError ? e.message : 'Operazione non riuscita'
+    return e instanceof ApiError ? e.message : t('radios.failed')
   }
 
   async function reload() {
@@ -135,8 +137,8 @@
 
 <section>
   <header>
-    <h2>Radio</h2>
-    {#if !adding}<Button kind="primary" icon="plus" onclick={openAdd}>Aggiungi radio</Button>{/if}
+    <h2>{t('radios.title')}</h2>
+    {#if !adding}<Button kind="primary" icon="plus" onclick={openAdd}>{t('radios.add')}</Button>{/if}
   </header>
   {#if error}<Banner kind="danger" title={error} />{/if}
 
@@ -149,30 +151,30 @@
           <Badge kind={stateKind(r)}>{stateLabel(r.state)}</Badge>
         </div>
         <div class="muted">
-          {r.kind === 'usb' ? 'USB' : 'Bluetooth'} · <span class="ui-mono">{r.address}</span>{#if r.my_node_id}
-            · nodo locale {r.my_node_name ?? ''} <span class="ui-mono">{r.my_node_id}</span>{/if}
+          {r.kind === 'usb' ? t('radios.usb') : t('radios.bluetooth')} · <span class="ui-mono">{r.address}</span>{#if r.my_node_id}
+            {t('radios.localNode', { name: r.my_node_name ?? '' })} <span class="ui-mono">{r.my_node_id}</span>{/if}
         </div>
-        {#if r.error}<Banner kind="danger" title="Errore della radio">{r.error}</Banner>{/if}
+        {#if r.error}<Banner kind="danger" title={t('radios.errorTitle')}>{translateServer(r.error)}</Banner>{/if}
         <div class="btns">
           {#if live(r)}
-            <Button disabled={acting} onclick={() => action(r, 'disconnect')}>Scollega</Button>
+            <Button disabled={acting} onclick={() => action(r, 'disconnect')}>{t('radios.disconnect')}</Button>
           {:else}
-            <Button kind="primary" disabled={acting} onclick={() => action(r, 'connect')}>Connetti</Button>
+            <Button kind="primary" disabled={acting} onclick={() => action(r, 'connect')}>{t('radios.connect')}</Button>
           {/if}
           {#if r.state === 'connected' && r.my_node_id}
-            <Button icon="settings" onclick={() => openConfig(r.my_node_id!, r.id)}>Configura</Button>
-            <Button icon="key" onclick={() => openConfig(r.my_node_id!, r.id, 'adminkey')}>Chiave admin</Button>
+            <Button icon="settings" onclick={() => openConfig(r.my_node_id!, r.id)}>{t('radios.configure')}</Button>
+            <Button icon="key" onclick={() => openConfig(r.my_node_id!, r.id, 'adminkey')}>{t('radios.adminKey')}</Button>
           {/if}
           {#if r.state === 'connected'}
-            <Button icon="refresh" onclick={() => (sfRadioId = r.id)}>Recupera messaggi persi</Button>
+            <Button icon="refresh" onclick={() => (sfRadioId = r.id)}>{t('radios.sf')}</Button>
           {/if}
-          <Button kind="ghost" icon="trash" disabled={acting} onclick={() => (confirmId = r.id)}>Rimuovi</Button>
+          <Button kind="ghost" icon="trash" disabled={acting} onclick={() => (confirmId = r.id)}>{t('radios.remove')}</Button>
         </div>
       </div>
     </Card>
   {:else}
     {#if !adding}
-      <Empty icon="radio" title="Nessuna radio configurata">Collega una radio via USB o Bluetooth per vedere la rete locale.</Empty>
+      <Empty icon="radio" title={t('radios.empty.title')}>{t('radios.empty.body')}</Empty>
     {/if}
   {/each}
 
@@ -185,45 +187,45 @@
           add()
         }}
       >
-        <h3>Aggiungi radio</h3>
+        <h3>{t('radios.add')}</h3>
         <Segmented
-          label="Tipo di collegamento"
+          label={t('radios.kind')}
           items={[
-            { value: 'usb', label: 'USB' },
-            { value: 'ble', label: 'Bluetooth' },
+            { value: 'usb', label: t('radios.usb') },
+            { value: 'ble', label: t('radios.bluetooth') },
           ]}
           value={kind}
           onchange={pickKind}
         />
 
         {#if kind === 'usb'}
-          <Field label="Porta" for="radio-port">
+          <Field label={t('radios.port')} for="radio-port">
             {#snippet children()}
               <Select id="radio-port" bind:value={address}>
-                <option value="">Scegli una porta…</option>
+                <option value="">{t('radios.pickPort')}</option>
                 {#each sortedPorts as p (p.device)}
                   <option value={p.device} disabled={p.in_use_by !== null}>
-                    {p.device} — {p.description || 'sconosciuta'}{p.likely_meshtastic
-                      ? ' (Meshtastic?)'
-                      : ''}{p.in_use_by !== null ? ' (in uso)' : ''}
+                    {p.device} — {p.description || t('radios.unknownPort')}{p.likely_meshtastic
+                      ? ` ${t('radios.maybe')}`
+                      : ''}{p.in_use_by !== null ? ` ${t('radios.inUse')}` : ''}
                   </option>
                 {/each}
               </Select>
             {/snippet}
           </Field>
-          <div><Button icon="refresh" onclick={loadPorts}>Aggiorna elenco</Button></div>
+          <div><Button icon="refresh" onclick={loadPorts}>{t('radios.refresh')}</Button></div>
         {:else}
           <div>
             <Button icon="bt" onclick={scan} disabled={scanning}>
-              {scanning ? 'Ricerca in corso… circa 10 s' : 'Cerca'}
+              {scanning ? t('radios.scanning') : t('radios.scan')}
             </Button>
           </div>
-          {#if scanned && ble.length === 0 && !scanning}<p class="muted">Nessuna radio trovata.</p>{/if}
+          {#if scanned && ble.length === 0 && !scanning}<p class="muted">{t('radios.noneFound')}</p>{/if}
           {#if ble.length > 0}
-            <Field label="Radio trovata" for="radio-ble">
+            <Field label={t('radios.found')} for="radio-ble">
               {#snippet children()}
                 <Select id="radio-ble" bind:value={address}>
-                  <option value="">Scegli una radio…</option>
+                  <option value="">{t('radios.pickRadio')}</option>
                   {#each ble as d (d.address)}
                     <option value={d.address}>{d.name} ({d.address})</option>
                   {/each}
@@ -232,19 +234,18 @@
             </Field>
           {/if}
           <p class="muted">
-            Se Windows chiede un PIN, inserisci quello mostrato sullo schermo della radio. Se la radio non
-            viene trovata, abbinala prima da Impostazioni Windows → Bluetooth.
+            {t('radios.bleNote')}
           </p>
         {/if}
 
-        <Field label="Nome" for="radio-name">
+        <Field label={t('radios.name')} for="radio-name">
           {#snippet children()}
-            <input id="radio-name" class="ui-input" bind:value={name} maxlength="40" placeholder="Es. Heltec base" />
+            <input id="radio-name" class="ui-input" bind:value={name} maxlength="40" placeholder={t('radios.namePh')} />
           {/snippet}
         </Field>
         <div class="btns">
-          <Button type="submit" kind="primary" disabled={busy || !address || !name.trim()}>Aggiungi</Button>
-          <Button onclick={() => (adding = false)}>Annulla</Button>
+          <Button type="submit" kind="primary" disabled={busy || !address || !name.trim()}>{t('radios.addBtn')}</Button>
+          <Button onclick={() => (adding = false)}>{t('common.cancel')}</Button>
         </div>
       </form>
     </Card>
@@ -259,8 +260,8 @@
   <div class="sf-toast"><Toast kind="ok" onclose={clearSfNotice}>{sf.notice}</Toast></div>
 {/if}
 
-<Modal open={removing !== null} title="Rimuovere la radio?" danger confirmLabel="Rimuovi" onconfirm={() => removing && remove(removing)} oncancel={() => (confirmId = null)}>
-  <p>La radio "{removing?.name ?? ''}" verrà scollegata e rimossa dall'elenco. I dati già salvati restano.</p>
+<Modal open={removing !== null} title={t('radios.rm.title')} danger confirmLabel={t('radios.remove')} onconfirm={() => removing && remove(removing)} oncancel={() => (confirmId = null)}>
+  <p>{t('radios.rm.body', { name: removing?.name ?? '' })}</p>
 </Modal>
 
 <style>

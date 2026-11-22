@@ -5,6 +5,7 @@
   import { coverageCsv, coverageGeoJSONFile, coverageKml, slug, snrColorsFromTokens } from '../lib/export'
   import { formatDate } from '../lib/format'
   import { formatMeters } from '../lib/geo'
+  import { t } from '../lib/i18n/index.svelte'
   import { applyCoverage, coverage } from '../lib/stores.svelte'
   import type { CoverageSession } from '../lib/types'
   import Prediction from './Prediction.svelte'
@@ -32,7 +33,7 @@
     return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${m % 60} min`
   }
   const dist = (s: CoverageSession) => (s.max_distance_m === null ? '—' : formatMeters(s.max_distance_m))
-  const msg = (e: unknown) => (e instanceof Error ? e.message : 'Errore')
+  const msg = (e: unknown) => (e instanceof Error ? e.message : t('coverage.error'))
 
   // Chiude il modulo di avvio quando parte una sessione
   $effect(() => {
@@ -111,16 +112,16 @@
 <div class="cov">
   {#if active}
     {@const last = coverage.last?.id === active.id ? coverage.last : null}
-    <Banner kind="ok" title="Prova in corso: {active.name}">
-      {active.received} punti{#if active.missing !== null}, {active.missing} mancanti ({formatLoss(active)}){/if}{#if last && last.snr !== null}, ultimo SNR <span class="ui-mono">{last.snr}</span> dB{/if}, da {duration(active)}
+    <Banner kind="ok" title={t('coverage.active.title', { name: active.name })}>
+      {t('coverage.active.points', { n: active.received })}{#if active.missing !== null}{t('coverage.active.missing', { n: active.missing, loss: formatLoss(active) })}{/if}{#if last && last.snr !== null}{t('coverage.active.lastSnr')} <span class="ui-mono">{last.snr}</span> dB{/if}{t('coverage.active.since', { d: duration(active) })}
       {#snippet action()}
-        <Button kind="danger" icon="x" onclick={() => stop(active)}>Ferma</Button>
+        <Button kind="danger" icon="x" onclick={() => stop(active)}>{t('coverage.stop')}</Button>
       {/snippet}
     </Banner>
   {/if}
   <CoverageRestoreBox reloadKey={coverage.sessions.filter((s) => s.ended !== null).length + (active ? 1000 : 0) + prepared * 10000} />
   <div class="bar">
-    <Button kind="primary" icon="plus" disabled={!!active} onclick={() => (creating = !creating)}>Nuova prova</Button>
+    <Button kind="primary" icon="plus" disabled={!!active} onclick={() => (creating = !creating)}>{t('coverage.new')}</Button>
   </div>
   {#if creating && !active}
     <CoverageSetup onprepared={() => prepared++} />
@@ -130,37 +131,36 @@
   {#if opened}
     <Card>
       <section class="detail">
-        <div><Button kind="ghost" icon="back" onclick={closeDetail}>Storico</Button></div>
-        <Field label="Nome" for="cov-name">
+        <div><Button kind="ghost" icon="back" onclick={closeDetail}>{t('coverage.history')}</Button></div>
+        <Field label={t('coverage.name')} for="cov-name">
           {#snippet children()}<input id="cov-name" class="ui-input" bind:value={name} />{/snippet}
         </Field>
-        <Field label="Note" for="cov-notes">
+        <Field label={t('coverage.notes')} for="cov-notes">
           {#snippet children()}<textarea id="cov-notes" class="ui-input area" rows="3" bind:value={notes}></textarea>{/snippet}
         </Field>
         <p class="meta">
-          {formatDate(opened.started)} · {duration(opened)} · {opened.received} punti · perdita {formatLoss(opened)} ·
-          distanza max {dist(opened)}
+          {t('coverage.meta', { date: formatDate(opened.started), dur: duration(opened), n: opened.received, loss: formatLoss(opened), dist: dist(opened) })}
         </p>
-        <div class="row" role="group" aria-label="Esporta">
+        <div class="row" role="group" aria-label={t('coverage.export')}>
           <Button icon="download" disabled={!coverage.detail} onclick={() => exportDetail('geojson')}>GeoJSON</Button>
           <Button icon="download" disabled={!coverage.detail} onclick={() => exportDetail('kml')}>KML</Button>
           <Button icon="download" disabled={!coverage.detail} onclick={() => exportDetail('csv')}>CSV</Button>
         </div>
         <div class="row">
-          <Button kind="primary" onclick={save}>Salva</Button>
+          <Button kind="primary" onclick={save}>{t('coverage.save')}</Button>
           {#if opened.ended !== null}
-            <Button kind="danger" icon="trash" onclick={() => (confirmDelete = true)}>Elimina</Button>
+            <Button kind="danger" icon="trash" onclick={() => (confirmDelete = true)}>{t('coverage.delete')}</Button>
           {/if}
         </div>
       </section>
     </Card>
-    <Modal open={confirmDelete} title="Eliminare la prova?" danger confirmLabel="Elimina" onconfirm={remove} oncancel={() => (confirmDelete = false)}>
-      <p>Eliminare definitivamente questa prova? L'operazione non si può annullare.</p>
+    <Modal open={confirmDelete} title={t('coverage.delete.title')} danger confirmLabel={t('coverage.delete')} onconfirm={remove} oncancel={() => (confirmDelete = false)}>
+      <p>{t('coverage.delete.body')}</p>
     </Modal>
   {:else}
-    <h3>Storico</h3>
+    <h3>{t('coverage.history')}</h3>
     {#if coverage.sessions.length === 0}
-      <Empty icon="coverage" title="Nessuna prova registrata">Avvia una prova per vedere qui i risultati.</Empty>
+      <Empty icon="coverage" title={t('coverage.empty.title')}>{t('coverage.empty.body')}</Empty>
     {:else}
       <ul class="hist">
         {#each coverage.sessions as s (s.id)}
@@ -168,7 +168,7 @@
             <button onclick={() => open(s)}>
               <b>{s.name}</b>
               <small>
-                {formatDate(s.started)} · {duration(s)} · {s.received} punti · perdita {formatLoss(s)} · max {dist(s)}{s.ended === null ? ' · in corso' : ''}
+                {t('coverage.item.meta', { date: formatDate(s.started), dur: duration(s), n: s.received, loss: formatLoss(s), dist: dist(s), running: s.ended === null ? ` ${t('coverage.item.running')}` : '' })}
               </small>
             </button>
           </li>

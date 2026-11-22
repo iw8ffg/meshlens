@@ -11,6 +11,8 @@ import type {
   CoverageTrackPoint,
 } from './types'
 import { decSep } from './format'
+import { t } from './i18n/index.svelte'
+import { translateServer } from './i18n/server'
 
 export interface ChecklistItem {
   key: 'radio' | 'mobile' | 'gps' | 'precision' | 'rangetest'
@@ -26,33 +28,33 @@ export function checklist(check: CoverageCheck | null, mode: CoverageMode): Chec
     {
       key: 'radio',
       ok: c ? c.radio_connected : null,
-      label: 'Radio di base collegata',
-      hint: c && !c.radio_connected ? 'Collega la radio di base dalla scheda Radio.' : '',
+      label: t('coverage.check.radio.label'),
+      hint: c && !c.radio_connected ? t('coverage.check.radio.hint') : '',
     },
     {
       key: 'mobile',
       ok: c ? c.mobile_known : null,
-      label: 'Nodo mobile sentito',
-      hint: c && !c.mobile_known ? 'Accendi il nodo mobile e attendi che la base lo senta.' : '',
+      label: t('coverage.check.mobile.label'),
+      hint: c && !c.mobile_known ? t('coverage.check.mobile.hint') : '',
     },
     {
       key: 'gps',
       ok: c ? c.gps_ok : null,
-      label: 'Posizione GPS recente (≤ 10 min)',
-      hint: c && !c.gps_ok ? 'Serve il GPS acceso e la posizione attiva sul nodo mobile.' : '',
+      label: t('coverage.check.gps.label'),
+      hint: c && !c.gps_ok ? t('coverage.check.gps.hint') : '',
     },
   ]
   let precOk: boolean | null = null
-  let precLabel = 'Precisione della posizione'
+  let precLabel = t('coverage.check.precision.label')
   let precHint = ''
   if (c) {
     if (c.precision_m !== null) {
       precOk = false
-      precLabel += `: circa ± ${formatMeters(c.precision_m)}`
-      precHint = 'Per una mappa precisa usa un canale privato con precisione piena.'
+      precLabel = t('coverage.check.precision.approx', { m: formatMeters(c.precision_m) })
+      precHint = t('coverage.check.precision.hint')
     } else if (c.precision_bits !== null) {
       precOk = true
-      precLabel += ': esatta'
+      precLabel = t('coverage.check.precision.exact')
     }
   }
   items.push({ key: 'precision', ok: precOk, label: precLabel, hint: precHint })
@@ -60,10 +62,10 @@ export function checklist(check: CoverageCheck | null, mode: CoverageMode): Chec
     items.push({
       key: 'rangetest',
       ok: c ? c.rangetest_age_s !== null : null,
-      label: 'Pacchetti Range Test ricevuti',
+      label: t('coverage.check.rangetest.label'),
       hint:
         c && c.rangetest_age_s === null
-          ? 'Attiva il modulo Range Test sul nodo mobile (mittente ogni 30 s) e sulla base (ricevitore).'
+          ? t('coverage.check.rangetest.hint')
           : '',
     })
   }
@@ -153,10 +155,13 @@ export interface PrepareStatus {
   failed: boolean
 }
 
-const ROLE_NAMES: Record<string, string> = { mobile: 'Mobile', base: 'Base' }
-const WORDS = {
-  prepare: { part: 'preparato', notPart: 'non preparato', running: 'Preparazione in corso', done: 'Radio preparate', ok: 'Applicato', verified: 'Applicato e verificato', diff: 'Applicato, ma la configurazione riletta è diversa dal previsto', hint: ': riprova o ripristina' },
-  restore: { part: 'ripristinato', notPart: 'non ripristinato', running: 'Ripristino in corso', done: 'Configurazione ripristinata', ok: 'Ripristinato', verified: 'Ripristinato e verificato', diff: 'Ripristinato, ma la configurazione riletta è diversa dal previsto', hint: '' },
+const roleName = (role: string | undefined): string | null =>
+  role === 'mobile' ? t('coverage.role.mobile') : role === 'base' ? t('coverage.role.base') : null
+/** Parole del piano nella lingua corrente (si leggono a ogni chiamata, quindi seguono il cambio lingua). */
+function words(kind: 'prepare' | 'restore') {
+  return kind === 'prepare'
+    ? { part: t('coverage.prep.part'), notPart: t('coverage.prep.notPart'), running: t('coverage.prep.running'), done: t('coverage.prep.done'), ok: t('coverage.prep.ok'), verified: t('coverage.prep.verified'), diff: t('coverage.prep.diff'), hint: t('coverage.prep.hint') }
+    : { part: t('coverage.rest.part'), notPart: t('coverage.rest.notPart'), running: t('coverage.rest.running'), done: t('coverage.rest.done'), ok: t('coverage.rest.ok'), verified: t('coverage.rest.verified'), diff: t('coverage.rest.diff'), hint: '' }
 }
 
 /** Stato per nodo di un piano (mobile, poi base) dagli esiti dei lavori; il ruolo viene da `step.role`. */
@@ -164,14 +169,15 @@ export function prepareStatus(
   plan: { steps: { node_id: string; role?: string }[]; jobs: (ConfigJob | null | undefined)[] },
   kind: 'prepare' | 'restore' = 'prepare',
 ): PrepareStatus {
-  const w = WORDS[kind]
+  const w = words(kind)
+  const and = ` ${t('coverage.and')} `
   const nodes: NodeStatus[] = plan.steps.map((s, i) => {
-    const role = (s.role && ROLE_NAMES[s.role]) || `Nodo ${i + 1}`
+    const role = roleName(s.role) ?? t('coverage.role.node', { n: i + 1 })
     const j = plan.jobs[i]
-    if (!j) return { node_id: s.node_id, role, state: 'waiting', text: 'In attesa' }
-    if (j.status === 'running') return { node_id: s.node_id, role, state: 'running', text: `In corso: ${j.step || 'scrittura'}` }
+    if (!j) return { node_id: s.node_id, role, state: 'waiting', text: t('coverage.state.waiting') }
+    if (j.status === 'running') return { node_id: s.node_id, role, state: 'running', text: t('coverage.state.running', { step: j.step ? translateServer(j.step) : t('coverage.state.writing') }) }
     if (j.status === 'failed') {
-      return { node_id: s.node_id, role, state: 'failed', text: `Non riuscito: ${j.error || 'errore sconosciuto'}` }
+      return { node_id: s.node_id, role, state: 'failed', text: t('coverage.state.failed', { error: j.error ? translateServer(j.error) : t('coverage.state.unknownError') }) }
     }
     if (j.verify === 'mismatch') return { node_id: s.node_id, role, state: 'mismatch', text: w.diff }
     return { node_id: s.node_id, role, state: 'ok', text: j.verify === 'verified' ? w.verified : w.ok }
@@ -186,11 +192,11 @@ export function prepareStatus(
     const okNames = nodes.filter(applied).map((n) => n.role)
     const later = nodes.slice(failedAt + 1).map((n) => n.role.toLowerCase())
     if (okNames.length === 0) {
-      summary = `${nodes[failedAt].role} ${w.notPart}` + (later.length ? `, ${later.join(' e ')} non toccata` : '')
-    } else summary = `${okNames.join(' e ')} ${w.part}, ${nodes[failedAt].role.toLowerCase()} no${w.hint}`
+      summary = `${nodes[failedAt].role} ${w.notPart}` + (later.length ? t('coverage.sum.untouched', { later: later.join(and) }) : '')
+    } else summary = `${okNames.join(and)} ${w.part}, ${nodes[failedAt].role.toLowerCase()} ${t('coverage.sum.partialNo')}${w.hint}`
   } else if (running || (!allApplied && nodes.some(applied))) summary = w.running
   else if (allApplied) {
-    summary = nodes.some((n) => n.state === 'mismatch') ? 'Applicato, ma controlla le differenze rilette' : w.done
-  } else summary = 'In attesa'
+    summary = nodes.some((n) => n.state === 'mismatch') ? t('coverage.sum.mismatch') : w.done
+  } else summary = t('coverage.state.waiting')
   return { nodes, summary, finished: failed || allApplied, failed }
 }

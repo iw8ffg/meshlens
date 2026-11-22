@@ -1,15 +1,14 @@
 <script lang="ts">
+  import { t } from '../../lib/i18n/index.svelte'
   import Card from '../../lib/ui/Card.svelte'
 </script>
 
 <Card>
   <section class="sec">
-    <h3>Diagnostica</h3>
-    <p class="ui-hint">
-      Il pacchetto contiene la parte finale del log, la versione, le impostazioni senza password né chiavi, le dimensioni del database e lo stato di MQTT e delle radio. Non viene inviato a nessuno: lo salvi tu e lo alleghi a una segnalazione.
-    </p>
+    <h3>{t('settings.diag.title')}</h3>
+    <p class="ui-hint">{t('settings.diag.body')}</p>
     <div class="row">
-      <a class="ui-btn" href="/api/diagnostics/bundle" download>Scarica pacchetto diagnostico</a>
+      <a class="ui-btn" href="/api/diagnostics/bundle" download>{t('settings.diag.download')}</a>
     </div>
   </section>
 </Card>

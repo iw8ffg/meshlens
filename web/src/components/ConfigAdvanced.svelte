@@ -1,5 +1,6 @@
 <script lang="ts">
   import { advancedSections, getPath, setPath } from '../lib/config'
+  import { t } from '../lib/i18n/index.svelte'
   import type { ConfigDict, ConfigSchema, ConfigValue } from '../lib/types'
   import ConfigField from './ConfigField.svelte'
 
@@ -18,7 +19,7 @@
 </script>
 
 <div>
-  <p class="note ui-hint">Tutte le altre impostazioni del nodo. I segreti si possono solo sostituire, mai leggere.</p>
+  <p class="note ui-hint">{t('config.adv.note')}</p>
   {#each sections as s (s.key)}
     <details>
       <summary>{s.label}</summary>

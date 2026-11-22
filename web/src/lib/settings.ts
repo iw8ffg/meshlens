@@ -1,3 +1,5 @@
+import { t } from './i18n/index.svelte'
+
 export interface MqttSettings {
   host: string
   port: number
@@ -126,7 +128,7 @@ export function checkMqttNodeId(text: string): NodeIdCheck {
   const v = text.trim()
   if (v === '') return { ok: true, value: '' }
   if (/^![0-9a-fA-F]{8}$/.test(v)) return { ok: true, value: v.toLowerCase() }
-  return { ok: false, error: 'Formato non valido: usa il punto esclamativo e 8 cifre esadecimali, per esempio !a1b2c3d4' }
+  return { ok: false, error: t('settings.mqtt.nodeIdBad') }
 }
 
 const KEY_MASK = '••••'
@@ -144,13 +146,13 @@ export const MAX_PIN = 12
 /** Errore di un PIN nuovo: solo cifre, da 6 a 12 con l'accesso dalla rete, da 4 a 12 senza. */
 export function pinError(pin: string, lan: boolean): string | null {
   const min = lan ? MIN_PIN_LAN : MIN_PIN
-  if (!/^\d+$/.test(pin) || pin.length < min || pin.length > MAX_PIN) return `Il PIN deve avere da ${min} a ${MAX_PIN} cifre`
+  if (!/^\d+$/.test(pin) || pin.length < min || pin.length > MAX_PIN) return t('settings.pin.error', { min, max: MAX_PIN })
   return null
 }
 
 /** Nome leggibile del dispositivo dal user agent, per esempio "Chrome su Windows". */
 export function deviceLabel(ua: string | null | undefined): string {
-  if (!ua) return 'Dispositivo sconosciuto'
+  if (!ua) return t('settings.device.unknown')
   const browser = /Edg\//.test(ua)
     ? 'Edge'
     : /OPR\/|Opera/.test(ua)
@@ -173,8 +175,8 @@ export function deviceLabel(ua: string | null | undefined): string {
           : /Linux/.test(ua)
             ? 'Linux'
             : null
-  if (browser && os) return `${browser} su ${os}`
-  return browser ?? os ?? 'Dispositivo sconosciuto'
+  if (browser && os) return t('settings.device.on', { browser, os })
+  return browser ?? os ?? t('settings.device.unknown')
 }
 
 /** Stato dell'HTTPS per la rete (GET /api/tls). */
@@ -192,9 +194,5 @@ export const HTTPS_PORT = 8687
 
 /** Nota sotto l'interruttore dell'HTTPS. */
 export function httpsNote(port: number | null | undefined): string {
-  return (
-    `Indirizzo: https://<IP del PC>:${port ?? HTTPS_PORT}. Il browser mostrerà un avviso perché il certificato è creato da MeshLens: ` +
-    "confronta l'impronta qui sotto. Dal PC resta http://127.0.0.1:8686. Vale dal prossimo avvio; " +
-    'Windows potrebbe chiedere il permesso del firewall per la nuova porta.'
-  )
+  return t('settings.https.note', { port: port ?? HTTPS_PORT })
 }

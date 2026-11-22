@@ -1,5 +1,7 @@
 <script lang="ts">
   import { MASK, pathLabel } from '../lib/config'
+  import { t } from '../lib/i18n/index.svelte'
+  import { translateServer } from '../lib/i18n/server'
   import type { ConfigPreview } from '../lib/types'
   import Badge from '../lib/ui/Badge.svelte'
   import Button from '../lib/ui/Button.svelte'
@@ -27,14 +29,14 @@
 </script>
 
 <div class="diff">
-  <h3>Rivedi modifiche</h3>
+  <h3>{t('config.diff.title')}</h3>
   {#if preview.changes.length === 0}
-    <p class="muted">Nessuna modifica.</p>
+    <p class="muted">{t('config.diff.none')}</p>
   {:else}
     <div class="ui-tblwrap">
       <table class="ui-tbl">
         <thead>
-          <tr><th>Campo</th><th>Attuale</th><th>Nuovo</th></tr>
+          <tr><th>{t('config.diff.field')}</th><th>{t('config.diff.current')}</th><th>{t('config.diff.new')}</th></tr>
         </thead>
         <tbody>
           {#each preview.changes as c (c.path)}
@@ -42,7 +44,7 @@
               <td class="wrap">
                 {pathLabel(c.path)}
                 {#if pathLabel(c.path) !== c.path}<br /><small class="muted ui-mono">{c.path}</small>{/if}
-                {#if c.risky}<br /><Badge kind="danger" icon="alert">A rischio{c.reason ? `: ${c.reason}` : ''}</Badge>{/if}
+                {#if c.risky}<br /><Badge kind="danger" icon="alert">{t('config.diff.risky')}{c.reason ? `: ${translateServer(c.reason)}` : ''}</Badge>{/if}
               </td>
               <td class="wrap ui-mono">{show(c.old)}</td>
               <td class="wrap ui-mono">{show(c.new)}</td>
@@ -52,16 +54,16 @@
       </table>
     </div>
   {/if}
-  <p class="muted">Prima di scrivere viene salvata una copia di: {preview.backup_sections.join(', ') || '–'}.</p>
+  <p class="muted">{t('config.diff.backup', { sections: preview.backup_sections.join(', ') || '–' })}</p>
   <div class="btns">
     <Button
       kind="primary"
       disabled={busy || preview.changes.length === 0}
       onclick={() => (preview.risky ? (confirming = true) : onapply(false))}
     >
-      Applica
+      {t('config.diff.apply')}
     </Button>
-    <Button onclick={oncancel}>Annulla</Button>
+    <Button onclick={oncancel}>{t('common.cancel')}</Button>
   </div>
 </div>
 
@@ -70,16 +72,16 @@
   <Modal
     open={confirming}
     risk
-    title="Modifica a rischio"
-    riskLabel="Ho capito che questa modifica può isolare il nodo"
-    confirmLabel="Applica comunque"
+    title={t('config.diff.riskTitle')}
+    riskLabel={t('config.diff.riskLabel')}
+    confirmLabel={t('config.diff.applyAnyway')}
     onconfirm={() => {
       confirming = false
       onapply(true)
     }}
     oncancel={() => (confirming = false)}
   >
-    <p>Una o più modifiche possono far perdere il contatto con il nodo o isolarlo dalla rete. Prima di scrivere viene comunque salvata una copia.</p>
+    <p>{t('config.diff.riskBody')}</p>
   </Modal>
 {/key}
 

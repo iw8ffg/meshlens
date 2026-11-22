@@ -30,6 +30,8 @@
     setPath,
   } from '../lib/config'
   import { formatDate, timeAgo } from '../lib/format'
+  import { t } from '../lib/i18n/index.svelte'
+  import { translateServer } from '../lib/i18n/server'
   import { app, configJobs, setConfigJob } from '../lib/stores.svelte'
   import type { ConfigBackup, ConfigDict, ConfigPreview, ConfigSaved, ConfigSchema, ConfigValue } from '../lib/types'
   import ConfigAdvanced from './ConfigAdvanced.svelte'
@@ -54,14 +56,14 @@
     onclose: () => void
   } = $props()
 
-  const TABS: [string, string][] = [
-    ...SIMPLE_TABS.slice(0, 4).map((t): [string, string] => [t.id, t.label]),
-    ['channels', 'Canali'],
-    ['modules', 'Moduli'],
-    ['advanced', 'Avanzate'],
-    ['backups', 'Copie'],
-    ['adminkey', 'Chiave admin'],
-  ]
+  const TABS = $derived<[string, string][]>([
+    ...SIMPLE_TABS.slice(0, 4).map((st): [string, string] => [st.id, st.label]),
+    ['channels', t('config.tab.channels')],
+    ['modules', t('config.tab.modules')],
+    ['advanced', t('config.tab.advanced')],
+    ['backups', t('config.tab.backups')],
+    ['adminkey', t('config.tab.adminkey')],
+  ])
 
   const node = $derived(app.nodes.get(nodeId) ?? null)
   const nodeName = $derived(node?.long_name || node?.short_name || nodeId)
@@ -109,7 +111,7 @@
   const keyMissing = $derived(job?.error_code === 'unauthorized' || (!!job?.error && !job.error_code && /chiave admin/i.test(job.error)))
 
   function msg(e: unknown): string {
-    return e instanceof ApiError ? e.message : 'Operazione non riuscita'
+    return e instanceof ApiError ? e.message : t('config.failed')
   }
 
   function takeSaved(s: ConfigSaved | null, keepEdits = false) {
@@ -224,7 +226,7 @@
     try {
       const changes = formChanges(saved.config, edited)
       if (Object.keys(changes).length === 0) {
-        err = 'Nessuna modifica da applicare'
+        err = t('config.noChanges')
         return
       }
       const p = await previewConfig(nodeId, changes)
@@ -266,12 +268,12 @@
     const la = Number(lat)
     const lo = Number(lon)
     if (lat === '' || lon === '' || !Number.isFinite(la) || !Number.isFinite(lo) || Math.abs(la) > 90 || Math.abs(lo) > 180) {
-      err = 'Coordinate non valide'
+      err = t('config.badCoords')
       pending = null
       return
     }
     if (alt !== '' && !Number.isFinite(Number(alt))) {
-      err = 'Altitudine non valida'
+      err = t('config.badAlt')
       pending = null
       return
     }
@@ -294,7 +296,7 @@
       if (copyTimer) clearTimeout(copyTimer)
       copyTimer = setTimeout(() => (copied = false), 2000)
     } catch {
-      err = 'Copia non riuscita: seleziona il testo a mano'
+      err = t('config.copyFailed')
     }
   }
 
@@ -303,40 +305,40 @@
   const dirty = $derived(saved ? Object.keys(formChanges(saved.config, edited)).length : 0)
   const outcome = $derived.by(() => {
     if (!job || job.status === 'running') return ''
-    if (job.status === 'failed') return job.error ?? 'Operazione non riuscita'
+    if (job.status === 'failed') return job.error ? translateServer(job.error) : t('config.failed')
     if (job.kind === 'apply')
       return job.verify === 'verified'
-        ? 'Applicato e verificato'
+        ? t('config.out.verified')
         : job.verify === 'mismatch'
-          ? 'Applicato ma la verifica non coincide'
-          : 'Applicato'
-    return job.kind === 'read' ? 'Lettura completata' : 'Fatto'
+          ? t('config.out.mismatch')
+          : t('config.out.applied')
+    return job.kind === 'read' ? t('config.out.read') : t('config.out.done')
   })
 </script>
 
 <svelte:window onkeydown={(e) => e.key === 'Escape' && onclose()} />
 
-<div class="overlay" role="dialog" aria-modal="true" aria-label="Configura nodo">
+<div class="overlay" role="dialog" aria-modal="true" aria-label={t('config.dialogAria')}>
   <div class="box">
     <header>
-      <h2>Configura · {nodeName}</h2>
-      <Button kind="ghost" iconOnly icon="x" label="Chiudi" onclick={onclose} />
+      <h2>{t('config.title', { name: nodeName })}</h2>
+      <Button kind="ghost" iconOnly icon="x" label={t('common.close')} onclick={onclose} />
     </header>
-    <p class="muted"><span class="ui-mono">{nodeId}</span>{local ? ' · nodo locale della radio' : ''}</p>
+    <p class="muted"><span class="ui-mono">{nodeId}</span>{local ? ` ${t('config.localNode')}` : ''}</p>
 
     <div class="row">
-      <Field label="Radio" for="cfg-radio">
+      <Field label={t('config.radio')} for="cfg-radio">
         {#snippet children()}
           <select id="cfg-radio" class="ui-select" value={radio} disabled={lock} onchange={(e) => { radioSel = e.currentTarget.value; loadKey() }}>
-            {#if radios.length === 0}<option value="">Nessuna radio connessa</option>{/if}
+            {#if radios.length === 0}<option value="">{t('config.noRadio')}</option>{/if}
             {#each radios as r (r.id)}<option value={r.id}>{r.name}</option>{/each}
           </select>
         {/snippet}
       </Field>
-      <Button kind="primary" icon="download" disabled={lock || !radio} onclick={read}>Leggi configurazione</Button>
+      <Button kind="primary" icon="download" disabled={lock || !radio} onclick={read}>{t('config.read')}</Button>
     </div>
     <p class="muted">
-      {saved ? `Ultima lettura: ${timeAgo(saved.time, now)} (${formatDate(saved.time)})` : 'Nessuna lettura salvata: leggi prima la configurazione.'}
+      {saved ? t('config.lastRead', { ago: timeAgo(saved.time, now), date: formatDate(saved.time) }) : t('config.noRead')}
     </p>
 
     {#if err}<Banner kind="danger" title={err} />{/if}
@@ -344,27 +346,27 @@
     {#if job}
       <div class="job">
         {#if running}
-          <Banner kind="info" title="In corso">
+          <Banner kind="info" title={t('config.running')}>
             {jobText(job.step, job.progress)}
           </Banner>
         {:else}
           <Banner kind={job.status === 'failed' ? 'danger' : job.verify === 'mismatch' ? 'warn' : 'ok'} title={outcome}>
             {#if keyMissing}
               <div class="keyhelp">
-                <Button kind="ghost" icon="key" onclick={() => (tab = 'adminkey')}>Come aggiungere la chiave admin</Button>
+                <Button kind="ghost" icon="key" onclick={() => (tab = 'adminkey')}>{t('config.keyHelp')}</Button>
                 {#if adminKey}
                   <code class="key">{adminKey}</code>
-                  <Button icon="copy" onclick={copyKey}>{copied ? 'Copiata' : 'Copia'}</Button>
+                  <Button icon="copy" onclick={copyKey}>{copied ? t('config.copied') : t('config.copy')}</Button>
                 {/if}
               </div>
             {/if}
           </Banner>
-          <div><Button kind="ghost" onclick={() => (jobId = null)}>Chiudi esito</Button></div>
+          <div><Button kind="ghost" onclick={() => (jobId = null)}>{t('config.closeOutcome')}</Button></div>
         {/if}
       </div>
     {/if}
 
-    <div class="tabs" role="tablist" aria-label="Sezioni della configurazione">
+    <div class="tabs" role="tablist" aria-label={t('config.sectionsAria')}>
       {#each TABS as [id, label] (id)}
         <button type="button" role="tab" aria-selected={tab === id} class:on={tab === id} onclick={() => (tab = id)}>{label}</button>
       {/each}
@@ -377,45 +379,45 @@
     {/if}
 
     {#if tab === 'adminkey'}
-      <h3>Chiave admin della radio</h3>
+      <h3>{t('config.admin.title')}</h3>
       <p class="muted">
-        Il nodo da gestire accetta comandi solo da chi ha la sua chiave pubblica tra le "Admin key" (massimo 3).
+        {t('config.admin.body')}
       </p>
       {#if adminKey}
         <code class="key">{adminKey}</code>
-        <div><Button icon="copy" onclick={copyKey}>{copied ? 'Copiata' : 'Copia'}</Button></div>
+        <div><Button icon="copy" onclick={copyKey}>{copied ? t('config.copied') : t('config.copy')}</Button></div>
       {:else}
-        <p class="muted">Chiave non disponibile: la radio deve essere connessa.</p>
+        <p class="muted">{t('config.admin.unavailable')}</p>
       {/if}
       <ol class="steps">
-        <li>Apri l'app Meshtastic sul nodo da gestire.</li>
-        <li>Vai in Sicurezza → Admin key e incolla la chiave.</li>
-        <li>Salva.</li>
+        <li>{t('config.admin.step1')}</li>
+        <li>{t('config.admin.step2')}</li>
+        <li>{t('config.admin.step3')}</li>
       </ol>
     {:else if tab === 'backups'}
-      <h3>Copie di sicurezza</h3>
+      <h3>{t('config.backups.title')}</h3>
       {#each backups as b (b.id)}
         <div class="bk">
           <span>
             {formatDate(b.time)} · {backupReasonLabel(b.reason)}{b.label ? ` · ${b.label}` : ''}
             <small class="muted">({b.sections.join(', ')})</small>
           </span>
-          <Button disabled={lock || !!activePreview} onclick={() => restore(b)}>Ripristina</Button>
+          <Button disabled={lock || !!activePreview} onclick={() => restore(b)}>{t('config.backups.restore')}</Button>
         </div>
       {:else}
-        <p class="muted">Nessuna copia.</p>
+        <p class="muted">{t('config.backups.none')}</p>
       {/each}
     {:else if !saved || !schema}
-      <p class="muted">{schema ? 'Leggi la configurazione per modificarla.' : 'Caricamento…'}</p>
+      <p class="muted">{schema ? t('config.readFirst') : t('config.loading')}</p>
     {:else if tab === 'advanced'}
       <ConfigAdvanced {schema} {edited} disabled={lock} />
     {:else if tab === 'channels'}
       {#each channels as c (c.index)}
         <details open={c.index === 0}>
           <summary>
-            Canale {c.index}{c.name ? ` · ${c.name}` : ''} <small class="muted">{enumLabel('channel.role', String(c.role ?? ''))}</small>
+            {c.name ? t('config.channelNamed', { n: c.index, name: c.name }) : t('config.channel', { n: c.index })} <small class="muted">{enumLabel('channel.role', String(c.role ?? ''))}</small>
           </summary>
-          {#if c.index === 0}<Banner kind="warn" title="Canale principale">Il canale 0 è quello principale: modificarlo può isolare il nodo.</Banner>{/if}
+          {#if c.index === 0}<Banner kind="warn" title={t('config.ch0.title')}>{t('config.ch0.body')}</Banner>{/if}
           {#each ['role', 'name', 'position_precision', 'uplink_enabled', 'downlink_enabled'] as f (f)}
             {#if schema.channel[f]}
               <ConfigField
@@ -430,19 +432,19 @@
           {/each}
           <div class="psk">
             <span class="ui-lbl">{CHANNEL_LABELS.psk}</span>
-            <code>{c.psk !== MASK && c.psk ? 'nuova chiave (da applicare)' : (revealed[c.index] ?? MASK)}</code>
-            <Button icon="eye" disabled={lock} onclick={() => reveal(c.index)}>Mostra</Button>
-            <Button icon="refresh" disabled={lock} onclick={() => set(`channels.${c.index}.psk`, genPsk())}>Genera nuova</Button>
+            <code>{c.psk !== MASK && c.psk ? t('config.psk.pending') : (revealed[c.index] ?? MASK)}</code>
+            <Button icon="eye" disabled={lock} onclick={() => reveal(c.index)}>{t('config.psk.show')}</Button>
+            <Button icon="refresh" disabled={lock} onclick={() => set(`channels.${c.index}.psk`, genPsk())}>{t('config.psk.generate')}</Button>
             {#if c.psk !== MASK}
-              <Button kind="ghost" disabled={lock} onclick={() => set(`channels.${c.index}.psk`, MASK)}>Annulla</Button>
+              <Button kind="ghost" disabled={lock} onclick={() => set(`channels.${c.index}.psk`, MASK)}>{t('common.cancel')}</Button>
             {/if}
           </div>
-          {#if c.index === 0 && c.psk !== MASK}<Banner kind="warn" title="Nuova chiave sul canale 0">Ti separa da tutti i nodi che non la conoscono.</Banner>{/if}
+          {#if c.index === 0 && c.psk !== MASK}<Banner kind="warn" title={t('config.psk.newTitle')}>{t('config.psk.newBody')}</Banner>{/if}
         </details>
       {/each}
     {:else}
-      {#each SIMPLE_TABS.filter((t) => t.id === tab) as t (t.id)}
-        {#each t.fields as f (f.path)}
+      {#each SIMPLE_TABS.filter((st) => st.id === tab) as st (st.id)}
+        {#each st.fields as f (f.path)}
           {@const sf = schemaField(schema, f.path)}
           {#if sf}
             <ConfigField
@@ -458,23 +460,23 @@
         {/each}
       {/each}
       {#if tab === 'position'}
-        <h3>Posizione fissa</h3>
+        <h3>{t('config.fixed.title')}</h3>
         <div class="row">
-          <Field label="Latitudine" for="cfg-lat">{#snippet children()}<input id="cfg-lat" class="ui-input ui-mono" bind:value={lat} inputmode="decimal" />{/snippet}</Field>
-          <Field label="Longitudine" for="cfg-lon">{#snippet children()}<input id="cfg-lon" class="ui-input ui-mono" bind:value={lon} inputmode="decimal" />{/snippet}</Field>
-          <Field label="Altitudine (m)" for="cfg-alt">{#snippet children()}<input id="cfg-alt" class="ui-input ui-mono" bind:value={alt} inputmode="decimal" placeholder="opzionale" />{/snippet}</Field>
+          <Field label={t('config.lat')} for="cfg-lat">{#snippet children()}<input id="cfg-lat" class="ui-input ui-mono" bind:value={lat} inputmode="decimal" />{/snippet}</Field>
+          <Field label={t('config.lon')} for="cfg-lon">{#snippet children()}<input id="cfg-lon" class="ui-input ui-mono" bind:value={lon} inputmode="decimal" />{/snippet}</Field>
+          <Field label={t('config.alt')} for="cfg-alt">{#snippet children()}<input id="cfg-alt" class="ui-input ui-mono" bind:value={alt} inputmode="decimal" placeholder={t('config.optional')} />{/snippet}</Field>
         </div>
         <div class="row">
-          <Button disabled={lock || !radio} onclick={() => (pending = 'fixed')}>Imposta posizione fissa</Button>
-          <Button disabled={lock || !radio} onclick={() => (pending = 'remove')}>Rimuovi posizione fissa</Button>
+          <Button disabled={lock || !radio} onclick={() => (pending = 'fixed')}>{t('config.fixed.set')}</Button>
+          <Button disabled={lock || !radio} onclick={() => (pending = 'remove')}>{t('config.fixed.remove')}</Button>
         </div>
       {/if}
     {/if}
 
     {#if saved && schema && tab !== 'adminkey' && tab !== 'backups'}
       <div class="foot">
-        <Button kind="primary" disabled={lock || dirty === 0 || !!activePreview} onclick={review}>Rivedi modifiche{dirty ? ` (${dirty})` : ''}</Button>
-        <Button kind="danger" icon="power" disabled={lock || !radio} onclick={() => (pending = 'reboot')}>Riavvia nodo</Button>
+        <Button kind="primary" disabled={lock || dirty === 0 || !!activePreview} onclick={review}>{t('config.review')}{dirty ? ` (${dirty})` : ''}</Button>
+        <Button kind="danger" icon="power" disabled={lock || !radio} onclick={() => (pending = 'reboot')}>{t('config.reboot')}</Button>
       </div>
     {/if}
   </div>
@@ -482,22 +484,22 @@
 
 <Modal
   open={pending === 'reboot'}
-  title="Riavviare il nodo?"
+  title={t('config.reboot.title')}
   danger
-  confirmLabel="Riavvia"
+  confirmLabel={t('config.reboot.confirm')}
   onconfirm={reboot}
   oncancel={() => (pending = null)}
 >
-  <p>Il nodo si riavvierà e resterà irraggiungibile per qualche istante.</p>
+  <p>{t('config.reboot.body')}</p>
 </Modal>
 <Modal
   open={pending === 'fixed' || pending === 'remove'}
-  title={pending === 'remove' ? 'Rimuovere la posizione fissa?' : 'Impostare la posizione fissa?'}
-  confirmLabel="Conferma"
+  title={pending === 'remove' ? t('config.fixed.removeTitle') : t('config.fixed.setTitle')}
+  confirmLabel={t('common.confirm')}
   onconfirm={() => (pending === 'remove' ? run(() => setFixedPosition(nodeId, { remove: true })) : fixed())}
   oncancel={() => (pending = null)}
 >
-  <p>Il nodo si riavvierà.</p>
+  <p>{t('config.fixed.body')}</p>
 </Modal>
 
 <style>

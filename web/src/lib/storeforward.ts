@@ -1,4 +1,6 @@
 import { getJSON, send } from './api'
+import { t } from './i18n/index.svelte'
+import { translateServer } from './i18n/server'
 
 export interface SfStats {
   messages_total?: number
@@ -47,10 +49,10 @@ export interface SfRequestBody {
 export type SfProbeBody = Omit<SfRequestBody, 'window_min'>
 
 export const WINDOW_OPTIONS = [
-  { min: 60, label: '1 ora' },
-  { min: 240, label: '4 ore' },
-  { min: 720, label: '12 ore' },
-  { min: 1440, label: '24 ore' },
+  { min: 60, get label() { return t('sf.window.60') } },
+  { min: 240, get label() { return t('sf.window.240') } },
+  { min: 720, get label() { return t('sf.window.720') } },
+  { min: 1440, get label() { return t('sf.window.1440') } },
 ]
 export const DEFAULT_WINDOW_MIN = 240
 
@@ -80,18 +82,18 @@ export function isLikelyPublic(ch: ChannelLike): boolean {
 export function jobText(job: SfJob): string {
   switch (job.status) {
     case 'waiting':
-      return 'In attesa del router…'
+      return t('sf.job.waiting')
     case 'receiving': {
-      const base = job.expected != null ? `Ricevuti ${job.received} di ${job.expected}` : `Ricevuti ${job.received}`
-      return job.duplicates > 0 ? `${base}, ${job.duplicates} già presenti` : base
+      const base = job.expected != null ? t('sf.job.receivedOf', { n: job.received, total: job.expected }) : t('sf.job.received', { n: job.received })
+      return job.duplicates > 0 ? t('sf.job.dup', { base, d: job.duplicates }) : base
     }
     case 'done': {
-      if (job.received === 0 && job.duplicates === 0) return 'Nessun messaggio da recuperare'
-      const base = `Completato: ${job.received} messaggi recuperati`
-      return job.duplicates > 0 ? `${base}, ${job.duplicates} già presenti` : base
+      if (job.received === 0 && job.duplicates === 0) return t('sf.job.none')
+      const base = t('sf.job.done', { n: job.received })
+      return job.duplicates > 0 ? t('sf.job.dup', { base, d: job.duplicates }) : base
     }
     case 'failed':
-      return job.error ?? ''
+      return translateServer(job.error ?? '')
   }
 }
 

@@ -1,5 +1,6 @@
 import { maskedKeyLines, type Broker } from './settings'
 import type { BrokerStatus } from './types'
+import { t } from './i18n/index.svelte'
 
 export const DEFAULT_BROKER_ID = 'default'
 export const MAX_CHANNEL_BYTES = 11
@@ -11,7 +12,7 @@ const MASK_REF = /^••••#\d+$/
 
 export function newBroker(): Broker {
   return {
-    name: 'Nuovo broker',
+    name: t('settings.br.newName'),
     enabled: true,
     host: '',
     port: 1883,
@@ -42,9 +43,9 @@ const utf8 = new TextEncoder()
 export function channelNameError(name: string, others: string[]): string | null {
   const n = name.trim()
   const len = utf8.encode(n).length
-  if (len < 1 || len > MAX_CHANNEL_BYTES) return `Il nome deve avere da 1 a ${MAX_CHANNEL_BYTES} caratteri`
-  if (/[/#+]/.test(n)) return 'Il nome non può contenere / # +'
-  if (others.includes(n)) return 'Esiste già un canale con questo nome'
+  if (len < 1 || len > MAX_CHANNEL_BYTES) return t('settings.br.nameLen', { max: MAX_CHANNEL_BYTES })
+  if (/[/#+]/.test(n)) return t('settings.br.nameChars')
+  if (others.includes(n)) return t('settings.br.nameDup')
   return null
 }
 
@@ -61,7 +62,7 @@ export function pskError(psk: string): string | null {
   if (MASK_REF.test(psk) || psk === MASK) return null
   const n = b64Bytes(psk.trim())
   if (n === 1 || n === 16 || n === 32) return null
-  return 'La chiave deve essere in base64 e lunga 1, 16 o 32 byte'
+  return t('settings.br.pskBad')
 }
 
 /** Passando da/a TLS la porta standard segue; le porte personalizzate restano. */

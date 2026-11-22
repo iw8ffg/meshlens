@@ -2,6 +2,7 @@
   import { untrack } from 'svelte'
   import { ApiError } from '../lib/api'
   import { timeAgo } from '../lib/format'
+  import { t } from '../lib/i18n/index.svelte'
   import {
     DEFAULT_WINDOW_MIN, WINDOW_OPTIONS, defaultChannel, isLikelyPublic, jobText, sfJobs, sfProbe, sfRequest, sfRouters,
     type SfRouter,
@@ -24,7 +25,6 @@
 
   const OTHER = '__other'
   const NODE_ID = /^![0-9a-fA-F]{8}$/
-  const BAD_ID = "Id del router non valido: usa il formato !xxxxxxxx"
 
   const routers = $derived(sf.routers.filter((r) => r.radio_id === radio.id))
   let routerSel = $state('')
@@ -69,18 +69,18 @@
     const name = r.name || r.id
     const seen = timeAgo(r.last_seen, Date.now() / 1000)
     return r.stats
-      ? `${name} · visto ${seen} · ${r.stats.messages_saved} di ${r.stats.messages_max} messaggi`
-      : `${name} · visto ${seen}`
+      ? t('sf.routerLabelStats', { name, seen, saved: r.stats.messages_saved, max: r.stats.messages_max })
+      : t('sf.routerLabel', { name, seen })
   }
 
   function msg(e: unknown): string {
-    return e instanceof ApiError ? e.message : 'Operazione non riuscita'
+    return e instanceof ApiError ? e.message : t('sf.failed')
   }
 
   async function probe() {
     if (busy) return
     if (!idValid) {
-      error = BAD_ID
+      error = t('sf.badId')
       return
     }
     busy = true
@@ -88,7 +88,7 @@
     info = ''
     try {
       await sfProbe({ radio_id: radio.id, router_id: routerId, channel_index: Number(channel) })
-      info = 'Richiesta inviata: le statistiche del router arriveranno a breve'
+      info = t('sf.probeSent')
     } catch (e) {
       error = msg(e)
     } finally {
@@ -99,7 +99,7 @@
   async function start() {
     if (busy || active) return
     if (!idValid) {
-      error = BAD_ID
+      error = t('sf.badId')
       info = ''
       return
     }
@@ -120,20 +120,20 @@
   }
 </script>
 
-<Modal open title="Recupera messaggi persi" confirmLabel="Recupera" cancelLabel="Chiudi" onconfirm={start} oncancel={() => onclose?.()}>
+<Modal open title={t('sf.title')} confirmLabel={t('sf.recover')} cancelLabel={t('common.close')} onconfirm={start} oncancel={() => onclose?.()}>
   <div class="sf">
-    <Field label="Router" for="sf-router">
+    <Field label={t('sf.router')} for="sf-router">
       {#snippet children()}
         <Select id="sf-router" bind:value={routerSel} disabled={active}>
           {#each routers as r (r.id)}
             <option value={r.id}>{routerLabel(r)}</option>
           {/each}
-          <option value={OTHER}>Altro nodo…</option>
+          <option value={OTHER}>{t('sf.other')}</option>
         </Select>
       {/snippet}
     </Field>
     {#if routerSel === OTHER || routers.length === 0}
-      <Field label="Id del nodo router" for="sf-other" hint="Formato !xxxxxxxx">
+      <Field label={t('sf.otherId')} for="sf-other" hint={t('sf.otherHint')}>
         {#snippet children()}
           <input id="sf-other" class="ui-input ui-mono" bind:value={otherId} maxlength="9" placeholder="!a1b2c3d4" disabled={active}
             oninput={() => { if (routerSel !== OTHER) routerSel = OTHER }} />
@@ -141,33 +141,33 @@
       </Field>
     {/if}
     <div>
-      <Button icon="refresh" disabled={busy || active || !idValid} onclick={probe}>Verifica router</Button>
+      <Button icon="refresh" disabled={busy || active || !idValid} onclick={probe}>{t('sf.probe')}</Button>
     </div>
 
-    <Field label="Finestra">
+    <Field label={t('sf.window')}>
       {#snippet children()}
         <Segmented
-          label="Finestra di tempo"
+          label={t('sf.windowAria')}
           items={WINDOW_OPTIONS.map((o) => ({ value: String(o.min), label: o.label }))}
           bind:value={windowMin}
         />
       {/snippet}
     </Field>
 
-    <Field label="Canale" for="sf-channel">
+    <Field label={t('sf.channel')} for="sf-channel">
       {#snippet children()}
         <Select id="sf-channel" bind:value={channel} disabled={active}>
           {#each radio.channels as c (c.index)}
-            <option value={String(c.index)}>{c.name || `Canale ${c.index}`}</option>
+            <option value={String(c.index)}>{c.name || t('sf.channelN', { n: c.index })}</option>
           {/each}
         </Select>
       {/snippet}
     </Field>
     {#if publicWarn}
-      <Banner kind="warn" title="I router rifiutano le richieste sul canale pubblico: scegli un canale privato condiviso con il router." />
+      <Banner kind="warn" title={t('sf.publicWarn')} />
     {/if}
 
-    <p class="note">Il router manda solo i messaggi che non ti ha già inviato, fino al suo massimo.</p>
+    <p class="note">{t('sf.note')}</p>
 
     {#if error}<Banner kind="danger" title={error} />{/if}
     {#if info}<Banner kind="info" title={info} />{/if}
@@ -176,9 +176,9 @@
       <div class="job" role="status">
         <span class:fail={job.status === 'failed'}>{jobText(job)}</span>
         {#if job.status === 'waiting'}
-          <div class="ui-progress indet" role="progressbar" aria-label="In attesa del router…"><i></i></div>
+          <div class="ui-progress indet" role="progressbar" aria-label={t('sf.job.waiting')}><i></i></div>
         {:else if job.status === 'receiving' && percent !== null}
-          <Progress value={percent} label="Avanzamento del recupero" />
+          <Progress value={percent} label={t('sf.progress')} />
         {/if}
       </div>
     {/if}

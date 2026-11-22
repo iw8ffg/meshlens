@@ -2,6 +2,7 @@
   import { ApiError, lastPlan, restorePlan } from '../lib/api'
   import { prepareStatus } from '../lib/coverage'
   import { configJobs } from '../lib/stores.svelte'
+  import { t } from '../lib/i18n/index.svelte'
   import type { CoverageLastPlan, CoveragePlan } from '../lib/types'
   import CoveragePlanFlow from './CoveragePlanFlow.svelte'
   import Banner from '../lib/ui/Banner.svelte'
@@ -41,7 +42,7 @@
     try {
       plan = await restorePlan(last.plan_id)
     } catch (e) {
-      error = e instanceof ApiError ? e.message : 'Operazione non riuscita'
+      error = e instanceof ApiError ? e.message : t('coverage.failedOp')
       // il server puo' aver segnato il piano come ripristinato (niente da rimettere)
       if (e instanceof ApiError && e.status === 400) load()
     } finally {
@@ -55,18 +56,18 @@
 </script>
 
 {#if last}
-  <Banner kind="warn" title={status ? 'Preparazione delle radio' : 'Radio preparate per la prova'}>
+  <Banner kind="warn" title={status ? t('coverage.restore.titleBusy') : t('coverage.restore.title')}>
     {#if status}
-      <ul class="prog" aria-label="Stato della preparazione">
+      <ul class="prog" aria-label={t('coverage.restore.statusAria')}>
         {#each status.nodes as n (n.node_id)}
           <li class={n.state}><b>{n.role}</b>: {n.text}</li>
         {/each}
       </ul>
       <span class:err={status.failed}>{status.summary}</span>
     {:else}
-      <span>Puoi ripristinare la configurazione precedente delle radio.</span>
+      <span>{t('coverage.restore.can')}</span>
     {/if}
-    {#if !plan}<div class="act"><Button disabled={busy} onclick={start}>Ripristina configurazione</Button></div>{/if}
+    {#if !plan}<div class="act"><Button disabled={busy} onclick={start}>{t('coverage.restore.btn')}</Button></div>{/if}
     {#if error}<p class="err">{error}</p>{/if}
     {#if plan}
       {#key plan.plan_id}
