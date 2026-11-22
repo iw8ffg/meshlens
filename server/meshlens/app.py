@@ -120,6 +120,7 @@ class Runtime:
     last_purge: dict | None = None
     db_path: Path | None = None
     backups: BackupManager | None = None
+    last_backup_cleanup: float = 0.0
     db_health: str = "in corso"  # quick_check in un thread all'avvio
     watchdog_restarts: dict = field(default_factory=dict)  # id broker -> riavvii
     raw_dropped_retired: int = 0
@@ -344,8 +345,21 @@ class Runtime:
             await asyncio.sleep(seconds)
 
     async def _backup_if_due(self) -> None:
-        if self.backups is not None and self.backups.due(time.time()):
-            await self.backups.create("settimanale")
+        if self.backups is None:
+            return
+        if self.backups.due(time.time()):
+            await self.backups.create("settimanale")  # pota anche per eta'
+            self.last_backup_cleanup = time.time()
+        await self._backup_cleanup_if_due()
+
+    async def _backup_cleanup_if_due(self) -> None:
+        """Una volta al giorno elimina i backup piu' vecchi di quanto impostato."""
+        days = self.settings.get("backup_retention_days", 0)
+        now = time.time()
+        if self.backups is None or not days or now - self.last_backup_cleanup < 86400:
+            return
+        self.last_backup_cleanup = now
+        await asyncio.to_thread(self.backups.delete_older_than, days)
 
     def _publish_changed(self) -> None:
         changed = self.live.take_changed()
@@ -577,6 +591,7 @@ def build(data_dir: Path, connector_factory=MqttConnector,
     rt = Runtime(conn, store, live, auth, bus, dedup, ingestor, connector_factory,
                  settings=load_settings(conn), db_path=db_path,
                  backups=backups)
+    backups.retention_days = lambda: rt.settings.get("backup_retention_days", 0)
     coverage = CoverageRecorder(store, live, bus,
                                 radio_node=ingestor.radio_node)
     packet_log = PacketLog(store, lambda: rt.settings.get("packet_log_mode", "archived"))

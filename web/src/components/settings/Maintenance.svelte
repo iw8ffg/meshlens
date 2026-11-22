@@ -2,11 +2,13 @@
   import { locale, t } from '../../lib/i18n/index.svelte'
   import { onMount } from 'svelte'
   import { ApiError, getJSON, send } from '../../lib/api'
+  import type { AppSettings } from '../../lib/settings'
   import { bytes, exportUrl, integrityDamaged, reasonLabel, TABLE_LABELS, type BackupInfo, type DbInfo, type ImportResult } from '../../lib/maintenance'
   import Banner from '../../lib/ui/Banner.svelte'
   import Button from '../../lib/ui/Button.svelte'
   import Card from '../../lib/ui/Card.svelte'
   import Check from '../../lib/ui/Check.svelte'
+  import Field from '../../lib/ui/Field.svelte'
   import Modal from '../../lib/ui/Modal.svelte'
 
   let info = $state<DbInfo | null>(null)
@@ -21,6 +23,12 @@
   let isLocal = $state(false)
   let withSecrets = $state(false)
   let importMsg = $state('')
+  let deleting = $state<BackupInfo | null>(null)
+  let cleaning = $state(false)
+  let retDays = $state<number | null>(0)
+  let savedDays = $state(0)
+  const daysValid = $derived(Number.isInteger(retDays) && retDays !== null && retDays >= 0 && retDays <= 3650)
+  const cleanDays = $derived(daysValid && (retDays ?? 0) > 0 ? (retDays as number) : 0)
 
   const errMsg = (e: unknown, fallback: string) => (e instanceof ApiError ? e.message : fallback)
 
@@ -44,6 +52,9 @@
   onMount(() => {
     void load()
     void loadBackups()
+    getJSON<AppSettings>('/settings')
+      .then((s) => (retDays = savedDays = s.backup_retention_days ?? 0))
+      .catch(() => {})
     getJSON<{ is_local?: boolean }>('/auth/status')
       .then((a) => (isLocal = !!a.is_local))
       .catch(() => {})
@@ -74,6 +85,46 @@
     } catch (e) {
       error = errMsg(e, t('settings.db.restoreFailed'))
     }
+  }
+
+  async function removeBackup() {
+    const b = deleting
+    deleting = null
+    if (!b) return
+    error = ok = ''
+    try {
+      await send('DELETE', `/backups/${encodeURIComponent(b.name)}`, {})
+      ok = t('settings.db.deleted')
+    } catch (e) {
+      error = errMsg(e, t('settings.db.deleteFailed'))
+    }
+    await loadBackups()
+  }
+
+  async function saveRetention() {
+    if (!daysValid) return
+    error = ok = ''
+    try {
+      await send('PUT', '/settings', { backup_retention_days: retDays })
+      savedDays = retDays as number
+      ok = t('settings.db.autoDeleteSaved')
+    } catch (e) {
+      error = errMsg(e, t('settings.db.autoDeleteFailed'))
+    }
+  }
+
+  async function cleanOld() {
+    const days = cleanDays
+    cleaning = false
+    if (!days) return
+    error = ok = ''
+    try {
+      const r = await send<{ deleted: string[] }>('POST', '/backups/cleanup', { days })
+      ok = t('settings.db.cleaned', { n: r.deleted.length })
+    } catch (e) {
+      error = errMsg(e, t('settings.db.deleteFailed'))
+    }
+    await loadBackups()
   }
 
   async function importFile(ev: Event) {
@@ -152,13 +203,23 @@
         {#each backups as b (b.name)}
           <li>
             <span>{when(b.time)} · {reasonLabel(b.reason)} · <span class="ui-mono">{bytes(b.size_bytes)}</span></span>
-            <Button disabled={busy || restoreScheduled} onclick={() => (restoring = b)}>{t('settings.db.restore')}</Button>
+            <span class="acts">
+              <Button disabled={busy || restoreScheduled} onclick={() => (restoring = b)}>{t('settings.db.restore')}</Button>
+              <Button iconOnly icon="trash" kind="danger" label={t('settings.db.deleteBackup')} disabled={busy} onclick={() => (deleting = b)} />
+            </span>
           </li>
         {/each}
       </ul>
     {/if}
     <div class="row">
       <Button disabled={busy} onclick={createBackup}>{t('settings.db.create')}</Button>
+      <Button disabled={busy || cleanDays === 0 || backups.length === 0} onclick={() => (cleaning = true)}>{t('settings.db.cleanNow', { n: cleanDays })}</Button>
+    </div>
+    <div class="row auto">
+      <Field label={t('settings.db.autoDelete')} hint={t('settings.db.autoDeleteHint')} for="set-bk-days">
+        {#snippet children()}<input id="set-bk-days" class="ui-input ui-mono" type="number" min="0" max="3650" step="1" bind:value={retDays} />{/snippet}
+      </Field>
+      <Button disabled={!daysValid || retDays === savedDays} onclick={saveRetention}>{t('settings.save')}</Button>
     </div>
     <h3>{t('settings.db.settings')}</h3>
     <div class="row">
@@ -192,6 +253,28 @@
 </Modal>
 
 <Modal
+  open={deleting !== null}
+  danger
+  title={t('settings.db.deleteTitle')}
+  confirmLabel={t('settings.db.deleteConfirm')}
+  onconfirm={removeBackup}
+  oncancel={() => (deleting = null)}
+>
+  <p>{t('settings.db.deleteBody', { when: deleting ? when(deleting.time) : '' })}</p>
+</Modal>
+
+<Modal
+  open={cleaning}
+  danger
+  title={t('settings.db.cleanTitle')}
+  confirmLabel={t('settings.db.cleanConfirm')}
+  onconfirm={cleanOld}
+  oncancel={() => (cleaning = false)}
+>
+  <p>{t('settings.db.cleanBody', { n: cleanDays })}</p>
+</Modal>
+
+<Modal
   open={confirming}
   risk
   title={t('settings.db.compactTitle')}
@@ -214,6 +297,9 @@
   dd { margin: 0; }
   .row { display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; }
   .backups { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-2); }
+  .acts { display: flex; gap: var(--space-2); align-items: center; }
+  .auto { align-items: flex-end; }
+  .auto :global(.ui-field) { flex: 1 1 260px; max-width: 360px; }
   .backups li { display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); flex-wrap: wrap; font: 400 14px/20px var(--font-sans); }
   a.ui-btn { text-decoration: none; }
   .file input { display: none; }

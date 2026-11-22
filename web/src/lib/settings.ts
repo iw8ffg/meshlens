@@ -69,6 +69,8 @@ export interface AppSettings {
   /** Ispettore dei pacchetti: spento, nodi archiviati e radio, o tutto il traffico. */
   packet_log_mode?: 'off' | 'archived' | 'all'
   retention_packets_hours?: number
+  /** Elimina i backup più vecchi di N giorni; 0 = mai. */
+  backup_retention_days?: number
 }
 
 // Una voce per riga: spazi tolti, righe vuote scartate

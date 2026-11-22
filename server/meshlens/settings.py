@@ -26,6 +26,7 @@ DEFAULTS: dict = {
     "storage_cap_mb": 2048,
     "packet_log_mode": "archived",  # ispettore dei pacchetti: off | archived | all
     "retention_packets_hours": 48,
+    "backup_retention_days": 0,  # elimina i backup piu' vecchi di N giorni (0 = mai)
     "battery_alert_pct": 20,
     "silent_alert_hours": 6,
     "lan_access": False,
@@ -114,7 +115,7 @@ _INT_KEYS = ("retention_messages_days", "retention_positions_days",
              "retention_telemetry_days", "storage_cap_mb")
 # interi con intervallo ammesso (min, max)
 _RANGE_KEYS = {"battery_alert_pct": (1, 99), "silent_alert_hours": (1, 168),
-               "retention_packets_hours": (1, 168)}
+               "retention_packets_hours": (1, 168), "backup_retention_days": (0, 3650)}
 _MQTT_STR = ("host", "username", "password")
 _BOOL_KEYS = ("lan_access", "lan_https", "notify_toast", "notify_telegram",
               "notify_mine_status", "notify_new_node")

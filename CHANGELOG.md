@@ -12,6 +12,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 #### Aggiunto
 - **Diagnosi dei blocchi:** se il server resta fermo per più di 15 secondi, MeshLens scrive nella cartella dei log un file `stall-…txt` con lo stato di tutte le sue parti, da allegare a una segnalazione.
+- **Pulizia dei backup:** puoi eliminare un backup dall'elenco (Impostazioni, Backup), eliminare in blocco quelli più vecchi di N giorni e scegliere di farlo in automatico (0 = mai, predefinito). Restano sempre il backup più recente e quello in attesa di ripristino.
 
 ### English
 
@@ -20,6 +21,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 #### Added
 - **Freeze diagnostics:** if the server stops responding for more than 15 seconds, MeshLens writes a `stall-…txt` file in the logs folder with the state of all its parts, to attach to a report.
+- **Backup cleanup:** you can delete a backup from the list (Settings, Backups), bulk-delete those older than N days, and have it done automatically (0 = never, the default). The most recent backup and the one scheduled for restore are always kept.
 
 ## [1.4.0] - 2026-11-22
 

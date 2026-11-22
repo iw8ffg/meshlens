@@ -1,7 +1,7 @@
 import pytest
 
 from meshlens.db import connect
-from meshlens.settings import DEFAULTS, load_settings, save_settings
+from meshlens.settings import DEFAULTS, export_settings, load_settings, prepare_import, save_settings
 
 
 @pytest.fixture
@@ -139,3 +139,16 @@ def test_packet_log_settings_validation(conn):
         with pytest.raises(ValueError):
             save_settings(conn, {"retention_packets_hours": bad})
     save_settings(conn, {"retention_packets_hours": 168})
+
+
+def test_backup_retention_days_setting(conn):
+    assert DEFAULTS["backup_retention_days"] == 0
+    for bad in (-1, 3651, "7", True, 1.5):
+        with pytest.raises(ValueError):
+            save_settings(conn, {"backup_retention_days": bad})
+    save_settings(conn, {"backup_retention_days": 3650})
+    assert load_settings(conn)["backup_retention_days"] == 3650
+    save_settings(conn, {"backup_retention_days": 0})
+    assert export_settings(load_settings(conn), False)["settings"]["backup_retention_days"] == 0
+    changes, _ = prepare_import({"format": 1, "settings": {"backup_retention_days": 14}})
+    assert changes == {"backup_retention_days": 14}

@@ -322,3 +322,74 @@ def test_quick_check_file_can_be_interrupted_through_on_open(tmp_path):
 
     assert quick_check_file(db, on_open=on_open) == "non leggibile (interrupted)"
     assert isinstance(seen[0], sqlite3.Connection)
+
+
+def _touch(m, name):
+    m.dir.mkdir(parents=True, exist_ok=True)
+    (m.dir / name).write_bytes(b"x")
+
+
+def test_delete_older_than_keeps_safe_files(tmp_path):
+    now = 1_700_000_000
+    conn, m = mgr(tmp_path, Clock(now))
+    conn.close()
+    from meshlens.backup import _stamp
+    old = f"meshlens-{_stamp(now - 40 * 86400)}-settimanale.db"
+    older = f"meshlens-{_stamp(now - 60 * 86400)}-manuale.db"
+    pending = f"meshlens-{_stamp(now - 50 * 86400)}-manuale.db"
+    recent = f"meshlens-{_stamp(now - 5 * 86400)}-manuale.db"
+    for n in (old, older, pending, recent):
+        _touch(m, n)
+    foreign = m.dir / "note.txt"
+    foreign.write_text("mio")
+    odd = m.dir / "meshlens-vecchio.db"
+    odd.write_bytes(b"x")
+    (tmp_path / "restore.json").write_text('{"name": "%s"}' % pending)
+    deleted = m.delete_older_than(30)
+    assert sorted(deleted) == sorted([old, older])
+    assert {b["name"] for b in m.list()} == {pending, recent}
+    assert foreign.exists() and odd.exists()
+
+
+def test_delete_older_than_never_deletes_newest(tmp_path):
+    now = 1_700_000_000
+    _, m = mgr(tmp_path, Clock(now))
+    from meshlens.backup import _stamp
+    newest = f"meshlens-{_stamp(now - 90 * 86400)}-manuale.db"
+    older = f"meshlens-{_stamp(now - 99 * 86400)}-manuale.db"
+    _touch(m, newest)
+    _touch(m, older)
+    assert m.delete_older_than(1) == [older]
+    assert [b["name"] for b in m.list()] == [newest]
+
+
+def test_prune_applies_age_retention_with_per_reason(tmp_path):
+    clock = Clock(1_700_000_000)
+    conn, m = mgr(tmp_path, clock)
+    m.create_sync(conn, "manuale")
+    clock.t += 40 * 86400
+    m.retention_days = lambda: 30
+    m.create_sync(conn, "settimanale")  # il vecchio manuale esce per eta'
+    assert [b["reason"] for b in m.list()] == ["settimanale"]
+    m.retention_days = lambda: 0  # 0 = mai
+    clock.t += 400 * 86400
+    m.create_sync(conn, "manuale")
+    assert len(m.list()) == 2
+    conn.close()
+
+
+def test_delete_single_backup(tmp_path):
+    from meshlens.backup import PendingRestore
+    _, m = mgr(tmp_path)
+    a, b = "meshlens-20240101-000000-manuale.db", "meshlens-20240102-000000-manuale.db"
+    _touch(m, a)
+    _touch(m, b)
+    (tmp_path / "restore.json").write_text('{"name": "%s"}' % a)
+    with pytest.raises(PendingRestore):
+        m.delete(a)
+    with pytest.raises(ValueError):
+        m.delete("../x.db")
+    with pytest.raises(FileNotFoundError):
+        m.delete("meshlens-20200101-000000-manuale.db")
+    m.delete(b)
+    assert not (m.dir / b).exists() and (m.dir / a).exists()

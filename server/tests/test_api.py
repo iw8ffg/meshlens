@@ -1421,3 +1421,39 @@ def test_alerts_feed_notifier(ctx):
     ctx.alerts()  # primo calcolo all'avvio: nessuna notifica per gli avvisi gia' presenti
     ctx.alerts()
     assert len(calls) == 1
+
+
+async def test_backup_delete_and_cleanup_routes(tmp_path):
+    from meshlens.app import build
+    app, rt = build(tmp_path, static_dir=None)
+    try:
+        async with client_for_app(app) as anon:
+            assert (await anon.delete("/api/backups/x.db")).status_code == 401
+            assert (await anon.post("/api/backups/cleanup", json={"days": 5})).status_code == 401
+        async with client_for_app(app) as c:
+            assert (await c.post("/api/auth/setup", json={"pin": "1234"})).status_code == 200
+            d = tmp_path / "backups"
+            d.mkdir(exist_ok=True)
+            names = ["meshlens-20200101-000000-manuale.db", "meshlens-20200102-000000-manuale.db",
+                     "meshlens-20200103-000000-manuale.db"]
+            for n in names:
+                (d / n).write_bytes(b"x")
+            hdr = {"content-type": "application/json"}
+            assert (await c.delete("/api/backups/x.db", headers=hdr)).status_code == 404
+            assert (await c.delete("/api/backups/meshlens-19990101-000000-manuale.db",
+                                   headers=hdr)).status_code == 404
+            assert (await c.delete(f"/api/backups/{names[0]}")).status_code == 415
+            (tmp_path / "restore.json").write_text('{"name": "%s"}' % names[1])
+            assert (await c.delete(f"/api/backups/{names[1]}", headers=hdr)).status_code == 409
+            r = await c.delete(f"/api/backups/{names[0]}", headers=hdr)
+            assert r.status_code == 200 and not (d / names[0]).exists()
+            assert (await c.post("/api/backups/cleanup", json={"days": 0})).status_code == 400
+            r = await c.post("/api/backups/cleanup", json={"days": 30})
+            # il piu' recente e quello da ripristinare restano
+            assert r.status_code == 200 and r.json() == {"deleted": []}
+            assert (d / names[1]).exists() and (d / names[2]).exists()
+            (d / "meshlens-20200104-000000-manuale.db").write_bytes(b"x")
+            r = await c.post("/api/backups/cleanup", json={"days": 30})
+            assert r.json() == {"deleted": [names[2]]}
+    finally:
+        rt.conn.close()

@@ -44,7 +44,7 @@ from .notify import TELEGRAM_NO_CHAT, TOAST_UNAVAILABLE, Notifier, NotifyError
 from .updater import UpdateError
 from .mqtt_publish import MqttSendError, pick_broker
 from .radio_manager import NoRadioConnected, TracerouteThrottled
-from .backup import NAME_RE, BackupUnusable
+from .backup import NAME_RE, BackupUnusable, PendingRestore
 from .secretbox import SECRET_KEYS
 from .settings import (DEFAULT_BROKER_ID, MASK, export_settings, find_broker, load_settings,
                        mask_secrets, merge_channels, prepare_import, resolve_broker_secrets,
@@ -194,6 +194,10 @@ class CompactBody(BaseModel):
 
 class RestoreBody(BaseModel):
     confirm: bool = False
+
+
+class CleanupBody(BaseModel):
+    days: int
 
 
 class MineBody(BaseModel):
@@ -956,6 +960,27 @@ def create_app(ctx: AppContext) -> FastAPI:
         except BackupUnusable as e:
             raise HTTPException(409, f"Ripristino rifiutato: {e}")
         return {"ok": True, "restart_required": True}
+
+    @app.delete("/api/backups/{name}",
+                dependencies=[Depends(require_auth), Depends(require_json)])
+    async def delete_backup(name: str):
+        try:
+            await asyncio.to_thread(backup_mgr().delete, name)
+        except (ValueError, FileNotFoundError):
+            raise HTTPException(404, "Backup non trovato")
+        except PendingRestore:
+            raise HTTPException(409, "Backup in attesa di ripristino: non si può eliminare")
+        except OSError:
+            raise HTTPException(500, "Backup non eliminabile")
+        return {"ok": True}
+
+    @app.post("/api/backups/cleanup",
+              dependencies=[Depends(require_auth), Depends(require_json)])
+    async def cleanup_backups(body: CleanupBody):
+        if not 1 <= body.days <= 3650:
+            raise HTTPException(400, "Giorni non validi: da 1 a 3650")
+        deleted = await asyncio.to_thread(backup_mgr().delete_older_than, body.days)
+        return {"deleted": deleted}
 
     # ---- radio ----
     async def radio_call(coro):

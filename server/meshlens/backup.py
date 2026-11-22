@@ -49,6 +49,10 @@ def quick_check_file(path: Path,
         return f"non leggibile ({e})"
 
 
+class PendingRestore(Exception):
+    """Il backup e' quello di cui e' programmato il ripristino."""
+
+
 class BackupUnusable(Exception):
     """Il backup scelto e' illeggibile o danneggiato."""
 
@@ -81,6 +85,8 @@ class BackupManager:
     def __init__(self, db_path: Path, backups_dir: Path, clock: Callable[[], float] = time.time):
         self.db_path, self.dir = Path(db_path), Path(backups_dir)
         self.clock = clock
+        # giorni oltre i quali un backup si elimina (0 = mai): lo imposta l'app dalle impostazioni
+        self.retention_days: Callable[[], int] = lambda: 0
 
     # ---- creazione ----
     def _target(self, reason: str) -> Path:
@@ -148,8 +154,58 @@ class BackupManager:
         for reason, keep in KEEP_BY_REASON.items():
             doomed += [b for b in items if b["reason"] == reason][keep:]
         for old in doomed:
-            for suffix in ("", "-wal", "-shm"):
-                (self.dir / (old["name"] + suffix)).unlink(missing_ok=True)
+            self._remove(old["name"])
+        try:
+            days = int(self.retention_days())
+        except (TypeError, ValueError):
+            days = 0
+        if days > 0:
+            self.delete_older_than(days)
+
+    def _remove(self, name: str) -> None:
+        for suffix in ("", "-wal", "-shm"):
+            (self.dir / (name + suffix)).unlink(missing_ok=True)
+
+    def pending_restore(self) -> str | None:
+        """Nome del backup di cui e' gia' programmato il ripristino, se c'e'."""
+        try:
+            name = json.loads((self.db_path.parent / RESTORE_FILE).read_text(encoding="utf-8")).get("name")
+        except (OSError, ValueError, AttributeError):
+            return None
+        return name if _valid(name) else None
+
+    def delete(self, name: str) -> None:
+        """Elimina un backup. ValueError: nome non valido; FileNotFoundError: non esiste;
+        PendingRestore: e' quello di cui e' programmato il ripristino."""
+        if not _valid(name):
+            raise ValueError("Nome del backup non valido")
+        if not (self.dir / name).is_file():
+            raise FileNotFoundError(name)
+        if name == self.pending_restore():
+            raise PendingRestore(name)
+        self._remove(name)
+        log.info("Backup eliminato: %s", name)
+
+    def delete_older_than(self, days: int) -> "list[str]":
+        """Elimina i backup piu' vecchi di `days` giorni (secondo il nome del file). Restano
+        sempre il piu' recente in assoluto e quello di cui e' programmato il ripristino."""
+        items = self.list()  # dal piu' recente
+        if not items:
+            return []
+        cutoff = self.clock() - days * 86400
+        keep = {items[0]["name"], self.pending_restore()}
+        deleted = []
+        for b in items:
+            if b["time"] < cutoff and b["name"] not in keep:
+                try:
+                    self._remove(b["name"])
+                except OSError:
+                    log.warning("Backup %s non eliminabile", b["name"])
+                    continue
+                deleted.append(b["name"])
+        if deleted:
+            log.info("Backup piu' vecchi di %d giorni eliminati: %d", days, len(deleted))
+        return deleted
 
     def due(self, now: float) -> bool:
         items = self.list()
