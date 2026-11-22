@@ -87,8 +87,8 @@ describe('in inglese', () => {
 
   it('esportazioni e righello', () => {
     setLang('en')
-    expect(networkCsv([]).split('\r\n')[0]).toBe('﻿id;name;short_name;model;role;firmware;country;last_heard;battery;voltage;snr;hops;channel_util;tx_airtime;lat;lon;sources')
-    expect(coverageCsv({ points: [], missing_points: [] } as unknown as CoverageDetail).split('\r\n')[0]).toBe('﻿seq;segment;time;lat;lon;snr;rssi;hops;distance_m;status')
+    expect(networkCsv([]).split('\r\n')[0]).toBe('﻿id,name,short_name,model,role,firmware,country,last_heard,battery,voltage,snr,hops,channel_util,tx_airtime,lat,lon,sources')
+    expect(coverageCsv({ points: [], missing_points: [] } as unknown as CoverageDetail).split('\r\n')[0]).toBe('﻿seq,segment,time,lat,lon,snr,rssi,hops,distance_m,status')
     expect(slug('🚀')).toBe('unnamed')
     expect(rulerText([], (id) => id)).toBe('Tap the first point on the map')
     expect(geoErrorText('unsupported')).toBe('This browser does not provide a location')

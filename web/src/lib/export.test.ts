@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
+import { i18n } from './i18n/index.svelte'
 import { coverageCsv, coverageGeoJSONFile, coverageKml, cssToKml, csv, fileStamp, gpx, networkCsv, slug, snrClass } from './export'
 import type { CoverageDetail, Node } from './types'
 
@@ -62,6 +63,24 @@ describe('csv', () => {
   })
   it('numeri non finiti diventano vuoti', () => {
     expect(csv(['n'], [[NaN]])).toBe('﻿n\r\n\r\n')
+  })
+})
+
+describe('csv in inglese', () => {
+  afterEach(() => {
+    i18n.lang = 'it'
+  })
+  it('separatore virgola e punto decimale', () => {
+    i18n.lang = 'en'
+    expect(csv(['a', 'b'], [['x,y', 'x;y'], [1.5, null]])).toBe('﻿a,b\r\n"x,y",x;y\r\n1.5,\r\n')
+  })
+  it('intestazione e numeri della rete', () => {
+    i18n.lang = 'en'
+    const n = { id: '!a', long_name: 'A', last_heard: 0, sources: ['rf'], lat: 45.5, lon: 7.25, battery: null } as unknown as Node
+    const lines = networkCsv([n]).split('\r\n')
+    expect(lines[0]).toContain(',')
+    expect(lines[0]).not.toContain(';')
+    expect(lines[1]).toContain(',45.5,7.25,')
   })
 })
 

@@ -1,25 +1,31 @@
 import type { Feature, FeatureCollection, Geometry } from 'geojson'
 import { coverageGeoJSON } from './coverage'
 import type { CoverageDetail, Node } from './types'
-import { t } from './i18n/index.svelte'
+import { i18n, t } from './i18n/index.svelte'
 
 export type SnrClass = 'good' | 'mid' | 'bad' | 'none'
 const SNR_CLASSES: SnrClass[] = ['good', 'mid', 'bad', 'none']
 
 type Cell = string | number | null | undefined
 
-function cell(v: Cell): string {
-  if (v === null || v === undefined) return ''
-  // Virgola decimale: Excel in italiano apre il file in colonne con i numeri veri
-  let s = typeof v === 'number' ? (Number.isFinite(v) ? String(v).replace('.', ',') : '') : v
-  // Un testo che Excel leggerebbe come formula (nomi dei nodi dalla rete) si disinnesca con «'»
-  if (typeof v === 'string' && /^[=+\-@\t\r]/.test(s)) s = `'${s}`
-  return /[;"\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+/** Separatore di campo e virgola decimale: italiani (; e ,) o inglesi (, e .) secondo la lingua. */
+function csvFormat(): { sep: string; decimal: string } {
+  return i18n.lang === 'en' ? { sep: ',', decimal: '.' } : { sep: ';', decimal: ',' }
 }
 
-/** CSV per Excel in italiano: BOM, separatore «;», virgola decimale, righe CRLF. */
+function cell(v: Cell, sep: string, decimal: string): string {
+  if (v === null || v === undefined) return ''
+  // Italiano: virgola decimale, perche' Excel in italiano apre il file in colonne con i numeri veri
+  let s = typeof v === 'number' ? (Number.isFinite(v) ? String(v).replace('.', decimal) : '') : v
+  // Un testo che Excel leggerebbe come formula (nomi dei nodi dalla rete) si disinnesca con «'»
+  if (typeof v === 'string' && /^[=+\-@\t\r]/.test(s)) s = `'${s}`
+  return s.includes(sep) || /["\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+}
+
+/** CSV per Excel: BOM, righe CRLF; in italiano separatore «;» e virgola decimale, in inglese «,» e punto. */
 export function csv(header: string[], rows: Cell[][]): string {
-  return '﻿' + [header, ...rows].map((r) => r.map(cell).join(';') + '\r\n').join('')
+  const { sep, decimal } = csvFormat()
+  return '﻿' + [header, ...rows].map((r) => r.map((c) => cell(c, sep, decimal)).join(sep) + '\r\n').join('')
 }
 
 const iso = (t: number | null | undefined): string => (t === null || t === undefined || !Number.isFinite(t) ? '' : new Date(t * 1000).toISOString())

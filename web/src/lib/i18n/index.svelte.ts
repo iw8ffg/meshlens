@@ -31,12 +31,26 @@ export function locale(): 'it-IT' | 'en-GB' {
   return i18n.lang === 'en' ? 'en-GB' : 'it-IT'
 }
 
-/** Plurale: sceglie `${base}.one` o `${base}.other` secondo `Intl.PluralRules`; passa `n` come parametro. */
+const pluralRules = new Map<string, Intl.PluralRules>()
+const numberFormats = new Map<string, Intl.NumberFormat>()
+
+function cached<T>(cache: Map<string, T>, loc: string, make: () => T): T {
+  let v = cache.get(loc)
+  if (!v) {
+    v = make()
+    cache.set(loc, v)
+  }
+  return v
+}
+
+/** Plurale: sceglie `${base}.one` o `${base}.other` secondo `Intl.PluralRules`; `n` e' passato come
+ * parametro, scritto col formato numerico della lingua (1.234 / 1,234). */
 export function tn(base: string, n: number, params?: Record<string, string | number>): string {
-  const cat = new Intl.PluralRules(locale()).select(n)
+  const loc = locale()
+  const cat = cached(pluralRules, loc, () => new Intl.PluralRules(loc)).select(n)
   const dict = dicts[i18n.lang]
   const key = (`${base}.${cat}` in dict || `${base}.${cat}` in it ? `${base}.${cat}` : `${base}.other`) as MsgKey
-  return t(key, { n, ...params })
+  return t(key, { n: cached(numberFormats, loc, () => new Intl.NumberFormat(loc)).format(n), ...params })
 }
 
 function store(): Storage | null {

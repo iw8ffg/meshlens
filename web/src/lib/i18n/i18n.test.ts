@@ -79,7 +79,7 @@ const SAME_OK = new Set([
   'N', 'NE', 'E', 'SE', 'S', 'via MQTT', 'MQTT ({channel})', 'Menu', 'Auto', 'Broker', '{n} min', 'Lingua / Language',
   // Task 11: sigle, nomi propri e termini Meshtastic/GitHub uguali in ogni lingua
   'Range Test', 'Preset', 'EIRP: {v} dBm', 'RMSE', 'Router', 'USB', 'Bluetooth', '(Meshtastic?)', 'Tracker', 'LoRa', 'Uplink', 'Downlink',
-  'Config · {sec}', 'Host', 'Password', 'TLS', 'Area', 'PIN', 'Telegram',
+  'Config · {sec}', 'Host', 'Password', 'TLS', 'Area', 'PIN', 'Telegram', 'Russia', 'India', 'Singapore 923 MHz', 'Nepal 865 MHz',
   'GitHub → Settings → Developer settings → Personal access tokens → Fine-grained tokens → Generate new token.',
   'Repository access: Only select repositories → iw8ffg/meshlens.', 'Permissions: Contents → Read-only.',
 ])
@@ -106,6 +106,12 @@ describe('tn', () => {
     setLang('it')
     expect(tn('common.messages', 1)).toBe('1 messaggio')
     expect(tn('common.messages', 3)).toBe('3 messaggi')
+  })
+  it('formatta n con il formato numerico della lingua', () => {
+    setLang('en')
+    expect(tn('common.messages', 12345)).toBe('12,345 messages')
+    setLang('it')
+    expect(tn('common.messages', 12345)).toBe('12.345 messaggi')
   })
 })
 
@@ -155,8 +161,16 @@ describe('translateServer', () => {
       '12 elevation tiles are missing: download them to continue',
     )
     expect(translateServer('Attendi 30 s')).toBe('Wait 30 s')
+    expect(translateServer('Impostazione sconosciuta: foo')).toBe('Unknown setting: foo')
     expect(translateServer('toString')).toBe('toString')
     expect(translateServer('Un testo mai visto')).toBe('Un testo mai visto')
     expect(translateServer('')).toBe('')
+  })
+  it('traduce una volta anche i gruppi catturati dal modello', () => {
+    setLang('en')
+    expect(translateServer('Chiave PSK non valida (psk): lunghezza PSK non valida: 5 byte')).toBe(
+      'Invalid PSK key (psk): Invalid PSK length: 5 bytes',
+    )
+    expect(translateServer('Broker b1: id non valido')).toBe('Broker b1: invalid id')
   })
 })
