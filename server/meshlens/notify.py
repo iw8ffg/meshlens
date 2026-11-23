@@ -22,6 +22,14 @@ TEXTS: dict[str, tuple[str, str]] = {
     "new_node": ("Nodo nuovo: {name}", "Sentito via radio per la prima volta"),
     "keyword": ("«{word}» in chat", "{name}: {text}"),
     "test": ("Prova di MeshLens", "Le notifiche funzionano"),
+    # 1.6: avvisi delle regole su misura e del Detection Sensor
+    "rule_keyword": ("Parola «{word}» in chat", "{name}: {text}"),
+    "rule_snr": ("Segnale debole: {name}", "SNR medio {snr} dB (soglia {thr} dB)"),
+    "rule_geofence_exit": ("{name} è uscito da «{zone}»", "Ultima posizione: {lat}, {lon}"),
+    "rule_geofence_enter": ("{name} è entrato in «{zone}»", "Posizione: {lat}, {lon}"),
+    "rule_battery": ("Batteria bassa: {name}", "Batteria al {pct}% (soglia {thr}%)"),
+    "rule_silent": ("{name} non risponde", "Nessun pacchetto da {hours} h (soglia {thr} h)"),
+    "sensor_detection": ("{name}: rilevamento", "{text}"),
 }
 
 TELEGRAM_NO_CHAT = "Scrivi un messaggio al bot su Telegram e riprova"
@@ -38,8 +46,13 @@ MAX_PER_HOUR = 30
 KEYWORD_PER_HOUR = 10  # le parole chiave hanno un budget proprio, piu' stretto
 MESSAGE_MAX_AGE_S = 600  # messaggi piu' vecchi (replay di Store & Forward): niente notifica
 # kind -> gruppo del budget orario; i kind non elencati stanno nel gruppo "other"
-BUDGET_GROUP = {"keyword": "keyword", "mine_offline": "alerts", "mine_online": "alerts"}
-BUDGET = {"keyword": KEYWORD_PER_HOUR, "alerts": MAX_PER_HOUR, "other": MAX_PER_HOUR}
+RULE_PER_HOUR = 20  # avvisi delle regole su misura: budget proprio
+RULE_KINDS = ("rule_keyword", "rule_snr", "rule_geofence_exit", "rule_geofence_enter",
+              "rule_battery", "rule_silent", "sensor_detection")
+BUDGET_GROUP = {"keyword": "keyword", "mine_offline": "alerts", "mine_online": "alerts",
+                **{k: "rule" for k in RULE_KINDS}}
+BUDGET = {"keyword": KEYWORD_PER_HOUR, "alerts": MAX_PER_HOUR, "other": MAX_PER_HOUR,
+          "rule": RULE_PER_HOUR}
 KEYWORD_TEXT_MAX = 120
 
 
@@ -202,12 +215,18 @@ class Notifier:
         return word
 
     # ---- invio ----
-    def _admit(self, kind: str, dedup_key: str) -> bool:
+    def rules_ready(self, now: float | None = None) -> bool:
+        """Le regole di stato possono notificare: fuori dal silenzio e con almeno una sorgente."""
+        now = self.clock() if now is None else now
+        ids = self._track_radios(now)
+        return now >= self._quiet_until and bool(ids or self.get_mqtt_connected())
+
+    def _admit(self, kind: str, dedup_key: str, dedup: bool = True) -> bool:
         now = self.clock()
         with self._lock:
             for k in [k for k, t in self._sent.items() if now - t >= DEDUP_S]:
                 del self._sent[k]
-            if (kind, dedup_key) in self._sent:
+            if dedup and (kind, dedup_key) in self._sent:
                 return False
             group = BUDGET_GROUP.get(kind, "other")
             recent = self._recent[group]
@@ -215,18 +234,19 @@ class Notifier:
                 recent.popleft()
             if len(recent) >= BUDGET[group]:
                 return False
-            self._sent[(kind, dedup_key)] = now
+            if dedup:
+                self._sent[(kind, dedup_key)] = now
             recent.append(now)
             return True
 
-    def send(self, kind: str, dedup_key: str, **fmt) -> None:
+    def send(self, kind: str, dedup_key: str, *, dedup: bool = True, **fmt) -> None:
         s = self.get_settings()
         toast = self.get_toast() if s.get("notify_toast") else None
         token, chat_id = s.get("telegram_token") or "", s.get("telegram_chat_id") or ""
         telegram = bool(s.get("notify_telegram") and token and chat_id)
         if toast is None and not telegram:
             return
-        if not self._admit(kind, dedup_key):
+        if not self._admit(kind, dedup_key, dedup):
             return
         title, body = (t.format(**fmt) for t in TEXTS[kind])
         if toast is not None:
