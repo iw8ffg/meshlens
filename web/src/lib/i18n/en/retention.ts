@@ -1,4 +1,38 @@
-// Testi inglesi: area «retention» (WP5, conservazione dei dati). Il tipo obbliga a tradurre ogni chiave italiana.
+// Testi inglesi: area «retention» (WP5, conservazione e spazio per tabella). Il tipo obbliga a tradurre ogni chiave italiana.
 import type { retention as itArea } from '../it/retention'
 
-export const retention: Record<keyof typeof itArea, string> = {}
+export const retention: Record<keyof typeof itArea, string> = {
+  'retention.space.title': 'Space per table',
+  'retention.space.estimate': 'Values estimated from row counts: this SQLite cannot measure exactly',
+  'retention.space.rows': '{n} rows',
+  'retention.space.aria': 'Share of space: {pct}%',
+  'retention.table.stats_hourly': 'Hourly statistics',
+  'retention.table.node_hourly': 'Hourly statistics per node',
+  'retention.table.waypoints': 'Waypoints',
+  'retention.table.alert_rules': 'Alert rules',
+  'retention.table.sensor_events': 'Sensor events',
+  'retention.table.tak_contacts': 'ATAK contacts',
+  'retention.table.trace_targets': 'Scheduled traceroutes',
+  'retention.table.config_profiles': 'Configuration profiles',
+  'retention.table.messages_fts': 'Message search index',
+  'retention.table.settings': 'Settings',
+  'retention.table.radios': 'Radios',
+  'retention.table.conversation_reads': 'Read conversations',
+  'retention.broker.title': 'Retention per broker',
+  'retention.broker.intro': 'MQTT messages from a broker can be kept for less time than the general rule, never longer.',
+  'retention.broker.days': 'Days for {name}',
+  'retention.broker.placeholder': 'General rule',
+  'retention.broker.effective': 'Kept for at most {n} days (the lower of this value and the general {g} days applies)',
+  'retention.broker.preview': '{n} messages would be deleted at the next cleanup',
+  'retention.broker.count': '{n} messages stored',
+  'retention.broker.note': 'Positions and telemetry do not carry the broker ID: they follow the general rules.',
+  'retention.broker.none': 'No broker configured',
+  'retention.traceroutes': 'Traceroute retention (days)',
+  'retention.traceroutesPreview': '{n} of {total} traceroutes would be deleted at the next cleanup',
+  'retention.auto': 'Cleanup is automatic: nothing is deleted from here.',
+  'retention.save': 'Save retention',
+  'retention.saved': 'Retention saved',
+  'retention.saveFailed': 'Saving failed',
+  'retention.loadFailed': 'Retention preview not available',
+  'retention.err.days': 'A whole number from 1 to 3650',
+}
