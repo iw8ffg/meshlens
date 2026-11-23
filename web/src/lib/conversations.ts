@@ -1,4 +1,4 @@
-import { MQTT_CONV, splitKey } from './chat'
+import { MQTT_CONV, isMqttConv, mqttConvBroker, mqttConvKey, splitKey } from './chat'
 import { locale, t } from './i18n/index.svelte'
 import type { ConvSummary, Message, Radio } from './types'
 
@@ -14,8 +14,15 @@ export interface ConvItem {
 const PREVIEW_MAX = 80
 
 /** Etichetta di una conversazione: «Pubblico (MQTT)», «Radio · Canale» o «Radio · DM Nome». */
-export function convLabel(key: string, radios: Radio[], nodeName: (id: string) => string): string {
-  if (key === MQTT_CONV) return t('chat.mqttConversation')
+export function convLabel(
+  key: string,
+  radios: Radio[],
+  nodeName: (id: string) => string,
+  brokers: { id: string; name: string }[] = [],
+): string {
+  if (key === MQTT_CONV) return brokers.length > 1 ? t('chat.mqttAllBrokers') : t('chat.mqttConversation')
+  const bid = mqttConvBroker(key)
+  if (bid) return t('chat.mqttBrokerConversation', { broker: brokers.find((b) => b.id === bid)?.name || bid })
   const [kind, rid, rest] = splitKey(key)
   const radio = radios.find((r) => r.id === rid)
   const radioName = radio?.name ?? rid
@@ -42,13 +49,15 @@ export function buildConversations(args: {
   counts: Record<string, number>
   label: (key: string) => string
   previewOf: (m: Message) => string
+  /** Broker attivi: con piu' di uno, una conversazione pubblica per ciascuno dopo «tutti i broker» */
+  brokers?: { id: string }[]
 }): ConvItem[] {
-  const { radios, groups, summaries, counts, label, previewOf } = args
+  const { radios, groups, summaries, counts, label, previewOf, brokers = [] } = args
   const keys = new Set<string>()
   for (const r of radios) for (const c of r.channels) keys.add(`ch:${r.id}:${c.index}`)
   for (const k of groups.keys()) keys.add(k)
   for (const k of Object.keys(summaries)) keys.add(k)
-  keys.delete(MQTT_CONV)
+  for (const k of [...keys]) if (isMqttConv(k)) keys.delete(k)
 
   const items: ConvItem[] = []
   for (const key of keys) {
@@ -66,8 +75,9 @@ export function buildConversations(args: {
     })
   }
   items.sort((a, b) => b.lastTime - a.lastTime || a.label.localeCompare(b.label, locale()))
-  const mqtt: ConvItem = { key: MQTT_CONV, label: label(MQTT_CONV), lastTime: 0, preview: '', unread: counts[MQTT_CONV] ?? 0, kind: 'mqtt' }
-  return [mqtt, ...items]
+  const mqttItem = (key: string): ConvItem => ({ key, label: label(key), lastTime: 0, preview: '', unread: counts[key] ?? 0, kind: 'mqtt' })
+  const perBroker = brokers.length > 1 ? brokers.map((b) => mqttItem(mqttConvKey(b.id))) : []
+  return [mqttItem(MQTT_CONV), ...perBroker, ...items]
 }
 
 /** Minuscole e senza accenti, per la ricerca. */

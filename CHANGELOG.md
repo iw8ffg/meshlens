@@ -3,6 +3,28 @@
 Il formato segue [Keep a Changelog](https://keepachangelog.com/it-IT/1.1.0/) e il progetto usa il [versionamento semantico](https://semver.org/lang/it/).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [1.4.4] - 2026-11-23
+
+### Italiano
+
+#### Aggiunto
+- **Pubblico per broker:** con più broker MQTT, in Messaggi trovi «Pubblico · tutti i broker» e una conversazione pubblica per ciascun broker. Ognuna mostra solo i messaggi di quel broker e invia su quel broker, senza doverlo scegliere.
+- **Casella di invio a sinistra:** con Messaggi a tutta pagina, la casella per scrivere sta nella colonna di sinistra sotto le conversazioni; la parte centrale resta tutta per la lettura.
+
+#### Corretto
+- **Messaggi pubblici precedenti:** «Carica precedenti» compare anche quando il feed non ha ancora messaggi in arrivo.
+- **Avvio di sviluppo (`start.bat`):** se MeshLens è già attivo apre il browser invece di dare errore, e avvisa che è la versione di sviluppo con dati separati.
+
+### English
+
+#### Added
+- **Public per broker:** with several MQTT brokers, Messages shows "Public · all brokers" and one public conversation per broker. Each shows only that broker's messages and sends on that broker, with no need to pick it.
+- **Send box on the left:** with full-page Messages, the box for writing sits in the left column below the conversations; the centre stays free for reading.
+
+#### Fixed
+- **Older public messages:** "Load older" also appears when the feed has no incoming messages yet.
+- **Development start (`start.bat`):** if MeshLens is already running it opens the browser instead of failing, and warns that it is the development version with separate data.
+
 ## [1.4.3] - 2026-11-22
 
 ### Italiano
@@ -303,6 +325,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 [1.2.3]: https://github.com/iw8ffg/meshlens/releases/tag/v1.2.3
 [1.3.0]: https://github.com/iw8ffg/meshlens/releases/tag/v1.3.0
 [1.4.0]: https://github.com/iw8ffg/meshlens/releases/tag/v1.4.0
+[1.4.4]: https://github.com/iw8ffg/meshlens/releases/tag/v1.4.4
 [1.4.3]: https://github.com/iw8ffg/meshlens/releases/tag/v1.4.3
 [1.4.2]: https://github.com/iw8ffg/meshlens/releases/tag/v1.4.2
 [1.4.1]: https://github.com/iw8ffg/meshlens/releases/tag/v1.4.1

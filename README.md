@@ -5,7 +5,7 @@
 <p align="center">
   <img alt="Licenza GPL-3.0" src="https://img.shields.io/badge/licenza-GPL--3.0-blue">
   <img alt="Piattaforma Windows" src="https://img.shields.io/badge/piattaforma-Windows%2010%2F11-0078D6">
-  <img alt="Versione 1.4.3" src="https://img.shields.io/badge/versione-1.4.3-brightgreen">
+  <img alt="Versione 1.4.4" src="https://img.shields.io/badge/versione-1.4.4-brightgreen">
 </p>
 
 **MeshLens** è un'applicazione locale per Windows che riunisce in un'unica mappa interattiva tutto ciò che accade su una rete [Meshtastic](https://meshtastic.org): i nodi sentiti da **Internet (MQTT)** e dalle **tue radio** collegate via USB o Bluetooth. Osservi la rete, gestisci i tuoi nodi e chatti via radio, anche senza Internet. Si usa dal PC e dal telefono sulla stessa Wi-Fi.

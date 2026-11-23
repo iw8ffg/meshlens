@@ -438,7 +438,7 @@ class Store:
         return self.messages(None, before, limit, radio_only=True)
 
     def messages(self, countries: list[str] | None, before: float | None, limit: int,
-                 radio_only: bool = False) -> list[dict]:
+                 radio_only: bool = False, broker: str | None = None) -> list[dict]:
         sql = ("SELECT m.*, n.long_name AS from_name FROM messages m "
                "LEFT JOIN nodes n ON n.num = m.from_num WHERE 1=1")
         params: list = []
@@ -447,6 +447,9 @@ class Store:
         if countries is not None:
             sql += f" AND m.country IN ({','.join('?' * len(countries))})"
             params += countries
+        if broker is not None:
+            sql += " AND m.broker = ?"
+            params.append(broker)
         if before is not None:
             sql += " AND m.time < ?"
             params.append(before)

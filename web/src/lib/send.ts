@@ -1,5 +1,5 @@
 // Compositore unico «Invia via»: radio o MQTT (funzioni pure).
-import { MAX_BYTES, MQTT_CONV, byteLength, splitKey, statusLabel } from './chat'
+import { MAX_BYTES, byteLength, isMqttConv, splitKey, statusLabel } from './chat'
 import type { Message, MessageStatus, Radio } from './types'
 import { t } from './i18n/index.svelte'
 
@@ -69,7 +69,7 @@ export function viaOptions(i: ViaInput): ViaOption[] {
 export function pickVia(current: string, conv: string, options: ViaOption[], convChanged: boolean): string {
   const enabled = (v: string) => options.some((o) => o.value === v && !o.disabled)
   if (!convChanged && current && enabled(current)) return current
-  const preferred = conv === MQTT_CONV ? MQTT_VIA : radioVia(splitKey(conv)[1])
+  const preferred = isMqttConv(conv) ? MQTT_VIA : radioVia(splitKey(conv)[1])
   if (enabled(preferred)) return preferred
   return options.find((o) => !o.disabled)?.value ?? ''
 }

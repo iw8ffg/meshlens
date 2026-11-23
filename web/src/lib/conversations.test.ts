@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { MQTT_CONV, groupMessages } from './chat'
-import { buildConversations, filterConversations, previewText } from './conversations'
+import { buildConversations, convLabel, filterConversations, previewText } from './conversations'
+import { isMqttConv, mqttConvBroker, mqttConvKey } from './chat'
 import { t } from './i18n/index.svelte'
 import type { ConvSummary, Message, Radio } from './types'
 
@@ -68,5 +69,36 @@ describe('previewText', () => {
   })
   it('100 caratteri diventano 80 più «…»', () => {
     expect(previewText(msg({ text: 'a'.repeat(100) }), nodeName, local)).toBe('a'.repeat(80) + '…')
+  })
+})
+
+describe('pubblico per broker', () => {
+  it('chiavi: tutti i broker e un solo broker', () => {
+    expect(mqttConvKey('sos')).toBe('mqtt:sos')
+    expect(isMqttConv(MQTT_CONV)).toBe(true)
+    expect(isMqttConv('mqtt:sos')).toBe(true)
+    expect(isMqttConv('ch:r1:0')).toBe(false)
+    expect(mqttConvBroker('mqtt:sos')).toBe('sos')
+    expect(mqttConvBroker(MQTT_CONV)).toBeNull()
+    expect(mqttConvBroker('dm:r1:!a')).toBeNull()
+  })
+
+  it('con due broker: «tutti» e poi uno per broker, prima delle conversazioni radio', () => {
+    const items = buildConversations({ radios: [], groups: new Map(), summaries: { 'mqtt:x': {} as never }, counts: {}, label: (k) => k, previewOf: () => '', brokers: [{ id: 'default' }, { id: 'sos' }] })
+    expect(items.map((i) => i.key)).toEqual([MQTT_CONV, 'mqtt:default', 'mqtt:sos'])
+    expect(items.every((i) => i.kind === 'mqtt')).toBe(true)
+  })
+
+  it('con un solo broker resta la conversazione unica', () => {
+    const items = buildConversations({ radios: [], groups: new Map(), summaries: {}, counts: {}, label: (k) => k, previewOf: () => '', brokers: [{ id: 'default' }] })
+    expect(items.map((i) => i.key)).toEqual([MQTT_CONV])
+  })
+
+  it('etichette', () => {
+    const b = [{ id: 'default', name: 'mqtt.meshtastic.org' }, { id: 'sos', name: 'SOS-Italia' }]
+    expect(convLabel(MQTT_CONV, [], (x) => x, b)).toBe(t('chat.mqttAllBrokers'))
+    expect(convLabel(MQTT_CONV, [], (x) => x, b.slice(0, 1))).toBe(t('chat.mqttConversation'))
+    expect(convLabel('mqtt:sos', [], (x) => x, b)).toBe(t('chat.mqttBrokerConversation', { broker: 'SOS-Italia' }))
+    expect(convLabel('mqtt:gone', [], (x) => x, b)).toBe(t('chat.mqttBrokerConversation', { broker: 'gone' }))
   })
 })

@@ -2,7 +2,7 @@
   import { onMount, untrack } from 'svelte'
   import { ApiError, getJSON, mqttChannels, mqttSend, send } from '../../lib/api'
   import { brokerLabel, pickBroker } from '../../lib/brokers'
-  import { MAX_BYTES, reactionDest, splitKey } from '../../lib/chat'
+  import { MAX_BYTES, mqttConvBroker, reactionDest, splitKey } from '../../lib/chat'
   import { loadDraft, saveDraft } from '../../lib/drafts'
   import {
     MQTT_VIA,
@@ -92,8 +92,11 @@
   const brokers = $derived(app.status?.mqtt.brokers ?? [])
   // Server vecchio (senza `brokers`): vale il totale
   const mqttConnected = $derived(brokers.length ? (brokers.find((b) => b.id === mqttBroker)?.connected ?? false) : (app.status?.mqtt.connected ?? false))
+  // Conversazione pubblica di un broker: si invia su quel broker (se attivo), senza scelta
+  const convBroker = $derived(mqttConvBroker(conv))
+  const lockedBroker = $derived(convBroker && brokers.some((b) => b.id === convBroker && b.enabled) ? convBroker : null)
   $effect(() => {
-    mqttBroker = pickBroker(untrack(() => mqttBroker), brokers)
+    mqttBroker = lockedBroker ?? pickBroker(untrack(() => mqttBroker), brokers)
   })
   // Canali MQTT del broker scelto (anche i personalizzati senza traffico)
   $effect(() => {
@@ -286,7 +289,7 @@
     {/each}
   </fieldset>
 
-  {#if via === MQTT_VIA}
+  {#if via === MQTT_VIA && !lockedBroker}
     <BrokerPicker id="{uid}-brk" {brokers} bind:value={mqttBroker} />
     <Field label={t('chat.mqttChannelLabel')} for="{uid}-mch" hint={dmTo ? t('chat.directTo', { name: nodeName(dmTo) }) : undefined}>
       {#snippet children({ describedby })}

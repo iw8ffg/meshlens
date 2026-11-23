@@ -1457,3 +1457,19 @@ async def test_backup_delete_and_cleanup_routes(tmp_path):
             assert r.json() == {"deleted": [names[2]]}
     finally:
         rt.conn.close()
+
+
+async def test_messages_filtered_by_broker(ctx):
+    for key, broker, t in (("7:1", "default", 100.0), ("7:2", "sos", 200.0), ("7:3", None, 300.0)):
+        m = {"key": key, "from": "!00000007", "to": "!ffffffff", "channel": "LongFast",
+             "text": key, "time": t, "country": "IT", "source": "mqtt", "broker": broker}
+        ctx.store.add_message(m)
+        ctx.live.messages.append(m)
+    ctx.store.commit()
+    async with logged(ctx) as c:
+        live = [m["key"] for m in (await c.get("/api/messages?broker=sos")).json()]
+        assert live == ["7:2"]
+        hist = [m["key"] for m in (await c.get("/api/messages/history?broker=default")).json()]
+        assert hist == ["7:1"]
+        assert "7:3" in [m["key"] for m in (await c.get("/api/messages/history")).json()]
+        assert (await c.get("/api/messages?broker=" + "x" * 25)).status_code == 422

@@ -96,8 +96,10 @@ async def test_status_reports_connected_since_and_reconnects(monkeypatch):
     from meshlens import mqtt_client
     c = _connector()
     assert c.status()["connected_since"] is None and c.status()["reconnects"] == 0
+    from types import SimpleNamespace
     clock = iter([1000.0, 2000.0])
-    monkeypatch.setattr(mqtt_client.time, "time", lambda: next(clock))
+    # orologio finto solo per il modulo MQTT: time.time globale serve anche ai log degli altri thread
+    monkeypatch.setattr(mqtt_client, "time", SimpleNamespace(time=lambda: next(clock)))
     c._on_connect(c._client, None, None, 0, None)
     c._on_connect(c._client, None, None, 0, None)
     monkeypatch.undo()

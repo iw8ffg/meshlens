@@ -62,6 +62,7 @@
   const localIds = $derived(localNodeIds(app.radios))
   const groups = $derived(groupMessages(app.radioMessages, localIds))
   const nodeName = (id: string) => app.nodes.get(id)?.long_name || app.nodes.get(id)?.short_name || id
+  const brokers = $derived((app.status?.mqtt.brokers ?? []).filter((b) => b.enabled))
 
   const items = $derived(
     buildConversations({
@@ -69,8 +70,9 @@
       groups,
       summaries: unread.summaries,
       counts: unread.counts,
-      label: (k) => convLabel(k, app.radios, nodeName),
+      label: (k) => convLabel(k, app.radios, nodeName, brokers),
       previewOf: (m) => previewText(m, nodeName, localIds),
+      brokers,
     }),
   )
   const msgs = $derived(groups.get(conv) ?? [])
@@ -90,19 +92,24 @@
   {/if}
 {/snippet}
 
-{#snippet thread(wide: boolean)}
-  <Thread {conv} {msgs} {now} {onpick} {wide} onback={back} onreply={(m) => (replyTo = m)} onreact={(m, e) => composer?.react(m, e)} actions={wide ? undefined : expandButton} />
+{#snippet composerBox()}
   <Composer bind:this={composer} {conv} {replyTo} oncancelreply={() => (replyTo = null)} onsent={() => (replyTo = null)} />
+{/snippet}
+
+{#snippet threadView(wide: boolean)}
+  <Thread {conv} {msgs} {now} {onpick} {wide} onback={back} onreply={(m) => (replyTo = m)} onreact={(m, e) => composer?.react(m, e)} actions={wide ? undefined : expandButton} />
 {/snippet}
 
 <div class="chat" class:wide={expanded}>
   {#if expanded}
+    <!-- A tutta pagina: elenco e casella di invio a sinistra, lettura al centro -->
     <div class="side">
       <ConversationList {items} active={view === 'thread' ? conv : ''} onopen={open} {now} {groups} actions={expandButton} />
+      {#if view === 'thread'}<div class="sidecomposer">{@render composerBox()}</div>{/if}
     </div>
     <div class="main">
       {#if view === 'thread'}
-        {@render thread(true)}
+        {@render threadView(true)}
       {:else}
         <Empty icon="chat" title={t('chat.pickConversation')} />
       {/if}
@@ -110,7 +117,8 @@
   {:else if view === 'list'}
     <ConversationList {items} active={conv} onopen={open} {now} {groups} actions={expandButton} />
   {:else}
-    {@render thread(false)}
+    {@render threadView(false)}
+    {@render composerBox()}
   {/if}
 </div>
 
@@ -141,8 +149,13 @@
     min-height: 0;
   }
   /* Su schermi larghi la conversazione non si stira oltre una riga leggibile */
-  .wide .main :global(.thread),
-  .wide .main :global(form.composer) {
+  .sidecomposer {
+    flex: none;
+    max-height: 60%;
+    overflow: auto;
+    border-top: 1px solid var(--line-strong);
+  }
+  .wide .main :global(.thread) {
     width: 100%;
     max-width: 980px;
     margin: 0 auto;

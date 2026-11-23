@@ -103,6 +103,8 @@ export const chat = {
   'chat.routing.ADMIN_PUBLIC_KEY_UNAUTHORIZED': 'Chiave admin non autorizzata sul nodo',
   'chat.routing.RATE_LIMIT_EXCEEDED': 'Troppi messaggi: il nodo ha applicato un limite, riprova più tardi',
   'chat.routing.PKI_SEND_FAIL_PUBLIC_KEY': 'La tua radio non conosce la chiave pubblica del destinatario',
+  'chat.mqttAllBrokers': 'Pubblico · tutti i broker',
+  'chat.mqttBrokerConversation': 'Pubblico · {broker}',
   'chat.expand': 'Espandi i messaggi a tutta pagina',
   'chat.collapse': 'Riduci i messaggi accanto alla mappa',
   'chat.pickConversation': 'Scegli una conversazione',

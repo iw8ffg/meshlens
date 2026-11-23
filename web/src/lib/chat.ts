@@ -5,6 +5,21 @@ export const MAX_BYTES = 200
 export const BROADCAST = '!ffffffff'
 export const MQTT_CONV = 'mqtt'
 
+/** Conversazione pubblica di un solo broker: `mqtt:<id broker>`. */
+export function mqttConvKey(brokerId: string): string {
+  return `${MQTT_CONV}:${brokerId}`
+}
+
+/** Pubblico MQTT: tutti i broker (`mqtt`) o uno solo (`mqtt:<id>`). */
+export function isMqttConv(key: string): boolean {
+  return key === MQTT_CONV || key.startsWith(`${MQTT_CONV}:`)
+}
+
+/** Broker della conversazione pubblica; null per «tutti i broker» o per le conversazioni radio. */
+export function mqttConvBroker(key: string): string | null {
+  return key.startsWith(`${MQTT_CONV}:`) ? key.slice(MQTT_CONV.length + 1) || null : null
+}
+
 /** Lunghezza in byte UTF-8 (limite del payload Meshtastic). */
 export function byteLength(text: string): number {
   return new TextEncoder().encode(text).length

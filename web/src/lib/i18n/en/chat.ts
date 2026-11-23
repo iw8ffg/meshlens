@@ -105,6 +105,8 @@ export const chat: Record<keyof typeof itArea, string> = {
   'chat.routing.ADMIN_PUBLIC_KEY_UNAUTHORIZED': 'Admin key not authorised on the node',
   'chat.routing.RATE_LIMIT_EXCEEDED': 'Too many messages: the node applied a limit, try again later',
   'chat.routing.PKI_SEND_FAIL_PUBLIC_KEY': 'Your radio does not know the recipient’s public key',
+  'chat.mqttAllBrokers': 'Public · all brokers',
+  'chat.mqttBrokerConversation': 'Public · {broker}',
   'chat.expand': 'Expand messages to full page',
   'chat.collapse': 'Shrink messages next to the map',
   'chat.pickConversation': 'Choose a conversation',

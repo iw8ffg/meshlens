@@ -628,26 +628,30 @@ def create_app(ctx: AppContext) -> FastAPI:
     # ---- messaggi ----
     @app.get("/api/messages", dependencies=[Depends(require_auth)])
     async def live_messages(country: str | None = None,
-                            limit: int = Query(200, ge=1, le=1000)):
+                            limit: int = Query(200, ge=1, le=1000),
+                            broker: str | None = Query(None, max_length=24)):
         wanted = _parse_countries(country)
         out = []
         for msg in reversed(ctx.live.messages):
             if len(out) >= limit:
                 break
+            if broker is not None and msg.get("broker") != broker:
+                continue
             if _matches(msg.get("country"), wanted):
                 out.append(msg)
         return out
 
     @app.get("/api/messages/history", dependencies=[Depends(require_auth)])
     async def message_history(country: str | None = None, before: float | None = None,
-                              limit: int = Query(200, ge=1, le=1000)):
+                              limit: int = Query(200, ge=1, le=1000),
+                              broker: str | None = Query(None, max_length=24)):
         wanted = _parse_countries(country)
         if wanted is not None:
             # lo storico contiene solo nazioni salvate: "none" non c'e mai
             wanted = [c for c in wanted if c != "none"]
             if not wanted:
                 return []
-        return ctx.store.messages(wanted, before, limit)
+        return ctx.store.messages(wanted, before, limit, broker=broker)
 
     @app.get("/api/messages/radio", dependencies=[Depends(require_auth)])
     async def radio_messages(before: float | None = None,

@@ -7,7 +7,10 @@ from meshlens import tray
 
 @pytest.fixture
 def no_logs(monkeypatch, tmp_path):
+    # niente configurazione globale dei log: resterebbe attiva per i test successivi
+    from meshlens import logsetup
     monkeypatch.setattr(cli, "logs_dir", lambda: tmp_path / "logs")
+    monkeypatch.setattr(logsetup, "setup_logging", lambda *_a, **_k: None)
 
 
 def _no_build(*_a, **_k):

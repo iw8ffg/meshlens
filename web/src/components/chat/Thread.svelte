@@ -2,7 +2,7 @@
   import { onMount, tick } from 'svelte'
   import { getJSON } from '../../lib/api'
   import { ago, formatDate } from '../../lib/format'
-  import { MQTT_CONV, localNodeIds, splitKey, statusIcon } from '../../lib/chat'
+  import { isMqttConv, localNodeIds, mqttConvBroker, splitKey, statusIcon } from '../../lib/chat'
   import { convLabel } from '../../lib/conversations'
   import { statusAria } from '../../lib/send'
   import { keyChangedRecently, routingErrorText, threadItems } from '../../lib/reactions'
@@ -56,8 +56,8 @@
   let olderError = $state(false)
 
   const nodeName = (id: string) => app.nodes.get(id)?.long_name || app.nodes.get(id)?.short_name || id
-  const title = $derived(convLabel(conv, app.radios, nodeName))
-  const isRadioConv = $derived(conv !== MQTT_CONV)
+  const title = $derived(convLabel(conv, app.radios, nodeName, (app.status?.mqtt.brokers ?? []).filter((b) => b.enabled)))
+  const isRadioConv = $derived(!isMqttConv(conv))
   const items = $derived(threadItems(msgs, nodeName, localNodeIds(app.radios)))
   // Avviso di chiave cambiata nei messaggi diretti
   const dmNode = $derived(conv.startsWith('dm:') ? app.nodes.get(splitKey(conv)[2]) : undefined)
@@ -117,7 +117,7 @@
       markedConv = c
       lastMarked = 0
     }
-    if (c === MQTT_CONV || !v || newest <= lastMarked) return
+    if (isMqttConv(c) || !v || newest <= lastMarked) return
     lastMarked = newest
     void markRead(c, newest)
   })
@@ -142,7 +142,8 @@
   {/if}
 
   {#if !isRadioConv}
-    <div class="feed"><MessageFeed {now} {onpick} {onreply} {onreact} /></div>
+    <!-- un broker diverso e' un feed nuovo: si ricarica da capo -->
+    {#key conv}<div class="feed"><MessageFeed {now} {onpick} {onreply} {onreact} broker={mqttConvBroker(conv)} /></div>{/key}
   {:else}
     <ul
       class="list"

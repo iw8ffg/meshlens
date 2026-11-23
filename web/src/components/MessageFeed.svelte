@@ -27,7 +27,15 @@
     onpick,
     onreply,
     onreact,
-  }: { now: number; onpick: (id: string) => void; onreply: (m: Message) => void; onreact: (m: Message, emoji: string) => void } = $props()
+    broker = null,
+  }: {
+    now: number
+    onpick: (id: string) => void
+    onreply: (m: Message) => void
+    onreact: (m: Message, emoji: string) => void
+    /** Solo i messaggi di questo broker (null = tutti) */
+    broker?: string | null
+  } = $props()
 
   const LIMIT = 200
   let older = $state<Message[]>([])
@@ -42,7 +50,7 @@
   const all = $derived.by(() => {
     const byKey = new Map<string, Message>()
     for (const m of [...older, ...app.messages]) byKey.set(m.key, m)
-    return [...byKey.values()].filter((m) => !m.radio_id).sort((a, b) => b.time - a.time)
+    return [...byKey.values()].filter((m) => !m.radio_id && (!broker || m.broker === broker)).sort((a, b) => b.time - a.time)
   })
   // i messaggi inviati da qui restano sempre visibili, qualunque sia il filtro
   const shown = $derived(all.filter((m) => m.direction === 'out' || matchFeed(m.country, app.feedFilter)))
@@ -56,7 +64,7 @@
     el?.scrollIntoView({ block: 'center' })
   }
 
-  const qs = (extra: string) => `limit=${LIMIT}${extra}`
+  const qs = (extra: string) => `limit=${LIMIT}${broker ? `&broker=${encodeURIComponent(broker)}` : ''}${extra}`
 
   const hint = $derived(emptyFeedHint(app.status?.mqtt ?? null))
 
@@ -172,7 +180,7 @@
       {/if}
     {/each}
   </ul>
-  {#if !exhausted && shown.length > 0}
+  {#if !exhausted && !error}
     <div class="more"><Button onclick={loadOlder} disabled={loading}>{loading ? t('shell.loading') : t('chat.loadOlder')}</Button></div>
   {/if}
 </div>
