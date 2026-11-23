@@ -14,6 +14,8 @@ STABLE_SLOPE_PER_DAY = 1.0
 MIN_TOTAL_DROP = 2.0
 MAX_DAYS = 60
 PAIR_MIN_DX_H = 0.5
+MAX_POINTS = 48  # al piu' ~1100 coppie per nodo
+_MAX_IN_NODES = 500  # limite dei parametri di SQLite per il filtro IN
 SOLAR_RISE_PTS = 5.0
 SOLAR_MIN_WINDOWS = 2
 SOLAR_MIN_BUCKETS = 4
@@ -42,7 +44,12 @@ def hourly_buckets(samples: list[tuple[float, int | None]], now: float,
 
 
 def theil_sen(points: list[tuple[float, float]]) -> tuple[float, float]:
-    """(pendenza per ora, livello a x = 0); x = ore rispetto a now (<= 0)."""
+    """(pendenza per ora, livello a x = 0); x = ore rispetto a now (<= 0).
+
+    Oltre MAX_POINTS punti ne tiene un campione a passo regolare (coppie O(n^2))."""
+    if len(points) > MAX_POINTS:
+        step = (len(points) - 1) / (MAX_POINTS - 1)
+        points = [points[round(i * step)] for i in range(MAX_POINTS)]
     slopes = [(points[j][1] - points[i][1]) / (points[j][0] - points[i][0])
               for i in range(len(points)) for j in range(i + 1, len(points))
               if points[j][0] - points[i][0] >= PAIR_MIN_DX_H]
@@ -147,9 +154,14 @@ def battery_overview(conn, nodes: dict[int, dict], scope: str, now: float,
         visible = {n: node for n, node in visible.items()
                    if node.get("is_mine") or node.get("is_favorite")}
     rows_by_node: dict[int, list] = defaultdict(list)
+    only = ""  # "miei e preferiti": legge solo i loro nodi (pochi); "tutti" legge l'intera finestra
+    args: list = [since]
+    if scope == "mine" and len(visible) <= _MAX_IN_NODES:
+        only = f" AND node_num IN ({','.join('?' * len(visible))})"
+        args += list(visible)
     for r in conn.execute(
             "SELECT node_num, time, battery, voltage, uptime FROM telemetry "
-            "WHERE time >= ? ORDER BY node_num, time", (since,)):
+            f"WHERE time >= ?{only} ORDER BY node_num, time", args):
         if r["node_num"] in visible:
             rows_by_node[r["node_num"]].append(r)
     current: dict[int, dict[str, float]] = defaultdict(dict)

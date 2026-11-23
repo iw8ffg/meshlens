@@ -1,6 +1,10 @@
 {
   "exact": {
-    "Cursore di ricerca non valido": "Invalid search cursor"
+    "Cursore di ricerca non valido": "Invalid search cursor",
+    "Testo da cercare mancante": "Search text is missing",
+    "Testo da cercare troppo lungo": "Search text is too long (200 characters at most)",
+    "Mittente non valido": "Invalid sender",
+    "Limite non valido": "Invalid limit"
   },
   "patterns": []
 }

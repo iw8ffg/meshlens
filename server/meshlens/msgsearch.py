@@ -11,6 +11,7 @@ from __future__ import annotations
 import math
 import re
 import sqlite3
+import unicodedata
 
 from . import db
 from .conversations import conversation_key
@@ -107,16 +108,35 @@ def conv_where(key: str, local_nums) -> tuple[str, list]:
     raise ValueError("Conversazione non valida")
 
 
-def _like_snippet(text: str, terms: list[str]) -> str:
-    """Finestra di ~60 caratteri attorno alla prima occorrenza; parole tra i marcatori."""
-    pat = re.compile("|".join(re.escape(t) for t in terms), re.IGNORECASE) if terms else None
-    first = pat.search(text) if pat else None
+def _fold_char(c: str) -> str:
+    """Minuscola senza accento, sempre di un solo carattere (le posizioni restano allineate)."""
+    base = unicodedata.normalize("NFD", c)[:1] or c
+    low = base.lower()
+    return low if len(low) == 1 else c
+
+
+def _fold_text(text: str) -> str:
+    return "".join(_fold_char(c) for c in text)
+
+
+def _like_snippet(text: str, terms: list[str], prefix: bool = False) -> str:
+    """Finestra di ~60 caratteri attorno alla prima occorrenza; parole tra i marcatori.
+    Il confronto ignora maiuscole e accenti (come l'indice FTS5); con `prefix` i termini
+    alfanumerici valgono solo a inizio parola (come "termine"* di FTS5)."""
+    folded = _fold_text(text)
+    lead = r"(?<![^\W_])" if prefix else ""
+    pat = (re.compile("|".join((lead if any(c.isalnum() for c in t) else "") + re.escape(_fold_text(t))
+                               for t in terms)) if terms else None)
+    first = pat.search(folded) if pat else None
     start = max(0, first.start() - SNIPPET_LEAD) if first else 0
     end = min(len(text), start + SNIPPET_WINDOW)
-    window = text[start:end]
+    out, pos = [], start
     if pat:
-        window = pat.sub(lambda m: f"{SNIP_OPEN}{m.group(0)}{SNIP_CLOSE}", window)
-    return ("…" if start > 0 else "") + window + ("…" if end < len(text) else "")
+        for m in pat.finditer(folded, start, end):
+            out.append(text[pos:m.start()] + SNIP_OPEN + text[m.start():m.end()] + SNIP_CLOSE)
+            pos = m.end()
+    out.append(text[pos:end])
+    return ("…" if start > 0 else "") + "".join(out) + ("…" if end < len(text) else "")
 
 
 def search_messages(conn: sqlite3.Connection, q: str, *, conv: str | None = None,
@@ -159,13 +179,18 @@ def search_messages(conn: sqlite3.Connection, q: str, *, conv: str | None = None
     used_engine = "like"
     fq = fts_query(q) if engine == "fts5" else None
     if fq is not None:
-        sql = (f"SELECT m.*, n.long_name AS from_name, "
-               f"snippet(messages_fts, 0, ?, ?, '…', 12) AS snip "
+        # i termini senza caratteri alfanumerici non entrano nell'indice FTS: restano come LIKE
+        # (stesso risultato del ripiego su LIKE)
+        extra = [t for t in _terms(q) if not any(ch.isalnum() for ch in t)]
+        fts_where = where + ["m.text LIKE ? ESCAPE '\\'" for _ in extra]
+        fts_params = [*where_params, *(like_pattern(t) for t in extra)]
+        # il frammento si ricava in Python sulle sole righe restituite: snippet() di FTS5 girerebbe
+        # su ogni riga trovata prima di ORDER BY/LIMIT
+        sql = (f"SELECT m.*, n.long_name AS from_name "
                f"{base} JOIN messages_fts ON messages_fts.rowid = m.rowid "
-               f"WHERE messages_fts MATCH ? AND " + " AND ".join(where) + tail)
+               f"WHERE messages_fts MATCH ? AND " + " AND ".join(fts_where) + tail)
         try:
-            rows = conn.execute(
-                sql, [SNIP_OPEN, SNIP_CLOSE, fq, *where_params, limit + 1]).fetchall()
+            rows = conn.execute(sql, [fq, *fts_params, limit + 1]).fetchall()
             used_engine = "fts5"
         except sqlite3.OperationalError:
             rows = None
@@ -184,7 +209,7 @@ def search_messages(conn: sqlite3.Connection, q: str, *, conv: str | None = None
     hits = []
     for r in rows:
         msg = Store._message_row(r)
-        snippet = r["snip"] if used_engine == "fts5" else _like_snippet(r["text"], terms)
+        snippet = _like_snippet(r["text"], terms, prefix=used_engine == "fts5")
         hits.append({"message": msg, "snippet": snippet,
                      "conv": conversation_key(msg, set(local_ids))})
     nxt = None

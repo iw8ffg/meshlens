@@ -142,3 +142,30 @@ def test_list_events_order_and_limit():
     assert [x["text"] for x in list_events(e.conn, 10, NOW - 150)] == [
         "p1 detected", "p2 detected"]
     assert list_events(e.conn, 11, 0) == []
+
+
+def test_detection_value_words_and_negations():
+    assert detection_value("Not detected") == 0.0
+    assert detection_value("Non rilevato") == 0.0
+    assert detection_value("nuclear") is None
+    assert detection_value("Porta clear") == 0.0
+    assert detection_value("not cleared") == 1.0
+
+
+def test_empty_detection_text_fires_nothing():
+    e = Env()
+    e.svc.on_event(det("\x07\x01"), "new")
+    assert e.detected == [] and e.published == []
+    assert e.conn.execute("SELECT COUNT(*) FROM sensor_events").fetchone()[0] == 0
+
+
+def test_ignored_node_detection_saved_but_hidden():
+    e = Env()
+    e.svc.is_ignored = lambda n: True
+    e.svc.on_event(det(), "new")
+    assert e.published == []
+    assert e.conn.execute("SELECT COUNT(*) FROM sensor_events").fetchone()[0] == 1
+    e.conn.execute("INSERT INTO nodes(num, id, is_ignored) VALUES(10, '!0000000a', 1)")
+    assert list_events(e.conn, 10, 0) == []
+    e.conn.execute("UPDATE nodes SET is_ignored = 0 WHERE num = 10")
+    assert len(list_events(e.conn, 10, 0)) == 1

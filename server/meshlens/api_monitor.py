@@ -51,7 +51,10 @@ def _node_num(node_id: str | None) -> int | None:
     try:
         if not node_id.startswith("!"):
             raise ValueError
-        return int(node_id[1:], 16)
+        num = int(node_id[1:], 16)
+        if not 0 <= num <= 0xFFFFFFFF:
+            raise ValueError
+        return num
     except ValueError:
         raise HTTPException(400, MSG_BAD_ID) from None
 

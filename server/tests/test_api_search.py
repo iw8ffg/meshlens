@@ -68,16 +68,21 @@ async def test_message_search_validation():
     ctx = make_ctx()
     async with logged(ctx) as c:
         g = c.get
-        assert (await g("/api/messages/search", params={"q": ""})).status_code == 422
-        assert (await g("/api/messages/search", params={"q": "x" * 201})).status_code == 422
-        assert (await g("/api/messages/search", params={"q": "a", "sender": "zz"})).status_code in (
-            400, 404, 422)
+        assert (await g("/api/messages/search", params={"q": ""})).json()["detail"] == (
+            "Testo da cercare mancante")
+        r = await g("/api/messages/search", params={"q": "x" * 201})
+        assert r.status_code == 400 and r.json()["detail"] == "Testo da cercare troppo lungo"
+        r = await g("/api/messages/search", params={"q": "a", "sender": "zz"})
+        assert r.status_code == 400 and r.json()["detail"] == "Mittente non valido"
+        assert (await g("/api/search", params={"q": ""})).status_code == 400
+        assert (await g("/api/search", params={"q": "a", "limit": 9})).status_code == 400
         r = await g("/api/messages/search", params={"q": "a", "cursor": "abc"})
         assert r.status_code == 400 and r.json()["detail"] == "Cursore di ricerca non valido"
         r = await g("/api/messages/search", params={"q": "a", "conv": "boh"})
         assert r.status_code == 400 and r.json()["detail"] == "Conversazione non valida"
-        assert (await g("/api/messages/search", params={"q": "a", "limit": 101})).status_code == 422
-        assert (await g("/api/messages/search", params={"q": "a", "limit": 0})).status_code == 422
+        assert (await g("/api/messages/search", params={"q": "a", "limit": 101})).json()["detail"] == (
+            "Limite non valido")
+        assert (await g("/api/messages/search", params={"q": "a", "limit": 0})).status_code == 400
 
 
 async def test_search_dm_both_directions_with_local_ids():

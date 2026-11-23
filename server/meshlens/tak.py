@@ -166,7 +166,9 @@ _UPSERT = (
     "battery=COALESCE(excluded.battery, battery), lat=COALESCE(excluded.lat, lat), "
     "lon=COALESCE(excluded.lon, lon), altitude=COALESCE(excluded.altitude, altitude), "
     "speed=COALESCE(excluded.speed, speed), course=COALESCE(excluded.course, course), "
-    "compressed=excluded.compressed, time=excluded.time, source=excluded.source, "
+    "compressed=excluded.compressed, "
+    "time=CASE WHEN excluded.lat IS NULL AND tak_contacts.lat IS NOT NULL "
+    "THEN tak_contacts.time ELSE excluded.time END, source=excluded.source, "
     "radio_id=excluded.radio_id, broker=excluded.broker "
     "WHERE excluded.time >= tak_contacts.time")
 _COLS = ("node_num, callsign, device_callsign, team, role, battery, lat, lon, altitude, speed, "
@@ -187,12 +189,14 @@ class TakService:
 
     def __init__(self, conn: sqlite3.Connection, publish: Callable[[dict], None],
                  persists: Callable[[dict, str], bool], get_node: Callable[[int], dict | None],
-                 now: Callable[[], float] = time.time) -> None:
+                 now: Callable[[], float] = time.time,
+                 is_ignored: Callable[[int], bool] | None = None) -> None:
         self.conn = conn
         self.publish = publish
         self.persists = persists
         self.get_node = get_node
         self.now = now
+        self.is_ignored = is_ignored
 
     def on_event(self, ev: MeshEvent, outcome: str) -> None:
         if ev.kind != "tak" or outcome != "new" or ev.replayed:
@@ -214,8 +218,7 @@ class TakService:
                           p.lat, p.lon, p.altitude, p.speed, p.course, int(p.compressed), t,
                           "rf" if ev.source == "rf" else "mqtt", ev.radio_id,
                           getattr(ev, "broker", None)))
-            changed = cur.rowcount > 0
-            self.conn.commit()
+            changed = cur.rowcount > 0  # il commit periodico dello store lo rende durevole
             if not changed:
                 return
             log.debug("PLI ATAK da %s (%s)", node_id(ev.from_node),
@@ -224,7 +227,7 @@ class TakService:
         except sqlite3.Error:
             log.warning("Contatto ATAK non salvato")
             return
-        if c is not None:
+        if c is not None and not (self.is_ignored is not None and self.is_ignored(ev.from_node)):
             self.publish({"type": "tak_contact", "contact": c})
 
     def contact(self, num: int) -> dict | None:
