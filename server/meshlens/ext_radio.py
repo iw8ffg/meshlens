@@ -1,6 +1,9 @@
-"""Estensione di WP4: radio e canali (ctx.ext["profiles"] e altri servizi radio).
-Segnaposto di WP0: il pacchetto proprietario lo riempie (contratto §4.3)."""
+"""Estensione di WP4: radio e canali (contratto §4.3).
+
+Mette in ctx.ext["profiles"] l'archivio dei profili di configurazione (connessione del loop).
+"""
+from .profiles import ProfileStore
 
 
-def install(rt, ctx) -> None:  # segnaposto di WP0: il WP proprietario lo riempie
-    return None
+def install(rt, ctx) -> None:
+    ctx.ext["profiles"] = ProfileStore(ctx.conn)

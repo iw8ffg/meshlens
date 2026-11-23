@@ -28,7 +28,10 @@
     "Fatto: la radio è spenta": "Done: the radio is off",
     "Invio lo spegnimento": "Sending the shutdown",
     "La correzione guidata vale per le tue radio collegate": "The guided fix applies to your connected radios",
-    "Leggi la sezione Sicurezza del nodo per verificare che abbia la chiave admin di questa radio": "Read the node's Security section to check that it has this radio's admin key"
+    "Leggi la sezione Sicurezza del nodo per verificare che abbia la chiave admin di questa radio": "Read the node's Security section to check that it has this radio's admin key",
+    "Configurazione radio non disponibile": "Radio configuration not available",
+    "Nessun flag indicato": "No flag given",
+    "Non puoi ignorare il nodo di una tua radio": "You cannot ignore the node of one of your radios"
   },
   "patterns": [
     [
