@@ -34,6 +34,18 @@ if not exist "web\dist" (
         echo npm non trovato: l'interfaccia web non verra compilata.
     )
 )
+echo.
+echo ================================================================
+echo   ATTENZIONE: questa e' la VERSIONE DI SVILUPPO di MeshLens.
+echo   Usa dati separati (cartella data del progetto), non ha l'icona
+echo   vicino all'orologio e si ferma quando chiudi questa finestra.
+if exist "%LOCALAPPDATA%\Programs\MeshLens\MeshLens.exe" (
+    echo.
+    echo   MeshLens e' installato su questo PC: per usarlo con i tuoi dati
+    echo   aprilo dal menu Start di Windows, non da questo script.
+)
+echo ================================================================
+echo.
 ".venv\Scripts\meshlens.exe" run
 pause
 exit /b 0
