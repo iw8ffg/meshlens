@@ -434,6 +434,31 @@ async def test_channel_export_not_logged(caplog):
     assert base64.b64encode(CHAN_PSK).decode() not in text
 
 
+async def test_ignore_node_with_open_admin_session_refused():
+    """M4: un nodo che stai amministrando da remoto non si puo' ignorare."""
+    e, ctx, conn = await env_with_peer()
+    conn.fresh_remote.add(PEER_NUM)
+    async with logged(ctx) as c:
+        r = _keep(await c.put(f"/api/nodes/{PEER}/ignored", json={"ignored": True}))
+        assert r.status_code == 409
+        assert r.json()["detail"] == api_nodeflags.MSG_ADMIN_SESSION
+        assert e.store.get_node(PEER_NUM)["is_ignored"] is False
+        assert conn.flag_calls == []
+        r = await c.put(f"/api/nodes/{PEER}/ignored", json={"ignored": False})
+        assert r.status_code == 200  # togliere l'ignorato resta sempre possibile
+
+
+async def test_ignore_own_remote_node_only_in_meshlens():
+    """M4: un tuo nodo remoto viene ignorato solo in MeshLens, mai sulle radio."""
+    e, ctx, conn = await env_with_peer()
+    e.live.nodes[PEER_NUM]["is_mine"] = True
+    async with logged(ctx) as c:
+        r = _keep(await c.put(f"/api/nodes/{PEER}/ignored", json={"ignored": True}))
+        assert r.status_code == 200 and r.json()["node"]["is_ignored"] is True
+        assert r.json()["radios"] == [] and conn.flag_calls == []
+        assert r.json()["warning"] == api_nodeflags.MSG_MINE_LOCAL_ONLY
+
+
 def test_no_secret_in_any_response():
     assert BODIES
     assert secrets_in("\n".join(BODIES)) == []

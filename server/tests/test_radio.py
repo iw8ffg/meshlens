@@ -1293,3 +1293,14 @@ async def test_library_system_exit_becomes_admin_error():
         await h.conn._simple_admin(None, lambda n: sys.exit(1))
     assert ei.value.message == "Operazione fallita: SystemExit"
     await h.conn.stop()
+
+
+async def test_has_admin_session_follows_remote_cache_age():
+    """M4: sessione admin aperta = lettura remota recente (chiave di sessione valida)."""
+    from meshlens.radio import SESSION_MAX_AGE
+    h = Harness(lambda cfg, n: FakeIface())
+    assert h.conn.has_admin_session(0x42) is False
+    h.conn._remote_nodes[0x42] = (object(), h.now)
+    assert h.conn.has_admin_session(0x42) is True
+    h.now += SESSION_MAX_AGE + 1
+    assert h.conn.has_admin_session(0x42) is False

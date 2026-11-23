@@ -936,6 +936,11 @@ class RadioConnector:
             else:
                 cur.CopyFrom(c)
 
+    def has_admin_session(self, node_num: int) -> bool:
+        """Lettura remota recente del nodo: chiave di sessione admin ancora valida."""
+        cached = self._remote_nodes.get(node_num)
+        return cached is not None and self._clock() - cached[1] <= SESSION_MAX_AGE
+
     def _drop_session(self, node_num: int) -> None:
         entry = (getattr(self._iface, "nodesByNum", None) or {}).get(node_num)
         if entry is not None:
