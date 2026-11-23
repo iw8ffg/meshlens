@@ -14,7 +14,7 @@ from meshlens.db import connect
 from meshlens.events import TelemetryData
 from meshlens.geo import CountryLocator
 from meshlens.live import LiveState
-from meshlens.settings import save_settings
+from meshlens.settings import load_settings, save_settings
 from meshlens.store import Store
 
 
@@ -1473,3 +1473,38 @@ async def test_messages_filtered_by_broker(ctx):
         assert hist == ["7:1"]
         assert "7:3" in [m["key"] for m in (await c.get("/api/messages/history")).json()]
         assert (await c.get("/api/messages?broker=" + "x" * 25)).status_code == 422
+
+
+async def test_lan_access_rejected_with_short_pin(ctx):
+    async with logged(ctx) as c:  # PIN di 4 cifre
+        r = await c.put("/api/settings", json={"lan_access": True})
+        assert r.status_code == 400
+        assert "6" in r.json()["detail"]
+        assert load_settings(ctx.conn)["lan_access"] is False
+        assert (await c.put("/api/settings", json={"lan_access": False})).status_code == 200
+        doc = (await c.get("/api/settings/export")).json()
+        doc["settings"]["lan_access"] = True
+        await c.post("/api/settings/import", json=doc)
+        assert load_settings(ctx.conn)["lan_access"] is False
+
+
+async def test_lan_access_allowed_with_long_pin(ctx):
+    ctx.auth.set_pin("123456", 6)
+    async with logged_existing(ctx, "123456") as c:
+        r = await c.put("/api/settings", json={"lan_access": True})
+        assert r.status_code == 200 and r.json()["lan_access"] is True
+
+
+async def test_auth_status_hides_pin_info_from_unauthenticated_remote(ctx):
+    ctx.auth.set_pin("1234")
+    save_settings(ctx.conn, {"lan_access": True})
+    async with client(ctx, host="192.168.1.20") as c:
+        st = (await c.get("/api/auth/status")).json()
+        assert "pin_short" not in st and "pin_min" not in st
+        assert st["pin_set"] is True and st["authenticated"] is False
+        assert (await c.post("/api/auth/login", json={"pin": "1234"})).status_code == 200
+        st = (await c.get("/api/auth/status")).json()
+        assert st["pin_short"] is True and st["pin_min"] == 6
+    async with client(ctx) as c:
+        st = (await c.get("/api/auth/status")).json()
+        assert st["pin_short"] is True and st["pin_min"] == 6

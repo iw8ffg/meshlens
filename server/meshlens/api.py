@@ -491,12 +491,16 @@ def create_app(ctx: AppContext) -> FastAPI:
         # (PIN di una versione precedente: si impara al prossimo login riuscito)
         length = ctx.auth.pin_length()
         lan = load_settings(ctx.conn)["lan_access"]
-        return {"pin_set": ctx.auth.pin_is_set(),
-                "authenticated": ctx.auth.check(session_token(request)),
-                "is_local": is_local(request),
-                "pin_short": None if length is None else bool(lan and length < MIN_PIN_LAN),
-                # cifre minime per un PIN nuovo (primo PIN o cambio)
-                "pin_min": MIN_PIN_LAN if lan else MIN_PIN}
+        authenticated = ctx.auth.check(session_token(request))
+        out = {"pin_set": ctx.auth.pin_is_set(),
+               "authenticated": authenticated,
+               "is_local": is_local(request)}
+        if authenticated or is_local(request):
+            # chi non e' autenticato e viene dalla rete non deve sapere se il PIN e' corto
+            out["pin_short"] = None if length is None else bool(lan and length < MIN_PIN_LAN)
+            # cifre minime per un PIN nuovo (primo PIN o cambio)
+            out["pin_min"] = MIN_PIN_LAN if lan else MIN_PIN
+        return out
 
     @app.post("/api/auth/setup", dependencies=[Depends(require_json)])
     async def auth_setup(body: PinBody, request: Request, response: Response):
@@ -675,9 +679,19 @@ def create_app(ctx: AppContext) -> FastAPI:
     async def get_settings():
         return _mask_settings(load_settings(ctx.conn))
 
+    def check_lan_pin(changes: dict) -> None:
+        """L'accesso dalla rete non si attiva con un PIN piu' corto del minimo per la LAN."""
+        if changes.get("lan_access") is not True:
+            return
+        length = ctx.auth.pin_length()
+        if length is not None and length < MIN_PIN_LAN:
+            raise HTTPException(
+                400, "Per attivare l'accesso dalla rete serve un PIN di almeno 6 cifre: cambia prima il PIN")
+
     @app.put("/api/settings", dependencies=[Depends(require_auth)])
     async def put_settings(changes: dict):
         changes = dict(changes)
+        check_lan_pin(changes)
         if "mqtt_brokers" in changes:
             changes.pop("mqtt", None)  # vista di compatibilita': vale la lista dei broker
             try:
@@ -718,6 +732,7 @@ def create_app(ctx: AppContext) -> FastAPI:
     async def import_settings(body: dict):
         try:
             changes, skipped = prepare_import(body, load_settings(ctx.conn))
+            check_lan_pin(changes)
             saved = save_settings(ctx.conn, changes)
         except ValueError as e:
             raise HTTPException(400, str(e))
@@ -1179,7 +1194,9 @@ def create_app(ctx: AppContext) -> FastAPI:
 
     @app.post("/api/config/{node_id}/channels/{index}/reveal-psk",
               dependencies=[Depends(require_auth), Depends(require_json)])
-    async def config_reveal_psk(node_id: str, index: int):
+    async def config_reveal_psk(node_id: str, index: int, request: Request):
+        if not is_loopback(request):
+            raise HTTPException(403, "Le chiavi si mostrano solo da questo PC")
         return await config_call(ctx.config.reveal_psk(node_id, index))
 
     # ---- copertura ----
