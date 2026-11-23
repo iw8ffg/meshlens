@@ -1,6 +1,10 @@
 {
   "exact": {
-    "Automazioni non disponibili": "Automations not available"
+    "Automazioni non disponibili": "Automations not available",
+    "Intervallo non valido: da 60 minuti a 7 giorni": "Invalid interval: from 60 minutes to 7 days",
+    "Non si può programmare un traceroute verso un tuo nodo": "You cannot schedule a traceroute to one of your own nodes",
+    "Radio non valida": "Invalid radio",
+    "Troppi nodi con traceroute periodico: massimo 20": "Too many nodes with periodic traceroute: maximum 20"
   },
   "patterns": []
 }
