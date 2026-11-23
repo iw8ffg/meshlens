@@ -11,7 +11,8 @@
     "Per attivare il webhook apri MeshLens da questo PC": "To turn on the webhook open MeshLens on this PC",
     "Webhook non configurato": "Webhook not configured",
     "Attendi qualche secondo prima di un'altra prova": "Wait a few seconds before another test",
-    "Diagnosi già in corso": "A diagnosis is already running"
+    "Diagnosi già in corso": "A diagnosis is already running",
+    "Radio non disponibili": "Radios not available"
   },
   "patterns": [
     [
