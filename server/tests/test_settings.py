@@ -152,3 +152,118 @@ def test_backup_retention_days_setting(conn):
     assert export_settings(load_settings(conn), False)["settings"]["backup_retention_days"] == 0
     changes, _ = prepare_import({"format": 1, "settings": {"backup_retention_days": 14}})
     assert changes == {"backup_retention_days": 14}
+
+
+# ---- 1.6 ----
+
+NEW_DEFAULTS = [
+    ("onboarding_done", False), ("quick_replies", []), ("favorites_to_radio", False),
+    ("traceroute_auto_enabled", False), ("traceroute_auto_max_per_hour", 6),
+    ("bot_enabled", False), ("bot_targets", []), ("bot_commands", ["ping", "info", "time"]),
+    ("bot_weather_node", ""), ("bot_replies", []), ("bot_min_interval_s", 30),
+    ("bot_max_per_hour", 20), ("bot_node_cooldown_s", 300), ("webhook_enabled", False),
+    ("webhook_url", ""), ("webhook_events", ["alert"]), ("update_channel", "stable"),
+    ("last_seen_version", ""), ("guest_enabled", False), ("retention_traceroutes_days", 365),
+    ("retention_broker_days", {}),
+]
+
+
+def _rejects(conn, key, value):
+    with pytest.raises(ValueError):
+        save_settings(conn, {key: value})
+
+
+@pytest.mark.parametrize("key,default", NEW_DEFAULTS)
+def test_new_defaults_present(conn, key, default):
+    assert load_settings(conn)[key] == default
+
+
+def test_quick_replies_validation(conn):
+    assert save_settings(conn, {"quick_replies": ["Arrivo {ora}", "Tutto ok"]})[
+        "quick_replies"] == ["Arrivo {ora}", "Tutto ok"]
+    for bad in ([f"r{i}" for i in range(21)], [""], [" x"], ["è" * 101], ["a\nb"],
+                ["ok", "ok"], "ok", [3]):
+        _rejects(conn, "quick_replies", bad)
+
+
+def test_bot_targets_validation(conn):
+    good = [{"kind": "radio", "radio_id": "r1", "channel_index": 0},
+            {"kind": "mqtt", "broker": "default", "channel": "LongFast"}]
+    assert save_settings(conn, {"bot_targets": good})["bot_targets"] == good
+    radio = {"kind": "radio", "radio_id": "r1", "channel_index": 0}
+    mqtt = {"kind": "mqtt", "broker": "default", "channel": "LongFast"}
+    for bad in ([{**radio, "channel_index": 8}], [{**radio, "kind": "x"}],
+                [{**radio, "extra": 1}], [{**mqtt, "broker": "Bad!"}],
+                [{**mqtt, "channel": "a/b"}], [{**mqtt, "channel": "x" * 12}],
+                [radio, dict(radio)],
+                [{**radio, "radio_id": f"r{i}"} for i in range(17)]):
+        _rejects(conn, "bot_targets", bad)
+
+
+def test_bot_commands_and_replies_validation(conn):
+    assert save_settings(conn, {"bot_commands": ["ping", "weather"]})["bot_commands"] == [
+        "ping", "weather"]
+    _rejects(conn, "bot_commands", ["ping", "ping"])
+    _rejects(conn, "bot_commands", ["shell"])
+    ok = [{"trigger": "Aiuto", "text": "Scrivi ping"}]
+    assert save_settings(conn, {"bot_replies": ok})["bot_replies"] == ok
+    _rejects(conn, "bot_replies", [{"trigger": "Aiuto", "text": "a"},
+                                   {"trigger": "aiuto", "text": "b"}])
+    _rejects(conn, "bot_replies", [{"trigger": "A", "text": "a"}])
+    _rejects(conn, "bot_replies", [{"trigger": "Aiuto", "text": ""}])
+    _rejects(conn, "bot_weather_node", "abc")
+    assert save_settings(conn, {"bot_weather_node": "!0000000a"})["bot_weather_node"] == "!0000000a"
+
+
+def test_webhook_url_validation(conn):
+    from meshlens.settings import MASK
+    for good in ("", MASK, "https://example.org/hook?t=abc", "http://127.0.0.1:8080/x",
+                 "http://localhost/x"):
+        save_settings(conn, {"webhook_url": good})
+    for bad in ("http://example.org/x", "ftp://x", "https://", "https://e.org/#f",
+                "https://e.org/" + "a" * 2035, 5):
+        _rejects(conn, "webhook_url", bad)
+
+
+def test_webhook_url_is_secret(conn):
+    from meshlens.settings import MASK, mask_secrets
+    save_settings(conn, {"webhook_url": "https://e.org/h?token=s3cr3t"})
+    raw = conn.execute("SELECT value FROM settings WHERE key='webhook_url'").fetchone()[0]
+    assert "s3cr3t" not in raw
+    s = load_settings(conn)
+    assert s["webhook_url"] == "https://e.org/h?token=s3cr3t"
+    assert mask_secrets(s)["webhook_url"] == MASK
+    assert "s3cr3t" not in str(export_settings(s, include_secrets=False))
+
+
+def test_ranges_and_enums(conn):
+    _rejects(conn, "traceroute_auto_max_per_hour", 0)
+    _rejects(conn, "traceroute_auto_max_per_hour", 31)
+    save_settings(conn, {"traceroute_auto_max_per_hour": 30})
+    _rejects(conn, "bot_min_interval_s", 14)
+    _rejects(conn, "update_channel", "nightly")
+    save_settings(conn, {"update_channel": "beta"})
+    for good in ("1.6.0", "1.6.0-beta.1"):
+        save_settings(conn, {"last_seen_version": good})
+    _rejects(conn, "last_seen_version", "v1")
+    _rejects(conn, "retention_traceroutes_days", 0)
+    _rejects(conn, "webhook_events", ["alert", "alert"])
+    _rejects(conn, "webhook_events", ["boom"])
+    _rejects(conn, "bot_enabled", 1)
+
+
+def test_retention_broker_days_validation(conn):
+    assert save_settings(conn, {"retention_broker_days": {"default": 7}})[
+        "retention_broker_days"] == {"default": 7}
+    for bad in ({"Bad!": 7}, {"default": 0}, {"default": "7"},
+                {f"b{i}": 7 for i in range(9)}, []):
+        _rejects(conn, "retention_broker_days", bad)
+
+
+def test_import_skips_local_only_keys():
+    changes, skipped = prepare_import({"format": 1, "settings": {
+        "bot_enabled": True, "webhook_enabled": True, "guest_enabled": True,
+        "onboarding_done": True, "last_seen_version": "1.6.0", "quick_replies": ["ok"]}})
+    assert changes == {"quick_replies": ["ok"]}
+    assert {"bot_enabled", "webhook_enabled", "guest_enabled", "onboarding_done",
+            "last_seen_version"} <= set(skipped)

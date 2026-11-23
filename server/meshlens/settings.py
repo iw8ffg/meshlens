@@ -56,7 +56,39 @@ DEFAULTS: dict = {
     "notify_mine_status": True,
     "notify_new_node": False,
     "notify_keywords": [],
+    # ---- 1.6 ----
+    "onboarding_done": False,
+    "quick_replies": [],
+    "favorites_to_radio": False,
+    "traceroute_auto_enabled": False,
+    "traceroute_auto_max_per_hour": 6,
+    "bot_enabled": False,
+    "bot_targets": [],
+    "bot_commands": ["ping", "info", "time"],
+    "bot_weather_node": "",
+    "bot_replies": [],
+    "bot_min_interval_s": 30,
+    "bot_max_per_hour": 20,
+    "bot_node_cooldown_s": 300,
+    "webhook_enabled": False,
+    "webhook_url": "",  # segreto (SECRET_KEYS)
+    "webhook_events": ["alert"],
+    "update_channel": "stable",
+    "last_seen_version": "",
+    "guest_enabled": False,
+    "retention_traceroutes_days": 365,
+    "retention_broker_days": {},
 }
+
+BOT_COMMANDS = ("ping", "info", "nodes", "time", "weather")
+WEBHOOK_EVENTS = ("message", "alert", "sensor", "traceroute", "node_new")
+MAX_QUICK_REPLIES = 20
+QUICK_REPLY_MAX_BYTES = 200
+MAX_BOT_TARGETS = 16
+MAX_BOT_REPLIES = 20
+# scelte di questo PC: un file di impostazioni importato non le cambia mai
+LOCAL_ONLY_KEYS = ("onboarding_done", "last_seen_version", "guest_enabled", "bot_enabled",
+                   "webhook_enabled")
 
 DEFAULT_BROKER_ID = "default"
 DEFAULT_BROKER_NAME = "mqtt.meshtastic.org (predefinito)"
@@ -115,10 +147,14 @@ _INT_KEYS = ("retention_messages_days", "retention_positions_days",
              "retention_telemetry_days", "storage_cap_mb")
 # interi con intervallo ammesso (min, max)
 _RANGE_KEYS = {"battery_alert_pct": (1, 99), "silent_alert_hours": (1, 168),
-               "retention_packets_hours": (1, 168), "backup_retention_days": (0, 3650)}
+               "retention_packets_hours": (1, 168), "backup_retention_days": (0, 3650),
+               "traceroute_auto_max_per_hour": (1, 30), "bot_min_interval_s": (15, 3600),
+               "bot_max_per_hour": (1, 120), "bot_node_cooldown_s": (30, 86400),
+               "retention_traceroutes_days": (1, 3650)}
 _MQTT_STR = ("host", "username", "password")
 _BOOL_KEYS = ("lan_access", "lan_https", "notify_toast", "notify_telegram",
-              "notify_mine_status", "notify_new_node")
+              "notify_mine_status", "notify_new_node", "onboarding_done", "favorites_to_radio",
+              "traceroute_auto_enabled", "bot_enabled", "webhook_enabled", "guest_enabled")
 MAX_NOTIFY_KEYWORDS = 20
 _CHAT_ID_RE = re.compile(r"-?[0-9]{1,20}")
 _TELEGRAM_TOKEN_RE = re.compile(r"\d{5,12}:[A-Za-z0-9_-]{30,50}")
@@ -323,6 +359,100 @@ def _validate_brokers(value) -> None:
         value[i] = {k: b[k] for k in BROKER_KEYS}
 
 
+_NODE_ID_RE = re.compile(r"![0-9a-fA-F]{8}")
+_VERSION_RE = re.compile(r"\d+\.\d+\.\d+(?:[-+.][0-9A-Za-z.-]+)?")
+_LOOPBACK_HOSTS = ("localhost", "127.0.0.1", "::1")
+# testi costanti (non f-string): il test del catalogo li trova e ne controlla la traduzione
+_QUICK_REPLIES_ERR = ("quick_replies deve essere una lista di al massimo 20 testi (da 1 a 200 "
+                      "byte, senza caratteri di controllo né doppioni)")
+_BOT_TARGETS_ERR = ("bot_targets deve essere una lista di al massimo 16 bersagli radio o MQTT "
+                    "validi, senza doppioni")
+_BOT_REPLIES_ERR = ("bot_replies deve essere una lista di al massimo 20 risposte (parola da 2 a "
+                    "32 caratteri, testo da 1 a 200 byte, parole diverse)")
+_WEBHOOK_URL_ERR = "webhook_url deve essere un URL https (http solo verso questo PC)"
+
+
+def _short_text(t, max_bytes: int) -> bool:
+    """Testo senza spazi agli estremi, da 1 a max_bytes byte UTF-8, senza caratteri di controllo."""
+    return (isinstance(t, str) and t == t.strip() and 1 <= len(t.encode("utf-8")) <= max_bytes
+            and not any(ord(c) < 32 for c in t))
+
+
+def _validate_quick_replies(value) -> None:
+    if not (isinstance(value, list) and len(value) <= MAX_QUICK_REPLIES
+            and all(_short_text(t, QUICK_REPLY_MAX_BYTES) for t in value)
+            and len(set(value)) == len(value)):
+        raise ValueError(_QUICK_REPLIES_ERR)
+
+
+def _bot_target(t) -> dict:
+    """Bersaglio del bot normalizzato alle sole chiavi del suo tipo (ValueError se non valido)."""
+    if not isinstance(t, dict):
+        raise ValueError(_BOT_TARGETS_ERR)
+    if t.get("kind") == "radio":
+        rid, idx = t.get("radio_id"), t.get("channel_index")
+        if (set(t) == {"kind", "radio_id", "channel_index"} and isinstance(rid, str)
+                and 1 <= len(rid) <= 64 and _is_int(idx) and 0 <= idx <= 7):
+            return {"kind": "radio", "radio_id": rid, "channel_index": idx}
+    elif t.get("kind") == "mqtt":
+        broker, ch = t.get("broker"), t.get("channel")
+        if (set(t) == {"kind", "broker", "channel"} and isinstance(broker, str)
+                and _BROKER_ID_RE.fullmatch(broker) and isinstance(ch, str)
+                and 1 <= len(ch.encode("utf-8")) <= MAX_CHANNEL_NAME_BYTES
+                and not any(c in ch for c in "/#+")):
+            return {"kind": "mqtt", "broker": broker, "channel": ch}
+    raise ValueError(_BOT_TARGETS_ERR)
+
+
+def _validate_bot_targets(value) -> None:
+    if not (isinstance(value, list) and len(value) <= MAX_BOT_TARGETS):
+        raise ValueError(_BOT_TARGETS_ERR)
+    seen = set()
+    for i, t in enumerate(value):
+        value[i] = norm = _bot_target(t)
+        key = tuple(norm.values())
+        if key in seen:
+            raise ValueError(_BOT_TARGETS_ERR)
+        seen.add(key)
+
+
+def _validate_bot_replies(value) -> None:
+    if not (isinstance(value, list) and len(value) <= MAX_BOT_REPLIES):
+        raise ValueError(_BOT_REPLIES_ERR)
+    seen = set()
+    for r in value:
+        if not (isinstance(r, dict) and set(r) == {"trigger", "text"}):
+            raise ValueError(_BOT_REPLIES_ERR)
+        trig = r["trigger"]
+        if not (isinstance(trig, str) and 2 <= len(trig) <= 32 and trig == trig.strip()
+                and _short_text(r["text"], 200)):
+            raise ValueError(_BOT_REPLIES_ERR)
+        if trig.casefold() in seen:
+            raise ValueError(_BOT_REPLIES_ERR)
+        seen.add(trig.casefold())
+
+
+def _validate_webhook_url(value) -> None:
+    if not isinstance(value, str):
+        raise ValueError(_WEBHOOK_URL_ERR)
+    if value in ("", MASK):
+        return
+    try:
+        u = urlsplit(value)
+        host = u.hostname
+    except ValueError:
+        raise ValueError(_WEBHOOK_URL_ERR) from None
+    ok = (len(value) <= 2048 and "#" not in value and host
+          and (u.scheme == "https" or (u.scheme == "http" and host in _LOOPBACK_HOSTS)))
+    if not ok:
+        raise ValueError(_WEBHOOK_URL_ERR)
+
+
+def _unique_subset(value, allowed: tuple) -> bool:
+    return (isinstance(value, list) and all(isinstance(x, str) and x in allowed for x in value)
+            and len(set(value)) == len(value))
+
+
 def _validate(key: str, value) -> None:
     if key not in DEFAULTS:
         raise ValueError(f"Impostazione sconosciuta: {key}")
@@ -393,6 +523,38 @@ def _validate(key: str, value) -> None:
         if not (isinstance(value, list) and all(
                 isinstance(x, str) and _BROKER_ID_RE.fullmatch(x) for x in value)):
             raise ValueError("mqtt_send_confirmed_brokers deve essere una lista di id di broker")
+    elif key == "quick_replies":
+        _validate_quick_replies(value)
+    elif key == "bot_targets":
+        _validate_bot_targets(value)
+    elif key == "bot_commands":
+        if not _unique_subset(value, BOT_COMMANDS):
+            raise ValueError("bot_commands deve contenere solo comandi tra ping, info, nodes, "
+                             "time, weather, senza doppioni")
+    elif key == "bot_weather_node":
+        if not (isinstance(value, str) and (value == "" or _NODE_ID_RE.fullmatch(value))):
+            raise ValueError("bot_weather_node deve essere vuoto oppure nel formato !xxxxxxxx")
+    elif key == "bot_replies":
+        _validate_bot_replies(value)
+    elif key == "webhook_url":
+        _validate_webhook_url(value)
+    elif key == "webhook_events":
+        if not _unique_subset(value, WEBHOOK_EVENTS):
+            raise ValueError("webhook_events deve contenere solo eventi tra message, alert, "
+                             "sensor, traceroute, node_new, senza doppioni")
+    elif key == "update_channel":
+        if value not in ("stable", "beta"):
+            raise ValueError("update_channel deve essere stable oppure beta")
+    elif key == "last_seen_version":
+        if not (isinstance(value, str) and (value == "" or (
+                len(value) <= 32 and _VERSION_RE.fullmatch(value)))):
+            raise ValueError("last_seen_version deve essere vuoto oppure un numero di versione")
+    elif key == "retention_broker_days":
+        if not (isinstance(value, dict) and len(value) <= MAX_BROKERS and all(
+                isinstance(k, str) and _BROKER_ID_RE.fullmatch(k) and _is_int(v)
+                and 1 <= v <= 3650 for k, v in value.items())):
+            raise ValueError("retention_broker_days deve associare a ogni id di broker un "
+                             "numero di giorni tra 1 e 3650")
 
 
 _DECRYPT_CACHE: dict = {}  # (protector, valore salvato) -> chiaro, oppure None se non decifrabile
@@ -608,6 +770,10 @@ def prepare_import(data: dict, current: dict | None = None) -> tuple[dict, list[
     if "mqtt_send_confirmed_brokers" in changes:
         del changes["mqtt_send_confirmed_brokers"]
         skipped.append("mqtt_send_confirmed_brokers")
+    for key in LOCAL_ONLY_KEYS:  # mai invii automatici o accesso ospite da un file importato
+        if key in changes:
+            del changes[key]
+            skipped.append(key)
     for key in SECRET_KEYS:
         if changes.get(key) == MASK:
             del changes[key]

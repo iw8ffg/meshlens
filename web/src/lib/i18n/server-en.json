@@ -237,7 +237,17 @@
     "telegram_chat_id deve essere vuoto oppure un numero intero": "telegram_chat_id must be empty or an integer",
     "telegram_token non ha il formato di un token di BotFather": "telegram_token is not in the format of a BotFather token",
     "update_auto_check deve essere vero o falso": "update_auto_check must be true or false",
-    "update_repo deve avere il formato owner/nome": "update_repo must be in the format owner/name"
+    "update_repo deve avere il formato owner/nome": "update_repo must be in the format owner/name",
+    "quick_replies deve essere una lista di al massimo 20 testi (da 1 a 200 byte, senza caratteri di controllo né doppioni)": "quick_replies must be a list of at most 20 texts (1 to 200 bytes, without control characters or duplicates)",
+    "bot_targets deve essere una lista di al massimo 16 bersagli radio o MQTT validi, senza doppioni": "bot_targets must be a list of at most 16 valid radio or MQTT targets, without duplicates",
+    "bot_commands deve contenere solo comandi tra ping, info, nodes, time, weather, senza doppioni": "bot_commands must contain only commands among ping, info, nodes, time, weather, without duplicates",
+    "bot_weather_node deve essere vuoto oppure nel formato !xxxxxxxx": "bot_weather_node must be empty or in the format !xxxxxxxx",
+    "bot_replies deve essere una lista di al massimo 20 risposte (parola da 2 a 32 caratteri, testo da 1 a 200 byte, parole diverse)": "bot_replies must be a list of at most 20 replies (word of 2 to 32 characters, text of 1 to 200 bytes, distinct words)",
+    "webhook_url deve essere un URL https (http solo verso questo PC)": "webhook_url must be an https URL (http only towards this PC)",
+    "webhook_events deve contenere solo eventi tra message, alert, sensor, traceroute, node_new, senza doppioni": "webhook_events must contain only events among message, alert, sensor, traceroute, node_new, without duplicates",
+    "update_channel deve essere stable oppure beta": "update_channel must be stable or beta",
+    "last_seen_version deve essere vuoto oppure un numero di versione": "last_seen_version must be empty or a version number",
+    "retention_broker_days deve associare a ogni id di broker un numero di giorni tra 1 e 3650": "retention_broker_days must map each broker id to a number of days between 1 and 3650"
   },
   "patterns": [
     [
