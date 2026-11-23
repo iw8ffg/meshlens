@@ -10,7 +10,8 @@
     "Per attivare il bot scegli almeno un canale": "To turn on the bot choose at least one channel",
     "Per attivare il webhook apri MeshLens da questo PC": "To turn on the webhook open MeshLens on this PC",
     "Webhook non configurato": "Webhook not configured",
-    "Attendi qualche secondo prima di un'altra prova": "Wait a few seconds before another test"
+    "Attendi qualche secondo prima di un'altra prova": "Wait a few seconds before another test",
+    "Diagnosi già in corso": "A diagnosis is already running"
   },
   "patterns": [
     [
