@@ -248,4 +248,352 @@ def handshake_frames(cfg: FakeRadioConfig, want_config_id: int, session=None) ->
     return out
 
 
+class _Client:
+    def __init__(self, sock: socket.socket, index: int) -> None:
+        self.sock = sock
+        self.index = index
+        self.lock = threading.Lock()
+        self.ready = False
+        self.dead = False
+        self.decoder = FrameDecoder()
+        self.thread: threading.Thread | None = None
+
+    def close(self) -> None:
+        self.dead = True
+        self.ready = False
+        for fn in (lambda: self.sock.shutdown(socket.SHUT_RDWR), self.sock.close):
+            try:
+                fn()
+            except OSError:
+                pass
+
+
+class FakeRadioServer:
+    def __init__(self, cfg: FakeRadioConfig, session=None) -> None:
+        if cfg.nak is not None:
+            try:
+                mesh_pb2.Routing.Error.Value(cfg.nak)
+            except ValueError as exc:
+                raise ValueError(f"Motivo di rifiuto sconosciuto: {cfg.nak}") from exc
+        self.cfg = cfg
+        self.session = session
+        self.received: list = []
+        self.stats = {"clients": 0, "handshakes": 0, "frames_out": 0, "ignored": 0,
+                      "replayed": 0, "connections": 0}
+        self.on_received = None  # callback facoltativo (ReceivedPacket) per la CLI
+        self._lock = threading.Lock()
+        self._clients: list = []
+        self._next_index = 0
+        self._stop = threading.Event()
+        self._started = False
+        self._stopped = False
+        self._listen: socket.socket | None = None
+        self._threads: list = []
+        self._timers: list = []
+        self._hs = threading.Event()
+        self._cur_lock = threading.Lock()
+        self._cursor = 0
+        self._gen = 0
+        self._wake = threading.Event()
+        self._port = 0
+        self._log_lock = threading.Lock()
+
+    # ------------------------------------------------------------------ ciclo di vita
+    @property
+    def port(self) -> int:
+        return self._port
+
+    @property
+    def my_node_num(self) -> int:
+        s = self.session
+        return s.my_node_num if s is not None and s.my_node_num is not None \
+            else self.cfg.my_node_num
+
+    def start(self) -> None:
+        if self._started:
+            return
+        validate_port(self.cfg.port, allow_zero=True)
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            sock.bind((self.cfg.host, self.cfg.port))
+            sock.listen(8)
+        except OSError:
+            sock.close()
+            raise
+        sock.settimeout(0.2)
+        self._listen = sock
+        self._port = sock.getsockname()[1]
+        self._started = True
+        t = threading.Thread(target=self._accept_loop, name="FakeRadioAccept", daemon=True)
+        t.start()
+        self._threads.append(t)
+        if self.session is not None and self.session.packets:
+            r = threading.Thread(target=self._replay_loop, name="FakeRadioReplay", daemon=True)
+            r.start()
+            self._threads.append(r)
+
+    def stop(self) -> None:
+        if self._stopped:
+            return
+        self._stopped = True
+        self._stop.set()
+        self._wake.set()
+        if self._listen is not None:
+            try:
+                self._listen.close()
+            except OSError:
+                pass
+        for c in list(self._clients):
+            c.close()
+        for tm in list(self._timers):
+            tm.cancel()
+        for t in list(self._threads):
+            if t is not threading.current_thread():
+                t.join(2.0)
+
+    def received_snapshot(self) -> list:
+        with self._lock:
+            return list(self.received)
+
+    def wait_handshake(self, timeout: float = 5.0) -> bool:
+        return self._hs.wait(timeout)
+
+    def disconnect_clients(self) -> None:
+        for c in list(self._clients):
+            c.close()
+
+    def push_packet(self, pkt: mesh_pb2.MeshPacket) -> None:
+        """Inietta subito un pacchetto radio -> client ai client pronti."""
+        fr = packet_frame(pkt)
+        if not fr.packet.rx_time:
+            fr.packet.rx_time = int(time.time())
+        self._send_ready(fr)
+
+    # ------------------------------------------------------------------ rete
+    def _bump(self, key: str, n: int = 1) -> None:
+        with self._lock:
+            self.stats[key] += n
+
+    def _send(self, c: _Client, msg) -> bool:
+        try:
+            data = encode_frame(msg)
+        except ValueError:
+            return False
+        try:
+            with c.lock:
+                c.sock.sendall(data)
+        except OSError:
+            c.close()
+            return False
+        self._bump("frames_out")
+        return True
+
+    def _send_ready(self, fr) -> int:
+        n = 0
+        for c in list(self._clients):
+            if c.ready and not c.dead and self._send(c, fr):
+                n += 1
+        return n
+
+    def _accept_loop(self) -> None:
+        while not self._stop.is_set():
+            try:
+                conn, _addr = self._listen.accept()
+            except socket.timeout:
+                continue
+            except OSError:
+                return
+            conn.settimeout(0.2)
+            try:
+                conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+            except OSError:
+                pass
+            with self._lock:
+                idx = self._next_index
+                self._next_index += 1
+                self.stats["connections"] += 1
+                self.stats["clients"] += 1
+            c = _Client(conn, idx)
+            self._clients.append(c)
+            t = threading.Thread(target=self._client_loop, args=(c,),
+                                 name=f"FakeRadioClient-{idx}", daemon=True)
+            c.thread = t
+            self._threads.append(t)
+            t.start()
+
+    def _client_loop(self, c: _Client) -> None:
+        try:
+            while not self._stop.is_set() and not c.dead:
+                try:
+                    data = c.sock.recv(4096)
+                except socket.timeout:
+                    continue
+                except OSError:
+                    break
+                if not data:
+                    break
+                for body in c.decoder.feed(data):
+                    try:
+                        self._on_toradio(c, body)
+                    except Exception:  # un client non deve mai fermare il server
+                        log.exception("errore nel gestire un ToRadio")
+                        self._bump("ignored")
+        finally:
+            c.close()
+            with self._lock:
+                if c in self._clients:
+                    self._clients.remove(c)
+                    self.stats["clients"] -= 1
+
+    # ------------------------------------------------------------------ ToRadio
+    def _on_toradio(self, c: _Client, body: bytes) -> None:
+        msg = mesh_pb2.ToRadio()
+        try:
+            msg.ParseFromString(body)
+        except Exception:
+            self._bump("ignored")
+            return
+        which = msg.WhichOneof("payload_variant")
+        if which == "want_config_id":
+            self._handshake(c, msg.want_config_id)
+        elif which == "packet":
+            self._on_packet(c, msg.packet)
+        elif which == "heartbeat":
+            return
+        elif which == "disconnect":
+            c.close()
+        else:
+            self._bump("ignored")
+
+    def _handshake(self, c: _Client, want: int) -> None:
+        c.ready = False
+        frames = handshake_frames(self.cfg, want, self.session)
+        for f in frames:
+            if not self._send(c, f):
+                return
+        if self.cfg.restart_on_connect:
+            self._reset_cursor()
+        self._bump("handshakes")
+        c.ready = True
+        self._hs.set()
+
+    def _on_packet(self, c: _Client, pkt: mesh_pb2.MeshPacket) -> None:
+        copy = mesh_pb2.MeshPacket()
+        copy.CopyFrom(pkt)
+        text = None
+        if copy.HasField("decoded") and \
+                copy.decoded.portnum == portnums_pb2.PortNum.TEXT_MESSAGE_APP:
+            text = copy.decoded.payload.decode("utf-8", errors="replace")
+        rec = ReceivedPacket(time.time(), c.index, copy, text)
+        with self._lock:
+            self.received.append(rec)
+        self._append_sent_log(rec)
+        cb = self.on_received
+        if cb is not None:
+            try:
+                cb(rec)
+            except Exception:
+                log.exception("errore nel callback di ricezione")
+        qs = mesh_pb2.FromRadio()
+        qs.queueStatus.res = 0
+        qs.queueStatus.free = 15
+        qs.queueStatus.maxlen = 16
+        qs.queueStatus.mesh_packet_id = pkt.id
+        self._send(c, qs)
+        if self.cfg.ack and pkt.want_ack:
+            tm = threading.Timer(max(0.0, self.cfg.ack_delay), self._send_ack, args=(c, pkt))
+            tm.daemon = True
+            self._timers.append(tm)
+            tm.start()
+
+    def _send_ack(self, c: _Client, pkt: mesh_pb2.MeshPacket) -> None:
+        import random
+        if self._stop.is_set() or c.dead:
+            return
+        mine = self.my_node_num
+        ack = mesh_pb2.FromRadio()
+        p = ack.packet
+        setattr(p, "from", mine if pkt.to == BROADCAST or pkt.to == 0 else pkt.to)
+        p.to = mine
+        p.id = random.randint(1, 0xFFFFFFFF)
+        p.rx_time = int(time.time())
+        p.decoded.portnum = portnums_pb2.PortNum.ROUTING_APP
+        p.decoded.request_id = pkt.id
+        routing = mesh_pb2.Routing()
+        routing.error_reason = mesh_pb2.Routing.Error.Value(self.cfg.nak or "NONE")
+        p.decoded.payload = routing.SerializeToString()
+        self._send(c, ack)
+
+    def _append_sent_log(self, rec: ReceivedPacket) -> None:
+        path = self.cfg.sent_log
+        if not path:
+            return
+        p = rec.packet
+        port = ""
+        if p.HasField("decoded"):
+            try:
+                port = portnums_pb2.PortNum.Name(p.decoded.portnum)
+            except ValueError:
+                port = str(p.decoded.portnum)
+        row = {"time": round(rec.time, 3), "to": p.to, "channel": p.channel, "id": p.id,
+               "portnum": port, "text": rec.text}
+        try:
+            with self._log_lock, open(path, "a", encoding="utf-8") as fh:
+                fh.write(json.dumps(row, ensure_ascii=False) + "\n")
+        except OSError:
+            log.warning("impossibile scrivere il registro degli invii")
+
+    # ------------------------------------------------------------------ riproduzione
+    def _reset_cursor(self) -> None:
+        with self._cur_lock:
+            self._cursor = 0
+            self._gen += 1
+        self._wake.set()
+
+    def _gap(self, i: int) -> float:
+        if i <= 0:
+            return 0.0
+        speed = self.cfg.speed
+        if not speed or speed == float("inf") or speed < 0:
+            return 0.0
+        pk = self.session.packets
+        return max(0.0, min((pk[i][0] - pk[i - 1][0]) / speed, self.cfg.max_gap))
+
+    def _replay_loop(self) -> None:
+        pkts = self.session.packets
+        while not self._stop.is_set():
+            self._wake.clear()
+            with self._cur_lock:
+                i, gen = self._cursor, self._gen
+            if i >= len(pkts):
+                if self.cfg.loop:
+                    with self._cur_lock:
+                        if self._gen == gen:
+                            self._cursor = 0
+                    self._stop.wait(0.002)
+                else:
+                    self._wake.wait(0.1)
+                continue
+            delay = self._gap(i)
+            if delay and self._wake.wait(delay):
+                continue  # cursore riportato all'inizio o stop: ricalcola
+            if self._stop.is_set():
+                return
+            fr = mesh_pb2.FromRadio()
+            fr.CopyFrom(pkts[i][1])
+            if self.cfg.restamp:
+                fr.packet.rx_time = int(time.time())
+            if not any(c.ready and not c.dead for c in self._clients):
+                self._wake.wait(0.01)  # nessun client pronto: il cursore aspetta
+                continue
+            delivered = self._send_ready(fr)
+            if not delivered:
+                continue
+            with self._cur_lock:
+                if self._gen == gen and self._cursor == i:
+                    self._cursor = i + 1
+            self._bump("replayed")
+
+
 # <<FIN>>

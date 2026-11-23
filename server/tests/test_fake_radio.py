@@ -549,4 +549,381 @@ def test_forbidden_port_rejected():
     assert fr.DEFAULT_PORT == 4404
 
 
+# ---------------------------------------------------------------- Task 6: server TCP
+
+from contextlib import contextmanager  # noqa: E402
+
+
+class Client:
+    """Client di prova con socket grezzo + FrameDecoder (niente libreria meshtastic)."""
+
+    def __init__(self, server):
+        self.sock = socket.create_connection(("127.0.0.1", server.port), timeout=3)
+        self.sock.settimeout(0.05)
+        self.dec = rr.FrameDecoder()
+        self.frames = []
+        self.arrival = {}
+        self.eof = False
+
+    def send(self, msg):
+        self.sock.sendall(rr.encode_frame(msg))
+
+    def raw(self, data):
+        self.sock.sendall(data)
+
+    def pump(self, timeout=0.5):
+        end = time.monotonic() + timeout
+        while time.monotonic() < end:
+            try:
+                data = self.sock.recv(4096)
+            except socket.timeout:
+                continue
+            except OSError:
+                self.eof = True
+                return
+            if not data:
+                self.eof = True
+                return
+            now = time.monotonic()
+            for body in self.dec.feed(data):
+                f = mesh_pb2.FromRadio.FromString(body)
+                if f.WhichOneof("payload_variant") == "packet":
+                    self.arrival.setdefault(f.packet.id, now)
+                self.frames.append(f)
+
+    def read(self, n, timeout=3.0):
+        """Aspetta almeno n frame in coda e ne consegna n (o meno al timeout)."""
+        end = time.monotonic() + timeout
+        while len(self.frames) < n and time.monotonic() < end and not self.eof:
+            self.pump(0.05)
+        out, self.frames = self.frames[:n], self.frames[n:]
+        return out
+
+    def read_until(self, pred, timeout=3.0):
+        out = []
+        end = time.monotonic() + timeout
+        while time.monotonic() < end:
+            got = self.read(1, 0.2)
+            if not got:
+                if self.eof:
+                    break
+                continue
+            out.append(got[0])
+            if pred(got[0]):
+                return out
+        return out
+
+    def handshake(self, want=777):
+        self.raw(b"\xc3" * 32)
+        req = mesh_pb2.ToRadio()
+        req.want_config_id = want
+        self.send(req)
+        return self.read_until(lambda f: f.WhichOneof("payload_variant") == "config_complete_id")
+
+    def close(self):
+        self.sock.close()
+
+
+@contextmanager
+def _radio(session=None, **kw):
+    with fx.running_fake_radio(session, **kw) as s:
+        clients = []
+        s._test_clients = clients
+        try:
+            yield s
+        finally:
+            for c in clients:
+                c.close()
+
+
+def _client(server):
+    c = Client(server)
+    server._test_clients.append(c)
+    return c
+
+
+def _to_text(text, pid=42, to=0xFFFFFFFF, channel=0, want_ack=False):
+    m = mesh_pb2.ToRadio()
+    m.packet.to = to
+    m.packet.id = pid
+    m.packet.channel = channel
+    m.packet.want_ack = want_ack
+    m.packet.decoded.portnum = portnums_pb2.PortNum.TEXT_MESSAGE_APP
+    m.packet.decoded.payload = text.encode()
+    return m
+
+
+def _pkt_session(times, **hdr):
+    pk = [(t, rr.packet_frame(text_packet(0x42, 0xFFFFFFFF, f"p{i}", 500 + i)))
+          for i, t in enumerate(times)]
+    return rr.Session(header={"format": rr.SESSION_FORMAT, "version": 1, **hdr}, packets=pk)
+
+
+def _packets(frames):
+    return [f for f in frames if f.WhichOneof("payload_variant") == "packet"]
+
+
+def test_server_binds_ephemeral_port_on_loopback():
+    with _radio() as s:
+        assert s.port > 0 and s.port not in (4403, 8686)
+        s.stop()
+        s.stop()
+
+
+def test_server_handshake_over_socket_matches_pure_sequence():
+    with _radio() as s:
+        c = _client(s)
+        frames = c.handshake(777)
+        assert _kinds(frames) == _kinds(fr.handshake_frames(s.cfg, 777, None))
+        assert s.wait_handshake(1.0) and s.stats["handshakes"] == 1
+
+
+def test_server_ignores_wake_bytes_and_garbage_before_frame():
+    with _radio() as s:
+        c = _client(s)
+        c.raw(b"\xc3" * 32 + b"\x00\x01\x02")
+        req = mesh_pb2.ToRadio()
+        req.want_config_id = 5
+        c.send(req)
+        frames = c.read_until(lambda f: f.WhichOneof("payload_variant") == "config_complete_id")
+        assert frames[-1].config_complete_id == 5
+
+
+def test_server_survives_malformed_frames():
+    with _radio() as s:
+        c = _client(s)
+        c.raw(b"\x94\xc3\x02\x58")                       # lunghezza 600
+        c.raw(b"\x94\xc3\x00\x03\xff\xff\xff")          # corpo non protobuf
+        c.raw(b"\x94\xc3\x00\x00")                      # ToRadio vuoto
+        frames = c.handshake(9)
+        assert frames and frames[-1].config_complete_id == 9
+        assert s.stats["ignored"] >= 2
+
+
+def test_text_packet_is_recorded():
+    with _radio() as s:
+        c = _client(s)
+        c.handshake()
+        c.send(_to_text("ciao", pid=42, channel=1))
+        assert wait_until(lambda: s.received_snapshot())
+        r = s.received_snapshot()[0]
+        assert r.text == "ciao" and r.packet.id == 42 and r.packet.channel == 1
+        assert r.client == 0 and r.packet.to == 0xFFFFFFFF
+
+
+def test_every_packet_gets_queue_status():
+    with _radio() as s:
+        c = _client(s)
+        c.handshake()
+        c.send(_to_text("ciao", pid=42))
+        got = c.read_until(lambda f: f.WhichOneof("payload_variant") == "queueStatus")
+        qs = got[-1].queueStatus
+        assert qs.res == 0 and qs.mesh_packet_id == 42 and qs.free > 0
+
+
+def _routing_acks(c, timeout=0.4):
+    c.pump(timeout)
+    return [f.packet for f in _packets(c.frames)
+            if f.packet.decoded.portnum == portnums_pb2.PortNum.ROUTING_APP]
+
+
+def test_ack_disabled_by_default():
+    with _radio() as s:
+        c = _client(s)
+        c.handshake()
+        c.send(_to_text("x", to=0x42, want_ack=True))
+        assert _routing_acks(c) == []
+
+
+def test_ack_enabled_sends_routing_ack_from_destination():
+    with _radio(ack=True, ack_delay=0.01) as s:
+        c = _client(s)
+        c.handshake()
+        c.send(_to_text("x", pid=77, to=0x42, want_ack=True))
+        got = c.read_until(lambda f: f.WhichOneof("payload_variant") == "packet")
+        p = got[-1].packet
+        assert getattr(p, "from") == 0x42 and p.to == s.cfg.my_node_num
+        assert p.decoded.portnum == portnums_pb2.PortNum.ROUTING_APP
+        assert p.decoded.request_id == 77
+        routing = mesh_pb2.Routing.FromString(p.decoded.payload)
+        assert routing.error_reason == mesh_pb2.Routing.Error.NONE
+
+
+def test_ack_for_broadcast_comes_from_own_node():
+    with _radio(ack=True, ack_delay=0.01) as s:
+        c = _client(s)
+        c.handshake()
+        c.send(_to_text("x", pid=5, want_ack=True))
+        p = c.read_until(lambda f: f.WhichOneof("payload_variant") == "packet")[-1].packet
+        assert getattr(p, "from") == s.cfg.my_node_num and p.decoded.request_id == 5
+
+
+def test_nak_reason_is_sent():
+    with _radio(ack=True, ack_delay=0.01, nak="NO_RESPONSE") as s:
+        c = _client(s)
+        c.handshake()
+        c.send(_to_text("x", pid=6, to=0x42, want_ack=True))
+        p = c.read_until(lambda f: f.WhichOneof("payload_variant") == "packet")[-1].packet
+        routing = mesh_pb2.Routing.FromString(p.decoded.payload)
+        assert routing.error_reason == mesh_pb2.Routing.Error.NO_RESPONSE
+
+
+def test_heartbeat_and_disconnect_toradio():
+    with _radio() as s:
+        c = _client(s)
+        c.handshake()
+        hb = mesh_pb2.ToRadio()
+        hb.heartbeat.SetInParent()
+        c.send(hb)
+        c.send(_to_text("ancora vivo", pid=1))
+        assert wait_until(lambda: s.received_snapshot())
+        bye = mesh_pb2.ToRadio()
+        bye.disconnect = True
+        c.send(bye)
+        c.pump(0.5)
+        assert c.eof
+        c2 = _client(s)
+        assert c2.handshake()[-1].config_complete_id == 777
+
+
+def test_replay_starts_only_after_config_complete():
+    with _radio(_pkt_session([0.0, 0.0]), speed=0) as s:
+        c = _client(s)
+        frames = c.handshake()
+        assert not _packets(frames)  # nessun pacchetto prima di config_complete
+        c.pump(0.4)
+        assert [f.packet.id for f in _packets(c.frames)] == [500, 501]
+
+
+def test_replay_respects_timing_and_speed():
+    with _radio(_pkt_session([0.0, 1.0]), speed=20) as s:
+        c = _client(s)
+        c.handshake()
+        assert wait_until(lambda: c.pump(0.02) or len(c.arrival) == 2, 2.0)
+        assert 0.04 <= c.arrival[501] - c.arrival[500] < 0.5
+
+
+def test_replay_max_gap_caps_waits():
+    with _radio(_pkt_session([0.0, 1000.0]), speed=1, max_gap=0.05) as s:
+        c = _client(s)
+        c.handshake()
+        c.pump(1.0)
+        assert len(_packets(c.frames)) == 2
+
+
+def test_replay_speed_zero_has_no_waits():
+    with _radio(_pkt_session([0.0, 3600.0]), speed=0) as s:
+        c = _client(s)
+        c.handshake()
+        c.pump(0.6)
+        assert len(_packets(c.frames)) == 2
+
+
+def test_replay_waits_for_client_and_loses_nothing():
+    with _radio(_pkt_session([0.0, 0.0, 0.0]), speed=0) as s:
+        time.sleep(0.2)
+        assert s.stats["replayed"] == 0
+        c = _client(s)
+        c.handshake()
+        c.pump(0.4)
+        assert [f.packet.id for f in _packets(c.frames)] == [500, 501, 502]
+
+
+def _drop_first_client(s, session_times, **kw):
+    c1 = _client(s)
+    c1.handshake()
+    got = c1.read_until(lambda f: f.WhichOneof("payload_variant") == "packet")
+    assert _packets(got)[0].packet.id == 500
+    c1.close()
+    assert wait_until(lambda: s.stats["clients"] == 0)
+
+
+def test_replay_continues_after_reconnect_by_default():
+    with _radio(_pkt_session([0.0, 0.8]), speed=1) as s:
+        _drop_first_client(s, None)
+        c2 = _client(s)
+        c2.handshake()
+        c2.pump(1.5)
+        assert [f.packet.id for f in _packets(c2.frames)] == [501]
+
+
+def test_restart_on_connect_replays_from_start():
+    with _radio(_pkt_session([0.0, 0.8]), speed=1, restart_on_connect=True) as s:
+        _drop_first_client(s, None)
+        c2 = _client(s)
+        c2.handshake()
+        c2.pump(1.5)
+        assert [f.packet.id for f in _packets(c2.frames)] == [500, 501]
+
+
+def test_loop_restarts_session():
+    with _radio(_pkt_session([0.0, 0.0]), speed=0, loop=True) as s:
+        c = _client(s)
+        c.handshake()
+        c.pump(0.3)
+        ids = [f.packet.id for f in _packets(c.frames)]
+        assert len(ids) >= 3 and ids[:4] == [500, 501, 500, 501][:len(ids[:4])]
+
+
+def test_restamp_rewrites_rx_time():
+    sess = _pkt_session([0.0])
+    old = sess.packets[0][1].packet.rx_time
+    with _radio(sess, speed=0) as s:
+        c = _client(s)
+        c.handshake()
+        c.pump(0.3)
+        got = _packets(c.frames)[0].packet.rx_time
+        assert abs(got - time.time()) < 5 and got != old
+    with _radio(sess, speed=0, restamp=False) as s:
+        c = _client(s)
+        c.handshake()
+        c.pump(0.3)
+        assert _packets(c.frames)[0].packet.rx_time == old
+
+
+def test_push_packet_delivers_immediately_to_ready_client():
+    with _radio() as s:
+        c = _client(s)
+        c.handshake()
+        s.push_packet(text_packet(0x42, 0xFFFFFFFF, "pushato", 900))
+        got = c.read_until(lambda f: f.WhichOneof("payload_variant") == "packet")
+        assert got[-1].packet.decoded.payload == b"pushato"
+
+
+def test_multiple_clients_get_own_handshake_and_index():
+    with _radio() as s:
+        a, b = _client(s), _client(s)
+        assert a.handshake(11)[-1].config_complete_id == 11
+        assert b.handshake(22)[-1].config_complete_id == 22
+        a.send(_to_text("da a", pid=1))
+        b.send(_to_text("da b", pid=2))
+        assert wait_until(lambda: len(s.received_snapshot()) == 2)
+        by = {r.text: r.client for r in s.received_snapshot()}
+        assert by["da a"] != by["da b"] and s.stats["handshakes"] == 2
+
+
+def test_stop_closes_clients_and_joins_threads():
+    with _radio(_pkt_session([0.0])) as s:
+        c = _client(s)
+        c.handshake()
+        s.stop()
+        c.pump(0.5)
+        assert c.eof
+    live = [t.name for t in threading.enumerate() if t.name.startswith("FakeRadio") and t.is_alive()]
+    assert live == []
+
+
+def test_sent_log_file_appends_jsonl(tmp_path):
+    log = tmp_path / "inviati.jsonl"
+    with _radio(sent_log=str(log)) as s:
+        c = _client(s)
+        c.handshake()
+        c.send(_to_text("ciao log", pid=3, channel=1))
+        assert wait_until(lambda: log.exists() and log.read_text(encoding="utf-8").strip())
+    row = json.loads(log.read_text(encoding="utf-8").splitlines()[0])
+    assert row["text"] == "ciao log" and row["id"] == 3 and row["channel"] == 1
+    assert row["portnum"] == "TEXT_MESSAGE_APP" and set(row) == {
+        "time", "to", "channel", "id", "portnum", "text"}
+
+
 # <<FIN>>
