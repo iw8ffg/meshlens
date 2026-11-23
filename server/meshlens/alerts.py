@@ -16,6 +16,12 @@ KIND_ORDER = {"battery_low": 0, "silent": 1, "key_changed": 2, "chutil_high": 3,
               "rule_silent": 10, "sensor_detection": 11, "autonomy_low": 12}
 
 
+# 1.6: tipo di regola (alert_rules.kind) -> tipo di avviso
+RULE_ALERT_KIND = {"keyword": "rule_keyword", "snr_low": "rule_snr", "geofence": "rule_geofence",
+                   "battery": "rule_battery", "silent": "rule_silent",
+                   "detection": "sensor_detection"}
+
+
 def sort_key(a: dict) -> tuple:
     """Ordine degli avvisi: per tipo (gli sconosciuti in fondo), poi per nome del nodo."""
     return (KIND_ORDER.get(a.get("kind"), 99), a.get("node_name") or "")
@@ -26,6 +32,17 @@ _FW_RE = re.compile(r"\D*([0-9]+)\.([0-9]+)\.([0-9]+)", re.ASCII)
 
 def _name(n: dict) -> str:
     return n.get("long_name") or n.get("short_name") or n["id"]
+
+
+def rule_alert(rule_kind: str, rule_id: int, node: dict, since: float, value: float,
+               detail: str | None = None) -> dict:
+    """Avviso di una regola utente (chiave `rule:<id>:<nodo>`), stesso formato di compute_alerts."""
+    alert = {"key": f"rule:{rule_id}:{node['id']}", "kind": RULE_ALERT_KIND[rule_kind],
+             "node_id": node["id"], "node_name": _name(node), "value": value, "since": since,
+             "rule_id": rule_id}
+    if detail is not None:
+        alert["detail"] = detail
+    return alert
 
 
 def parse_firmware(v: str | None) -> tuple[int, int, int] | None:
