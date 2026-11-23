@@ -177,3 +177,63 @@ def test_channel_psk_length_validated():
         raw = base64.b64encode(b"A" * n).decode()
         with pytest.raises(ValueError):
             cm.parse_changes({"channels.1.psk": raw})
+
+
+# ---- WP4: tipo di chiave dei canali e messaggi predefiniti ----
+
+def test_psk_kind_classes():
+    from meshlens import crypto
+    assert cm.psk_kind(b"") == "none"
+    assert cm.psk_kind(b"\x00") == "none"
+    assert cm.psk_kind(b"\x01") == "default"
+    assert cm.psk_kind(b"\x05") == "default"
+    assert cm.psk_kind(crypto.DEFAULT_KEY) == "default"
+    assert cm.psk_kind(bytes(range(16))) == "custom"
+    assert cm.psk_kind(bytes(range(32))) == "custom"
+    assert cm.KEY_KINDS == ("none", "default", "custom")
+
+
+def test_channel_dict_has_key_kind_without_leaking_psk():
+    import base64
+    import json
+    import secrets
+    p = protos()
+    key = secrets.token_bytes(32)
+    p["channels"][0].settings.psk = b"\x01"
+    p["channels"][1].settings.psk = key
+    d = cm.node_to_dict(p["config"], p["module_config"], p["channels"], p["owner"])
+    assert d["channels"][0]["key_kind"] == "default"
+    assert d["channels"][1]["key_kind"] == "custom"
+    assert all(c["psk"] == cm.MASK for c in d["channels"])
+    assert base64.b64encode(key).decode() not in json.dumps(d)
+
+
+def test_key_kind_not_a_change():
+    with pytest.raises(ValueError):
+        cm.parse_changes({"channels.1.key_kind": "none"})
+    assert "key_kind" not in cm.CHANNEL_FIELDS
+
+
+def test_join_canned_rules():
+    assert cm.join_canned(["Ciao", " Arrivo "]) == "Ciao|Arrivo"
+    cases = [([], "Serve almeno un messaggio"),
+             ([""], "I messaggi non possono essere vuoti"),
+             (["  "], "I messaggi non possono essere vuoti"),
+             (["a|b"], "I messaggi non possono contenere il carattere |"),
+             (["a\nb"], "I messaggi non possono contenere caratteri di controllo"),
+             (["è" * 100, "x"], "Troppo lunghi: 202 byte su 200 (separatori compresi)"),
+             (["a" * 199, "b"], "Troppo lunghi: 201 byte su 200 (separatori compresi)")]
+    for msgs, msg in cases:
+        with pytest.raises(ValueError) as ei:
+            cm.join_canned(msgs)
+        assert str(ei.value) == msg, msgs
+    assert cm.join_canned(["a" * 200]) == "a" * 200
+    for bad in ("ciao", None, [1, 2]):
+        with pytest.raises(ValueError):
+            cm.join_canned(bad)
+
+
+def test_split_canned():
+    assert cm.split_canned("") == []
+    assert cm.split_canned("a||b|") == ["a", "b"]
+    assert cm.split_canned("Ciao|OK") == ["Ciao", "OK"]

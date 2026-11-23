@@ -1,4 +1,22 @@
 {
-  "exact": {},
-  "patterns": []
+  "exact": {
+    "Il canale primario deve essere incluso": "The primary channel must be included",
+    "I messaggi non possono contenere caratteri di controllo": "Messages cannot contain control characters",
+    "I messaggi non possono contenere il carattere |": "Messages cannot contain the | character",
+    "I messaggi non possono essere vuoti": "Messages cannot be empty",
+    "Serve almeno un messaggio": "At least one message is required",
+    "Il firmware di questa radio non include i messaggi predefiniti": "This radio's firmware does not include canned messages",
+    "Messaggi predefiniti non validi": "Invalid canned messages",
+    "Non si può marcare il nodo della radio stessa": "The radio's own node cannot be marked"
+  },
+  "patterns": [
+    [
+      "^Troppo lunghi: (\\d+) byte su 200 \\(separatori compresi\\)$",
+      "Too long: $1 bytes of 200 (separators included)"
+    ],
+    [
+      "^Flag sconosciuto: (.+)$",
+      "Unknown flag: $1"
+    ]
+  ]
 }

@@ -3,7 +3,10 @@ import base64
 import pytest
 from meshtastic.protobuf import apponly_pb2, config_pb2
 
-from meshlens.channel_link import parse_channel_url, preset_name
+from meshtastic.protobuf import channel_pb2, localonly_pb2
+
+from meshlens.channel_link import (MSG_NO_CHANNELS, build_channel_url, parse_channel_url,
+                                   preset_name)
 from meshlens.settings import merge_channels
 
 KEY32 = bytes(range(32))
@@ -90,3 +93,57 @@ def test_merge_channels_no_crypto_psk_stored_as_single_zero_byte():
     added, _ = merge_channels(broker, [{"name": "Aperto", "psk": ""}, {"name": " Sp ", "psk": " AA== "}])
     assert added == ["Aperto", "Sp"]
     assert [c["psk"] for c in broker["channels"]] == ["AA==", "AA=="]
+
+
+# ---- WP4: link di esportazione ----
+
+def _channels():
+    out = []
+    for i, (role, name, psk) in enumerate([(channel_pb2.Channel.PRIMARY, "", b"\x01"),
+                                          (channel_pb2.Channel.SECONDARY, "Amici", KEY32),
+                                          (channel_pb2.Channel.DISABLED, "", b"")]):
+        c = channel_pb2.Channel(index=i, role=role)
+        c.settings.name, c.settings.psk = name, psk
+        out.append(c)
+    return out
+
+
+def _lora():
+    lc = localonly_pb2.LocalConfig()
+    lc.lora.modem_preset = config_pb2.Config.LoRaConfig.LONG_FAST
+    lc.lora.region = config_pb2.Config.LoRaConfig.EU_868
+    return lc.lora
+
+
+def test_build_url_roundtrip():
+    url = build_channel_url(_channels(), _lora())
+    assert url.startswith("https://meshtastic.org/e/#")
+    assert "=" not in url.split("#", 1)[1]
+    assert parse_channel_url(url) == [{"name": "LongFast", "psk": "AQ=="},
+                                      {"name": "Amici", "psk": KEY32_B64}]
+
+
+def test_build_url_add_and_include():
+    url = build_channel_url(_channels(), _lora(), include=[1], add=True)
+    assert url.startswith("https://meshtastic.org/e/?add=true#")
+    assert parse_channel_url(url) == [{"name": "Amici", "psk": KEY32_B64}]
+    with pytest.raises(ValueError, match="Il canale primario deve essere incluso"):
+        build_channel_url(_channels(), _lora(), include=[1], add=False)
+    with pytest.raises(ValueError) as ei:
+        build_channel_url(_channels(), _lora(), include=[2])
+    assert str(ei.value) == MSG_NO_CHANNELS
+    with pytest.raises(ValueError):
+        build_channel_url([], _lora())
+
+
+def test_build_url_matches_library_format():
+    chans = _channels()
+    lora = _lora()
+    cs = apponly_pb2.ChannelSet()  # come Node.getURL della libreria (node.py r.374)
+    for c in chans:
+        if c.role in (channel_pb2.Channel.PRIMARY, channel_pb2.Channel.SECONDARY):
+            cs.settings.append(c.settings)
+    cs.lora_config.CopyFrom(lora)
+    s = base64.urlsafe_b64encode(cs.SerializeToString()).decode("ascii")
+    s = s.replace("=", "").replace("+", "-").replace("/", "_")
+    assert build_channel_url(chans, lora) == f"https://meshtastic.org/e/#{s}"
