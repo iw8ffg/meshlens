@@ -9,6 +9,7 @@
   import Badge from '../lib/ui/Badge.svelte'
   import Banner from '../lib/ui/Banner.svelte'
   import Empty from '../lib/ui/Empty.svelte'
+  import EmptyAction from '../lib/ui/EmptyAction.svelte'
   import Field from '../lib/ui/Field.svelte'
   import Select from '../lib/ui/Select.svelte'
   import Segmented from '../lib/ui/Segmented.svelte'
@@ -178,7 +179,10 @@
     </Card>
   {:else}
     {#if !adding}
-      <Empty icon="radio" title={t('radios.empty.title')}>{t('radios.empty.body')}</Empty>
+      <Empty icon="radio" title={t('radios.empty.title')}>
+        {t('radios.empty.body')}
+        {#snippet action()}<EmptyAction kind="radios" />{/snippet}
+      </Empty>
     {/if}
   {/each}
 
