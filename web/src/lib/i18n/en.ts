@@ -20,6 +20,27 @@ import { network } from './en/network'
 import { packets } from './en/packets'
 import { notify } from './en/notify'
 import { waypoints } from './en/waypoints'
+// 1.6: aree dei pacchetti di lavoro (contratto §8.2)
+import { search } from './en/search'
+import { quick } from './en/quick'
+import { onboarding } from './en/onboarding'
+import { alertrules } from './en/alertrules'
+import { sensors } from './en/sensors'
+import { health } from './en/health'
+import { layers } from './en/layers'
+import { topology } from './en/topology'
+import { tak } from './en/tak'
+import { nodeflags } from './en/nodeflags'
+import { profiles } from './en/profiles'
+import { privacy } from './en/privacy'
+import { channels } from './en/channels'
+import { canned } from './en/canned'
+import { tracesched } from './en/tracesched'
+import { bot } from './en/bot'
+import { retention } from './en/retention'
+import { radiodiag } from './en/radiodiag'
+import { whatsnew } from './en/whatsnew'
+import { guest } from './en/guest'
 
 export const en: Record<MsgKey, string> = {
   ...nav,
@@ -41,4 +62,24 @@ export const en: Record<MsgKey, string> = {
   ...packets,
   ...notify,
   ...waypoints,
+  ...search,
+  ...quick,
+  ...onboarding,
+  ...alertrules,
+  ...sensors,
+  ...health,
+  ...layers,
+  ...topology,
+  ...tak,
+  ...nodeflags,
+  ...profiles,
+  ...privacy,
+  ...channels,
+  ...canned,
+  ...tracesched,
+  ...bot,
+  ...retention,
+  ...radiodiag,
+  ...whatsnew,
+  ...guest,
 }
