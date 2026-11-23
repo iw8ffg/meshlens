@@ -33,6 +33,20 @@ class FakeRadios:
         raise AssertionError("nessun traceroute nei test delle rotte")
 
 
+class _LocalOpener:
+    """Opener di prova: manda la richiesta https al server http locale dei test."""
+
+    def __init__(self, port):
+        import urllib.request
+        self.port, self.inner = port, urllib.request.build_opener()
+
+    def open(self, req, timeout=None):
+        import urllib.request
+        local = urllib.request.Request(f"http://127.0.0.1:{self.port}/h", data=req.data,
+                                       headers=dict(req.header_items()), method="POST")
+        return self.inner.open(local, timeout=timeout)
+
+
 def auto_ctx():
     ctx = make_ctx()
     ctx.radios = FakeRadios()
@@ -318,10 +332,25 @@ async def test_webhook_status_never_exposes_url(actx):
 
 
 async def test_webhook_test_route(actx, server):  # noqa: F811
+    from meshlens import webhook as webhook_mod
+    svc = actx.ext["webhook"]
     async with logged(actx) as c:
         r = await c.post("/api/webhook/test", json={})
         assert r.status_code == 400 and r.json()["detail"] == "Webhook non configurato"
-        save_settings(actx.conn, {"webhook_url": f"http://127.0.0.1:{server.server_port}/h"})
+        save_settings(actx.conn, {"webhook_url": f"https://hook.example:{server.server_port}/h"})
+        # M1: la prova applica lo stesso controllo dei bersagli (qui risolto verso il PC)
+        svc.check_target = lambda u: webhook_mod.check_url(
+            u, lambda h, p, *a, **k: [(2, 1, 6, "", ("127.0.0.1", p))])
+        r = await c.post("/api/webhook/test", json={})
+        assert r.json() == {"ok": False, "code": "blocked_target"} and server.hits == []
+
+
+async def test_webhook_test_route_delivers(actx, server):  # noqa: F811
+    svc = actx.ext["webhook"]
+    async with logged(actx) as c:
+        save_settings(actx.conn, {"webhook_url": f"https://hook.example:{server.server_port}/h"})
+        svc.check_target = lambda u: None
+        svc.opener = _LocalOpener(server.server_port)
         r = await c.post("/api/webhook/test", json={})
         assert r.json() == {"ok": True, "code": "ok"}
         assert json.loads(server.hits[0]["body"])["event"] == "test"

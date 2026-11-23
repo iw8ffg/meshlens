@@ -1,6 +1,7 @@
 """Impostazioni persistenti (tabella settings, valori JSON)."""
 import base64
 import copy
+import ipaddress
 import json
 import logging
 import re
@@ -372,7 +373,8 @@ _BOT_TARGETS_ERR = ("bot_targets deve essere una lista di al massimo 16 bersagli
                     "validi, senza doppioni")
 _BOT_REPLIES_ERR = ("bot_replies deve essere una lista di al massimo 20 risposte (parola da 2 a "
                     "32 caratteri, testo da 1 a 200 byte, parole diverse)")
-_WEBHOOK_URL_ERR = "webhook_url deve essere un URL https (http solo verso questo PC)"
+_WEBHOOK_URL_ERR = ("webhook_url deve essere un URL https verso un servizio su Internet: "
+                    "non sono ammessi questo PC né gli indirizzi della rete locale")
 
 
 def _short_text(t, max_bytes: int) -> bool:
@@ -435,6 +437,21 @@ def _validate_bot_replies(value) -> None:
         seen.add(trig.casefold())
 
 
+def _internal_host(host: str) -> bool:
+    """Nome o indirizzo scritto che punta di sicuro a questo PC o alla rete locale. I nomi
+    vengono ricontrollati dopo la risoluzione DNS a ogni invio (webhook.check_url)."""
+    h = host.lower().rstrip(".")
+    if h in _LOOPBACK_HOSTS or h.endswith(".localhost"):
+        return True
+    try:
+        ip = ipaddress.ip_address(h.split("%", 1)[0])
+    except ValueError:
+        return False
+    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
+        ip = ip.ipv4_mapped
+    return not ip.is_global or ip.is_multicast
+
+
 def _validate_webhook_url(value) -> None:
     if not isinstance(value, str):
         raise ValueError(_WEBHOOK_URL_ERR)
@@ -445,8 +462,8 @@ def _validate_webhook_url(value) -> None:
         host = u.hostname
     except ValueError:
         raise ValueError(_WEBHOOK_URL_ERR) from None
-    ok = (len(value) <= 2048 and "#" not in value and host
-          and (u.scheme == "https" or (u.scheme == "http" and host in _LOOPBACK_HOSTS)))
+    ok = (len(value) <= 2048 and "#" not in value and host and u.scheme == "https"
+          and not _internal_host(host))
     if not ok:
         raise ValueError(_WEBHOOK_URL_ERR)
 

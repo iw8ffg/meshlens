@@ -67,6 +67,8 @@ def make(url, events=("message", "alert", "sensor", "traceroute", "node_new"), e
          **kw):
     settings = {"webhook_enabled": enabled, "webhook_url": url, "webhook_events": list(events)}
     clock = Clock()
+    if "check_target" not in kw:  # server di prova locali in http: controllo dei bersagli a parte
+        kw["check_target"] = lambda u: None if webhook_mod._valid_url(u) else "invalid_url"
     svc = WebhookService(lambda: settings, clock, spawn=lambda fn: fn(), version="1.6.0",
                          started=T0, **kw)
     svc.settings_ref = settings
@@ -290,3 +292,44 @@ def test_no_send_shortcuts_in_source():
     src = Path(webhook_mod.__file__).read_text(encoding="utf-8")
     for bad in ("override_duty_cycle", "sendText", "sendData", "paho", "iface"):
         assert bad not in src
+
+
+# ---- M1: solo https verso Internet ----------------------------------------------------
+def fake_resolve(*ips):
+    def resolve(host, port, *a, **kw):
+        return [(socket.AF_INET6 if ":" in ip else socket.AF_INET, socket.SOCK_STREAM, 6, "",
+                 (ip, port)) for ip in ips]
+    return resolve
+
+
+def test_check_url_https_only_and_public_targets():
+    from meshlens.webhook import check_url
+    assert check_url("https://hook.example/x", fake_resolve("93.184.216.34")) is None
+    assert check_url("http://hook.example/x", fake_resolve("93.184.216.34")) == "invalid_url"
+    for ip in ("127.0.0.1", "10.1.2.3", "192.168.0.5", "172.16.0.1", "169.254.169.254",
+               "224.0.0.251", "0.0.0.0", "::1", "fe80::1", "fc00::1", "::ffff:10.0.0.1",
+               "100.64.0.1"):
+        assert check_url("https://hook.example/x", fake_resolve(ip)) == "blocked_target", ip
+    # basta un indirizzo interno fra quelli risolti
+    assert check_url("https://hook.example/x",
+                     fake_resolve("93.184.216.34", "127.0.0.1")) == "blocked_target"
+
+    def no_dns(*a, **kw):
+        raise socket.gaierror(11001, "x")
+    assert check_url("https://hook.example/x", no_dns) == "dns"
+
+
+def test_blocked_target_never_contacted(server):
+    svc, _ = make(f"https://hook.example:{server.server_port}/x",
+                  check_target=lambda u: webhook_mod.check_url(u, fake_resolve("127.0.0.1")))
+    res = svc.deliver("test", {})
+    assert res == {"ok": False, "time": res["time"], "code": "blocked_target"}
+    assert server.hits == []
+
+
+def test_guarded_connection_blocks_internal_peer_after_dns(server):
+    """Difesa dal DNS rebinding: l'indirizzo davvero collegato viene ricontrollato prima
+    del TLS e dell'invio del corpo."""
+    svc, _ = make(f"https://127.0.0.1:{server.server_port}/x", check_target=lambda u: None)
+    assert svc.deliver("test", {})["code"] == "blocked_target"
+    assert server.hits == []
