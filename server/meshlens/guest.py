@@ -6,6 +6,12 @@ Il controllo e' sul server e nega per impostazione predefinita:
   (template della rotta) in `guest_get_paths()`;
 - WebSocket: all'ospite passano solo gli eventi di `guest_event()`.
 """
+from fastapi import Depends, HTTPException, Request
+from pydantic import BaseModel, Field, StrictBool
+
+from .auth import LOOPBACK, MIN_PIN_GUEST, ROLE_GUEST
+from .settings import load_settings, save_settings
+
 GUEST_FORBIDDEN = "Non disponibile con l'accesso ospite"
 GUEST_LOCAL_ONLY = "L'accesso ospite si gestisce solo da questo PC"
 GUEST_NO_PIN = "Imposta prima il PIN ospite"
@@ -28,6 +34,69 @@ GUEST_WS_TYPES = frozenset({"nodes", "traceroute", "sensor_event", "tak_contact"
                             "status", "alerts"})
 # stato MQTT per l'ospite: niente host dei broker, errori, topic rifiutati
 _MQTT_KEYS = ("connected", "msgs_per_s", "connected_since", "last_msg_age_s")
+
+
+class GuestPinBody(BaseModel):
+    pin: str = Field(max_length=32)
+
+
+class GuestEnableBody(BaseModel):
+    enabled: StrictBool
+
+
+def register_guest_routes(app, ctx, require_auth, require_json) -> None:
+    """Rotte dedicate (contratto §5.3: prefisso /api/auth/guest). Tutte solo admin (require_auth
+    nega l'ospite); PIN e accensione solo da questo PC."""
+
+    def local(request: Request) -> bool:
+        return request.client is not None and request.client.host in LOOPBACK
+
+    def need_local(request: Request) -> None:
+        if not local(request):
+            raise HTTPException(403, GUEST_LOCAL_ONLY)
+
+    def status(request: Request) -> dict:
+        s = load_settings(ctx.conn)
+        return {"enabled": s.get("guest_enabled") is True, "pin_set": ctx.auth.guest_pin_is_set(),
+                "local": local(request), "lan_access": bool(s.get("lan_access")),
+                "sessions": ctx.auth.count_guests(), "pin_min": MIN_PIN_GUEST}
+
+    async def set_enabled(enabled: bool) -> None:
+        saved = save_settings(ctx.conn, {"guest_enabled": enabled})
+        if not enabled:
+            ctx.auth.revoke_role(ROLE_GUEST)
+        await ctx.on_settings_changed(saved)
+
+    @app.get("/api/auth/guest", dependencies=[Depends(require_auth)])
+    async def guest_status(request: Request):
+        return status(request)
+
+    @app.put("/api/auth/guest/pin", dependencies=[Depends(require_auth), Depends(require_json)])
+    async def guest_set_pin(body: GuestPinBody, request: Request):
+        need_local(request)
+        try:
+            await ctx.auth.aset_guest_pin(body.pin)  # revoca gli ospiti con il PIN vecchio
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+        return status(request)
+
+    @app.delete("/api/auth/guest/pin", dependencies=[Depends(require_auth), Depends(require_json)])
+    async def guest_clear_pin(request: Request):
+        need_local(request)
+        ctx.auth.clear_guest_pin()
+        if load_settings(ctx.conn).get("guest_enabled") is True:
+            await set_enabled(False)
+        return status(request)
+
+    @app.put("/api/auth/guest", dependencies=[Depends(require_auth), Depends(require_json)])
+    async def guest_enable(body: GuestEnableBody, request: Request):
+        if body.enabled:
+            # accendere solo da questo PC e con un PIN ospite; spegnere da ovunque
+            need_local(request)
+            if not ctx.auth.guest_pin_is_set():
+                raise HTTPException(400, GUEST_NO_PIN)
+        await set_enabled(body.enabled)
+        return status(request)
 
 
 def guest_get_paths() -> frozenset[str]:

@@ -327,6 +327,71 @@ def test_ws_guest_closed_when_guest_disabled(gctx):
             assert e.value.code == 4401
 
 
+async def test_guest_routes_status(gctx):
+    async with client_with(gctx, admin_token(gctx)) as c:
+        st = (await c.get("/api/auth/guest")).json()
+        assert st == {"enabled": True, "pin_set": True, "local": True, "lan_access": False,
+                      "sessions": 0, "pin_min": 6}
+    guest_token(gctx)
+    async with client_with(gctx, admin_token(gctx, "192.168.1.3"), host="192.168.1.3") as c:
+        st = (await c.get("/api/auth/guest")).json()
+        assert st["local"] is False and st["sessions"] == 1
+
+
+async def test_guest_pin_routes_loopback_only(gctx):
+    async with client_with(gctx, admin_token(gctx, "192.168.1.3"), host="192.168.1.3") as c:
+        r = await c.put("/api/auth/guest/pin", json={"pin": "777777"})
+        assert r.status_code == 403 and r.json()["detail"] == guest.GUEST_LOCAL_ONLY
+        r = await c.request("DELETE", "/api/auth/guest/pin", json={})
+        assert r.status_code == 403
+        r = await c.put("/api/auth/guest", json={"enabled": True})
+        assert r.status_code == 403
+        # spegnere si puo' anche dalla rete
+        r = await c.put("/api/auth/guest", json={"enabled": False})
+        assert r.status_code == 200 and r.json()["enabled"] is False
+    assert gctx.auth.guest_pin_is_set() is True
+
+
+async def test_guest_pin_set_change_and_clear(gctx):
+    old = guest_token(gctx)
+    async with client_with(gctx, admin_token(gctx)) as c:
+        assert (await c.put("/api/auth/guest/pin", json={"pin": "12345"})).status_code == 400
+        r = await c.put("/api/auth/guest/pin", json={"pin": ADMIN_PIN + "56"})
+        assert r.status_code == 200
+        assert gctx.auth.check(old) is False  # cambio del PIN: ospiti revocati
+        r = await c.put("/api/auth/guest/pin", json={"pin": ADMIN_PIN})
+        assert r.status_code == 400  # uguale al principale (e troppo corto)
+        r = await c.request("DELETE", "/api/auth/guest/pin", json={})
+        assert r.status_code == 200
+        st = r.json()
+        assert st["pin_set"] is False and st["enabled"] is False
+    assert load_settings(gctx.conn)["guest_enabled"] is False
+    assert "123456" not in str(load_settings(gctx.conn))
+
+
+async def test_guest_enable_needs_pin_and_full_flow():
+    ctx = make_ctx()
+    ctx.auth.set_pin(ADMIN_PIN)
+    async with client_with(ctx, admin_token(ctx)) as c:
+        r = await c.put("/api/auth/guest", json={"enabled": True})
+        assert r.status_code == 400 and r.json()["detail"] == guest.GUEST_NO_PIN
+        assert (await c.put("/api/auth/guest", json={"enabled": "yes"})).status_code == 422
+        assert (await c.put("/api/auth/guest/pin", json={"pin": GUEST_PIN})).status_code == 200
+        r = await c.put("/api/auth/guest", json={"enabled": True})
+        assert r.status_code == 200 and r.json()["enabled"] is True
+    assert ctx.changed[-1]["guest_enabled"] is True
+    async with client_with(ctx, "", host="192.168.1.9") as c:
+        assert (await c.post("/api/auth/login", json={"pin": GUEST_PIN})).status_code == 200
+        assert (await c.get("/api/stats")).status_code != 403
+        assert (await c.get("/api/auth/guest")).status_code == 403
+        assert (await c.put("/api/auth/guest", json={"enabled": False})).status_code == 403
+        assert (await c.get("/api/auth/sessions")).status_code == 403
+    async with client_with(ctx, admin_token(ctx)) as c:
+        rows = (await c.get("/api/auth/sessions")).json()
+        g = next(r for r in rows if r["role"] == "guest")
+        assert (await c.request("DELETE", f"/api/auth/sessions/{g['id']}", json={})).status_code == 200
+
+
 def test_ws_guest_refused_when_guest_disabled(gctx):
     token = guest_token(gctx)
     save_settings(gctx.conn, {"guest_enabled": False})

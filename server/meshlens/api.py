@@ -1598,6 +1598,7 @@ def create_app(ctx: AppContext) -> FastAPI:
     api_topology.register(app, ctx, require_auth, require_json)     # WP3
     api_radioadmin.register(app, ctx, require_auth, require_json)   # WP4
     api_automation.register(app, ctx, require_auth, require_json)   # WP5
+    guest.register_guest_routes(app, ctx, require_auth, require_json)  # WP6 (E19)
 
     # ---- statici (ultimi: catch-all) ----
     if ctx.static_dir is not None and Path(ctx.static_dir).exists():
