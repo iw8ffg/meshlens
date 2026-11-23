@@ -5,6 +5,7 @@
   import { t } from '../../lib/i18n/index.svelte'
   import { deviceLabel, pinError } from '../../lib/settings'
   import type { AuthStatus, SessionInfo } from '../../lib/types'
+  import Badge from '../../lib/ui/Badge.svelte'
   import Banner from '../../lib/ui/Banner.svelte'
   import Button from '../../lib/ui/Button.svelte'
   import Card from '../../lib/ui/Card.svelte'
@@ -142,7 +143,7 @@
       {#each sessions as s (s.id)}
         <li>
           <div class="who">
-            <span class="name">{deviceLabel(s.user_agent)}{#if s.current} <span class="me">{t('settings.dev.thisDevice')}</span>{/if}</span>
+            <span class="name">{deviceLabel(s.user_agent)}{#if s.role === 'guest'} <Badge kind="info" icon="eye">{t('guest.sessionRole')}</Badge>{/if}{#if s.current} <span class="me">{t('settings.dev.thisDevice')}</span>{/if}</span>
             <span class="muted"><span class="ui-mono">{s.ip ?? t('settings.dev.unknownIp')}</span> · {t('settings.dev.lastSeen', { ago: ago((now - s.last_seen) / 60) })}</span>
           </div>
           {#if !s.current}<Button onclick={() => revoke(s)}>{t('settings.dev.logout')}</Button>{/if}
