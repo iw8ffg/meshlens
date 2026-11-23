@@ -552,6 +552,18 @@ def test_ignored_node_has_no_state_alerts():
     assert h.alerts() == []
 
 
+def test_restoring_an_ignored_node_is_not_news():
+    h = Harness([nd(9, battery=10)])
+    h.add(kind="battery", node_num=9, threshold=20)
+    h.alerts()  # seme
+    assert len(h.alerts()) == 1
+    h.nodes[9]["is_ignored"] = True
+    assert h.alerts() == []
+    h.nodes[9]["is_ignored"] = False
+    assert len(h.alerts()) == 1  # l'avviso ricompare, ma senza una nuova notifica
+    assert h.sent == []
+
+
 def test_engine_exceptions_in_one_rule_do_not_break_others(caplog):
     h = Harness([nd(9, battery=5)])
     h.add(kind="geofence", node_num=9, params={"polygon": SQUARE})
@@ -576,3 +588,131 @@ def test_engine_exceptions_in_one_rule_do_not_break_others(caplog):
 def replace_params(rule, params):
     import dataclasses
     return dataclasses.replace(rule, params=params)
+
+
+# ---------------- install (ext_monitor) ----------------
+import asyncio  # noqa: E402
+import time  # noqa: E402
+
+from meshlens import ext_monitor  # noqa: E402
+from meshlens.api import AppContext  # noqa: E402
+from meshlens.auth import Auth  # noqa: E402
+from meshlens.bus import Bus  # noqa: E402
+from meshlens.geo import CountryLocator  # noqa: E402
+from meshlens.live import LiveState  # noqa: E402
+from meshlens.store import Store  # noqa: E402
+
+
+class FakeNotifier:
+    def __init__(self):
+        self.sent = []
+        self.ready = True
+
+    def send(self, kind, key, **kw):
+        self.sent.append((kind, key, kw))
+
+    def rules_ready(self, now=None):
+        return self.ready
+
+    def on_alerts(self, old, new):
+        pass
+
+
+def make_ctx():
+    conn = connect(":memory:")
+    live = LiveState()
+    live.load([{"id": "!00000009", "num": 9, "long_name": "Mio", "country": "IT",
+                "last_heard": time.time(), "is_mine": False}])
+
+    async def changed(_s):
+        return None
+
+    ctx = AppContext(live=live, store=Store(conn), auth=Auth(conn), bus=Bus(),
+                     locator=CountryLocator(), conn=conn,
+                     mqtt_status=lambda: {"connected": True, "msgs_per_s": 0.0, "undecodable": 0},
+                     on_settings_changed=changed, static_dir=None)
+    ctx.notifier = FakeNotifier()
+    return ctx
+
+
+def make_rt():
+    rt = SimpleNamespace(ingestor=SimpleNamespace(persists=lambda n, s: True),
+                         message_hooks=[], event_hooks=[])
+    rt.add_message_hook = rt.message_hooks.append
+    rt.add_event_hook = rt.event_hooks.append
+    return rt
+
+
+def test_install_registers_hooks_and_source():
+    ctx, rt = make_ctx(), make_rt()
+    ext_monitor.install(rt, ctx)
+    assert ctx.ext["alert_rules"] is not None and ctx.ext["sensors"] is not None
+    assert len(ctx.alert_sources) == 1
+    assert len(rt.message_hooks) == 1
+    assert rt.event_hooks == [ctx.ext["sensors"].on_event, ctx.ext["alert_rules"].on_event]
+
+
+async def test_keyword_end_to_end():
+    ctx, rt = make_ctx(), make_rt()
+    ext_monitor.install(rt, ctx)
+    rule = RuleStore(ctx.conn).create(
+        validate_rule({"kind": "keyword", "params": {"words": ["aiuto"]}}), time.time())
+    ctx.ext["alert_rules"].reload()
+    calls = []
+    real = ctx.alerts
+    ctx.alerts = lambda *a, **k: (calls.append(1), real(*a, **k))[1]
+    q = ctx.bus.subscribe()
+    msg = {"from": "!00000009", "from_name": "Mio", "direction": "in", "text": "aiuto!",
+           "to": "!ffffffff", "radio_id": "r1", "channel_index": 0, "source": "rf"}
+    rt.message_hooks[0](msg, LIVE)
+    rt.message_hooks[0](msg, LIVE)
+    assert [(k, key) for k, key, _ in ctx.notifier.sent][0] == (
+        "rule_keyword", f"rule:{rule.id}:!00000009")
+    assert ctx.notifier.sent[0][2]["dedup"] is False
+    assert calls == []
+    await asyncio.sleep(0)
+    assert calls == [1]  # un solo ricalcolo per piu' scatti
+    assert [a["kind"] for a in ctx._alerts] == ["rule_keyword"]
+    events = []
+    while not q.empty():
+        events.append(q.get_nowait())
+    assert any(e.get("type") == "alerts" for e in events)
+
+
+def test_request_recalc_without_loop_is_noop():
+    ctx, rt = make_ctx(), make_rt()
+    ext_monitor.install(rt, ctx)
+    RuleStore(ctx.conn).create(
+        validate_rule({"kind": "keyword", "params": {"words": ["aiuto"]}}), time.time())
+    ctx.ext["alert_rules"].reload()
+    msg = {"from": "!00000009", "direction": "in", "text": "aiuto", "to": "!ffffffff",
+           "radio_id": "r1", "channel_index": 0}
+    rt.message_hooks[0](msg, LIVE)  # nessun loop in esecuzione: nessuna eccezione
+    assert len(ctx.notifier.sent) == 1
+
+
+def test_alerts_includes_rule_alerts_sorted():
+    ctx, rt = make_ctx(), make_rt()
+    ctx.live.nodes[9]["is_mine"] = True
+    ctx.live.nodes[9]["last_heard"] = time.time() - 30 * 3600
+    ctx.live.nodes[9]["battery"] = 5
+    ext_monitor.install(rt, ctx)
+    RuleStore(ctx.conn).create(
+        validate_rule({"kind": "battery", "node_num": 9, "threshold": 20}), time.time())
+    ctx.ext["alert_rules"].reload()
+    kinds = [a["kind"] for a in ctx.alerts()]
+    assert kinds == ["battery_low", "silent", "rule_battery"]
+
+
+def test_install_survives_missing_radios():
+    ctx, rt = make_ctx(), make_rt()
+    ctx.radios = None
+    ext_monitor.install(rt, ctx)
+    assert ctx.ext["alert_rules"].get_local_ids() == set()
+
+
+def test_build_installs_monitor_extension(tmp_path):
+    from meshlens.app import build
+    from test_app import FakeConnector
+    app, rt = build(tmp_path, connector_factory=FakeConnector, static_dir=None)
+    assert "alert_rules" in rt.ctx.ext and "sensors" in rt.ctx.ext

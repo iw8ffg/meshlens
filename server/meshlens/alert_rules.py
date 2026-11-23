@@ -456,6 +456,7 @@ class RuleEngine:
         self._events: dict[str, dict] = {}
         self._last_fire: dict[tuple[int, int], float] = {}
         self._seeded = False
+        self._active_keys: set[str] = set()  # avvisi di stato presenti all'ultimo calcolo
 
     # ---- gestione ----
     def ignored(self, num: int | None) -> bool:
@@ -638,15 +639,20 @@ class RuleEngine:
             out.append(rule_alert(rule.kind, rule.id, node, e["since"], e["value"], e["detail"]))
         nodes = self.get_nodes()
         ready = None  # calcolato solo se serve
+        was_active, now_active = self._active_keys, set()
         for rule in list(self._rules.values()):
             if not rule.enabled or rule.kind not in ("snr_low", "battery", "silent"):
                 continue
             try:
                 node = nodes.get(rule.node_num)
-                if node is None or self.ignored(rule.node_num):
+                if node is None:
                     continue
                 key = f"rule:{rule.id}:{node['id']}"
-                active = key in previous
+                if self.ignored(rule.node_num):
+                    if key in was_active:  # ripristinato dopo l'ignora: non e' una notizia
+                        now_active.add(key)
+                    continue
+                active = key in previous or key in was_active
                 if rule.kind == "snr_low":
                     value = snr_state(self._snr.get(rule.node_num, ()), now, rule, active)
                 elif rule.kind == "battery":
@@ -655,8 +661,9 @@ class RuleEngine:
                     value = silent_state(node, rule, now)
                 if value is None:
                     continue
-                since = previous[key]["since"] if active else now
+                since = previous[key]["since"] if key in previous else now
                 out.append(rule_alert(rule.kind, rule.id, node, since, value))
+                now_active.add(key)
                 if active or not self._seeded or not self._may_fire(rule, rule.node_num, now):
                     continue
                 if ready is None:
@@ -675,5 +682,6 @@ class RuleEngine:
                 self._mark_fired(rule, rule.node_num, now)
             except Exception:  # noqa: BLE001
                 log.exception("Regola %s non valutata", rule.id)
+        self._active_keys = now_active
         self._seeded = True
         return out
