@@ -14,6 +14,7 @@ export const layers: Record<keyof typeof itArea, string> = {
   'layers.linkLabels': 'Link labels',
   'layers.linkLabels.hint': 'SNR on each link and "direct" for direct reception. Visible when zoomed in and with links turned on in the filters.',
   'layers.linkLabels.noGlyphs': 'Not available with this base map (fonts are missing).',
+  'layers.linkLabels.needLinks': 'Turn on links in the filters to see the labels.',
   'layers.label.direct': 'direct',
   'layers.tak': 'ATAK',
   'layers.tak.hint': 'Positions of ATAK contacts received from the network (portnum 72).',

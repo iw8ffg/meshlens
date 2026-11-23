@@ -12,6 +12,7 @@ export const layers = {
   'layers.linkLabels': 'Etichette sui collegamenti',
   'layers.linkLabels.hint': 'SNR su ogni collegamento e «diretto» per la ricezione diretta. Si vedono ingrandendo e con i collegamenti accesi nei filtri.',
   'layers.linkLabels.noGlyphs': 'Non disponibili con questa mappa di base (mancano i caratteri).',
+  'layers.linkLabels.needLinks': 'Accendi i collegamenti nei filtri per vedere le etichette.',
   'layers.label.direct': 'diretto',
   'layers.tak': 'ATAK',
   'layers.tak.hint': 'Posizioni dei contatti ATAK ricevute dalla rete (portnum 72).',

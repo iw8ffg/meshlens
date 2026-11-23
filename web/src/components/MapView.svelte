@@ -20,7 +20,15 @@ import { safeStorage } from '../lib/storage'
   import { coverageGeoJSON } from '../lib/coverage'
   import { formatDate, num, signed, timeAgo } from '../lib/format'
   import { hopsLabel } from '../lib/nodes'
-  import { linksToGeoJSON } from '../lib/links'
+  import { linkLabel, linksToGeoJSON } from '../lib/links'
+  import { isIgnored, isInfrastructure } from '../lib/filters'
+  import { loadLayers, saveLayers } from '../lib/map/layerstate'
+  import type { LayerKey, LayerState } from '../lib/map/layerstate'
+  import { addOverlayLayers, applyOverlayVisibility, denseLabels, heatPoints, precisionCircles } from '../lib/map/overlays'
+  import { takFeatures } from '../lib/map/TakLayer'
+  import { contactName, takRoleKey, takTeamKey } from '../lib/map/takData'
+  import { loadTak, startTakLive, tak } from '../lib/map/takData.svelte'
+  import type { TakContact } from '../lib/types'
   import { canSwitch, chooseMode, offlineStyle, SWITCH_MIN_MS } from '../lib/mapstyle'
   import type { EffectiveMode, MapMode, StyleInfo } from '../lib/mapstyle'
   import { getTheme } from '../lib/theme'
@@ -32,7 +40,7 @@ import { safeStorage } from '../lib/storage'
   import type { MapTokens } from '../lib/map/tokens'
   import { registerSprites } from '../lib/map/sprites'
   import { addNodeLayers, CLUSTER_OPTS, EMPTY, isFavorite, isMine, nodeFeatures, precisionData, ringKind, selectionData } from '../lib/map/NodeLayer'
-  import { addLinkLayers } from '../lib/map/LinkLayer'
+  import { addLinkLayers, setLinkLabelZoom } from '../lib/map/LinkLayer'
   import { addMeLayers, meData } from '../lib/map/MeLayer'
   import { locate } from '../lib/map/geolocate'
   import { addTrackLayer, trackData } from '../lib/map/TrackLayer'
@@ -99,10 +107,45 @@ import { safeStorage } from '../lib/storage'
 
   const src = (id: string) => map?.getSource(id) as maplibregl.GeoJSONSource | undefined
 
+  // Strati (E5/E16): stato in localStorage proprio; "solo infrastruttura" vale solo per la mappa
+  let layers = $state<LayerState>(loadLayers(safeStorage()))
+  let glyphs = $state(false)
+  let ovSig = '' // firma dell'ultimo insieme di strati scritto sulla mappa
+  const shown = $derived(layers.infra ? nodes.filter(isInfrastructure) : nodes)
+
   function pushNodes() {
     timer = null
     lastPush = Date.now()
-    src('nodes')?.setData({ type: 'FeatureCollection', features: nodeFeatures(nodes, now) })
+    src('nodes')?.setData({ type: 'FeatureCollection', features: nodeFeatures(shown, now) })
+    pushOverlays()
+  }
+
+  // Strati precisione/calore/ATAK: nessun costo con gli strati spenti (solo la firma); le
+  // sorgenti si riscrivono solo se la firma cambia. Chiamata da pushNodes (throttle da 1 s) e
+  // dall'effetto su layers/tak.contacts.
+  function pushOverlays() {
+    if (!ready) return
+    const l = layers
+    const list = shown
+    const takList = l.tak ? [...tak.contacts.values()].filter((c) => !isIgnored(app.nodes.get(c.node_id))) : []
+    const parts: string[] = []
+    if (l.precision) parts.push(`p${list.length}`)
+    if (l.heat) parts.push(`h${list.length}`)
+    if (l.tak) parts.push(`t${takList.length}:${takList.reduce((m, c) => Math.max(m, c.time), 0)}`)
+    if (l.precision || l.heat) parts.push(String(Math.floor(now / 60)))
+    const sig = parts.join('|') || 'off'
+    if (sig === ovSig) return
+    ovSig = sig
+    src('precision-all')?.setData({ type: 'FeatureCollection', features: l.precision ? precisionCircles(list) : [] })
+    src('heat')?.setData({ type: 'FeatureCollection', features: l.heat ? heatPoints(list) : [] })
+    src('tak')?.setData({ type: 'FeatureCollection', features: l.tak ? takFeatures(takList, nodeName, now) : [] })
+  }
+
+  function toggleLayer(key: LayerKey, on: boolean) {
+    layers = { ...layers, [key]: on }
+    saveLayers(safeStorage(), { [key]: on })
+    if (map && ready) applyOverlayVisibility(map, layers)
+    pushOverlays()
   }
 
   // Aggiorna la sorgente al massimo una volta al secondo
@@ -178,9 +221,11 @@ import { safeStorage } from '../lib/storage'
       const tk = readDocumentTokens()
       registerSprites(m, tk)
       // ordine dal basso: collegamenti e traccia, nodi, prova di copertura
-      addLinkLayers(m, tk)
+      addLinkLayers(m, tk, hasGlyphs)
+      glyphs = hasGlyphs
       addTrackLayer(m, tk)
       addNodeLayers(m, tk, hasGlyphs, untrack(() => cluster))
+      addOverlayLayers(m, tk, hasGlyphs) // dopo i nodi: precisione e calore stanno sotto `precision-fill`
       addWaypointLayers(m, tk, hasGlyphs) // sopra i nodi, sotto la prova di copertura
       addCoverageLayers(m, tk)
       addPredictionLayer(m) // sotto la traccia della prova (cov-track)
@@ -256,7 +301,13 @@ import { safeStorage } from '../lib/storage'
             if (p) showLinkPopup(e.lngLat, p)
           })
         }
-        for (const l of ['points', 'points-mine', 'points-fav', 'clusters', 'links', 'links-trace', 'links-gateway']) {
+        m.on('click', 'tak-points', (e: maplibregl.MapLayerMouseEvent) => {
+          if (picking || tool !== 'none') return
+          const id = e.features?.[0]?.properties?.id
+          const c = typeof id === 'string' ? tak.contacts.get(id) : undefined
+          if (c) showTakPopup(e.lngLat, c)
+        })
+        for (const l of ['points', 'points-mine', 'points-fav', 'clusters', 'links', 'links-trace', 'links-gateway', 'tak-points']) {
           m.on('mouseenter', l, () => {
             if (!picking && tool === 'none') m.getCanvas().style.cursor = 'pointer'
           })
@@ -265,6 +316,8 @@ import { safeStorage } from '../lib/storage'
       }
       ready = true
       wpSig = '' // sorgenti ricreate dal nuovo stile: vanno riempite di nuovo
+      ovSig = ''
+      applyOverlayVisibility(m, untrack(() => layers))
       pushPrediction()
       pushNodes()
       pushWaypoints()
@@ -567,6 +620,34 @@ import { safeStorage } from '../lib/storage'
     })
   }
 
+  function showTakPopup(at: maplibregl.LngLat, c: TakContact) {
+    const tk = takTeamKey(c.team)
+    const rk = takRoleKey(c.role)
+    const rows: { label: string; value: string }[] = []
+    if (c.team) rows.push({ label: t('tak.row.team'), value: tk ? t(tk) : c.team })
+    if (c.role) rows.push({ label: t('tak.row.role'), value: rk ? t(rk) : c.role })
+    if (c.battery !== null) rows.push({ label: t('tak.row.battery'), value: `${c.battery} %` })
+    rows.push({ label: t('tak.row.lastPli'), value: timeAgo(c.time, now) })
+    if (c.altitude !== null) rows.push({ label: t('tak.row.altitude'), value: `${c.altitude} m` })
+    if (c.speed !== null) rows.push({ label: t('tak.row.speed'), value: `${c.speed} m/s` })
+    if (c.course !== null) rows.push({ label: t('tak.row.course'), value: `${c.course}°` })
+    openPopup(at, {
+      title: contactName(c, nodeName),
+      subtitle: c.callsign ? undefined : t('tak.compressed.hint'),
+      rows,
+      actions: [
+        {
+          label: t('map.popup.details'),
+          icon: 'info',
+          onclick: () => {
+            onpick(c.node_id)
+            popup?.remove()
+          },
+        },
+      ],
+    })
+  }
+
   // Waypoint: popup, menu contestuale, modulo di invio ed eliminazione
   let wpVisible = $state(loadView(safeStorage()).waypoints)
   let wpForm = $state<{ lat: number; lon: number } | null>(null)
@@ -841,7 +922,18 @@ import { safeStorage } from '../lib/storage'
 
   function pushLinks() {
     if (!ready) return
-    src('links')?.setData(app.filter.links ? linksToGeoJSON(linkList, new Map(nodes.map((n) => [n.id, n]))) : EMPTY)
+    const withLabels = layers.linkLabels
+    void i18n.lang
+    const g = app.filter.links
+      ? linksToGeoJSON(
+          linkList,
+          new Map(shown.map((n) => [n.id, n])),
+          undefined,
+          withLabels ? (snr, source) => linkLabel(snr, source, (v) => `${signed(v, 1)} dB`, t('layers.label.direct')) : undefined,
+        )
+      : null
+    src('links')?.setData(g ?? EMPTY)
+    if (g && withLabels && map) setLinkLabelZoom(map, denseLabels(g.features.filter((f) => f.properties?.label).length))
   }
 
   async function loadLinks() {
@@ -864,7 +956,7 @@ import { safeStorage } from '../lib/storage'
   }
 
   function fitAll() {
-    const pts = nodes.filter((n) => n.lat !== null && n.lon !== null)
+    const pts = shown.filter((n) => n.lat !== null && n.lon !== null)
     if (!map || pts.length === 0) return
     const b = new maplibregl.LngLatBounds([pts[0].lon!, pts[0].lat!], [pts[0].lon!, pts[0].lat!])
     for (const n of pts) b.extend([n.lon!, n.lat!])
@@ -872,9 +964,39 @@ import { safeStorage } from '../lib/storage'
   }
 
   $effect(() => {
-    void nodes
+    void shown
     void now
     scheduleNodes()
+  })
+  // Strati: un cambio di stato o dei contatti ATAK riscrive le sorgenti (la firma evita il lavoro inutile)
+  $effect(() => {
+    void layers
+    void tak.contacts
+    untrack(pushOverlays)
+  })
+  // ATAK: contatti e aggiornamenti dal vivo solo con lo strato acceso (rinfresco ogni 60 s)
+  $effect(() => {
+    if (!layers.tak) return
+    void loadTak()
+    const stop = startTakLive()
+    const timer = setInterval(() => void loadTak(), 60_000)
+    return () => {
+      stop()
+      clearInterval(timer)
+    }
+  })
+  // «Solo infrastruttura» senza risultati: avviso una volta per attivazione
+  let infraNoticed = false
+  $effect(() => {
+    const empty = layers.infra && shown.length === 0 && nodes.length > 0
+    if (!empty) {
+      infraNoticed = false
+      return
+    }
+    if (!infraNoticed) {
+      infraNoticed = true
+      untrack(() => showNotice(t('layers.infra.none')))
+    }
   })
   $effect(() => {
     pushWaypoints()
@@ -895,7 +1017,8 @@ import { safeStorage } from '../lib/storage'
     return () => clearInterval(timer)
   })
   $effect(() => {
-    void nodes // le posizioni dei nodi cambiano le estremita' delle linee
+    void shown // le posizioni dei nodi cambiano le estremita' delle linee
+    void layers.linkLabels
     pushLinks()
   })
   $effect(() => {
@@ -960,7 +1083,14 @@ import { safeStorage } from '../lib/storage'
   onlocate={whereAmI}
   {locating}
 />
-<Legend collapse={searchOpen || tool === 'ruler'} />
+<Legend
+  collapse={searchOpen || tool === 'ruler'}
+  {layers}
+  {glyphs}
+  linksOn={app.filter.links}
+  tak={tak.summary ? { count: tak.summary.contacts, compressed: tak.summary.compressed, unsupportedV2: tak.summary.unsupported_v2 } : null}
+  onlayer={toggleLayer}
+/>
 {#if offlineBadge}
   <div class="badge" role="status"><Icon name="cloudoff" size={16} />{t('map.offlineBadge')}</div>
 {/if}

@@ -5,7 +5,19 @@
   import { viewport } from '../viewport.svelte'
   import { t } from '../i18n/index.svelte'
 
-  let { collapse = false }: { collapse?: boolean } = $props()
+  import LayerPanel from './LayerPanel.svelte'
+  import type { LayerKey, LayerState } from './layerstate'
+
+  interface Props {
+    collapse?: boolean
+    // strati (WP3): senza `onlayer` la legenda e' identica a prima
+    layers?: LayerState
+    glyphs?: boolean
+    linksOn?: boolean
+    tak?: { count: number; compressed: number; unsupportedV2: number } | null
+    onlayer?: (key: LayerKey, on: boolean) => void
+  }
+  let { collapse = false, layers, glyphs = false, linksOn = false, tak = null, onlayer }: Props = $props()
   let open = $state(!viewport.phone)
 
   // Ricerca o righello aperti: la legenda si chiude per non coprirli
@@ -14,12 +26,29 @@
   })
 </script>
 
-<div class="legend" class:open>
+<div class="legend" class:open class:wide={!!onlayer}>
   <button type="button" class="toggle" aria-expanded={open} aria-controls="map-legend-body" onclick={() => (open = !open)}>
     <Icon name="layers" size={18} /><span>{t('map.legend.title')}</span><Icon name={open ? 'chevD' : 'chevU'} size={16} />
   </button>
   {#if open}
     <div id="map-legend-body" class="body">
+      {#if onlayer && layers}
+        <div class="grp">
+          <LayerPanel {layers} {glyphs} {linksOn} {tak} onchange={onlayer} />
+        </div>
+        {#if layers.heat}
+          <div class="grp">
+            <div class="h">{t('layers.legend.heat')}</div>
+            <div class="it"><i class="grad"></i></div>
+            <div class="it range"><span>{t('layers.legend.heatLow')}</span><span>{t('layers.legend.heatHigh')}</span></div>
+          </div>
+        {/if}
+        {#if layers.tak}
+          <div class="grp">
+            <div class="it"><i class="dot tak"></i>{t('layers.legend.tak')}</div>
+          </div>
+        {/if}
+      {/if}
       <div class="grp">
         <div class="h">{t('nodes.lastContact')}</div>
         <div class="it"><i class="dot" style="background:var(--contact-fresh)"></i>{t('map.legend.fresh')}</div>
@@ -63,6 +92,9 @@
     font-size: 13px;
     line-height: 18px;
     max-width: 230px;
+  }
+  .legend.wide {
+    max-width: 300px;
   }
   .toggle {
     display: flex;
@@ -110,6 +142,21 @@
     border: 1.5px solid var(--marker-outline);
     flex: none;
     margin: 0 3px;
+  }
+  .dot.tak {
+    background: var(--brand-amber);
+  }
+  .grad {
+    flex: 1;
+    height: 8px;
+    border-radius: var(--radius-pill);
+    background: linear-gradient(90deg, transparent, var(--src-radio), var(--contact-recent), var(--snr-bad));
+    border: 1px solid var(--line);
+  }
+  .range {
+    justify-content: space-between;
+    color: var(--ink-muted);
+    font-size: 12px;
   }
   .dot.dashed {
     background: none;
