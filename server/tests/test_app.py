@@ -912,3 +912,20 @@ async def test_netstats_failure_does_not_stop_packet_log(tmp_path):
                           rx_time=time.time(), snr=None, rssi=None, hops=None, gateway_id=None,
                           radio_id=None, kind="text", payload=TextData("x")))
     assert len(seen) == 1
+
+
+async def test_restart_keeps_learned_separate_from_custom(tmp_path):
+    rt = await _multi_rt(tmp_path, KeyedConnector, _broker(
+        "b1", channels=[{"name": "Squadra", "psk": PSK_A}]))
+    rt.connectors["b1"].decoder.channel_keys["Locale"] = KEY_A  # imparata
+    await rt.restart_connector("b1", "prova")
+    dec = rt.connectors["b1"].decoder
+    assert dec._learned == {"Locale": KEY_A} and set(dec._custom) == {"Squadra"}
+    assert rt.learned_keys["b1"] == {"Locale": KEY_A}  # solo le imparate
+
+
+async def test_removed_custom_channel_stops_decrypting_after_restart(tmp_path):
+    rt = await _multi_rt(tmp_path, KeyedConnector, _broker(
+        "b1", channels=[{"name": "Squadra", "psk": PSK_A}]))
+    await rt.on_settings_changed(_with(rt.settings, "b1", host="nuovo.example", channels=[]))
+    assert "Squadra" not in rt.connectors["b1"].decoder.channel_keys

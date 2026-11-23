@@ -144,7 +144,7 @@ class Runtime:
         self._last_start_attempt[bid] = self.monotonic()
         keys, custom = broker_keys(broker)
         # le chiavi imparate sopravvivono al riavvio; le personalizzate vincono
-        decoder = EnvelopeDecoder(keys, {**self.learned_keys.get(bid, {}), **custom}, broker=bid)
+        decoder = EnvelopeDecoder(keys, custom, broker=bid, learned=self.learned_keys.get(bid))
         decoder.raw_filter = self.raw_filter
         connector = self.connector_factory(
             broker, decoder, self.loop, self.on_event or self.ingestor.handle)
@@ -219,8 +219,8 @@ class Runtime:
         old = self.connectors.pop(broker_id, None)
         if old is None:
             return
-        learned = getattr(getattr(old, "decoder", None), "channel_keys", None)
-        if learned:
+        learned = getattr(getattr(old, "decoder", None), "learned_keys", None)
+        if learned:  # solo le imparate: le personalizzate vengono dalle impostazioni
             self.learned_keys[broker_id] = dict(learned)
         await asyncio.to_thread(old.stop)
         self.queue_dropped_retired += getattr(getattr(old, "inbox", None), "dropped", 0)
