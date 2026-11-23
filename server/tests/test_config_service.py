@@ -66,6 +66,13 @@ class CfgConnector(FakeConnector):
         self.fixed = []
         self.at_write = []
         self.store = None  # per controllare la copia prima della scrittura
+        # WP4: flag del NodeDB, comandi admin, messaggi predefiniti
+        self.flags = {}
+        self.flag_calls = []
+        self.busy = False
+        self.commands = []
+        self.canned = ""
+        self.canned_calls = []
 
     def _dict(self, num):
         p = self.nodes[num]
@@ -128,6 +135,41 @@ class CfgConnector(FakeConnector):
 
     async def remove_fixed_position(self, node_num):
         self.fixed.append((node_num, None))
+
+    def node_flags(self, num):
+        if self.state_name != "connected":
+            return None
+        return self.flags.get(num)
+
+    async def set_node_flag(self, num, flag, value, wait=None):
+        from meshlens.radio import RadioBusy
+        if self.busy:
+            raise RadioBusy()
+        self.flag_calls.append((num, flag, value))
+        self.flags.setdefault(num, {"favorite": False, "ignored": False, "muted": None})
+        self.flags[num][flag] = value
+
+    async def set_time(self, num, epoch):
+        self.commands.append(("set_time", num, epoch))
+
+    async def reset_nodedb(self, num):
+        self.commands.append(("nodedb_reset", num))
+
+    async def shutdown(self, num, secs=5):
+        self.commands.append(("shutdown", num))
+
+    async def get_canned(self, num, wait=None):
+        from meshlens.radio import RadioBusy
+        if self.busy:
+            raise RadioBusy()
+        return self.canned
+
+    async def set_canned(self, num, text, wait=None):
+        from meshlens.radio import RadioBusy
+        if self.busy:
+            raise RadioBusy()
+        self.canned_calls.append((num, text))
+        self.canned = text
 
 
 async def nosleep(_s):
@@ -450,3 +492,232 @@ async def test_channel_secrets_from_local_radio():
     with pytest.raises(ConfigError) as err:
         await svc.channel_secrets("rnope")
     assert err.value.status == 404
+
+
+# ---- WP4: comandi admin, canned, flag radio, anteprime esterne, privacy, canali ----
+
+from meshlens.config_service import ADMIN_COMMANDS, MSG_REMOTE_READ_SECURITY  # noqa: E402
+
+ERRORS: list = []  # ConfigError visti dai test WP4 (nessun segreto nei messaggi)
+
+
+def _err(excinfo):
+    ERRORS.append(excinfo.value.message)
+    return excinfo.value
+
+
+async def test_admin_command_requires_confirm_and_known_command():
+    e, svc, conn = await make_service()
+    with pytest.raises(ConfigError) as ei:
+        await svc.admin_command(MY_ID, None, "set_time", False)
+    assert _err(ei).status == 400 and ei.value.message == "Conferma richiesta"
+    with pytest.raises(ConfigError) as ei:
+        await svc.admin_command(MY_ID, None, "factory_reset", True)
+    assert _err(ei).status == 400 and ei.value.message == "Comando sconosciuto"
+    assert e.store.conn.execute("SELECT COUNT(*) FROM config_jobs").fetchone()[0] == 0
+
+
+async def test_admin_command_local_jobs():
+    e, svc, conn = await make_service()
+    assert ADMIN_COMMANDS == ("reboot", "set_time", "nodedb_reset", "shutdown")
+    for cmd in ADMIN_COMMANDS:
+        job = await svc.admin_command(MY_ID, None, cmd, True)
+        assert job["kind"] == cmd
+        done = await run(svc, job)
+        assert done["status"] == "done", (cmd, done)
+    assert ("set_time", None, int(e.now)) in conn.commands
+    assert ("nodedb_reset", None) in conn.commands
+    assert ("shutdown", None) in conn.commands
+    assert conn.rebooted == [None]
+    assert svc.job(job["id"])["step"] == "Fatto: la radio è spenta"
+
+
+async def test_admin_command_remote_requires_admin_key():
+    e, svc, conn = await make_service()
+    with pytest.raises(ConfigError) as ei:
+        await svc.admin_command(REMOTE, None, "set_time", True)
+    assert _err(ei).status == 409 and ei.value.message == MSG_REMOTE_READ_SECURITY
+    await run(svc, svc.start_read(REMOTE, None, None))
+    with pytest.raises(ConfigError) as ei:
+        await svc.admin_command(REMOTE, None, "set_time", True)
+    assert _err(ei).status == 409 and ei.value.message == MSG_ADMIN_UNAUTH
+    assert conn.commands == []
+    conn.nodes[REMOTE_NUM]["config"].security.admin_key.append(
+        conn.nodes[None]["config"].security.public_key)
+    await run(svc, svc.start_read(REMOTE, None, ["security"]))
+    done = await run(svc, await svc.admin_command(REMOTE, None, "set_time", True))
+    assert done["status"] == "done"
+    assert conn.commands == [("set_time", REMOTE_NUM, int(e.now))]
+
+
+async def test_admin_status_shapes():
+    e, svc, conn = await make_service()
+    key = base64.b64encode(conn.nodes[None]["config"].security.public_key).decode()
+    st = await svc.admin_status(MY_ID, None)
+    assert st["local"] is True and st["authorized"] is True and st["reason"] is None
+    assert st["node_id"] == MY_ID and st["radio_id"] == e.mgr.radios()[0]["id"]
+    assert st["radio_public_key"] == key
+    st = await svc.admin_status(REMOTE, None)
+    assert st["local"] is False and st["authorized"] is None
+    assert st["reason"] == MSG_REMOTE_READ_SECURITY and st["read_time"] is None
+    assert st["radio_public_key"] == key
+    await run(svc, svc.start_read(REMOTE, None, ["config.lora"]))  # senza Sicurezza
+    assert (await svc.admin_status(REMOTE, None))["authorized"] is None
+    await run(svc, svc.start_read(REMOTE, None, ["security"]))
+    st = await svc.admin_status(REMOTE, None)
+    assert st["authorized"] is False and st["reason"] == MSG_ADMIN_UNAUTH
+    assert st["read_time"] == e.now
+
+
+async def test_get_set_canned():
+    e, svc, conn = await make_service()
+    conn.canned = "Ciao|OK"
+    assert await svc.get_canned(MY_ID, None) == {"messages": ["Ciao", "OK"], "bytes": 7,
+                                                 "max_bytes": 200}
+    out = await svc.set_canned(MY_ID, None, ["A", "B"])
+    assert conn.canned_calls == [(None, "A|B")] and out["messages"] == ["A", "B"]
+    with pytest.raises(ConfigError) as ei:
+        await svc.set_canned(MY_ID, None, ["a|b"])
+    assert _err(ei).status == 400 and conn.canned_calls == [(None, "A|B")]
+    with pytest.raises(ConfigError) as ei:
+        await svc.set_canned(MY_ID, None, [])
+    assert _err(ei).status == 400
+    conn.busy = True
+    for coro in (svc.get_canned(MY_ID, None), svc.set_canned(MY_ID, None, ["x"])):
+        with pytest.raises(ConfigError) as ei:
+            await coro
+        assert _err(ei).status == 409 and ei.value.message == "Radio occupata, riprova tra poco"
+    conn.busy = False
+    with pytest.raises(ConfigError) as ei:
+        await svc.set_canned(REMOTE, None, ["x"])  # remoto senza la nostra chiave
+    assert _err(ei).status == 409
+
+
+async def test_canned_admin_error_is_409():
+    e, svc, conn = await make_service()
+
+    async def no_canned(num, wait=None):
+        raise AdminError("error", "Il firmware di questa radio non include i messaggi predefiniti")
+    conn.get_canned = no_canned
+    with pytest.raises(ConfigError) as ei:
+        await svc.get_canned(MY_ID, None)
+    assert _err(ei).status == 409 and "messaggi predefiniti" in ei.value.message
+
+
+async def test_set_radio_flags_reports_per_radio():
+    e, svc, conn = await make_service()
+    assert await svc.set_radio_flags("!00000042", favorite=True) == [
+        {"radio_id": e.mgr.radios()[0]["id"], "ok": True, "error": None}]
+    await e.mgr.add("tcp", "10.0.0.2", "T")
+    conn2 = FakeConnector.instances[1]
+    conn2.busy = True
+    r1, r2 = e.mgr.radios()[0]["id"], e.mgr.radios()[1]["id"]
+    out = await svc.set_radio_flags("!00000042", ignored=True)
+    assert out == [{"radio_id": r1, "ok": True, "error": None},
+                   {"radio_id": r2, "ok": False, "error": "Radio occupata, riprova tra poco"}]
+    assert conn.flag_calls[-1] == (0x42, "ignored", True)
+    out = await svc.set_radio_flags("!00000042", favorite=False, radio_ids=[r1])
+    assert [o["radio_id"] for o in out] == [r1]
+    conn.state_name = "disconnected"
+    conn2.state_name = "disconnected"
+    assert await svc.set_radio_flags("!00000042", favorite=True) == []
+
+
+async def test_set_radio_flags_value_error_is_reported():
+    e, svc, conn = await make_service()
+
+    async def own(num, flag, value, wait=None):
+        raise ValueError("Non si può marcare il nodo della radio stessa")
+    conn.set_node_flag = own
+    out = await svc.set_radio_flags(MY_ID, favorite=True)
+    assert out[0]["ok"] is False and out[0]["error"] == "Non si può marcare il nodo della radio stessa"
+
+
+async def test_radio_flags_lists_known_only():
+    e, svc, conn = await make_service()
+    conn.flags = {0x42: {"favorite": True, "ignored": False, "muted": None}}
+    out = svc.radio_flags("!00000042")
+    assert out == [{"radio_id": e.mgr.radios()[0]["id"], "radio_name": "H", "favorite": True,
+                    "ignored": False, "muted": None}]
+    assert svc.radio_flags("!00000099") == []
+
+
+async def test_preview_from_profile_changes_uses_existing_flow():
+    e, svc, conn = await make_service()
+    with pytest.raises(ConfigError) as ei:
+        svc.preview_changes(MY_ID, {"config.lora.hop_limit": 5})
+    assert _err(ei).status == 409
+    await read_local(svc)
+    pv = svc.preview_changes(MY_ID, {"config.lora.hop_limit": 5})
+    assert [c["path"] for c in pv["changes"]] == ["config.lora.hop_limit"]
+    done = await run(svc, svc.apply(MY_ID, pv["preview_id"], confirm_risky=True))
+    assert done["status"] == "done"
+    assert conn.writes[-1][1]["config"].lora.hop_limit == 5
+    assert conn.at_write == [1]  # copia di sicurezza salvata prima della scrittura
+    with pytest.raises(ConfigError) as ei:
+        svc.preview_changes(MY_ID, {})
+    assert _err(ei).status == 400
+
+
+def _privacy_protos(conn):
+    from meshtastic.protobuf import config_pb2
+    p = conn.nodes[None]
+    p["channels"][0].settings.psk = b"\x01"
+    p["channels"][0].settings.module_settings.position_precision = 32
+    p["config"].position.gps_mode = config_pb2.Config.PositionConfig.ENABLED
+
+
+async def test_privacy_report_and_preview():
+    e, svc, conn = await make_service()
+    assert (await svc.privacy_report())[0]["risks"] == []  # precisione 0: nessun rischio
+    _privacy_protos(conn)
+    rep = await svc.privacy_report()
+    assert len(rep) == 1 and rep[0]["node_id"] == MY_ID and rep[0]["name"] == "H"
+    assert rep[0]["error"] is None and rep[0]["risks"][0]["reasons"] == ["public_key"]
+    with pytest.raises(ConfigError) as ei:
+        await svc.privacy_preview(MY_ID, 13, None)
+    assert _err(ei).status == 409 and ei.value.message == "Leggi prima la configurazione"
+    await read_local(svc)
+    pv = await svc.privacy_preview(MY_ID, 13, None)
+    assert pv["changes"] == [{"path": "channels.0.position_precision", "old": 32, "new": 13,
+                              "risky": True, "reason": pv["changes"][0]["reason"]}]
+    with pytest.raises(ConfigError) as ei:
+        await svc.privacy_preview(MY_ID, 20, None)
+    assert _err(ei).status == 400
+    with pytest.raises(ConfigError) as ei:
+        await svc.privacy_preview(REMOTE, 13, None)
+    assert _err(ei).status == 409
+
+
+async def test_privacy_report_radio_error():
+    e, svc, conn = await make_service()
+
+    async def broken(num):
+        raise AdminError("error", "Radio non connessa")
+    conn.current_protos = broken
+    rep = await svc.privacy_report()
+    assert rep[0]["risks"] == [] and rep[0]["error"] == "Radio non connessa"
+
+
+async def test_export_channels_local_and_errors():
+    from meshlens.channel_link import parse_channel_url
+    e, svc, conn = await make_service()
+    out = await svc.export_channels(MY_ID, None, False)
+    assert out["url"].startswith("https://meshtastic.org/e/#")
+    assert parse_channel_url(out["url"])[0]["psk"] == base64.b64encode(CHAN_PSK).decode()
+    assert out["channels"] == [{"index": 0, "name": "LongFast"}, {"index": 1, "name": "uno"}]
+    add = await svc.export_channels(MY_ID, [1], True)
+    assert add["url"].startswith("https://meshtastic.org/e/?add=true#")
+    assert add["channels"] == [{"index": 1, "name": "uno"}]
+    with pytest.raises(ConfigError) as ei:
+        await svc.export_channels(MY_ID, [5], False)
+    assert _err(ei).status == 400
+    with pytest.raises(ConfigError) as ei:
+        await svc.export_channels(REMOTE, None, False)
+    assert _err(ei).status == 409
+
+
+async def test_no_secrets_in_service_errors():
+    assert ERRORS, "i test WP4 precedenti devono aver raccolto errori"
+    for msg in ERRORS:
+        assert secrets_in(msg) == [], msg

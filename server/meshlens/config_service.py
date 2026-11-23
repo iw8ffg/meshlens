@@ -11,13 +11,16 @@ import math
 import secrets
 import time
 
-from .channel_link import preset_name
-from .config_model import (CHANNEL_FIELDS, CONFIG_SECTIONS, MASK, OWNER_FIELDS, _current,
-                           _is_secret, _split, apply_to_protos, diff, mask_config,
-                           node_to_dict, parse_changes, schema, touched_sections)
+from .channel_link import build_channel_url, preset_name
+from .config_model import (CANNED_MAX_BYTES, CHANNEL_FIELDS, CONFIG_SECTIONS, MASK,
+                           OWNER_FIELDS, _current, _is_secret, _split, apply_to_protos, diff,
+                           join_canned, mask_config, node_to_dict, parse_changes, schema,
+                           split_canned, touched_sections)
 from .coverage import prepare_changes
 from .events import node_id as make_node_id
-from .radio import MODULE_SECTIONS, AdminError
+from .privacy import fix_changes, has_position, position_risks
+from .radio import (MODULE_SECTIONS, MSG_ADMIN_UNAUTH, MSG_RADIO_BUSY, SEND_LOCK_TIMEOUT,
+                    AdminError, RadioBusy)
 from .radio_manager import NoRadioConnected
 
 log = logging.getLogger(__name__)
@@ -32,6 +35,11 @@ MSG_NOT_BACK = "La radio non è tornata dopo il riavvio"
 MSG_CHANGED = "La configurazione del nodo è cambiata: rivedi le modifiche"
 MSG_SKIPPED = "Non eseguito: il passo precedente non è riuscito"
 PRIVATE_CHANNEL_NAME = "MLprova"  # canale privato temporaneo della prova (max 11 caratteri)
+# comandi admin (E13): remoto solo se il nodo ha la chiave pubblica della radio tra le admin key
+ADMIN_COMMANDS = ("reboot", "set_time", "nodedb_reset", "shutdown")
+MSG_REMOTE_READ_SECURITY = ("Leggi la sezione Sicurezza del nodo per verificare che abbia la "
+                            "chiave admin di questa radio")
+MSG_PRIVACY_LOCAL_ONLY = "La correzione guidata vale per le tue radio collegate"
 
 
 class ConfigError(Exception):
@@ -769,6 +777,238 @@ class ConfigService:
         if not key:
             raise ConfigError(409, "La radio non ha ancora una chiave pubblica")
         return {"public_key_b64": key}
+
+
+    # ---- WP4: comandi admin con controllo della chiave ---------------------------
+    async def _radio_key(self, conn) -> str | None:
+        try:
+            return await asyncio.wait_for(conn.admin_public_key(), SEND_LOCK_TIMEOUT)
+        except asyncio.TimeoutError:
+            raise ConfigError(409, MSG_RADIO_BUSY) from None
+        except RadioBusy:
+            raise ConfigError(409, MSG_RADIO_BUSY) from None
+        except AdminError as err:
+            raise ConfigError(409, err.message) from None
+
+    async def _status(self, num: int, rid: str, local: bool) -> dict:
+        key = await self._radio_key(self._connector(rid))
+        out = {"node_id": make_node_id(num), "radio_id": rid, "local": local,
+               "authorized": True if local else None, "radio_public_key": key,
+               "read_time": None, "reason": None}
+        if local:
+            return out
+        row = self.store.last_read(num)
+        if row is None or "security" not in (row.get("sections") or []):
+            out["reason"] = MSG_REMOTE_READ_SECURITY
+            return out
+        out["read_time"] = row["time"]
+        keys = ((row.get("data") or {}).get("config", {}).get("security", {})
+                .get("admin_key") or [])
+        ok = bool(key) and key in keys
+        out["authorized"] = ok
+        out["reason"] = None if ok else MSG_ADMIN_UNAUTH
+        return out
+
+    async def admin_status(self, node_id: str, radio_id: str | None) -> dict:
+        num = _num(node_id)
+        rid, local = self._resolve(num, radio_id)
+        return await self._status(num, rid, local)
+
+    async def _authorize(self, num: int, rid: str, local: bool) -> None:
+        if local:
+            return
+        st = await self._status(num, rid, local)
+        if st["authorized"] is not True:
+            raise ConfigError(409, st["reason"] or MSG_ADMIN_UNAUTH)
+
+    async def admin_command(self, node_id: str, radio_id: str | None, command: str,
+                            confirm: bool) -> dict:
+        if confirm is not True:
+            raise ConfigError(400, "Conferma richiesta")
+        if command not in ADMIN_COMMANDS:
+            raise ConfigError(400, "Comando sconosciuto")
+        num = _num(node_id)
+        rid, local = self._resolve(num, radio_id)
+        await self._authorize(num, rid, local)
+        conn = self._connector(rid)
+        target = None if local else num
+
+        async def work(jid: int) -> None:
+            if command == "reboot":
+                self._update(jid, step="Invio il riavvio", done=0, total=2)
+                await conn.reboot(target)
+                if local:
+                    self._update(jid, step="Attendo la radio", done=1, total=2)
+                    if not await conn.wait_reconnected(RECONNECT_WAIT):
+                        raise _JobFailed(MSG_NOT_BACK)
+                self._done(jid, step="Fatto", done=2, total=2)
+            elif command == "set_time":
+                self._update(jid, step="Imposto l'ora", done=0, total=1)
+                await conn.set_time(target, int(self._clock()))
+                self._done(jid, step="Fatto", done=1, total=1)
+            elif command == "nodedb_reset":
+                self._update(jid, step="Azzero l'elenco nodi della radio", done=0, total=2)
+                await conn.reset_nodedb(target)
+                if local:
+                    self._update(jid, step="Attendo la radio", done=1, total=2)
+                    await self._wait_back(conn)  # puo' non riavviarsi: non e' un errore
+                self._done(jid, step="Fatto", done=2, total=2)
+            else:  # shutdown
+                self._update(jid, step="Invio lo spegnimento", done=0, total=1)
+                await conn.shutdown(target)
+                self._done(jid, step="Fatto: la radio è spenta", done=1, total=1)
+
+        return self._start_job(num, rid, command, work, total=2)
+
+    # ---- WP4: messaggi predefiniti (canned) ---------------------------------------
+    @staticmethod
+    def _canned_json(text: str) -> dict:
+        return {"messages": split_canned(text), "bytes": len(text.encode("utf-8")),
+                "max_bytes": CANNED_MAX_BYTES}
+
+    async def _radio_call(self, coro):
+        """Operazione sincrona sulla radio: RadioBusy/AdminError -> 409."""
+        try:
+            return await coro
+        except RadioBusy:
+            raise ConfigError(409, MSG_RADIO_BUSY) from None
+        except AdminError as err:
+            raise ConfigError(409, err.message) from None
+
+    async def get_canned(self, node_id: str, radio_id: str | None) -> dict:
+        num = _num(node_id)
+        rid, local = self._resolve(num, radio_id)
+        await self._authorize(num, rid, local)
+        conn = self._connector(rid)
+        text = await self._radio_call(conn.get_canned(None if local else num,
+                                                      wait=SEND_LOCK_TIMEOUT))
+        return self._canned_json(text or "")
+
+    async def set_canned(self, node_id: str, radio_id: str | None, messages: list) -> dict:
+        try:
+            text = join_canned(messages)  # prima di toccare la radio (sys.exit della libreria)
+        except ValueError as exc:
+            raise ConfigError(400, str(exc)) from None
+        num = _num(node_id)
+        rid, local = self._resolve(num, radio_id)
+        await self._authorize(num, rid, local)
+        conn = self._connector(rid)
+        try:
+            await self._radio_call(conn.set_canned(None if local else num, text,
+                                                   wait=SEND_LOCK_TIMEOUT))
+        except ValueError as exc:
+            raise ConfigError(400, str(exc)) from None
+        return self._canned_json(text)
+
+    # ---- WP4: preferiti/ignorati nel NodeDB delle radio collegate -------------------
+    def _connected(self, radio_ids: list[str] | None = None) -> list[dict]:
+        out = [r for r in self.radios.radios() if r["state"] == "connected"]
+        if radio_ids is not None:
+            out = [r for r in out if r["id"] in set(radio_ids)]
+        return out
+
+    async def set_radio_flags(self, node_id: str, *, favorite: bool | None = None,
+                              ignored: bool | None = None,
+                              radio_ids: list[str] | None = None) -> list[dict]:
+        num = _num(node_id)
+        flags = [(f, v) for f, v in (("favorite", favorite), ("ignored", ignored))
+                 if v is not None]
+        results = []
+        for r in self._connected(radio_ids):
+            conn = self._connector(r["id"])
+            error = None
+            try:
+                for flag, value in flags:
+                    await conn.set_node_flag(num, flag, bool(value), wait=SEND_LOCK_TIMEOUT)
+            except RadioBusy:
+                error = MSG_RADIO_BUSY
+            except AdminError as err:
+                error = err.message
+            except ValueError as err:
+                error = str(err)
+            results.append({"radio_id": r["id"], "ok": error is None, "error": error})
+        return results
+
+    def radio_flags(self, node_id: str) -> list[dict]:
+        num = _num(node_id)
+        out = []
+        for r in self._connected():
+            flags = self._connector(r["id"]).node_flags(num)
+            if flags is None:
+                continue
+            out.append({"radio_id": r["id"], "radio_name": r.get("name") or r.get("my_node_name"),
+                        "favorite": bool(flags.get("favorite")),
+                        "ignored": bool(flags.get("ignored")), "muted": flags.get("muted")})
+        return out
+
+    # ---- WP4: anteprime costruite dal server (profili, privacy) ---------------------
+    def preview_changes(self, node_id: str, changes: dict) -> dict:
+        if not isinstance(changes, dict) or not changes:
+            raise ConfigError(400, "Nessuna modifica indicata")
+        return self._build_preview(_num(node_id), changes)
+
+    async def _memory_protos(self, conn, num: int | None) -> dict:
+        try:
+            return await asyncio.wait_for(conn.current_protos(num), SEND_LOCK_TIMEOUT)
+        except (asyncio.TimeoutError, RadioBusy):
+            raise ConfigError(409, MSG_RADIO_BUSY) from None
+        except AdminError as err:
+            raise ConfigError(409, err.message) from None
+
+    def _live_node(self, node_id: str | None) -> dict | None:
+        if not node_id:
+            return None
+        try:
+            return self.live.nodes.get(int(node_id[1:], 16))
+        except (ValueError, AttributeError):
+            return None
+
+    async def privacy_report(self) -> list[dict]:
+        out = []
+        for r in self._connected():
+            nid = r.get("my_node_id")
+            entry = {"radio_id": r["id"], "node_id": nid,
+                     "name": r.get("name") or r.get("my_node_name"), "risks": [], "error": None}
+            try:
+                protos = await self._memory_protos(self._connector(r["id"]), None)
+                entry["risks"] = position_risks(protos, has_position(protos,
+                                                                      self._live_node(nid)))
+            except ConfigError as err:
+                entry["error"] = err.message
+            out.append(entry)
+        return out
+
+    async def privacy_preview(self, node_id: str, bits: int, channels: list[int] | None) -> dict:
+        num = _num(node_id)
+        rid = self.radios.local_radio_for(num)
+        if rid is None:
+            raise ConfigError(409, MSG_PRIVACY_LOCAL_ONLY)
+        protos = await self._memory_protos(self._connector(rid), None)
+        risks = position_risks(protos, has_position(protos, self._live_node(make_node_id(num))))
+        try:
+            changes = fix_changes(risks, bits, channels)
+        except ValueError as exc:
+            raise ConfigError(400, str(exc)) from None
+        return self.preview_changes(make_node_id(num), changes)
+
+    # ---- WP4: link dei canali (contiene le PSK: mai nei log) ------------------------
+    async def export_channels(self, node_id: str, include: list[int] | None, add: bool) -> dict:
+        num = _num(node_id)
+        rid, local = self._resolve(num, None)
+        protos = await self._memory_protos(self._connector(rid), None if local else num)
+        try:
+            url = build_channel_url(protos["channels"], protos["config"].lora, include, add)
+        except ValueError as exc:
+            raise ConfigError(400, str(exc)) from None
+        preset = preset_name(protos["config"].lora.modem_preset)
+        wanted = None if include is None else set(include)
+        listed = []
+        for ch in sorted(protos["channels"], key=lambda c: c.index):
+            if ch.role == ch.DISABLED or (wanted is not None and ch.index not in wanted):
+                continue
+            name = ch.settings.name or (preset if ch.role == ch.PRIMARY else "")
+            listed.append({"index": ch.index, "name": name})
+        return {"url": url, "channels": listed}
 
 
 __all__ = ["ConfigService", "ConfigError", "MASK"]

@@ -21,7 +21,14 @@
     "Profilo troppo grande": "Profile too large",
     "Versione del profilo non supportata": "Unsupported profile version",
     "Nessun canale da correggere": "No channel to fix",
-    "Precisione non ammessa": "Precision not allowed"
+    "Precisione non ammessa": "Precision not allowed",
+    "Azzero l'elenco nodi della radio": "Clearing the radio's node list",
+    "Imposto l'ora": "Setting the time",
+    "Comando sconosciuto": "Unknown command",
+    "Fatto: la radio è spenta": "Done: the radio is off",
+    "Invio lo spegnimento": "Sending the shutdown",
+    "La correzione guidata vale per le tue radio collegate": "The guided fix applies to your connected radios",
+    "Leggi la sezione Sicurezza del nodo per verificare che abbia la chiave admin di questa radio": "Read the node's Security section to check that it has this radio's admin key"
   },
   "patterns": [
     [
