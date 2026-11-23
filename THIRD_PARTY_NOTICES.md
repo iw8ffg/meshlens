@@ -86,6 +86,7 @@ I testi completi delle licenze sono nella cartella `licenses\` dell'installer (`
 | @lucide/svelte (icone / icons) | 1.77.x | ISC |
 | @fontsource/ibm-plex-sans (IBM Plex Sans) | 5.3.x | SIL OFL-1.1 |
 | @fontsource/ibm-plex-mono (IBM Plex Mono) | 5.3.x | SIL OFL-1.1 |
+| uqr — generatore di codici QR (derivato da QR Code generator di Project Nayuki, MIT) / QR code generator | 0.1.3 | MIT |
 
 Le bandiere SVG (flag-icons 7.6, MIT) sono copiate in `web/public/flags` in fase di sviluppo e distribuite con l'interfaccia. / The flag SVGs (flag-icons 7.6, MIT) are copied into `web/public/flags` at development time and shipped with the UI.
 

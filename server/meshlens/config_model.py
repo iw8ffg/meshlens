@@ -11,6 +11,8 @@ from google.protobuf.descriptor import FieldDescriptor as FD
 from google.protobuf.json_format import MessageToDict
 from meshtastic.protobuf import channel_pb2, localonly_pb2
 
+from .crypto import DEFAULT_KEY
+
 MASK = "••••"
 
 CONFIG_SECTIONS = ("device", "position", "power", "network", "display", "lora", "bluetooth",
@@ -99,6 +101,57 @@ def schema() -> dict:
             "owner": {k: {"type": v} for k, v in OWNER_FIELDS.items()}}
 
 
+# --- tipo di chiave dei canali ---
+
+KEY_KINDS = ("none", "default", "custom")
+
+
+def psk_kind(psk: bytes) -> str:
+    """"none" (nessuna cifratura), "default" (chiave pubblica nota e varianti), "custom".
+
+    Non rivela nulla della chiave: serve all'avviso "chiave debole".
+    """
+    psk = bytes(psk or b"")
+    if psk in (b"", b"\x00"):
+        return "none"
+    if len(psk) == 1:
+        return "default"  # 1..255: chiave predefinita e sue varianti "semplici"
+    if psk == DEFAULT_KEY:
+        return "default"
+    return "custom"
+
+
+# --- messaggi predefiniti (canned) ---
+
+CANNED_SEP = "|"
+CANNED_MAX_BYTES = 200
+
+
+def split_canned(text: str) -> list[str]:
+    """"a|b" -> ["a", "b"]; voci vuote tolte."""
+    return [p for p in (text or "").split(CANNED_SEP) if p.strip()]
+
+
+def join_canned(messages: list[str]) -> str:
+    """Unisce i messaggi con "|" dopo averli validati (la libreria fa sys.exit oltre 200)."""
+    if not isinstance(messages, list) or not all(isinstance(m, str) for m in messages):
+        raise ValueError("Serve almeno un messaggio")
+    if not messages:
+        raise ValueError("Serve almeno un messaggio")
+    items = [m.strip() for m in messages]
+    if any(not m for m in items):
+        raise ValueError("I messaggi non possono essere vuoti")
+    if any(CANNED_SEP in m for m in items):
+        raise ValueError("I messaggi non possono contenere il carattere |")
+    if any(ord(c) < 32 for m in items for c in m):
+        raise ValueError("I messaggi non possono contenere caratteri di controllo")
+    text = CANNED_SEP.join(items)
+    n = len(text.encode("utf-8"))
+    if n > CANNED_MAX_BYTES:
+        raise ValueError(f"Troppo lunghi: {n} byte su 200 (separatori compresi)")
+    return text
+
+
 # --- costruzione del dict di configurazione ---
 
 def channel_to_dict(ch, mask: bool = True) -> dict:
@@ -108,6 +161,8 @@ def channel_to_dict(ch, mask: bool = True) -> dict:
         "role": channel_pb2.Channel.Role.Name(ch.role),
         "name": ch.settings.name,
         "psk": MASK if mask else base64.b64encode(psk).decode(),
+        # calcolato prima della maschera; additivo, non modificabile (non e' in CHANNEL_FIELDS)
+        "key_kind": psk_kind(psk),
         "position_precision": ch.settings.module_settings.position_precision,
         "uplink_enabled": ch.settings.uplink_enabled,
         "downlink_enabled": ch.settings.downlink_enabled,

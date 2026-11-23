@@ -8,6 +8,7 @@ import {
   pickBroker,
   portFor,
   pskError,
+  pskWeak,
 } from './brokers'
 import type { Broker } from './settings'
 import type { BrokerStatus } from './types'
@@ -103,5 +104,17 @@ describe('brokerLabel', () => {
     expect(brokerLabel('zz', [st('default'), st('b1')])).toBeNull()
     expect(brokerLabel(null, [st('default'), st('b1')])).toBeNull()
     expect(brokerLabel('b1', undefined)).toBeNull()
+  })
+})
+
+describe('pskWeak', () => {
+  it('chiave pubblica, varianti di 1 byte, nessuna cifratura', () => {
+    expect(pskWeak('AQ==')).toBe(true)
+    expect(pskWeak('Ag==')).toBe(true)
+    expect(pskWeak('AA==')).toBe(true)
+    expect(pskWeak('')).toBe(true)
+    expect(pskWeak('1PG7OiApB1nwvP+rz05pAQ==')).toBe(true)
+    expect(pskWeak(b64(32))).toBe(false)
+    expect(pskWeak(b64(16))).toBe(false)
   })
 })

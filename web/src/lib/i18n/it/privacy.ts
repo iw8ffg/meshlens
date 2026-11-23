@@ -1,2 +1,20 @@
 // Testi italiani: area «privacy» (WP4, privacy). Chiavi `privacy.*`.
-export const privacy = {} as const
+export const privacy = {
+  'privacy.exact': 'esatta',
+  'privacy.notSent': 'non inviata',
+  'privacy.reason.no_key': 'canale senza cifratura',
+  'privacy.reason.public_key': 'chiave pubblica predefinita: chiunque con l’app legge il canale',
+  'privacy.reason.mqtt_uplink': 'il canale è inoltrato a MQTT',
+  'privacy.reason.mqtt_map': 'la radio pubblica la posizione sulla mappa MQTT',
+  'privacy.failed': "Correzione non disponibile",
+  'privacy.title': "Posizione troppo precisa sulla radio {name}",
+  'privacy.titleCompact': "Posizione troppo precisa su un canale pubblico",
+  'privacy.channel': "Canale {n} ({name})",
+  'privacy.current': "precisione attuale: {value}",
+  'privacy.fix.choice': "Nuova precisione",
+  'privacy.fix.button': "Correggi",
+  'privacy.fix.off': "non inviare la posizione su questo canale",
+  'privacy.mapReport': "Mappa MQTT",
+  'privacy.mapReportHelp': "Riduci la precisione del map report dal modulo MQTT nell'app Meshtastic o nella scheda Avanzate.",
+  'privacy.open': "Apri la correzione",
+} as const

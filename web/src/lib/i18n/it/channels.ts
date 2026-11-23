@@ -1,2 +1,24 @@
 // Testi italiani: area «channels» (WP4, condivisione dei canali). Chiavi `channels.*`.
-export const channels = {} as const
+export const channels = {
+  'channels.failed': "Link dei canali non disponibile",
+  'channels.bits256': "256 bit",
+  'channels.bits128': "128 bit",
+  'channels.bitsLabel': "Lunghezza della chiave generata",
+  'channels.weak.default': "Chiave pubblica predefinita (AQ==): chiunque con la stessa app legge questo canale",
+  'channels.weak.none': "Nessuna cifratura: i messaggi di questo canale viaggiano in chiaro",
+  'channels.weak.body': "Per un canale privato genera una chiave nuova e condividila solo con chi deve entrare.",
+  'channels.share.open': "Condividi canali",
+  'channels.share.needRead': "Leggi di nuovo la configurazione del nodo per condividerne i canali",
+  'channels.share.title': "Condividi i canali",
+  'channels.share.localOnly': "Il link contiene le chiavi dei canali: si mostra solo dal PC dove gira MeshLens",
+  'channels.share.warning': "Chi ha questo QR o link entra nei canali e ne legge i messaggi",
+  'channels.share.mode': "Tipo di link",
+  'channels.share.replace': "Sostituisci canali",
+  'channels.share.add': "Aggiungi canali",
+  'channels.share.channel': "Canale {n}: {name}",
+  'channels.share.primaryRequired': "Per sostituire i canali serve anche il canale primario (0)",
+  'channels.share.update': "Aggiorna il QR",
+  'channels.share.qrAria': "Codice QR dei canali",
+  'channels.share.copy': "Copia il link",
+  'channels.share.copied': "Link copiato",
+} as const

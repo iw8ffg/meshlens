@@ -1,4 +1,54 @@
 {
-  "exact": {},
-  "patterns": []
+  "exact": {
+    "Il canale primario deve essere incluso": "The primary channel must be included",
+    "I messaggi non possono contenere caratteri di controllo": "Messages cannot contain control characters",
+    "I messaggi non possono contenere il carattere |": "Messages cannot contain the | character",
+    "I messaggi non possono essere vuoti": "Messages cannot be empty",
+    "Serve almeno un messaggio": "At least one message is required",
+    "Il firmware di questa radio non include i messaggi predefiniti": "This radio's firmware does not include canned messages",
+    "Messaggi predefiniti non validi": "Invalid canned messages",
+    "Non si può marcare il nodo della radio stessa": "The radio's own node cannot be marked",
+    "Esiste già un profilo con questo nome": "A profile with this name already exists",
+    "File non riconosciuto: non è un profilo di MeshLens": "Unrecognized file: not a MeshLens profile",
+    "Il nome del profilo non può contenere caratteri di controllo": "The profile name cannot contain control characters",
+    "Il nome del profilo è obbligatorio": "The profile name is required",
+    "Il profilo non contiene sezioni copiabili": "The profile contains no copyable sections",
+    "Le note non possono contenere caratteri di controllo": "Notes cannot contain control characters",
+    "Nome del profilo troppo lungo (massimo 60 caratteri)": "Profile name too long (maximum 60 characters)",
+    "Note non valide": "Invalid notes",
+    "Note troppo lunghe (massimo 500 caratteri)": "Notes too long (maximum 500 characters)",
+    "Profilo non trovato": "Profile not found",
+    "Profilo troppo grande": "Profile too large",
+    "Versione del profilo non supportata": "Unsupported profile version",
+    "Nessun canale da correggere": "No channel to fix",
+    "Precisione non ammessa": "Precision not allowed",
+    "Azzero l'elenco nodi della radio": "Clearing the radio's node list",
+    "Imposto l'ora": "Setting the time",
+    "Comando sconosciuto": "Unknown command",
+    "Fatto: la radio è spenta": "Done: the radio is off",
+    "Invio lo spegnimento": "Sending the shutdown",
+    "La correzione guidata vale per le tue radio collegate": "The guided fix applies to your connected radios",
+    "Leggi la sezione Sicurezza del nodo per verificare che abbia la chiave admin di questa radio": "Read the node's Security section to check that it has this radio's admin key",
+    "Configurazione radio non disponibile": "Radio configuration not available",
+    "Nessun flag indicato": "No flag given",
+    "Non puoi ignorare il nodo di una tua radio": "You cannot ignore the node of one of your radios",
+    "Il link dei canali si mostra solo da questo PC": "The channel link is shown only on this PC",
+    "Il profilo non cambia nulla su questa radio": "The profile changes nothing on this radio",
+    "Indica un nodo o un profilo per il lato A e un nodo per il lato B": "Give a node or a profile for side A and a node for side B",
+    "Profili non disponibili": "Profiles not available"
+  },
+  "patterns": [
+    [
+      "^Troppo lunghi: (\\d+) byte su 200 \\(separatori compresi\\)$",
+      "Too long: $1 bytes of 200 (separators included)"
+    ],
+    [
+      "^Flag sconosciuto: (.+)$",
+      "Unknown flag: $1"
+    ],
+    [
+      "^Sezione non copiabile: (.+)$",
+      "Section cannot be copied: $1"
+    ]
+  ]
 }

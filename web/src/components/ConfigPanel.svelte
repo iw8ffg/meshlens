@@ -23,7 +23,6 @@
     cloneConfig,
     enumLabel,
     formChanges,
-    genPsk,
     getPath,
     jobText,
     schemaField,
@@ -33,8 +32,24 @@
   import { t } from '../lib/i18n/index.svelte'
   import { translateServer } from '../lib/i18n/server'
   import { app, configJobs, setConfigJob } from '../lib/stores.svelte'
-  import type { ConfigBackup, ConfigDict, ConfigPreview, ConfigSaved, ConfigSchema, ConfigValue } from '../lib/types'
+  import type {
+    ConfigBackup,
+    ConfigChannelKeyed,
+    ConfigDict,
+    ConfigJob,
+    ConfigPreview,
+    ConfigSaved,
+    ConfigSchema,
+    ConfigValue,
+  } from '../lib/types'
   import ConfigAdvanced from './ConfigAdvanced.svelte'
+  import ConfigProfiles from './ConfigProfiles.svelte'
+  import ConfigAdmin from './ConfigAdmin.svelte'
+  import ConfigCanned from './ConfigCanned.svelte'
+  import ChannelShare from './ChannelShare.svelte'
+  import PrivacyBanner from './PrivacyBanner.svelte'
+  import Segmented from '../lib/ui/Segmented.svelte'
+  import { generatePsk, isWeak, keyKind, type KeyKind } from '../lib/psk'
   import ConfigDiff from './ConfigDiff.svelte'
   import ConfigField from './ConfigField.svelte'
   import Banner from '../lib/ui/Banner.svelte'
@@ -62,8 +77,12 @@
     ['modules', t('config.tab.modules')],
     ['advanced', t('config.tab.advanced')],
     ['backups', t('config.tab.backups')],
+    ['profiles', t('config.tab.profiles')],
     ['adminkey', t('config.tab.adminkey')],
+    ['admin', t('config.tab.admin')],
   ])
+  // schede senza il form di modifica (niente «Rivedi e applica»)
+  const NO_FORM = new Set(['adminkey', 'backups', 'profiles', 'admin'])
 
   const node = $derived(app.nodes.get(nodeId) ?? null)
   const nodeName = $derived(node?.long_name || node?.short_name || nodeId)
@@ -84,7 +103,9 @@
   let edited = $state<ConfigDict>({})
   let backups = $state<ConfigBackup[]>([])
   let preview = $state<ConfigPreview | null>(null)
-  let previewFrom = $state<{ kind: 'form'; key: string } | { kind: 'restore' } | null>(null)
+  // 'external': anteprima costruita dal server (profilo, privacy), non legata al form
+  let previewFrom = $state<{ kind: 'form'; key: string } | { kind: 'restore' } | { kind: 'external' } | null>(null)
+  let skipped = $state<string[]>([])
   let copyTimer: ReturnType<typeof setTimeout> | null = null
   let jobId = $state<number | null>(null)
   let err = $state('')
@@ -105,7 +126,7 @@
   // anteprima del form: vale solo finche' il form non cambia
   const formKey = $derived(saved ? JSON.stringify(formChanges(saved.config, edited)) : '')
   const activePreview = $derived(
-    preview && previewFrom && (previewFrom.kind === 'restore' || previewFrom.key === formKey) ? preview : null,
+    preview && previewFrom && (previewFrom.kind !== 'form' || previewFrom.key === formKey) ? preview : null,
   )
   const local = $derived(app.radios.find((r) => r.id === radio)?.my_node_id === nodeId)
   const keyMissing = $derived(job?.error_code === 'unauthorized' || (!!job?.error && !job.error_code && /chiave admin/i.test(job.error)))
@@ -254,6 +275,13 @@
     }
   }
 
+  function showExternal(p: ConfigPreview, skippedPaths: string[] = []) {
+    preview = p
+    previewFrom = { kind: 'external' }
+    skipped = skippedPaths
+    err = ''
+  }
+
   function apply(confirmRisky: boolean) {
     if (!activePreview) return
     const id = activePreview.preview_id
@@ -263,6 +291,12 @@
   }
 
   const reboot = () => run(() => rebootNode(nodeId, radio || undefined))
+
+  // lavori avviati dalle schede di WP4 (comandi admin, verifica della chiave)
+  function takeJob(j: ConfigJob) {
+    setConfigJob(j)
+    jobId = j.id
+  }
 
   function fixed() {
     const la = Number(lat)
@@ -301,6 +335,18 @@
   }
 
   const set = (path: string, v: ConfigValue) => setPath(edited, path, v)
+
+  // WP4: chiavi deboli, lunghezza della chiave generata, condivisione dei canali
+  let pskBits = $state<'256' | '128'>('256')
+  let sharing = $state(false)
+  const SESSION_MAX_AGE = 240 // s: oltre, il server vuole una nuova lettura del nodo remoto
+  const canShare = $derived(!!radio && (local || (!!saved && now - saved.time < SESSION_MAX_AGE)))
+  function weakKind(c: ConfigChannelKeyed): KeyKind | null {
+    if (c.role === 'DISABLED') return null
+    const pending = typeof c.psk === 'string' && c.psk !== MASK
+    const kind: KeyKind | undefined = pending ? keyKind(c.psk as string) : c.key_kind
+    return isWeak(kind) ? (kind as KeyKind) : null
+  }
   const channels = $derived((edited.channels ?? []).slice().sort((a, b) => a.index - b.index))
   const dirty = $derived(saved ? Object.keys(formChanges(saved.config, edited)).length : 0)
   const outcome = $derived.by(() => {
@@ -374,6 +420,9 @@
 
     {#if activePreview}
       {#key activePreview.preview_id}
+        {#if previewFrom?.kind === 'external' && skipped.length}
+          <Banner kind="warn" title={t('profiles.skipped')}>{skipped.join(', ')}</Banner>
+        {/if}
         <ConfigDiff preview={activePreview} {busy} onapply={apply} oncancel={() => (preview = null)} />
       {/key}
     {/if}
@@ -407,12 +456,27 @@
       {:else}
         <p class="muted">{t('config.backups.none')}</p>
       {/each}
+    {:else if tab === 'admin'}
+      <ConfigAdmin {nodeId} radioId={radio || null} {local} {lock} onjob={takeJob} onkeytab={() => (tab = 'adminkey')} />
+      <ConfigCanned {nodeId} radioId={radio || null} {lock} />
+    {:else if tab === 'profiles'}
+      <ConfigProfiles {nodeId} radioId={radio || null} {saved} {lock} onpreview={showExternal} />
     {:else if !saved || !schema}
       <p class="muted">{schema ? t('config.readFirst') : t('config.loading')}</p>
     {:else if tab === 'advanced'}
       <ConfigAdvanced {schema} {edited} disabled={lock} />
     {:else if tab === 'channels'}
+      <PrivacyBanner {nodeId} onfix={(p) => showExternal(p)} />
+      <div class="row">
+        <Segmented
+          items={[{ value: '256', label: t('channels.bits256') }, { value: '128', label: t('channels.bits128') }]}
+          bind:value={pskBits}
+          label={t('channels.bitsLabel')}
+        />
+        <Button icon="copy" disabled={lock || !canShare} title={canShare ? '' : t('channels.share.needRead')} onclick={() => (sharing = true)}>{t('channels.share.open')}</Button>
+      </div>
       {#each channels as c (c.index)}
+        {@const weak = weakKind(c as ConfigChannelKeyed)}
         <details open={c.index === 0}>
           <summary>
             {c.name ? t('config.channelNamed', { n: c.index, name: c.name }) : t('config.channel', { n: c.index })} <small class="muted">{enumLabel('channel.role', String(c.role ?? ''))}</small>
@@ -434,11 +498,14 @@
             <span class="ui-lbl">{CHANNEL_LABELS.psk}</span>
             <code>{c.psk !== MASK && c.psk ? t('config.psk.pending') : (revealed[c.index] ?? MASK)}</code>
             <Button icon="eye" disabled={lock} onclick={() => reveal(c.index)}>{t('config.psk.show')}</Button>
-            <Button icon="refresh" disabled={lock} onclick={() => set(`channels.${c.index}.psk`, genPsk())}>{t('config.psk.generate')}</Button>
+            <Button icon="refresh" disabled={lock} onclick={() => set(`channels.${c.index}.psk`, generatePsk(pskBits === '128' ? 16 : 32))}>{t('config.psk.generate')}</Button>
             {#if c.psk !== MASK}
               <Button kind="ghost" disabled={lock} onclick={() => set(`channels.${c.index}.psk`, MASK)}>{t('common.cancel')}</Button>
             {/if}
           </div>
+          {#if weak}
+            <Banner kind="warn" title={weak === 'none' ? t('channels.weak.none') : t('channels.weak.default')}>{t('channels.weak.body')}</Banner>
+          {/if}
           {#if c.index === 0 && c.psk !== MASK}<Banner kind="warn" title={t('config.psk.newTitle')}>{t('config.psk.newBody')}</Banner>{/if}
         </details>
       {/each}
@@ -473,7 +540,7 @@
       {/if}
     {/if}
 
-    {#if saved && schema && tab !== 'adminkey' && tab !== 'backups'}
+    {#if saved && schema && !NO_FORM.has(tab)}
       <div class="foot">
         <Button kind="primary" disabled={lock || dirty === 0 || !!activePreview} onclick={review}>{t('config.review')}{dirty ? ` (${dirty})` : ''}</Button>
         <Button kind="danger" icon="power" disabled={lock || !radio} onclick={() => (pending = 'reboot')}>{t('config.reboot')}</Button>
@@ -481,6 +548,8 @@
     {/if}
   </div>
 </div>
+
+<ChannelShare {nodeId} open={sharing} onclose={() => (sharing = false)} />
 
 <Modal
   open={pending === 'reboot'}

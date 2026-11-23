@@ -24,6 +24,7 @@ WEB_LICENSES = [
     ("OFL-IBM-Plex.txt", ["@fontsource/ibm-plex-sans/LICENSE", "@fontsource/ibm-plex-mono/LICENSE"]),
     ("ISC-Lucide.txt", ["@lucide/svelte/LICENSE"]),
     ("MIT-flag-icons.txt", ["flag-icons/LICENSE"]),
+    ("MIT-uqr.txt", ["uqr/LICENSE"]),
 ]
 
 

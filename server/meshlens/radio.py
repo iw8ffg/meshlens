@@ -9,6 +9,8 @@ import threading
 import time
 from typing import Any, Callable
 
+from meshtastic.protobuf import mesh_pb2
+
 from .config_model import CONFIG_SECTIONS, node_to_dict
 from .events import MeshEvent, node_id
 from .rf_convert import nodedb_to_events, packet_to_event, packet_to_raw
@@ -49,6 +51,15 @@ MSG_ADMIN_BUSY = "Un'operazione precedente sulla radio è ancora in corso: ripro
 BAD_SESSION_REASONS = {"ADMIN_BAD_SESSION_KEY", "36"}
 UNAUTH_REASONS = {"ADMIN_PUBLIC_KEY_UNAUTHORIZED", "NOT_AUTHORIZED", "37", "33"}
 TIMEOUT_REASONS = {"MAX_RETRANSMIT", "TIMEOUT", "NO_RESPONSE"}
+# messaggi predefiniti (canned) e flag del NodeDB della radio
+CANNED_TIMEOUT = 20  # s, lettura canned (attesa attiva della libreria)
+CANNED_MAX_BYTES = 200
+MSG_NO_CANNED = "Il firmware di questa radio non include i messaggi predefiniti"
+MSG_OWN_NODE_FLAG = "Non si può marcare il nodo della radio stessa"
+FLAG_NAMES = ("favorite", "ignored")
+_FLAG_METHODS = {("favorite", True): "setFavorite", ("favorite", False): "removeFavorite",
+                 ("ignored", True): "setIgnored", ("ignored", False): "removeIgnored"}
+_FLAG_KEYS = {"favorite": "isFavorite", "ignored": "isIgnored"}
 # moduli leggibili/scrivibili con Node.writeConfig della libreria
 MODULE_SECTIONS = ("mqtt", "serial", "external_notification", "store_forward", "range_test",
                    "telemetry", "canned_message", "audio", "remote_hardware", "neighbor_info",
@@ -727,12 +738,22 @@ class RadioConnector:
         iface._acknowledgment.reset()
 
     @contextlib.asynccontextmanager
-    async def _admin_op(self, node_num: int | None, light: bool = False):
+    async def _admin_op(self, node_num: int | None, light: bool = False,
+                        wait: float | None = None):
         """Sezione esclusiva: lock di invio, timeout a 60 s, ascolto errori del nodo remoto.
 
         light: sola lettura della memoria, senza thread ne' timeout.
+        wait: None = attesa illimitata del lock (lavori); > 0 = attesa limitata, poi RadioBusy
+        (rotte sincrone: mai una richiesta HTTP appesa).
         """
-        async with self._send_lock:
+        if wait is None:
+            await self._send_lock.acquire()
+        else:
+            try:
+                await asyncio.wait_for(self._send_lock.acquire(), wait)
+            except asyncio.TimeoutError:
+                raise RadioBusy() from None
+        try:
             iface = self._iface
             if iface is None or self._state != "connected":
                 raise AdminError("error", "Radio non connessa")
@@ -759,6 +780,8 @@ class RadioConnector:
                         setattr(iface, n, v)
                 self._admin_target = None
                 iface._timeout.expireTimeout = old
+        finally:
+            self._send_lock.release()
 
     async def _admin_call(self, fn, *, watch: bool, timeout: float = ADMIN_TIMEOUT + 15):
         """Esegue fn in thread. Con watch esce subito se arriva un errore ROUTING dal nodo."""
@@ -1006,9 +1029,9 @@ class RadioConnector:
                 self._reboot_mark = self._connected_count
 
     async def _simple_admin(self, node_num: int | None, call, reboots: bool = False,
-                            wait_ack: bool = True) -> None:
+                            wait_ack: bool = True, wait: float | None = None) -> None:
         remote = node_num is not None
-        async with self._admin_op(node_num) as iface:
+        async with self._admin_op(node_num, wait=wait) as iface:
             node = self._node_for(node_num, need_read=False)
             if remote:
                 await self._admin_call(lambda: self._ack_checkpoint(iface), watch=False)
@@ -1031,6 +1054,110 @@ class RadioConnector:
 
     async def remove_fixed_position(self, node_num: int | None) -> None:
         await self._simple_admin(node_num, lambda n: n.removeFixedPosition())
+
+    async def set_time(self, node_num: int | None, epoch: int) -> None:
+        """Imposta l'ora della radio (remoto: attende l'ACK)."""
+        await self._simple_admin(node_num, lambda n: n.setTime(int(epoch)))
+
+    async def reset_nodedb(self, node_num: int | None) -> None:
+        """Azzera l'elenco nodi della radio (i preferiti restano); la radio puo' riavviarsi."""
+        await self._simple_admin(node_num, lambda n: n.resetNodeDb(), reboots=True)
+
+    async def shutdown(self, node_num: int | None, secs: int = 5) -> None:
+        """Spegne la radio: non torna da sola, quindi niente attesa di riconnessione."""
+        await self._simple_admin(node_num, lambda n: n.shutdown(int(secs)), wait_ack=False)
+
+    # ---- preferiti/ignorati nel NodeDB della radio -------------------
+    @staticmethod
+    def _lib_entries(iface, node_num: int) -> list[dict]:
+        """Dizionari del nodo nella libreria (nodesByNum e nodes possono essere distinti)."""
+        found: list[dict] = []
+        for entry in ((getattr(iface, "nodesByNum", None) or {}).get(node_num),
+                      (getattr(iface, "nodes", None) or {}).get(node_id(node_num))):
+            if isinstance(entry, dict) and not any(entry is f for f in found):
+                found.append(entry)
+        return found
+
+    def node_flags(self, node_num: int) -> dict | None:
+        """Flag del nodo nel NodeDB della radio (solo memoria, senza lock)."""
+        iface = self._iface
+        if iface is None or self._state != "connected":
+            return None
+        entries = self._lib_entries(iface, int(node_num))
+        if not entries:
+            return None
+        entry = entries[0]
+        muted = entry.get("isMuted")
+        return {"favorite": bool(entry.get("isFavorite", False)),
+                "ignored": bool(entry.get("isIgnored", False)),
+                "muted": None if muted is None else bool(muted)}
+
+    async def set_node_flag(self, node_num: int, flag: str, value: bool,
+                            wait: float | None = SEND_LOCK_TIMEOUT) -> None:
+        """Preferito/ignorato nel NodeDB della radio collegata (mai su nodi remoti)."""
+        if flag not in FLAG_NAMES:
+            raise ValueError(f"Flag sconosciuto: {flag}")
+        num = int(node_num)
+        if self._my_node_num is not None and num == self._my_node_num:
+            raise ValueError(MSG_OWN_NODE_FLAG)
+        method = _FLAG_METHODS[(flag, bool(value))]
+        async with self._admin_op(None, wait=wait) as iface:
+            node = iface.localNode
+            await self._admin_call(lambda: getattr(node, method)(num), watch=False)
+            for entry in self._lib_entries(iface, num):
+                entry[_FLAG_KEYS[flag]] = bool(value)
+
+    # ---- messaggi predefiniti (canned) --------------------------------
+    def _release_canned_wait(self, node) -> None:
+        """Libera l'attesa attiva di get_canned_message (la libreria non ha timeout)."""
+        node.gotResponse = True
+        task = self._admin_task
+        if task is None or task.done():
+            return
+
+        async def keep_releasing():  # se la libreria rimette False dopo di noi
+            loop = asyncio.get_running_loop()
+            deadline = loop.time() + ADMIN_TIMEOUT
+            while not task.done() and loop.time() < deadline:
+                node.gotResponse = True
+                await asyncio.sleep(0.05)
+        asyncio.ensure_future(keep_releasing())
+
+    async def get_canned(self, node_num: int | None,
+                         wait: float | None = SEND_LOCK_TIMEOUT) -> str:
+        """Legge i messaggi predefiniti (stringa unica separata da |)."""
+        async with self._admin_op(node_num, wait=wait):
+            node = self._node_for(node_num, need_read=False)
+            if not node.module_available(mesh_pb2.CANNEDMSG_CONFIG):
+                raise AdminError("error", MSG_NO_CANNED)
+            node.cannedPluginMessage = None  # la libreria tiene una cache
+            node.gotResponse = False
+            try:
+                text = await self._admin_call(node.get_canned_message,
+                                              watch=node_num is not None,
+                                              timeout=CANNED_TIMEOUT)
+            finally:
+                self._release_canned_wait(node)
+            if text is None:
+                raise AdminError("error", MSG_NO_CANNED)
+            return text or ""
+
+    async def set_canned(self, node_num: int | None, text: str,
+                         wait: float | None = SEND_LOCK_TIMEOUT) -> None:
+        """Scrive i messaggi predefiniti (testo gia' validato, controllo difensivo qui)."""
+        # la libreria fa sys.exit oltre 200 caratteri: controllo prima di toccarla
+        if not isinstance(text, str) or not text or len(text.encode()) > CANNED_MAX_BYTES:
+            raise ValueError("Messaggi predefiniti non validi")
+        remote = node_num is not None
+        async with self._admin_op(node_num, wait=wait) as iface:
+            node = self._node_for(node_num, need_read=False)
+            if not node.module_available(mesh_pb2.CANNEDMSG_CONFIG):
+                raise AdminError("error", MSG_NO_CANNED)
+            if remote:
+                await self._admin_call(lambda: self._ack_checkpoint(iface), watch=False)
+            await self._admin_call(lambda: node.set_canned_message(text), watch=remote)
+            if remote:
+                await self._admin_call(iface.waitForAckNak, watch=True)
 
     async def wait_reconnected(self, timeout: float = 90) -> bool:
         """Attende che la radio torni "connected" dopo un riavvio (anche con interfaccia nuova)."""

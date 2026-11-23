@@ -1,2 +1,22 @@
 // Testi italiani: area «canned» (WP4, messaggi predefiniti della radio). Chiavi `canned.*`.
-export const canned = {} as const
+export const canned = {
+  'canned.err.empty': 'Serve almeno un messaggio',
+  'canned.err.blank': 'I messaggi non possono essere vuoti',
+  'canned.err.pipe': 'I messaggi non possono contenere il carattere |',
+  'canned.err.control': 'I messaggi non possono contenere caratteri di controllo',
+  'canned.err.tooLong': 'Troppo lunghi: oltre 200 byte (separatori compresi)',
+  'canned.failed': "Messaggi predefiniti non disponibili",
+  'canned.title': "Messaggi predefiniti",
+  'canned.note': "Servono a T-Deck, T-Pager e radio con tastiera o rotella; il separatore | lo gestisce MeshLens. Se il modulo è spento sulla radio, i messaggi restano salvati ma non si vedono.",
+  'canned.read': "Leggi dalla radio",
+  'canned.useQuick': "Usa i miei messaggi rapidi",
+  'canned.quickTruncated': "Presi {n} messaggi rapidi su {total}: gli altri non entrano nei 200 byte",
+  'canned.item': "Messaggio {n}",
+  'canned.up': "Sposta su",
+  'canned.down': "Sposta giù",
+  'canned.remove': "Rimuovi",
+  'canned.add': "Aggiungi messaggio",
+  'canned.bytes': "{n} / {max} byte",
+  'canned.write': "Scrivi sulla radio",
+  'canned.written': "Messaggi scritti sulla radio",
+} as const
