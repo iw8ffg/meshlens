@@ -140,3 +140,58 @@ async def test_rule_json_has_no_internal_fields():
         rule = (await c.post("/api/alert-rules", json=BATTERY)).json()
         assert set(rule) == {"id", "kind", "name", "enabled", "node_id", "channel", "threshold",
                              "params", "cooldown_min", "created", "updated", "last_fired"}
+
+
+def add_events(ctx, num=1):
+    now = time.time()
+    for i, (dt, text, val) in enumerate([(3600 * 30, "Porta detected", 1.0),
+                                         (60, "Porta cleared", 0.0)]):
+        ctx.conn.execute(
+            "INSERT INTO sensor_events(node_num, time, kind, text, value, source) "
+            "VALUES (?,?,?,?,?,?)", (num, now - dt, "detection", text, val, "rf"))
+
+
+async def test_sensor_events_route():
+    ctx = make_ctx()
+    add_events(ctx)
+    async with client(ctx) as c:
+        assert (await c.get("/api/nodes/!00000001/sensor-events")).status_code == 401
+    async with logged(ctx) as c:
+        r = (await c.get("/api/nodes/!00000001/sensor-events")).json()
+        assert [e["text"] for e in r] == ["Porta cleared", "Porta detected"]
+        assert set(r[0]) == {"id", "node_id", "time", "kind", "text", "value", "source"}
+        assert r[0]["node_id"] == "!00000001" and r[0]["value"] == 0.0
+        assert len((await c.get("/api/nodes/!00000001/sensor-events?hours=1")).json()) == 1
+        assert len((await c.get("/api/nodes/!00000001/sensor-events?limit=1")).json()) == 1
+        assert (await c.get("/api/nodes/!00000001/sensor-events?hours=0")).status_code == 422
+        assert (await c.get("/api/nodes/boh/sensor-events")).status_code == 400
+
+
+async def test_health_batteries_route():
+    ctx = make_ctx()
+    now = time.time()
+    for num, fn in ((1, lambda i: 90 - 30 * i / 72), (2, lambda i: 80 - 10 * i / 72)):
+        for i in range(73):
+            ctx.conn.execute("INSERT INTO telemetry(node_num, time, battery) VALUES (?,?,?)",
+                             (num, now - (72 - i) * 3600, fn(i)))
+    async with client(ctx) as c:
+        assert (await c.get("/api/health/batteries")).status_code == 401
+    async with logged(ctx) as c:
+        r = (await c.get("/api/health/batteries")).json()
+        assert [n["node_id"] for n in r["nodes"]] == ["!00000001"]
+        assert r["nodes"][0]["status"] == "falling"
+        assert 5.5 <= r["nodes"][0]["days_left"] <= 6.5
+        assert r["window_h"] == 72 and r["truncated"] is False and r["scope"] == "mine"
+        assert "generated" in r
+        allr = (await c.get("/api/health/batteries?scope=all")).json()
+        assert {n["node_id"] for n in allr["nodes"]} == {"!00000001", "!00000002"}
+        assert (await c.get("/api/health/batteries?scope=boh")).status_code == 422
+
+
+def test_guest_paths_are_registered_routes():
+    from meshlens import api_monitor
+    from meshlens.api import create_app
+    app = create_app(make_ctx())
+    get_paths = {r.path for r in app.routes if "GET" in getattr(r, "methods", ())}
+    assert api_monitor.GUEST_GET_PATHS
+    assert set(api_monitor.GUEST_GET_PATHS) <= get_paths

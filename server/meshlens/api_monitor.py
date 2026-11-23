@@ -3,12 +3,16 @@
 Prefissi riservati (contratto 5.3): /api/alert-rules, /api/nodes/{node_id}/sensor-events, /api/health
 """
 import time
+from typing import Literal
 
-from fastapi import Depends, HTTPException
+from fastapi import Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from .alert_rules import MSG_RULE_UNKNOWN, MSG_RULES_UNAVAILABLE, validate_rule
+from .api_data import run_read
 from .api_storeforward import MSG_BAD_ID
+from .health import battery_overview
+from .sensors import list_events
 
 # percorsi GET (esattamente come registrati) leggibili dall'ospite: nodi e statistiche
 GUEST_GET_PATHS: tuple[str, ...] = ("/api/nodes/{node_id}/sensor-events",
@@ -115,3 +119,18 @@ def register(app, ctx, require_auth, require_json) -> None:
             raise HTTPException(404, MSG_RULE_UNKNOWN)
         changed(eng)
         return {"ok": True}
+
+    @app.get("/api/nodes/{node_id}/sensor-events", dependencies=[Depends(require_auth)])
+    async def sensor_events(node_id: str, hours: float = Query(168, gt=0, le=8784),
+                            limit: int = Query(200, ge=1, le=1000)):
+        num = _node_num(node_id)
+        if num is None:
+            raise HTTPException(400, MSG_BAD_ID)
+        since = time.time() - hours * 3600
+        return await run_read(ctx, lambda conn: list_events(conn, num, since, limit))
+
+    @app.get("/api/health/batteries", dependencies=[Depends(require_auth)])
+    async def health_batteries(scope: Literal["mine", "all"] = "mine"):
+        nodes = dict(ctx.live.nodes)  # copia sul loop: la lettura gira in un thread
+        now = time.time()
+        return await run_read(ctx, lambda conn: battery_overview(conn, nodes, scope, now))
