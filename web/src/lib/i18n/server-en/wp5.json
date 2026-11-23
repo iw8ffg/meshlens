@@ -4,6 +4,7 @@
     "Intervallo non valido: da 60 minuti a 7 giorni": "Invalid interval: from 60 minutes to 7 days",
     "Non si può programmare un traceroute verso un tuo nodo": "You cannot schedule a traceroute to one of your own nodes",
     "Radio non valida": "Invalid radio",
+    "Numero di risultati non valido: da 1 a 100": "Invalid number of results: from 1 to 100",
     "Troppi nodi con traceroute periodico: massimo 20": "Too many nodes with periodic traceroute: maximum 20"
   },
   "patterns": []
