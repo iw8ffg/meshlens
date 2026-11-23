@@ -38,6 +38,9 @@ def _snr_at(snrs: list, i: int):
     return snrs[i] if i < len(snrs) else None
 
 
+UNKNOWN_HOPS = (0, 0xFFFFFFFF)
+
+
 def traceroute_chains(ev: MeshEvent) -> tuple[list[tuple[int, float | None]],
                                               list[tuple[int, float | None]]]:
     """Catene (nodo, snr) di andata e ritorno; from_node e' il nodo raggiunto, to_node chi ha avviato."""
@@ -301,8 +304,15 @@ class Ingestor:
         elif ev.kind == "traceroute" and ev.payload.request_id:
             # le richieste in transito non hanno request_id: solo le risposte contano
             for chain in traceroute_chains(ev):
-                for (a, _), (b, snr) in zip(chain, chain[1:]):
-                    self._link(ev, a, b, "traceroute", snr)
+                # un hop ignoto (0 o 0xFFFFFFFF) spezza la catena: niente nodi o link inventati
+                segment: list[tuple[int, float | None]] = []
+                for hop in chain + [(0, None)]:
+                    if hop[0] in UNKNOWN_HOPS:
+                        for (a, _), (b, snr) in zip(segment, segment[1:]):
+                            self._link(ev, a, b, "traceroute", snr)
+                        segment = []
+                    else:
+                        segment.append(hop)
         gw = ev.gateway_num
         if (ev.source == "mqtt" and gw is not None and gw != ev.from_node
                 and ev.relay_node and ev.relay_node == (ev.from_node & 0xFF)):

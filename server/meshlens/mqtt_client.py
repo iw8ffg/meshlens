@@ -122,14 +122,42 @@ class MqttConnector:
         except Exception:
             return False
         if getattr(info, "rc", 0) != 0:
+            # paho tiene comunque il messaggio in coda e lo rimanderebbe alla riconnessione
+            self._discard_paho_message(getattr(info, "mid", None), info)
             return False
         mid = getattr(info, "mid", None)
         if on_result is not None and mid is not None:
             # l'esito del PUBACK passa per call_soon_threadsafe: arriva sempre dopo questa riga
-            timer = self.loop.call_later(PUBACK_TIMEOUT_S, self._publish_done, mid, False,
-                                         PUB_TIMEOUT_TEXT)
+            timer = self.loop.call_later(PUBACK_TIMEOUT_S, self._publish_timeout, mid, info)
             self._pending_pub[mid] = (on_result, timer)
         return True
+
+    def _publish_timeout(self, mid: int, info) -> None:
+        """Thread del loop: PUBACK mancato. Il messaggio esce dalla coda di paho, altrimenti
+        verrebbe rimandato alla riconnessione mentre l'utente lo vede come fallito."""
+        self._discard_paho_message(mid, info)
+        self._publish_done(mid, False, PUB_TIMEOUT_TEXT)
+
+    def _discard_paho_message(self, mid, info) -> None:
+        """Toglie un QoS 1 dalla coda di uscita di paho e libera lo slot "inflight" (max 20).
+        paho non ha un'API pubblica per farlo: si usano gli attributi interni _out_messages,
+        _inflight_messages e _out_message_mutex (paho 2.x). Non solleva mai: se gli interni
+        cambiano, resta il comportamento precedente. Il messaggio si rimuove solo se e'
+        quello di `info` (il mid puo' essere stato riusato)."""
+        client = self._client
+        try:
+            if client is None or mid is None:
+                return
+            with client._out_message_mutex:
+                msg = client._out_messages.get(mid)
+                if msg is None or (info is not None and getattr(msg, "info", None) is not info):
+                    return
+                del client._out_messages[mid]
+                # solo i messaggi gia' spediti occupano uno slot inflight
+                if msg.state == mqtt.mqtt_ms_wait_for_puback and client._inflight_messages > 0:
+                    client._inflight_messages -= 1
+        except Exception:
+            log.debug("MQTT %s: coda di paho non accessibile", self.label, exc_info=True)
 
     def _publish_done(self, mid: int, ok: bool, error: str | None) -> None:
         """Thread del loop: primo esito per quel mid (PUBACK o timeout); gli altri si ignorano."""
