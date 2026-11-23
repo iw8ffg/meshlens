@@ -342,3 +342,27 @@ def test_build_raw_does_not_decrypt_twice(monkeypatch):
     payload = make_envelope(1, b"x" * 40, key=bytes(range(16)))
     assert d.decode_any(T, payload, now=1.0).status == "encrypted"
     assert len(calls) == 1  # il pacchetto grezzo riusa l'estrazione di _decode
+
+
+def test_app_portnums_become_events():
+    from meshtastic.protobuf import atak_pb2, paxcount_pb2
+    from meshlens.events import AppData, MeshEvent
+    pax = paxcount_pb2.Paxcount(wifi=3, ble=5, uptime=60).SerializeToString()
+    tak = atak_pb2.TAKPacket(pli=atak_pb2.PLI(latitude_i=450000000, longitude_i=90000000)
+                             ).SerializeToString()
+    for port, raw, kind in ((10, b"Porta detected", "detection"), (34, pax, "paxcounter"),
+                            (72, tak, "tak")):
+        ev = EnvelopeDecoder([DEFAULT_KEY]).decode(T, make_envelope(port, raw), now=1.0)
+        assert isinstance(ev, MeshEvent) and ev.kind == kind
+        assert isinstance(ev.payload, AppData)
+        assert ev.payload.portnum == port and ev.payload.payload == raw
+        assert ev.payload.text == ("Porta detected" if port == 10 else None)
+
+
+def test_atak_v2_still_unsupported():
+    d = EnvelopeDecoder([DEFAULT_KEY])
+    assert d.decode(T, make_envelope(78, b"x"), now=1.0) is None
+    assert d.stats["unsupported_port"] == 1
+    d.raw_filter = lambda n: True
+    raw = d.decode_any(T, make_envelope(78, b"x"), now=1.0)
+    assert raw.status == "unsupported"

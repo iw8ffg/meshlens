@@ -90,6 +90,19 @@ class RangeTestData:
     text: str
 
 
+@dataclass
+class AppData:
+    """Payload di un'app gestita dalle estensioni (Detection Sensor, Paxcounter, ATAK)."""
+    portnum: int              # 10, 34, 72
+    payload: bytes            # payload grezzo del Data (non decifrato oltre il canale)
+    text: str | None = None   # solo detection: payload decodificato UTF-8 con errors="replace"
+
+
+APP_KINDS: dict[int, str] = {10: "detection", 34: "paxcounter", 72: "tak"}
+APP_PORT_NAMES: dict[str, int] = {"DETECTION_SENSOR_APP": 10, "PAXCOUNTER_APP": 34,
+                                  "ATAK_PLUGIN": 72}
+
+
 def scale_snr(v: int) -> float | None:
     """SNR dei protobuf di traceroute: quarti di dB, -128 = sconosciuto."""
     return None if v == -128 else v / 4
@@ -142,7 +155,7 @@ class MeshEvent:
     radio_id: str | None
     kind: str
     payload: (PositionData | NodeInfoData | TextData | TelemetryData | MapReportData
-               | NeighborData | RouteData | RangeTestData | WaypointData)
+               | NeighborData | RouteData | RangeTestData | WaypointData | AppData)
     via_mqtt: bool = False  # pacchetto RF arrivato alla radio tramite un gateway MQTT
     # MQTT: ultimo byte dell'ultimo ritrasmettitore (0 = sconosciuto) e minimo dei salti noto
     relay_node: int | None = None

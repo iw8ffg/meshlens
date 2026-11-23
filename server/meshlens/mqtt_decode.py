@@ -8,7 +8,7 @@ from .crypto import decrypt
 from .telemetry_decode import EmptyTelemetry, UnsupportedTelemetry, parse_telemetry
 from .events import (
     MapReportData, MeshEvent, NeighborData, NodeInfoData, PacketMeta, PositionData, RAW_MAX,
-    RawPacket, RouteData, TelemetryData, TextData, WaypointData, scale_snr,
+    RawPacket, RouteData, TelemetryData, TextData, WaypointData, scale_snr, APP_KINDS, AppData,
 )
 
 
@@ -160,6 +160,11 @@ def _parse_payload(data: mesh_pb2.Data):
         return "neighbors", _parse_neighbors(data.payload)
     if port == portnums_pb2.TRACEROUTE_APP:
         return "traceroute", _parse_route(data)
+    if port in APP_KINDS:
+        kind = APP_KINDS[port]
+        payload = bytes(data.payload)
+        text = payload.decode("utf-8", errors="replace") if kind == "detection" else None
+        return kind, AppData(portnum=port, payload=payload, text=text)
     raise _Unsupported
 
 

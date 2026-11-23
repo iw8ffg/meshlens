@@ -66,7 +66,8 @@ def _new_node(num: int) -> dict:
             "country": None, "last_heard": None, "sources": [], "battery": None,
             "voltage": None, "channel_util": None, "air_util_tx": None, "mqtt_gateways": 0,
             "last_snr": None, "hops": None, "heard_by": {}, "is_local_radio": False, "is_mine": False,
-            "is_favorite": False, "hops_min": None, "public_key": None, "key_changed": None}
+            "is_favorite": False, "is_ignored": False, "hops_min": None, "public_key": None,
+            "key_changed": None}
 
 
 class Ingestor:
@@ -245,9 +246,7 @@ class Ingestor:
         elif kind == "waypoint":
             self._handle_waypoint(node, ev)
 
-        persist = (node["country"] in self.get_settings()["saved_countries"]
-                   or ev.source == "rf" or bool(node.get("is_mine"))
-                   or bool(node.get("is_favorite")))
+        persist = self.persists(node, ev.source)
 
         message = self._build_message(node, ev) if kind == "text" else None
         if message is not None:
@@ -267,6 +266,13 @@ class Ingestor:
 
         if message is not None:
             self.on_message(message)
+
+    def persists(self, node: dict, source: str) -> bool:
+        """Il nodo (e cio' che porta) si archivia: in una nazione salvata, arrivato in radio,
+        "mio" o preferito."""
+        return (node["country"] in self.get_settings()["saved_countries"]
+                or source == "rf" or bool(node.get("is_mine"))
+                or bool(node.get("is_favorite")))
 
     def _revive_node(self, num: int) -> dict:
         return revive_node(self.store, num)

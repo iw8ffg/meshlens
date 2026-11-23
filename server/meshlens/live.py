@@ -7,7 +7,9 @@ CAP_TARGET = 0.95  # oltre il limite si scende al 95 %, per non potare a ogni no
 
 
 def _protected(node: dict) -> bool:
-    return bool(node.get("is_mine")) or bool(node.get("is_favorite"))
+    # un nodo ignorato resta in memoria: tolto, riapparirebbe al prossimo pacchetto
+    return (bool(node.get("is_mine")) or bool(node.get("is_favorite"))
+            or bool(node.get("is_ignored")))
 
 
 class LiveState:
