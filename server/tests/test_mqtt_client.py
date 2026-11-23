@@ -371,3 +371,62 @@ async def test_publish_without_puback_times_out(monkeypatch):
 async def test_publish_when_disconnected_returns_false():
     c = _connector()
     assert c.publish("t/x", b"p") is False and c._client.published == []
+
+
+# ---- B3/B4: nessun messaggio fantasma nella coda di paho ----
+class _Msg:
+    def __init__(self, info, state=None):
+        from paho.mqtt import client as paho
+        self.info, self.state = info, state or paho.mqtt_ms_wait_for_puback
+
+
+class PahoLikeClient(FakeClient):
+    """Imita le parti interne di paho usate dall'helper: _out_messages, contatore inflight, mutex."""
+    def __init__(self, *a, rc=0, **k):
+        super().__init__(*a, **k)
+        import threading
+        self._out_messages = {}
+        self._inflight_messages = 0
+        self._out_message_mutex = threading.RLock()
+        self.next_rc = rc
+
+    def publish(self, topic, payload, qos=0):
+        info = super().publish(topic, payload, qos)
+        info.rc = self.next_rc
+        self._out_messages[info.mid] = _Msg(info)
+        self._inflight_messages += 1
+        return info
+
+
+async def test_publish_rc_error_removes_message_from_paho_queue():
+    c = _connector(factory=lambda cid: PahoLikeClient(cid, rc=4))
+    c._on_connect(c._client, None, None, 0, None)
+    assert c.publish("t/x", b"p") is False
+    assert c._client._out_messages == {}
+
+
+async def test_publish_timeout_removes_message_and_frees_inflight(monkeypatch):
+    from meshlens import mqtt_client
+    monkeypatch.setattr(mqtt_client, "PUBACK_TIMEOUT_S", 0.05)
+    c = _connector(factory=PahoLikeClient)
+    c._on_connect(c._client, None, None, 0, None)
+    got = []
+    c.publish("t/x", b"p", on_result=lambda ok, err: got.append((ok, err)))
+    assert len(c._client._out_messages) == 1 and c._client._inflight_messages == 1
+    await asyncio.sleep(0.2)
+    assert got == [(False, "Il broker non ha confermato il messaggio")]
+    assert c._client._out_messages == {} and c._client._inflight_messages == 0
+
+
+async def test_discard_does_not_touch_other_message_with_same_mid():
+    c = _connector(factory=PahoLikeClient)
+    c._on_connect(c._client, None, None, 0, None)
+    other = _Msg(object())
+    c._client._out_messages[7] = other
+    c._discard_paho_message(7, FakeInfo(7))
+    assert c._client._out_messages == {7: other}
+
+
+async def test_discard_never_raises_without_paho_internals():
+    c = _connector()  # FakeClient senza _out_messages
+    c._discard_paho_message(1, None)

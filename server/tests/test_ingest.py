@@ -211,6 +211,22 @@ def test_ingest_records_links(env):
     assert not got
 
 
+def test_traceroute_unknown_hops_split_chain_without_links(env):
+    from meshlens.events import RouteData
+    ing, live, store, conn, got = env
+    for n in (1, 2, 3, 4):
+        live.nodes[n] = _new_node(n)
+        live.nodes[n]["is_mine"] = True
+    # andata 1 -> 2 -> ignoto -> 4 -> 3; ritorno diretto con un hop 0
+    ing.handle(ev("traceroute", RouteData(5, [2, 0xFFFFFFFF, 4], [1.0, 2.0, 3.0, 4.0],
+                                          [0], [5.0, 6.0]), num=3, pid=2, to_node=1))
+    rows = {(r["from_id"], r["to_id"]) for r in store.links(0)}
+    assert rows == {(node_id(1), node_id(2)), (node_id(4), node_id(3))}
+    assert all(0xFFFFFFFF not in (r["from_id"], r["to_id"]) for r in store.links(0))
+    assert node_id(0) not in {x for pair in rows for x in pair}
+    assert 0xFFFFFFFF not in live.nodes and 0 not in live.nodes
+
+
 def test_mqtt_links_only_for_persisted_endpoints(env):
     from meshlens.events import NeighborData, RouteData
     ing, live, store, conn, got = env
