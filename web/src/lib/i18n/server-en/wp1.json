@@ -1,4 +1,6 @@
 {
-  "exact": {},
+  "exact": {
+    "Cursore di ricerca non valido": "Invalid search cursor"
+  },
   "patterns": []
 }
