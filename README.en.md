@@ -5,7 +5,7 @@
 <p align="center">
   <img alt="License GPL-3.0" src="https://img.shields.io/badge/license-GPL--3.0-blue">
   <img alt="Platform Windows" src="https://img.shields.io/badge/platform-Windows%2010%2F11-0078D6">
-  <img alt="Version 1.5.0" src="https://img.shields.io/badge/version-1.5.0-brightgreen">
+  <img alt="Version 1.5.1" src="https://img.shields.io/badge/version-1.5.1-brightgreen">
 </p>
 
 **MeshLens** is a local Windows application that brings everything happening on a [Meshtastic](https://meshtastic.org) network onto one interactive map: nodes heard over the **Internet (MQTT)** and by **your own radios** connected over USB or Bluetooth. Watch the network, manage your nodes and chat over radio, even without Internet. Use it from your PC and from your phone on the same Wi-Fi.

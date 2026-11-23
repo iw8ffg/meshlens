@@ -3,6 +3,36 @@
 Il formato segue [Keep a Changelog](https://keepachangelog.com/it-IT/1.1.0/) e il progetto usa il [versionamento semantico](https://semver.org/lang/it/).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [1.5.1] - 2026-11-23
+
+### Italiano
+
+#### Corretto
+- **Invii MQTT:** un messaggio segnalato come non inviato o «Non confermato» non parte più di nascosto alla riconnessione, e dopo molti invii senza conferma i nuovi partono ancora.
+- **Stato dei messaggi dopo una disconnessione:** «Invio…» e «Accettato dal broker» si aggiornano quando l'app si ricollega, senza ricaricare la pagina; anche i messaggi pubblici arrivati nel frattempo compaiono.
+- **«Carica precedenti»:** non si blocca più nel feed MQTT quando i messaggi più vecchi sono nascosti dal filtro nazioni, né nelle conversazioni radio con molti messaggi; non salta i messaggi arrivati nello stesso secondo.
+- **Radio via rete (IP):** una radio spenta o irraggiungibile dà errore in pochi secondi invece di bloccare la chiusura dell'app; una radio che sparisce dalla rete viene rilevata in meno di un minuto e ricollegata; messaggio chiaro se la porta risponde ma non è Meshtastic o la radio ha già un altro collegamento.
+- **Radio occupata:** durante una lettura o scrittura della configurazione, messaggi e traceroute rispondono subito «Radio occupata, riprova tra poco» invece di restare in attesa per minuti.
+- **Backup:** il backup scelto per il ripristino non viene più cancellato dalla pulizia automatica prima del riavvio.
+- **Sicurezza:** la chiave dei canali della radio si mostra solo da questo PC; l'accesso dalla rete richiede un PIN di almeno 6 cifre; le richieste che modificano dati accettano solo JSON; due impostazioni del PIN contemporanee non si sovrascrivono.
+- **Canali:** una chiave di canale di lunghezza non valida viene rifiutata prima di scriverla sulla radio; un canale personalizzato tolto smette di decifrare.
+- **Traceroute:** i passaggi sconosciuti non creano più un nodo «!ffffffff» né collegamenti inventati.
+- **Varie:** testo scritto durante un invio lento non viene più cancellato; l'app si accorge di una connessione caduta dopo la sospensione del PC; funziona anche nei browser che bloccano i dati dei siti; l'installer rimuove i file della versione precedente; minore uso di memoria con broker molto trafficati.
+
+### English
+
+#### Fixed
+- **MQTT sends:** a message reported as not sent or "Not confirmed" is no longer sent silently on reconnect, and after many unconfirmed sends new ones still go out.
+- **Message status after a disconnection:** "Sending…" and "Accepted by the broker" update when the app reconnects, without reloading the page; public messages received meanwhile appear too.
+- **"Load older":** no longer stuck in the MQTT feed when older messages are hidden by the country filter, nor in radio conversations with many messages; messages within the same second are no longer skipped.
+- **Radio over the network (IP):** a radio that is off or unreachable fails within seconds instead of holding up the app's exit; a radio that drops off the network is detected within a minute and reconnected; clear message when the port answers but is not Meshtastic or the radio already has another connection.
+- **Busy radio:** while the configuration is being read or written, messages and traceroutes answer "Radio busy, try again shortly" right away instead of waiting for minutes.
+- **Backups:** the backup chosen for restore is no longer deleted by automatic cleanup before the restart.
+- **Security:** radio channel keys are shown only from this PC; network access requires a PIN of at least 6 digits; requests that change data accept JSON only; two simultaneous PIN setups cannot overwrite each other.
+- **Channels:** a channel key of invalid length is rejected before it is written to the radio; a removed custom channel stops decrypting.
+- **Traceroute:** unknown hops no longer create a "!ffffffff" node or invented links.
+- **Other:** text typed during a slow send is no longer cleared; the app notices a dropped connection after the PC sleeps; it works in browsers that block site data; the installer removes files from the previous version; lower memory use with very busy brokers.
+
 ## [1.5.0] - 2026-11-23
 
 ### Italiano
@@ -359,6 +389,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 [1.2.3]: https://github.com/iw8ffg/meshlens/releases/tag/v1.2.3
 [1.3.0]: https://github.com/iw8ffg/meshlens/releases/tag/v1.3.0
 [1.4.0]: https://github.com/iw8ffg/meshlens/releases/tag/v1.4.0
+[1.5.1]: https://github.com/iw8ffg/meshlens/releases/tag/v1.5.1
 [1.5.0]: https://github.com/iw8ffg/meshlens/releases/tag/v1.5.0
 [1.4.5]: https://github.com/iw8ffg/meshlens/releases/tag/v1.4.5
 [1.4.4]: https://github.com/iw8ffg/meshlens/releases/tag/v1.4.4
