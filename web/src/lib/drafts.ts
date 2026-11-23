@@ -16,6 +16,11 @@ function read(storage: DraftStorage): Record<string, string> {
   }
 }
 
+/** Dopo un invio riuscito la bozza si svuota solo se il testo e' ancora quello inviato. */
+export function draftSentUnchanged(current: string, sent: string): boolean {
+  return current.trim() === sent.trim()
+}
+
 export function loadDraft(storage: DraftStorage, conv: string): string {
   return read(storage)[conv] ?? ''
 }

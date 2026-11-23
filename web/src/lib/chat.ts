@@ -97,8 +97,36 @@ export function insertMessage(list: Message[], m: Message, replaced: Set<string>
     const i = list.findIndex((x) => x.key === m.replaces)
     if (i >= 0) list.splice(i, 1)
   }
-  if (list.some((x) => x.key === m.key)) return
+  const cur = list.find((x) => x.key === m.key)
+  if (cur) {
+    updateDelivery(cur, m)
+    return
+  }
   list.push(m)
+}
+
+// "sending" < "sent" < "failed" < "acked"/"heard": un esito finale non torna indietro
+const STATUS_RANK: Record<string, number> = { sending: 0, sent: 1, failed: 2, acked: 3, heard: 3 }
+
+/** Copia stato di consegna da `m` a `cur` (stesso messaggio) se non e' un passo indietro. */
+function updateDelivery(cur: Message, m: Message): void {
+  if (!m.status) return
+  const rank = STATUS_RANK[m.status] ?? 0
+  if (cur.status && (STATUS_RANK[cur.status] ?? 0) > rank) return
+  cur.status = m.status
+  cur.error = m.status === 'failed' ? (m.error ?? null) : null
+  if (m.heard_by) cur.heard_by = m.heard_by
+}
+
+/** Esito di una pagina di storico: cursore (messaggio piu' vecchio della pagina) ed esaurimento. */
+export function olderPage(page: Message[], known: Set<string>, limit: number): { oldest: number | null; exhausted: boolean } {
+  let oldest: number | null = null
+  let fresh = false
+  for (const m of page) {
+    if (oldest === null || m.time < oldest) oldest = m.time
+    if (!known.has(m.key)) fresh = true
+  }
+  return { oldest, exhausted: page.length < limit || !fresh }
 }
 
 /**

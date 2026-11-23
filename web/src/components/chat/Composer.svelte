@@ -3,7 +3,7 @@
   import { ApiError, getJSON, mqttChannels, mqttSend, send } from '../../lib/api'
   import { brokerLabel, pickBroker } from '../../lib/brokers'
   import { MAX_BYTES, mqttConvBroker, reactionDest, splitKey } from '../../lib/chat'
-  import { loadDraft, saveDraft } from '../../lib/drafts'
+  import { draftSentUnchanged, loadDraft, saveDraft } from '../../lib/drafts'
   import {
     MQTT_VIA,
     byteCount,
@@ -158,11 +158,15 @@
   const canSend = $derived(!sending && !bc.over && text.trim() !== '' && hasChoice && via !== '')
 
   /** Invio riuscito: svuota il testo (se la conversazione e' ancora quella) e la sua bozza. */
-  function sent(m: Message, from: string, clear: boolean) {
+  function sent(m: Message, from: string, clear: boolean, sentText: string) {
     addMessage(m)
     if (clear) {
-      if (conv === from) text = ''
-      saveDraft(localStorage, from, '')
+      // se nel frattempo si e' scritto altro, il testo (e la bozza) restano
+      const current = conv === from ? text : loadDraft(localStorage, from)
+      if (draftSentUnchanged(current, sentText)) {
+        if (conv === from) text = ''
+        saveDraft(localStorage, from, '')
+      }
       onsent(m)
     }
   }
@@ -174,7 +178,7 @@
       to: dmTo || null,
       ...(reply ? { reply_id: reply.id, ...(reply.emoji ? { emoji: true } : {}) } : {}),
     })
-    sent(m, from, !reply?.emoji)
+    sent(m, from, !reply?.emoji, body)
     // il messaggio non compare nella conversazione aperta: lo si conferma con un avviso
     const inConv = dmTo ? splitKey(conv)[1] === radioId : conv === `ch:${radioId}:${radioChan}`
     if (!inConv) {
@@ -186,7 +190,7 @@
   async function sendMqtt(body: MqttSendBody, from: string, clear = true) {
     try {
       const r = await mqttSend(body)
-      sent(r.message, from, clear)
+      sent(r.message, from, clear, body.text)
       const bn = brokerLabel(body.broker, brokers)
       notice = t('chat.sentMqtt', { to: `${bn ? `${bn} · ` : ''}${body.channel}` })
     } catch (e) {

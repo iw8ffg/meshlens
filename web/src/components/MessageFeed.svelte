@@ -2,7 +2,7 @@
   import { onMount } from 'svelte'
   import { getJSON, getCountries } from '../lib/api'
   import { ago, countryName } from '../lib/format'
-  import { statusIcon } from '../lib/chat'
+  import { olderPage, statusIcon } from '../lib/chat'
   import { mqttDelivery, mqttFailText, statusAria } from '../lib/send'
   import { routingErrorText, threadItems } from '../lib/reactions'
   import { t, tn, type MsgKey } from '../lib/i18n/index.svelte'
@@ -17,7 +17,7 @@
   import MessageActions from './chat/MessageActions.svelte'
   import MessageQuote from './chat/MessageQuote.svelte'
   import ReactionChips from './chat/ReactionChips.svelte'
-  import { app, addMessage } from '../lib/stores.svelte'
+  import { app, addMqttHistory } from '../lib/stores.svelte'
   import { matchFeed } from '../lib/filters'
   import { emptyFeedHint, navigate } from '../lib/shell/navigate'
   import type { Message } from '../lib/types'
@@ -42,6 +42,7 @@
   let error = $state<MsgKey | ''>('')
   let loading = $state(false)
   let exhausted = $state(false)
+  let cursor: number | null = null
 
   type Country = { code: string; name: string; nodes: number }
   let countries = $state<Country[]>([])
@@ -71,10 +72,7 @@
   function loadFirst() {
     error = ''
     getJSON<Message[]>(`/messages?${qs('')}`)
-      .then((list) => {
-        // dal piu' vecchio al piu' recente: il limite dello store scarta i piu' vecchi
-        for (const m of [...list].reverse()) addMessage(m)
-      })
+      .then(addMqttHistory)
       .catch(() => (error = 'chat.feedUnavailable'))
   }
 
@@ -96,12 +94,15 @@
   }
 
   async function loadOlder() {
-    const oldest = shown.length ? shown[shown.length - 1].time : Math.floor(Date.now() / 1000)
+    // cursore dalla pagina ricevuta (non dalla lista filtrata, che puo' nascondere i piu' vecchi)
+    const before = cursor ?? (all.length ? all[all.length - 1].time : Math.floor(Date.now() / 1000))
     loading = true
     error = ''
     try {
-      const list = await getJSON<Message[]>(`/messages/history?${qs(`&before=${oldest}`)}`)
-      if (list.length < LIMIT) exhausted = true
+      const list = await getJSON<Message[]>(`/messages/history?${qs(`&before=${before}`)}`)
+      const page = olderPage(list, new Set(all.map((m) => m.key)), LIMIT)
+      if (page.exhausted) exhausted = true
+      if (page.oldest !== null) cursor = page.oldest
       older = [...older, ...list]
     } catch {
       error = 'chat.olderError'

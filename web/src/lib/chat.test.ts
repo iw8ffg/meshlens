@@ -1,6 +1,45 @@
 import { test, expect } from 'vitest'
-import { byteLength, conversationKey, groupMessages, insertMessage, mergeRadioMessages, pickSendRadio, pruneSet, reactionDest, statusIcon } from './chat'
+import { byteLength, conversationKey, groupMessages, insertMessage, mergeRadioMessages, olderPage, pickSendRadio, pruneSet, reactionDest, statusIcon } from './chat'
 import type { Message } from './types'
+
+test('insertMessage: stesso key aggiorna status/error/heard_by senza regredire', () => {
+  const rep = new Set<string>()
+  const list: Message[] = [{ ...baseMsg(), key: 'm', status: 'sending' }]
+  insertMessage(list, { ...baseMsg(), key: 'm', status: 'sent' }, rep)
+  expect(list).toHaveLength(1)
+  expect(list[0].status).toBe('sent')
+  insertMessage(list, { ...baseMsg(), key: 'm', status: 'heard', heard_by: ['!g1'] }, rep)
+  expect(list[0].status).toBe('heard')
+  expect(list[0].heard_by).toEqual(['!g1'])
+  insertMessage(list, { ...baseMsg(), key: 'm', status: 'sent' }, rep)
+  expect(list[0].status).toBe('heard')
+  expect(list[0].heard_by).toEqual(['!g1'])
+  const f: Message[] = [{ ...baseMsg(), key: 'f', status: 'sending' }]
+  insertMessage(f, { ...baseMsg(), key: 'f', status: 'failed', error: 'timeout' }, rep)
+  expect(f[0].status).toBe('failed')
+  expect(f[0].error).toBe('timeout')
+})
+
+test('olderPage: cursore dalla pagina ricevuta, esaurito se corta o senza chiavi nuove', () => {
+  const page = [{ ...baseMsg(), key: 'a', time: 50 }, { ...baseMsg(), key: 'b', time: 30 }, { ...baseMsg(), key: 'c', time: 40 }]
+  expect(olderPage(page, new Set(), 3)).toEqual({ oldest: 30, exhausted: false })
+  expect(olderPage(page, new Set(), 4).exhausted).toBe(true)
+  expect(olderPage(page, new Set(['a', 'b', 'c']), 3)).toEqual({ oldest: 30, exhausted: true })
+  expect(olderPage([], new Set(), 3)).toEqual({ oldest: null, exhausted: true })
+})
+
+test('mergeRadioMessages: max = Infinity non taglia la storia caricata', () => {
+  const list: Message[] = []
+  mergeRadioMessages(list, [{ ...baseMsg(), key: 'a', time: 1 }, { ...baseMsg(), key: 'b', time: 2 }, { ...baseMsg(), key: 'c', time: 3 }], new Set(), Infinity)
+  expect(list).toHaveLength(3)
+})
+
+function baseMsg(): Message {
+  return {
+    key: 'k', from: '!aaaa0001', from_name: null, to: '!ffffffff', channel: 'LongFast', text: 'ciao', time: 1,
+    country: null, source: 'rf', direction: 'in', radio_id: 'r1', channel_index: 0,
+  }
+}
 
 const msg = (o: Partial<Message>): Message => ({
   key: 'k',

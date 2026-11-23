@@ -33,6 +33,9 @@ export interface WSHandlers {
 }
 
 const RECONNECT_MS = 3000
+/** Il server manda `status` ogni 5 s: dopo questo silenzio il socket e' considerato mezzo aperto. */
+const STALE_MS = 20_000
+const WATCHDOG_MS = 5000
 
 let retryNow: (() => void) | null = null
 
@@ -74,16 +77,20 @@ export function connectWS(handlers: WSHandlers): () => void {
   let timer: ReturnType<typeof setTimeout> | null = null
   let stopped = false
   let opened = false
+  let lastRx = Date.now()
 
   const open = () => {
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
     ws = new WebSocket(`${proto}//${location.host}/ws`)
+    lastRx = Date.now()
     ws.onopen = () => {
+      lastRx = Date.now()
       handlers.connection?.(true)
       if (opened) handlers.reconnected?.()
       opened = true
     }
     ws.onmessage = (ev) => {
+      lastRx = Date.now()
       try {
         dispatch(JSON.parse(ev.data as string), handlers)
       } catch {
@@ -99,25 +106,59 @@ export function connectWS(handlers: WSHandlers): () => void {
         return // niente riconnessione: serve prima l'accesso
       }
       handlers.connection?.(false)
-      timer = setTimeout(() => {
-        timer = null
-        retryNow = null
-        open()
-      }, RECONNECT_MS)
-      retryNow = () => {
-        if (!timer) return
-        clearTimeout(timer)
-        timer = null
-        retryNow = null
-        open()
-      }
+      scheduleRetry()
     }
   }
+
+  const scheduleRetry = () => {
+    timer = setTimeout(() => {
+      timer = null
+      retryNow = null
+      open()
+    }, RECONNECT_MS)
+    retryNow = () => {
+      if (!timer) return
+      clearTimeout(timer)
+      timer = null
+      retryNow = null
+      open()
+    }
+  }
+
+  /** Socket mezzo aperto (nessun evento da troppo tempo): lo si abbandona e se ne apre uno nuovo. */
+  const dropIfStale = () => {
+    if (stopped || !ws || Date.now() - lastRx <= STALE_MS) return
+    const old = ws
+    ws = null
+    old.onopen = old.onmessage = old.onclose = null
+    try {
+      old.close()
+    } catch {
+      /* gia' chiuso */
+    }
+    handlers.connection?.(false)
+    open()
+  }
+  const onOnline = () => {
+    if (timer) retryNow?.()
+    else dropIfStale()
+  }
+  const onVisible = () => {
+    if (document.visibilityState !== 'visible') return
+    if (timer) retryNow?.()
+    else dropIfStale()
+  }
+  if (typeof window.addEventListener === 'function') window.addEventListener('online', onOnline)
+  if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') document.addEventListener('visibilitychange', onVisible)
+  const watchdog = setInterval(dropIfStale, WATCHDOG_MS)
   open()
 
   return () => {
     stopped = true
     retryNow = null
+    clearInterval(watchdog)
+    if (typeof window.removeEventListener === 'function') window.removeEventListener('online', onOnline)
+    if (typeof document !== 'undefined' && typeof document.removeEventListener === 'function') document.removeEventListener('visibilitychange', onVisible)
     if (timer) clearTimeout(timer)
     ws?.close()
   }
