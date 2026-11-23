@@ -5,13 +5,15 @@ Registra:
 - aggancio dei messaggi del bot e task periodico `bot_pump` (2 s, al piu' un invio per giro);
 - task periodico `automation_bus` (1 s): svuota una coda del bus e la smista ai servizi
   (nessun task di lunga durata da gestire);
-- ctx.ext["trace_scheduler"], ctx.ext["bot"].
+- aggancio dei messaggi del webhook (gli altri eventi arrivano da automation_bus);
+- ctx.ext["trace_scheduler"], ctx.ext["bot"], ctx.ext["webhook"].
 """
 import logging
 import time
 
 from .bot import Bot, weather_lookup
 from .trace_scheduler import TICK_S, TraceScheduler
+from .webhook import WebhookService
 
 log = logging.getLogger(__name__)
 
@@ -59,6 +61,11 @@ def install(rt, ctx) -> None:
     rt.add_message_hook(bot.on_message)
     rt.add_periodic("bot_pump", BOT_PUMP_S, bot.pump, first_delay_s=BOT_PUMP_S)
     ctx.ext["bot"] = bot
+
+    webhook = WebhookService(settings, time.time, version=__version__)
+    webhook.seed(rt.live.nodes.values())
+    rt.add_message_hook(webhook.on_message)
+    ctx.ext["webhook"] = webhook
 
     q = rt.bus.subscribe()
     rt.add_periodic("automation_bus", BUS_TICK_S, lambda: drain_bus(q, ctx.ext),
