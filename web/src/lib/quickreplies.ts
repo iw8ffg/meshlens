@@ -32,6 +32,11 @@ export function hasUnresolvedVariables(text: string): boolean {
   return variablesIn(text).length > 0
 }
 
+/** Variabili che bloccano l'invio: solo quelle rimaste non risolte dall'inserimento di un messaggio rapido (`pending`) e ancora presenti nel testo. Le graffe scritte a mano non contano. */
+export function blockingVariables(text: string, pending: string[]): string[] {
+  return pending.filter((v) => text.includes(placeholder(v)))
+}
+
 const pad2 = (n: number) => String(n).padStart(2, '0')
 
 /**

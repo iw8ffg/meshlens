@@ -21,7 +21,7 @@ import { safeStorage } from '../../lib/storage'
     type MqttSendBody,
   } from '../../lib/send'
   import { keepAboveKeyboard } from '../../lib/keyboard'
-  import { expandVariables, hasUnresolvedVariables, insertReply, ownNodeId, variablesIn } from '../../lib/quickreplies'
+  import { blockingVariables, expandVariables, insertReply, ownNodeId } from '../../lib/quickreplies'
   import { navigate } from '../../lib/shell/navigate'
   import { app, addMessage } from '../../lib/stores.svelte'
   import QuickReplies from './QuickReplies.svelte'
@@ -160,17 +160,18 @@ import { safeStorage } from '../../lib/storage'
 
   const bc = $derived(byteCount(text))
   // Messaggi rapidi: una variabile non risolta ({batteria} senza dato...) non parte mai come testo
-  const unresolved = $derived(variablesIn(text).map((v) => `{${v}}`))
-  let quickMissing = $state(false)
+  let pendingVars = $state<string[]>([])
+  const unresolved = $derived(blockingVariables(text, pendingVars).map((v) => `{${v}}`))
+  const quickMissing = $derived(pendingVars.length > 0)
   let taEl: HTMLTextAreaElement | undefined = $state()
-  const canSend = $derived(!sending && !bc.over && text.trim() !== '' && hasChoice && via !== '' && !hasUnresolvedVariables(text))
+  const canSend = $derived(!sending && !bc.over && text.trim() !== '' && hasChoice && via !== '' && unresolved.length === 0)
 
   /** Inserisce un messaggio rapido nel campo (variabili espanse); non invia nulla. */
   function pickQuick(reply: string) {
     const id = ownNodeId(via, app.radios, mqttNodeId)
     const r = expandVariables(reply, { node: (id ? app.nodes.get(id) : null) ?? null, now: new Date() })
     text = insertReply(text, r.text)
-    quickMissing = r.missing.length > 0
+    pendingVars = [...new Set([...pendingVars, ...r.missing])]
     saveDraft(safeStorage(), conv, text)
     taEl?.focus()
   }
@@ -179,6 +180,7 @@ import { safeStorage } from '../../lib/storage'
   function sent(m: Message, from: string, clear: boolean, sentText: string) {
     addMessage(m)
     if (clear) {
+      pendingVars = []
       // se nel frattempo si e' scritto altro, il testo (e la bozza) restano
       const current = conv === from ? text : loadDraft(safeStorage(), from)
       if (draftSentUnchanged(current, sentText)) {
@@ -355,7 +357,10 @@ import { safeStorage } from '../../lib/storage'
     {placeholder}
     bind:value={text}
     bind:this={taEl}
-    oninput={(e) => saveDraft(safeStorage(), conv, e.currentTarget.value)}
+    oninput={(e) => {
+      saveDraft(safeStorage(), conv, e.currentTarget.value)
+      if (e.currentTarget.value === '') pendingVars = []
+    }}
     onkeydown={onkey}
     disabled={!hasChoice}
   ></textarea>

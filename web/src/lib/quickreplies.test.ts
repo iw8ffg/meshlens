@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { expandVariables, hasUnresolvedVariables, insertReply, ownNodeId, validateQuickReply, variablesIn } from './quickreplies'
+import { blockingVariables, expandVariables, hasUnresolvedVariables, insertReply, ownNodeId, validateQuickReply, variablesIn } from './quickreplies'
 import type { Radio } from './types'
 
 const radio = (over: Partial<Radio>): Radio =>
@@ -77,5 +77,16 @@ describe('inserimento nel campo', () => {
     expect(insertReply('   ', 'Sto bene')).toBe('Sto bene')
     expect(insertReply('Ciao', 'Sto bene')).toBe('Ciao Sto bene')
     expect(insertReply('Ciao ', 'Sto bene')).toBe('Ciao Sto bene')
+  })
+})
+
+describe('blockingVariables', () => {
+  it('blocca solo le variabili rimaste da un messaggio rapido', () => {
+    expect(blockingVariables('Batteria {batteria}', ['batteria'])).toEqual(['batteria'])
+    expect(blockingVariables('Batteria 87%', ['batteria'])).toEqual([])
+  })
+  it('le graffe digitate a mano non bloccano nulla', () => {
+    expect(blockingVariables('scrivo {ora} a mano', [])).toEqual([])
+    expect(blockingVariables('scrivo {ora} a mano', ['batteria'])).toEqual([])
   })
 })
