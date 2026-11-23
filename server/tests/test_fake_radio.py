@@ -1132,4 +1132,169 @@ def test_record_live_from_fake_radio_then_replay_again(tmp_path):
         assert [f.packet.decoded.payload for f in pk] == [b"p0", b"p1", b"p2"]
 
 
+# ---------------------------------------------------------------- Task 8: RadioConnector vero
+
+import asyncio  # noqa: E402
+from contextlib import asynccontextmanager  # noqa: E402
+
+from meshlens.events import MeshEvent, RawPacket  # noqa: E402
+from meshlens.pubsub_hub import PubSubHub  # noqa: E402
+from meshlens.radio import RadioConnector  # noqa: E402
+from meshlens.radio_manager import default_iface_factory  # noqa: E402
+
+RID = "rfake0001"
+
+
+class ConnHarness:
+    """RadioConnector + PubSubHub veri (pubsub globale) contro la radio finta."""
+
+    def __init__(self, server, sleep=None):
+        self.loop = asyncio.get_running_loop()
+        self.hub = PubSubHub(self.loop)
+        self.hub.start()
+        self.events, self.states, self.acks = [], [], []
+        cfg = {"id": RID, "kind": "tcp", "address": f"127.0.0.1:{server.port}"}
+        self.conn = RadioConnector(
+            cfg, self.hub, self.events.append, lambda s: self.states.append(s["state"]),
+            lambda *a: self.acks.append(a), default_iface_factory, clock=time.time,
+            sleep=sleep or asyncio.sleep)
+
+    async def until(self, cond, timeout=15.0):
+        async def poll():
+            while not cond():
+                await asyncio.sleep(0.01)
+        await asyncio.wait_for(poll(), timeout)
+
+    async def connected(self):
+        await self.conn.start()
+        await self.until(lambda: self.conn.state()["state"] == "connected")
+
+
+@asynccontextmanager
+async def _connector(server, **kw):
+    h = ConnHarness(server, **kw)
+    try:
+        yield h
+    finally:
+        await h.conn.stop()
+        h.hub.stop()
+
+
+def _kind_events(h, kind):
+    return [e for e in h.events if isinstance(e, MeshEvent) and e.kind == kind]
+
+
+async def test_connector_connects_to_fake_radio_and_reads_node_info():
+    with _radio(my_node_num=0x0A0B0C0D, long_name="Prova lunga") as s:
+        async with _connector(s) as h:
+            await h.connected()
+            st = h.conn.state()
+            assert st["my_node_id"] == "!0a0b0c0d" and st["my_node_name"] == "Prova lunga"
+            assert st["channels"] == [
+                {"index": 0, "name": "LongFast", "role": "PRIMARY"},
+                {"index": 1, "name": "Amici", "role": "SECONDARY"}]
+
+
+async def test_connector_emits_nodedb_events():
+    with _radio(node_count=2) as s:
+        async with _connector(s) as h:
+            await h.connected()
+            ev = _kind_events(h, "nodeinfo")
+            nums = {e.from_node for e in ev}
+            expected = {n.num for n in fr.synthetic_nodes(s.cfg.my_node_num, 2)}
+            assert expected | {s.cfg.my_node_num} <= nums
+            assert all(e.radio_id == RID for e in ev)
+
+
+async def test_connector_receives_replayed_text_event():
+    sess = _pkt_session([0.0, 0.0])
+    sess.packets = [(0.0, rr.packet_frame(text_packet(0x42, 0xFFFFFFFF, "Ciao sessione", 71,
+                                                      snr=6.5, hop_start=3, hop_limit=1))),
+                    (0.0, rr.packet_frame(position_packet(0x42, 45.5, 9.25, 72)))]
+    with _radio(sess, speed=0) as s:
+        async with _connector(s) as h:
+            await h.connected()
+            await h.until(lambda: _kind_events(h, "text") and any(
+                e.packet_id == 72 for e in _kind_events(h, "position")))
+            t = _kind_events(h, "text")[0]
+            assert (t.payload.text, t.from_node, t.snr, t.hops) == ("Ciao sessione", 0x42, 6.5, 2)
+            pos = [e for e in _kind_events(h, "position") if e.packet_id == 72][0]
+            assert abs(pos.payload.lat - 45.5) < 1e-4 and abs(pos.payload.lon - 9.25) < 1e-4
+
+
+async def test_connector_replayed_encrypted_packet_becomes_rawpacket():
+    pkt = mesh_pb2.MeshPacket()
+    setattr(pkt, "from", 0x42)
+    pkt.to = 0xFFFFFFFF
+    pkt.id = 88
+    pkt.encrypted = b"\x01\x02\x03\x04"
+    sess = rr.Session(header={"format": rr.SESSION_FORMAT, "version": 1},
+                      packets=[(0.0, rr.packet_frame(pkt))])
+    with _radio(sess, speed=0) as s:
+        async with _connector(s) as h:
+            await h.connected()
+            await h.until(lambda: any(isinstance(e, RawPacket) and e.packet_id == 88
+                                      for e in h.events))
+            raw = [e for e in h.events if isinstance(e, RawPacket) and e.packet_id == 88][0]
+            assert raw.status == "encrypted" and raw.from_node == 0x42
+
+
+async def test_connector_send_text_reaches_fake_radio():
+    with _radio() as s:
+        async with _connector(s) as h:
+            await h.connected()
+            pid = await h.conn.send_text("ciao rete", 0, None)
+            await h.until(lambda: s.received_snapshot())
+            r = s.received_snapshot()[0]
+            assert r.text == "ciao rete" and r.packet.id == pid
+
+
+async def test_connector_unicast_ack_delivers_and_nak_fails():
+    with _radio(ack=True, ack_delay=0.01) as s:
+        async with _connector(s) as h:
+            await h.connected()
+            pid = await h.conn.send_text("x", 0, "!00000042")
+            await h.until(lambda: h.acks, 5.0)
+            assert h.acks[0] == (RID, pid, True, None)
+    with _radio(ack=True, ack_delay=0.01, nak="NO_RESPONSE") as s:
+        async with _connector(s) as h:
+            await h.connected()
+            pid = await h.conn.send_text("x", 0, "!00000042")
+            await h.until(lambda: h.acks, 5.0)
+            assert h.acks[0] == (RID, pid, False, "NO_RESPONSE")
+
+
+async def test_connector_broadcast_has_no_pending_ack():
+    with _radio(ack=True, ack_delay=0.01) as s:
+        async with _connector(s) as h:
+            await h.connected()
+            await h.conn.send_text("a tutti", 0, None)
+            await h.until(lambda: s.received_snapshot())
+            await asyncio.sleep(0.3)
+            assert h.acks == []
+
+
+async def test_connector_reconnects_after_server_drop():
+    with _radio() as s:
+        async with _connector(s, sleep=lambda d: asyncio.sleep(0)) as h:
+            await h.connected()
+            s.disconnect_clients()
+            await h.until(lambda: "reconnecting" in h.states)
+            await h.until(lambda: h.states[-1] == "connected"
+                          and h.states.index("reconnecting") < len(h.states) - 1)
+            assert s.stats["handshakes"] == 2
+            assert h.states[h.states.index("reconnecting"):][-1] == "connected"
+
+
+async def test_connector_refused_when_fake_radio_stopped():
+    with _radio() as s:
+        pass  # fermata subito: la porta non ascolta piu'
+    async def never(_delay):
+        await asyncio.Event().wait()
+    async with _connector(s, sleep=never) as h:
+        await h.conn.start()
+        await h.until(lambda: "error" in h.states, 20.0)
+        assert h.conn.state()["error"]
+
+
 # <<FIN>>
