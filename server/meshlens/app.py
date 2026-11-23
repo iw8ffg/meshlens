@@ -536,6 +536,13 @@ class Runtime:
             for (bid, _), r in zip(items, results):
                 if isinstance(r, BaseException):
                     log.error("Arresto del connettore MQTT %s fallito", bid, exc_info=r)
+            # connettori fermi: gli eventi ancora in coda si elaborano ora, a database aperto
+            # (altrimenti andrebbero persi o girerebbero a connessione chiusa)
+            for _, c in items:
+                inbox = getattr(c, "inbox", None)
+                if inbox is not None:
+                    with contextlib.suppress(Exception):
+                        inbox.close()
             self.connectors.clear()
         # connettori fermi: niente piu' eventi, si scrive cio' che resta in memoria
         if self.packet_log is not None:

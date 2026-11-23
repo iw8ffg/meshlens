@@ -32,6 +32,7 @@ class EventInbox:
         self._raws: collections.deque = collections.deque()
         self._lock = threading.Lock()
         self._scheduled = False
+        self._closed = False
 
     def size(self) -> int:
         with self._lock:
@@ -41,6 +42,8 @@ class EventInbox:
         """Da qualsiasi thread. Se la coda e' piena si scarta l'elemento piu' vecchio,
         ma prima i pacchetti grezzi: gli eventi dei nodi hanno la precedenza."""
         with self._lock:
+            if self._closed:
+                return
             is_raw = isinstance(item, RawPacket)
             total = len(self._items) + len(self._raws)
             if is_raw and len(self._raws) >= max(1, self.maxsize // 4):
@@ -70,6 +73,8 @@ class EventInbox:
     def _drain(self) -> None:
         """Sul loop: consegna al massimo `batch` elementi, poi si rischedula se ne restano."""
         with self._lock:
+            if self._closed:
+                return
             taken = []
             for q in (self._items, self._raws):
                 while q and len(taken) < self.batch:
@@ -83,6 +88,23 @@ class EventInbox:
         finally:
             # anche con una BaseException dal gestore la coda non resta bloccata
             self._finish_drain()
+
+    def close(self, deliver: bool = True) -> None:
+        """Sul loop, allo spegnimento: da qui in poi `put` scarta e i drain gia' schedulati non
+        fanno nulla. Con `deliver` gli eventi ancora in coda vanno prima al gestore (il database
+        e' ancora aperto), altrimenti si scartano."""
+        with self._lock:
+            self._closed = True
+            taken = [*self._items, *self._raws]
+            self._items.clear()
+            self._raws.clear()
+        if not deliver:
+            return
+        for item in taken:
+            try:
+                self.handler(item)
+            except Exception:
+                log.exception("Evento MQTT non elaborato")
 
     def _finish_drain(self) -> None:
         with self._lock:

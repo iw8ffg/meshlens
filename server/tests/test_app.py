@@ -929,3 +929,20 @@ async def test_removed_custom_channel_stops_decrypting_after_restart(tmp_path):
         "b1", channels=[{"name": "Squadra", "psk": PSK_A}]))
     await rt.on_settings_changed(_with(rt.settings, "b1", host="nuovo.example", channels=[]))
     assert "Squadra" not in rt.connectors["b1"].decoder.channel_keys
+
+
+async def test_stop_delivers_queued_inbox_events_before_closing_db(tmp_path):
+    from meshlens.inbox import EventInbox
+    seen = []
+
+    class InboxConnector(FakeConnector):
+        def __init__(self, cfg, decoder, loop, on_event):
+            super().__init__(cfg, decoder, loop, on_event)
+            self.inbox = EventInbox(loop, lambda ev: seen.append((ev, rt.conn.execute("SELECT 1").fetchone()[0])))
+
+    rt = await _multi_rt(tmp_path, InboxConnector)
+    inbox = rt.connectors["default"].inbox
+    inbox.put("a")
+    inbox.put("b")  # in coda, drain non ancora girato
+    await rt.stop()
+    assert seen == [("a", 1), ("b", 1)]  # elaborati a database aperto, senza errori

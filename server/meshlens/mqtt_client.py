@@ -199,6 +199,8 @@ class MqttConnector:
             self._sub_answered += 1
             codes = reason_codes if isinstance(reason_codes, (list, tuple)) else [reason_codes]
             refused = any(_is_failure(c) for c in codes)
+            if not refused:  # sottoscrizione accettata: la connessione e' buona, l'errore vecchio non vale piu'
+                self._last_error = self._last_error_at = None
             if refused and topic not in self._refused:
                 self._refused.append(topic)
             total = len(self.cfg["topics"])
