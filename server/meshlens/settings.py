@@ -564,7 +564,9 @@ _DECRYPT_CACHE_MAX = 256
 def _decrypt_cached(key: str, stored: str) -> str:
     """Ogni valore salvato si decifra una volta sola: un valore non decifrabile avvisa una volta."""
     protector = get_protector()
-    ck = (id(protector), stored)
+    # chiave sull'oggetto (non su id()): un id riusato dopo la garbage collection darebbe il
+    # chiaro di un altro protettore
+    ck = (protector, stored)
     if ck in _DECRYPT_CACHE:
         plain = _DECRYPT_CACHE[ck]
     else:
