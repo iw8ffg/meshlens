@@ -1,4 +1,28 @@
 // Testi inglesi: area «profiles» (WP4, profili di configurazione). Il tipo obbliga a tradurre ogni chiave italiana.
 import type { profiles as itArea } from '../it/profiles'
 
-export const profiles: Record<keyof typeof itArea, string> = {}
+export const profiles: Record<keyof typeof itArea, string> = {
+  'profiles.err.badJson': 'The file is not valid JSON',
+  'profiles.err.badFormat': 'The file is not a MeshLens profile',
+  'profiles.section.device': 'Device',
+  'profiles.section.position': 'Position',
+  'profiles.section.power': 'Power',
+  'profiles.section.network': 'Network',
+  'profiles.section.display': 'Display',
+  'profiles.section.lora': 'LoRa',
+  'profiles.section.bluetooth': 'Bluetooth',
+  'profiles.section.mqtt': 'MQTT',
+  'profiles.section.serial': 'Serial',
+  'profiles.section.external_notification': 'External notification',
+  'profiles.section.store_forward': 'Store and Forward',
+  'profiles.section.range_test': 'Range test',
+  'profiles.section.telemetry': 'Telemetry',
+  'profiles.section.canned_message': 'Canned messages',
+  'profiles.section.audio': 'Audio module',
+  'profiles.section.remote_hardware': 'Remote hardware',
+  'profiles.section.neighbor_info': 'Neighbor Info',
+  'profiles.section.detection_sensor': 'Detection sensor',
+  'profiles.section.ambient_lighting': 'Ambient lighting',
+  'profiles.section.paxcounter': 'Paxcounter',
+  'profiles.section.traffic_management': 'Traffic management',
+}

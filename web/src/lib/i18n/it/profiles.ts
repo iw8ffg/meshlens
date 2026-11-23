@@ -1,2 +1,26 @@
 // Testi italiani: area «profiles» (WP4, profili di configurazione). Chiavi `profiles.*`.
-export const profiles = {} as const
+export const profiles = {
+  'profiles.err.badJson': 'Il file non è un JSON valido',
+  'profiles.err.badFormat': 'Il file non è un profilo di MeshLens',
+  'profiles.section.device': 'Dispositivo',
+  'profiles.section.position': 'Posizione',
+  'profiles.section.power': 'Alimentazione',
+  'profiles.section.network': 'Rete',
+  'profiles.section.display': 'Schermo',
+  'profiles.section.lora': 'LoRa',
+  'profiles.section.bluetooth': 'Bluetooth',
+  'profiles.section.mqtt': 'MQTT',
+  'profiles.section.serial': 'Seriale',
+  'profiles.section.external_notification': 'Notifiche esterne',
+  'profiles.section.store_forward': 'Store & Forward',
+  'profiles.section.range_test': 'Range test',
+  'profiles.section.telemetry': 'Telemetria',
+  'profiles.section.canned_message': 'Messaggi predefiniti',
+  'profiles.section.audio': 'Audio',
+  'profiles.section.remote_hardware': 'Hardware remoto',
+  'profiles.section.neighbor_info': 'Vicini (Neighbor Info)',
+  'profiles.section.detection_sensor': 'Sensore di rilevamento',
+  'profiles.section.ambient_lighting': 'Luce ambiente',
+  'profiles.section.paxcounter': 'Paxcounter',
+  'profiles.section.traffic_management': 'Gestione del traffico',
+} as const
