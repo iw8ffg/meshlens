@@ -122,3 +122,148 @@ def test_packet_frame_sets_from_with_reserved_word():
     frame = rr.packet_frame(pkt)
     assert getattr(frame.packet, "from") == 0x1234
     assert frame.WhichOneof("payload_variant") == "packet"
+
+
+# ---------------------------------------------------------------- Task 2: registratore da database
+
+import hashlib  # noqa: E402
+import sqlite3  # noqa: E402
+
+from meshlens import db as mdb  # noqa: E402
+
+
+def _mkdb(tmp_path, packets=(), nodes=()):
+    path = tmp_path / "m.db"
+    conn = mdb.connect(path)
+    for p in packets:
+        row = {"time": 1000.0, "from_num": 0x42, "to_num": 0xFFFFFFFF, "packet_id": 7,
+               "source": "rf", "channel": "0", "portnum": "TEXT_MESSAGE_APP", "kind": "text",
+               "status": "ok", "snr": 5.5, "rssi": -80, "hop_start": 3, "hop_limit": 2,
+               "raw": b"ciao"}
+        row.update(p)
+        row["size"] = len(row["raw"]) if row["raw"] is not None else 0
+        cols = ",".join(row)
+        conn.execute(f"INSERT INTO packets({cols}) VALUES({','.join('?' * len(row))})",
+                     tuple(row.values()))
+    for n in nodes:
+        row = {"num": 0x42, "id": "!00000042", "long_name": "Altro", "short_name": "AL",
+               "hw_model": "HELTEC_V3", "last_heard": 900.0, "is_mine": 0}
+        row.update(n)
+        conn.execute(f"INSERT INTO nodes({','.join(row)}) VALUES({','.join('?' * len(row))})",
+                     tuple(row.values()))
+    conn.commit()
+    conn.close()
+    return path
+
+
+def test_from_db_text_packet_roundtrip(tmp_path):
+    p = _mkdb(tmp_path, [{}])
+    s, st = rr.session_from_db(p)
+    t, fr = s.packets[0]
+    pkt = fr.packet
+    assert pkt.decoded.portnum == portnums_pb2.PortNum.TEXT_MESSAGE_APP
+    assert pkt.decoded.payload == b"ciao"
+    assert (getattr(pkt, "from"), pkt.to, pkt.id) == (0x42, 0xFFFFFFFF, 7)
+    assert (pkt.rx_snr, pkt.hop_start, pkt.hop_limit, pkt.rx_rssi) == (5.5, 3, 2, -80)
+    assert st["read"] == 1 and st["kept"] == 1
+    assert s.header["source"] == "db"
+
+
+def test_from_db_skips_truncated_and_empty_raw(tmp_path):
+    p = _mkdb(tmp_path, [{"raw": b"x" * 256, "packet_id": 1}, {"raw": None, "packet_id": 2},
+                         {"packet_id": 3}])
+    s, st = rr.session_from_db(p)
+    assert st["skipped"]["truncated"] == 1 and st["skipped"]["no_raw"] == 1
+    assert len(s.packets) == 1
+
+
+def test_from_db_encrypted_goes_to_encrypted_field(tmp_path):
+    p = _mkdb(tmp_path, [{"status": "encrypted", "portnum": None, "raw": b"\x01\x02\x03"}])
+    s, _ = rr.session_from_db(p)
+    pkt = s.packets[0][1].packet
+    assert pkt.encrypted == b"\x01\x02\x03"
+    assert pkt.WhichOneof("payload_variant") == "encrypted"
+
+
+def test_from_db_mqtt_channel_name_maps_to_index_0(tmp_path):
+    p = _mkdb(tmp_path, [{"source": "mqtt", "channel": "MediumFast", "broker": "pub"}])
+    s, _ = rr.session_from_db(p)
+    pkt = s.packets[0][1].packet
+    assert pkt.channel == 0 and pkt.via_mqtt
+
+
+def test_from_db_no_mqtt_flag(tmp_path):
+    p = _mkdb(tmp_path, [{"source": "mqtt", "packet_id": 1}, {"packet_id": 2}])
+    s, st = rr.session_from_db(p, include_mqtt=False)
+    assert [f.packet.id for _, f in s.packets] == [2]
+    assert st["kept"] == 1
+
+
+def test_from_db_unknown_port_skipped(tmp_path):
+    p = _mkdb(tmp_path, [{"portnum": "NON_ESISTE_APP", "packet_id": 1}, {"packet_id": 2}])
+    s, st = rr.session_from_db(p)
+    assert st["skipped"]["unknown_port"] == 1 and len(s.packets) == 1
+
+
+def test_from_db_times_are_relative_and_sorted(tmp_path):
+    p = _mkdb(tmp_path, [{"time": 1010.0, "packet_id": 2}, {"time": 1000.0, "packet_id": 1},
+                         {"time": 1005.5, "packet_id": 3}])
+    s, _ = rr.session_from_db(p)
+    assert [t for t, _ in s.packets] == [0.0, 5.5, 10.0]
+    assert [f.packet.id for _, f in s.packets] == [1, 3, 2]
+
+
+def test_from_db_builds_nodes_and_my_node(tmp_path):
+    p = _mkdb(tmp_path, [{}], nodes=[
+        {"num": 0xA1B2C3D4, "id": "!a1b2c3d4", "long_name": "Mia", "is_mine": 1},
+        {"num": 0x42, "lat": 45.5, "lon": 9.25}])
+    s, _ = rr.session_from_db(p)
+    assert s.my_node_num == 0xA1B2C3D4
+    by = {n.num: n for n in s.nodes}
+    assert by[0x42].user.long_name == "Altro" and by[0x42].user.id == "!00000042"
+    assert by[0x42].position.latitude_i == 455000000
+    assert by[0x42].user.hw_model == mesh_pb2.HardwareModel.Value("HELTEC_V3")
+
+
+def test_from_db_empty_log_message_mentions_packet_log_mode(tmp_path):
+    p = _mkdb(tmp_path, [])
+    with pytest.raises(rr.SessionError, match="registro pacchetti"):
+        rr.session_from_db(p)
+
+
+def test_from_db_missing_file_and_missing_table(tmp_path):
+    with pytest.raises(rr.SessionError, match="Database non trovato"):
+        rr.session_from_db(tmp_path / "no.db")
+    old = tmp_path / "old.db"
+    c = sqlite3.connect(old)
+    c.execute("CREATE TABLE x(a)")
+    c.commit()
+    c.close()
+    with pytest.raises(rr.SessionError, match="tabella dei pacchetti"):
+        rr.session_from_db(old)
+
+
+def test_from_db_never_writes_to_the_database(tmp_path):
+    p = _mkdb(tmp_path, [{}])
+    before = hashlib.sha256(p.read_bytes()).hexdigest()
+    rr.session_from_db(p)
+    after = hashlib.sha256(p.read_bytes()).hexdigest()
+    assert before == after
+
+
+def test_cli_db_writes_file_and_prints_summary(tmp_path, capsys):
+    p = _mkdb(tmp_path, [{"packet_id": 1}, {"packet_id": 2, "raw": b"x" * 256}])
+    out = tmp_path / "o.jsonl"
+    assert rr.main(["--db", str(p), "--out", str(out)]) == 0
+    text = capsys.readouterr().out
+    assert "1" in text and "pacchett" in text
+    assert len(rr.read_session(out).packets) == 1
+
+
+def test_cli_rejects_missing_source():
+    with pytest.raises(SystemExit) as e:
+        rr.main([])
+    assert e.value.code == 2
+
+
+# <<FIN>>
