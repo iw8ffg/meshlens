@@ -36,6 +36,7 @@
     ConfigBackup,
     ConfigChannelKeyed,
     ConfigDict,
+    ConfigJob,
     ConfigPreview,
     ConfigSaved,
     ConfigSchema,
@@ -43,6 +44,8 @@
   } from '../lib/types'
   import ConfigAdvanced from './ConfigAdvanced.svelte'
   import ConfigProfiles from './ConfigProfiles.svelte'
+  import ConfigAdmin from './ConfigAdmin.svelte'
+  import ConfigCanned from './ConfigCanned.svelte'
   import ChannelShare from './ChannelShare.svelte'
   import PrivacyBanner from './PrivacyBanner.svelte'
   import Segmented from '../lib/ui/Segmented.svelte'
@@ -76,6 +79,7 @@
     ['backups', t('config.tab.backups')],
     ['profiles', t('config.tab.profiles')],
     ['adminkey', t('config.tab.adminkey')],
+    ['admin', t('config.tab.admin')],
   ])
   // schede senza il form di modifica (niente «Rivedi e applica»)
   const NO_FORM = new Set(['adminkey', 'backups', 'profiles', 'admin'])
@@ -288,6 +292,12 @@
 
   const reboot = () => run(() => rebootNode(nodeId, radio || undefined))
 
+  // lavori avviati dalle schede di WP4 (comandi admin, verifica della chiave)
+  function takeJob(j: ConfigJob) {
+    setConfigJob(j)
+    jobId = j.id
+  }
+
   function fixed() {
     const la = Number(lat)
     const lo = Number(lon)
@@ -446,6 +456,9 @@
       {:else}
         <p class="muted">{t('config.backups.none')}</p>
       {/each}
+    {:else if tab === 'admin'}
+      <ConfigAdmin {nodeId} radioId={radio || null} {local} {lock} onjob={takeJob} onkeytab={() => (tab = 'adminkey')} />
+      <ConfigCanned {nodeId} radioId={radio || null} {lock} />
     {:else if tab === 'profiles'}
       <ConfigProfiles {nodeId} radioId={radio || null} {saved} {lock} onpreview={showExternal} />
     {:else if !saved || !schema}
