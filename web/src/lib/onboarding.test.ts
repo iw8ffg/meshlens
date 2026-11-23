@@ -1,5 +1,19 @@
 import { describe, expect, it } from 'vitest'
+import { en } from './i18n/en'
+import { it as itCat } from './i18n/it'
 import { emptyActions, onboardingSteps, shouldAutoOpen } from './onboarding'
+
+describe('etichette', () => {
+  it('ogni labelKey di emptyActions esiste in italiano e in inglese', () => {
+    const counts = { nodeCount: 0, radioCount: 0, brokerCount: 0, connectedRadios: 0, convCount: 0 }
+    const keys = (['nodes', 'network', 'radios', 'chat'] as const).flatMap((k) => emptyActions(k, counts).map((a) => a.labelKey))
+    expect(keys.length).toBeGreaterThan(0)
+    for (const k of keys) {
+      expect(Object.hasOwn(itCat, k), k).toBe(true)
+      expect(Object.hasOwn(en, k), k).toBe(true)
+    }
+  })
+})
 
 const base = { brokers: [], radios: [], nodes: [], mapCount: null as number | null }
 const done = (s: ReturnType<typeof onboardingSteps>) => Object.fromEntries(s.map((x) => [x.id, x.done]))
