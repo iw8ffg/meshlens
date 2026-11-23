@@ -289,8 +289,9 @@
     {/each}
   </fieldset>
 
-  {#if via === MQTT_VIA && !lockedBroker}
-    <BrokerPicker id="{uid}-brk" {brokers} bind:value={mqttBroker} />
+  {#if via === MQTT_VIA}
+    <!-- nella conversazione di un solo broker il broker e' gia' deciso; il canale si sceglie sempre -->
+    {#if !lockedBroker}<BrokerPicker id="{uid}-brk" {brokers} bind:value={mqttBroker} />{/if}
     <Field label={t('chat.mqttChannelLabel')} for="{uid}-mch" hint={dmTo ? t('chat.directTo', { name: nodeName(dmTo) }) : undefined}>
       {#snippet children({ describedby })}
         <Select id="{uid}-mch" bind:value={mqttChan} aria-describedby={describedby}>

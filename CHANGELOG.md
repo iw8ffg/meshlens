@@ -3,6 +3,18 @@
 Il formato segue [Keep a Changelog](https://keepachangelog.com/it-IT/1.1.0/) e il progetto usa il [versionamento semantico](https://semver.org/lang/it/).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [1.4.5] - 2026-11-23
+
+### Italiano
+
+#### Corretto
+- **Canale nella conversazione di un broker:** in «Pubblico · <broker>» la casella di invio mostra di nuovo la scelta del canale MQTT; resta nascosta solo la scelta del broker, già deciso dalla conversazione.
+
+### English
+
+#### Fixed
+- **Channel in a broker conversation:** in "Public · <broker>" the send box shows the MQTT channel choice again; only the broker choice stays hidden, since the conversation already sets it.
+
 ## [1.4.4] - 2026-11-23
 
 ### Italiano
@@ -325,6 +337,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 [1.2.3]: https://github.com/iw8ffg/meshlens/releases/tag/v1.2.3
 [1.3.0]: https://github.com/iw8ffg/meshlens/releases/tag/v1.3.0
 [1.4.0]: https://github.com/iw8ffg/meshlens/releases/tag/v1.4.0
+[1.4.5]: https://github.com/iw8ffg/meshlens/releases/tag/v1.4.5
 [1.4.4]: https://github.com/iw8ffg/meshlens/releases/tag/v1.4.4
 [1.4.3]: https://github.com/iw8ffg/meshlens/releases/tag/v1.4.3
 [1.4.2]: https://github.com/iw8ffg/meshlens/releases/tag/v1.4.2
