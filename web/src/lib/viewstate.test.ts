@@ -18,6 +18,8 @@ describe('loadView', () => {
     saveView(s, { netView: 'stats' })
     expect(loadView(s).netView).toBe('stats')
     expect(loadView(mem({ [VIEW_KEY]: JSON.stringify({ v: 1, netView: 'boh' }) })).netView).toBe('nodes')
+    expect(loadView(mem({ [VIEW_KEY]: JSON.stringify({ v: 1, netView: 'health' }) })).netView).toBe('health')
+    expect(loadView(mem({ [VIEW_KEY]: JSON.stringify({ v: 1, netView: 'topology' }) })).netView).toBe('topology')
   })
   it('waypoints: assente true, false salvato false, valore non booleano true', () => {
     expect(loadView(mem({ [VIEW_KEY]: JSON.stringify({ v: 1 }) })).waypoints).toBe(true)

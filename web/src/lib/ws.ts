@@ -1,4 +1,5 @@
 import { emitAuthRequired } from './api'
+import { dispatchExt } from './wsext'
 import type { PredictionJob } from './prediction'
 import type { SfJob, SfRouter } from './storeforward'
 import type { ConfigJob, MapJob, UpdateJob, Alert, CoveragePoint, CoverageSession, CoverageTrackPoint, Message, MessageStatus, Node, Radio, Status, Traceroute, Waypoint } from './types'
@@ -44,7 +45,8 @@ export function reconnectNow(): void {
   retryNow?.()
 }
 
-/** Smista un messaggio del WebSocket verso l'handler giusto; tipi ignoti o non-oggetti: nessun effetto. */
+/** Smista un messaggio del WebSocket verso l'handler giusto; i tipi non del nucleo vanno a
+ * `dispatchExt` (wsext.ts); non-oggetti: nessun effetto. */
 export function dispatch(msg: unknown, h: WSHandlers): void {
   if (msg === null || typeof msg !== 'object') return
   const m = msg as Record<string, any>
@@ -69,6 +71,7 @@ export function dispatch(msg: unknown, h: WSHandlers): void {
   else if (m.type === 'sf_routers') h.sf_routers?.(m.routers)
   else if (m.type === 'status') h.status({ mqtt: m.mqtt })
   else if (m.type === 'resync') h.resync?.()
+  else dispatchExt(m) // tipi della 1.6 (wsext.ts)
 }
 
 /** Apre /ws e si riconnette ogni 3 s. Restituisce una funzione per chiudere. */

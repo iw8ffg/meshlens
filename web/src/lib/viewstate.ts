@@ -7,8 +7,9 @@ import { isRouteTab } from './route'
 
 export const VIEW_KEY = 'meshlens.view'
 
-export type NetView = 'nodes' | 'stats' | 'packets'
-const NET_VIEWS: readonly NetView[] = ['nodes', 'stats', 'packets']
+export type NetView = 'nodes' | 'stats' | 'packets' | 'health' | 'topology'
+/** health/topology sono valori validi da salvare; se la vista non e' pronta NetworkPage ricade su nodes. */
+const NET_VIEWS: readonly NetView[] = ['nodes', 'stats', 'packets', 'health', 'topology']
 
 export type ViewState = {
   tab: Tab | null

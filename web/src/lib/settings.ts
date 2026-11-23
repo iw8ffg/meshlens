@@ -71,7 +71,42 @@ export interface AppSettings {
   retention_packets_hours?: number
   /** Elimina i backup più vecchi di N giorni; 0 = mai. */
   backup_retention_days?: number
+  // ---- 1.6 (WP0: tutte facoltative) ----
+  onboarding_done?: boolean
+  quick_replies?: string[]
+  /** La stella copia anche il preferito sulle radio locali. */
+  favorites_to_radio?: boolean
+  traceroute_auto_enabled?: boolean
+  traceroute_auto_max_per_hour?: number
+  /** Si accende solo dalla pagina del bot (PUT /api/settings lo rifiuta a true). */
+  bot_enabled?: boolean
+  bot_targets?: BotTarget[]
+  bot_commands?: BotCommand[]
+  bot_weather_node?: string
+  bot_replies?: BotReply[]
+  bot_min_interval_s?: number
+  bot_max_per_hour?: number
+  bot_node_cooldown_s?: number
+  /** Si accende solo dalla pagina del webhook (PUT /api/settings lo rifiuta a true). */
+  webhook_enabled?: boolean
+  /** Mascherato: "••••" se impostato, "" altrimenti. */
+  webhook_url?: string
+  webhook_events?: WebhookEvent[]
+  update_channel?: 'stable' | 'beta'
+  last_seen_version?: string
+  /** Si accende solo dalla pagina dell'accesso ospite (PUT /api/settings lo rifiuta a true). */
+  guest_enabled?: boolean
+  retention_traceroutes_days?: number
+  /** id broker -> giorni (solo meno dei giorni generali dei messaggi). */
+  retention_broker_days?: Record<string, number>
 }
+
+export type BotCommand = 'ping' | 'info' | 'nodes' | 'time' | 'weather'
+export type BotTarget =
+  | { kind: 'radio'; radio_id: string; channel_index: number }
+  | { kind: 'mqtt'; broker: string; channel: string }
+export interface BotReply { trigger: string; text: string }
+export type WebhookEvent = 'message' | 'alert' | 'sensor' | 'traceroute' | 'node_new'
 
 // Una voce per riga: spazi tolti, righe vuote scartate
 export function parseLines(text: string): string[] {
