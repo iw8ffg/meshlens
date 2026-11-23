@@ -156,3 +156,55 @@ def test_load_releases_ignores_huge_file(tmp_path, monkeypatch):
 def test_find_changelog_in_development():
     p = release_notes.find_changelog()
     assert p is not None and p.name == "CHANGELOG.md"
+
+
+# ---- pacchetto: CHANGELOG incluso, firma facoltativa e senza segreti ---------------------
+def test_spec_bundles_changelog():
+    spec = (ROOT / "packaging" / "meshlens.spec").read_text(encoding="utf-8")
+    assert re.search(r'CHANGELOG\.md"\),\s*"meshlens/data"', spec)
+
+
+def test_build_script_signing_is_optional_and_secret_free():
+    ps = (ROOT / "tools" / "build.ps1").read_text(encoding="utf-8")
+    for needed in ("MESHLENS_SIGN_THUMBPRINT", "MESHLENS_SIGN_PFX", "signtool", "NoSign",
+                   "Firma del codice saltata: nessun certificato configurato", "verify /pa"):
+        assert needed in ps, needed
+    assert not re.search(r'[A-Za-z]:\\[^"\n]*\.pfx"', ps)
+    assert '-p "' not in ps
+    assert not re.search(r"PASSWORD\s*=\s*['\"]\w", ps, re.I)
+    assert not re.search(r"\b[0-9a-fA-F]{40}\b", ps)  # nessun thumbprint scritto
+    assert all(ord(ch) < 128 for ch in ps)  # PowerShell 5.1 legge il file come ANSI
+
+
+def test_build_script_parses():
+    exe = shutil.which("powershell")
+    if exe is None:
+        pytest.skip("PowerShell non disponibile")
+    path = str(ROOT / "tools" / "build.ps1").replace("'", "''")
+    cmd = ("$e=$null; [void][System.Management.Automation.Language.Parser]::ParseFile("
+           f"'{path}',[ref]$null,[ref]$e); if ($e) {{ $e | ForEach-Object {{ $_.Message }}; "
+           "exit 1 }")
+    r = subprocess.run([exe, "-NoProfile", "-NonInteractive", "-Command", cmd],
+                       capture_output=True, text=True, timeout=60)
+    assert r.returncode == 0, r.stdout + r.stderr
+
+
+def test_iss_sign_block_is_conditional():
+    iss = (ROOT / "packaging" / "meshlens.iss").read_text(encoding="utf-8-sig")
+    m = re.search(r"#ifdef SignedBuild\s*\n(.*?)#endif", iss, re.S)
+    assert m and "SignTool=meshlens" in m.group(1) and "SignedUninstaller=yes" in m.group(1)
+    outside = iss.replace(m.group(0), "")
+    assert not re.search(r"^\s*SignTool=", outside, re.M)
+
+
+def test_no_certificate_files_tracked():
+    git = shutil.which("git")
+    if git is None:
+        pytest.skip("git non disponibile")
+    r = subprocess.run([git, "ls-files"], cwd=ROOT, capture_output=True, text=True, timeout=60)
+    if r.returncode != 0:
+        pytest.skip("non e' un repository git")
+    bad = [f for f in r.stdout.splitlines() if f.lower().endswith((".pfx", ".p12", ".snk"))]
+    assert bad == []
+    gi = (ROOT / ".gitignore").read_text(encoding="utf-8")
+    assert all(p in gi for p in ("*.pfx", "*.p12", "*.snk"))

@@ -11,6 +11,8 @@ datas = [
     (str(root / "web" / "dist"), "web/dist"),
     (str(pkg / "data"), "meshlens/data"),
     (str(pkg / "assets"), "meshlens/assets"),
+    # note di versione per la finestra «Novità» (release_notes.find_changelog)
+    (str(root / "CHANGELOG.md"), "meshlens/data"),
 ]
 binaries = []
 hiddenimports = ["pystray._win32", "PIL.Image", "PIL.ImageDraw"]
