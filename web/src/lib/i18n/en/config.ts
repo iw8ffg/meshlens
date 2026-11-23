@@ -194,4 +194,6 @@ export const config: Record<keyof typeof itArea, string> = {
   'config.diff.riskBody': 'One or more changes may cause contact with the node to be lost or cut it off from the network. A copy is saved before writing in any case.',
   'config.field.secretPh': 'Unchanged (secret: it can only be replaced)',
   'config.adv.note': 'All the node\'s other settings. Secrets can only be replaced, never read.',
+  'config.tab.profiles': "Profiles",
+  'config.tab.admin': "Commands",
 }

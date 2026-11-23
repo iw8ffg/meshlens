@@ -10,7 +10,9 @@ import {
   exportProfileUrl,
   importProfile,
   parseProfileFile,
+  PROFILE_SECTIONS,
   previewProfile,
+  readSections,
   saveProfile,
   sectionGroups,
   sectionLabel,
@@ -27,6 +29,11 @@ describe('profiles', () => {
       config: ['config.lora', 'config.device'],
       module_config: ['module_config.mqtt'],
     })
+  })
+
+  it('readSections: solo sezioni copiabili lette, mai la sicurezza', () => {
+    expect(readSections(['lora', 'security', 'mqtt', 'channels', 'owner'])).toEqual(['config.lora', 'module_config.mqtt'])
+    expect(PROFILE_SECTIONS).not.toContain('config.security')
   })
 
   it('sectionLabel tradotta, con ripiego sul nome', () => {

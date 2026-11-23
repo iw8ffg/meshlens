@@ -6,6 +6,21 @@ import type { ConfigProfile, ConfigProfileDetail, ProfileCompare, ProfilePreview
 
 export const PROFILE_FORMAT = 'meshlens-profile'
 
+/** Sezioni copiabili, come profiles.allowed_sections del server (mai config.security). */
+export const PROFILE_SECTIONS: readonly string[] = [
+  ...['device', 'position', 'power', 'network', 'display', 'lora', 'bluetooth'].map((s) => `config.${s}`),
+  ...['mqtt', 'serial', 'external_notification', 'store_forward', 'range_test', 'telemetry', 'canned_message', 'audio',
+    'remote_hardware', 'neighbor_info', 'detection_sensor', 'ambient_lighting', 'paxcounter', 'traffic_management'].map(
+    (s) => `module_config.${s}`,
+  ),
+]
+
+/** Sezioni di una lettura salvata ("lora", "mqtt") presenti tra quelle copiabili. */
+export function readSections(saved: string[]): string[] {
+  const have = new Set(saved)
+  return PROFILE_SECTIONS.filter((s) => have.has(s.split('.')[1]))
+}
+
 export const listProfiles = () => getJSON<ConfigProfile[]>('/profiles')
 export const getProfile = (id: number) => getJSON<ConfigProfileDetail>(`/profiles/${id}`)
 export const saveProfile = (body: { node_id: string; name: string; sections?: string[] | null; notes?: string | null }) =>

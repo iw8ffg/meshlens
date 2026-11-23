@@ -192,4 +192,6 @@ export const config = {
   'config.diff.riskBody': 'Una o più modifiche possono far perdere il contatto con il nodo o isolarlo dalla rete. Prima di scrivere viene comunque salvata una copia.',
   'config.field.secretPh': 'Invariato (segreto: si può solo sostituire)',
   'config.adv.note': 'Tutte le altre impostazioni del nodo. I segreti si possono solo sostituire, mai leggere.',
+  'config.tab.profiles': "Profili",
+  'config.tab.admin': "Comandi",
 } as const

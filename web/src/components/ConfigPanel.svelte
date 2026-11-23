@@ -35,6 +35,7 @@
   import { app, configJobs, setConfigJob } from '../lib/stores.svelte'
   import type { ConfigBackup, ConfigDict, ConfigPreview, ConfigSaved, ConfigSchema, ConfigValue } from '../lib/types'
   import ConfigAdvanced from './ConfigAdvanced.svelte'
+  import ConfigProfiles from './ConfigProfiles.svelte'
   import ConfigDiff from './ConfigDiff.svelte'
   import ConfigField from './ConfigField.svelte'
   import Banner from '../lib/ui/Banner.svelte'
@@ -62,8 +63,11 @@
     ['modules', t('config.tab.modules')],
     ['advanced', t('config.tab.advanced')],
     ['backups', t('config.tab.backups')],
+    ['profiles', t('config.tab.profiles')],
     ['adminkey', t('config.tab.adminkey')],
   ])
+  // schede senza il form di modifica (niente «Rivedi e applica»)
+  const NO_FORM = new Set(['adminkey', 'backups', 'profiles', 'admin'])
 
   const node = $derived(app.nodes.get(nodeId) ?? null)
   const nodeName = $derived(node?.long_name || node?.short_name || nodeId)
@@ -84,7 +88,9 @@
   let edited = $state<ConfigDict>({})
   let backups = $state<ConfigBackup[]>([])
   let preview = $state<ConfigPreview | null>(null)
-  let previewFrom = $state<{ kind: 'form'; key: string } | { kind: 'restore' } | null>(null)
+  // 'external': anteprima costruita dal server (profilo, privacy), non legata al form
+  let previewFrom = $state<{ kind: 'form'; key: string } | { kind: 'restore' } | { kind: 'external' } | null>(null)
+  let skipped = $state<string[]>([])
   let copyTimer: ReturnType<typeof setTimeout> | null = null
   let jobId = $state<number | null>(null)
   let err = $state('')
@@ -105,7 +111,7 @@
   // anteprima del form: vale solo finche' il form non cambia
   const formKey = $derived(saved ? JSON.stringify(formChanges(saved.config, edited)) : '')
   const activePreview = $derived(
-    preview && previewFrom && (previewFrom.kind === 'restore' || previewFrom.key === formKey) ? preview : null,
+    preview && previewFrom && (previewFrom.kind !== 'form' || previewFrom.key === formKey) ? preview : null,
   )
   const local = $derived(app.radios.find((r) => r.id === radio)?.my_node_id === nodeId)
   const keyMissing = $derived(job?.error_code === 'unauthorized' || (!!job?.error && !job.error_code && /chiave admin/i.test(job.error)))
@@ -254,6 +260,13 @@
     }
   }
 
+  function showExternal(p: ConfigPreview, skippedPaths: string[] = []) {
+    preview = p
+    previewFrom = { kind: 'external' }
+    skipped = skippedPaths
+    err = ''
+  }
+
   function apply(confirmRisky: boolean) {
     if (!activePreview) return
     const id = activePreview.preview_id
@@ -374,6 +387,9 @@
 
     {#if activePreview}
       {#key activePreview.preview_id}
+        {#if previewFrom?.kind === 'external' && skipped.length}
+          <Banner kind="warn" title={t('profiles.skipped')}>{skipped.join(', ')}</Banner>
+        {/if}
         <ConfigDiff preview={activePreview} {busy} onapply={apply} oncancel={() => (preview = null)} />
       {/key}
     {/if}
@@ -407,6 +423,8 @@
       {:else}
         <p class="muted">{t('config.backups.none')}</p>
       {/each}
+    {:else if tab === 'profiles'}
+      <ConfigProfiles {nodeId} radioId={radio || null} {saved} {lock} onpreview={showExternal} />
     {:else if !saved || !schema}
       <p class="muted">{schema ? t('config.readFirst') : t('config.loading')}</p>
     {:else if tab === 'advanced'}
@@ -473,7 +491,7 @@
       {/if}
     {/if}
 
-    {#if saved && schema && tab !== 'adminkey' && tab !== 'backups'}
+    {#if saved && schema && !NO_FORM.has(tab)}
       <div class="foot">
         <Button kind="primary" disabled={lock || dirty === 0 || !!activePreview} onclick={review}>{t('config.review')}{dirty ? ` (${dirty})` : ''}</Button>
         <Button kind="danger" icon="power" disabled={lock || !radio} onclick={() => (pending = 'reboot')}>{t('config.reboot')}</Button>
