@@ -412,4 +412,141 @@ def test_record_live_rejects_forbidden_port(tmp_path):
         rr.record_live("127.0.0.1", 8686, 1.0, out_path=tmp_path / "x.jsonl")
 
 
+# ---------------------------------------------------------------- Task 5: handshake puro
+
+from meshtastic.protobuf import config_pb2  # noqa: E402
+
+import fake_radio as fr  # noqa: E402
+
+
+def _kinds(frames):
+    return [f.WhichOneof("payload_variant") for f in frames]
+
+
+def test_handshake_order_is_exact():
+    cfg = fr.FakeRadioConfig()
+    frames = fr.handshake_frames(cfg, 1234, None)
+    assert _kinds(frames) == (["my_info", "metadata", "node_info"] + ["channel"] * 8
+                              + ["config"] * 8 + ["moduleConfig"] * 13
+                              + ["node_info"] * cfg.node_count + ["config_complete_id"])
+    assert [f.id for f in frames] == list(range(1, len(frames) + 1))
+
+
+def test_handshake_echoes_want_config_id():
+    assert fr.handshake_frames(fr.FakeRadioConfig(), 1234, None)[-1].config_complete_id == 1234
+
+
+def test_handshake_nodeless_skips_other_nodes():
+    frames = fr.handshake_frames(fr.FakeRadioConfig(), 69420, None)
+    assert _kinds(frames).count("node_info") == 1
+    assert frames[-1].config_complete_id == 69420
+
+
+def test_handshake_my_info_and_own_nodeinfo_consistent():
+    cfg = fr.FakeRadioConfig(my_node_num=0x12345678)
+    frames = fr.handshake_frames(cfg, 7, None)
+    mine = frames[2].node_info
+    assert frames[0].my_info.my_node_num == 0x12345678 == mine.num
+    assert mine.user.id == "!12345678"
+    assert mine.user.long_name == cfg.long_name
+
+
+def test_handshake_channels():
+    cfg = fr.FakeRadioConfig(channel_name="Famiglia")
+    chans = [f.channel for f in fr.handshake_frames(cfg, 7, None) if f.WhichOneof(
+        "payload_variant") == "channel"]
+    assert [c.index for c in chans] == list(range(8))
+    R = channel_pb2.Channel.Role
+    assert [c.role for c in chans] == [R.PRIMARY, R.SECONDARY] + [R.DISABLED] * 6
+    assert chans[1].settings.name == "Famiglia"
+    assert chans[0].settings.psk == b"\x01"
+
+
+def test_handshake_config_sections_complete():
+    frames = fr.handshake_frames(fr.FakeRadioConfig(), 7, None)
+    cfgs = [f.config for f in frames if f.WhichOneof("payload_variant") == "config"]
+    assert [c.WhichOneof("payload_variant") for c in cfgs] == [
+        "device", "position", "power", "network", "display", "lora", "bluetooth", "security"]
+    lora = cfgs[5].lora
+    assert lora.region == config_pb2.Config.LoRaConfig.RegionCode.EU_868
+    assert lora.hop_limit == 3 and lora.use_preset
+    assert lora.modem_preset == config_pb2.Config.LoRaConfig.ModemPreset.LONG_FAST
+    sec = cfgs[7].security
+    assert sec.private_key == b"" and sec.public_key == b"" and not sec.admin_key
+
+
+def test_handshake_module_config_sections_complete():
+    frames = fr.handshake_frames(fr.FakeRadioConfig(), 7, None)
+    mods = [f.moduleConfig.WhichOneof("payload_variant") for f in frames
+            if f.WhichOneof("payload_variant") == "moduleConfig"]
+    assert mods == ["mqtt", "serial", "external_notification", "store_forward", "range_test",
+                    "telemetry", "canned_message", "audio", "remote_hardware", "neighbor_info",
+                    "ambient_lighting", "detection_sensor", "paxcounter"]
+
+
+def test_handshake_frames_fit_the_stream_limit():
+    s = _session(1)
+    big = mesh_pb2.NodeInfo(num=0x99)
+    big.user.long_name = "L" * 39
+    big.user.short_name = "LLLL"
+    big.user.public_key = b"k" * 32
+    s.nodes.append(big)
+    for f in fr.handshake_frames(fr.FakeRadioConfig(), 7, s):
+        assert len(f.SerializeToString()) <= 512
+
+
+def test_handshake_uses_session_nodes_and_my_num():
+    s = _session(1)
+    s.nodes = [mesh_pb2.NodeInfo(num=0x31), mesh_pb2.NodeInfo(num=0x32),
+               mesh_pb2.NodeInfo(num=0xA1B2C3D4)]
+    s.config = []
+    s.header["my_node_num"] = 0xA1B2C3D4
+    frames = fr.handshake_frames(fr.FakeRadioConfig(my_node_num=0x77), 7, s)
+    assert frames[0].my_info.my_node_num == 0xA1B2C3D4
+    nums = [f.node_info.num for f in frames if f.WhichOneof("payload_variant") == "node_info"]
+    assert nums == [0xA1B2C3D4, 0x31, 0x32]
+
+
+def test_handshake_uses_session_config_frames_when_present():
+    s = _session(1)
+    s.config = []
+    mi = mesh_pb2.FromRadio()
+    mi.my_info.my_node_num = 0xA1B2C3D4
+    mi.my_info.pio_env = "da-sessione"
+    ch = mesh_pb2.FromRadio()
+    ch.channel.index = 1
+    ch.channel.role = channel_pb2.Channel.Role.SECONDARY
+    ch.channel.settings.name = "Registrato"
+    lora = mesh_pb2.FromRadio()
+    lora.config.lora.region = config_pb2.Config.LoRaConfig.RegionCode.US
+    s.config = [mi, ch, lora]
+    frames = fr.handshake_frames(fr.FakeRadioConfig(), 7, s)
+    assert _kinds(frames).count("my_info") == 1 and frames[0].my_info.pio_env == "da-sessione"
+    chans = {f.channel.index: f.channel for f in frames if f.WhichOneof(
+        "payload_variant") == "channel"}
+    assert len(chans) == 8 and chans[1].settings.name == "Registrato"
+    cfgs = {f.config.WhichOneof("payload_variant"): f.config for f in frames
+            if f.WhichOneof("payload_variant") == "config"}
+    assert len(cfgs) == 8
+    assert cfgs["lora"].lora.region == config_pb2.Config.LoRaConfig.RegionCode.US
+    assert _kinds(frames)[-1] == "config_complete_id"
+
+
+def test_synthetic_nodes_are_deterministic_and_valid():
+    a, b = fr.synthetic_nodes(0xA1B2C3D4, 5), fr.synthetic_nodes(0xA1B2C3D4, 5)
+    assert a == b and len(a) == 5
+    ids = [n.user.id for n in a]
+    assert len(set(ids)) == 5 and all(i == f"!{n.num:08x}" for i, n in zip(ids, a))
+    assert 0xA1B2C3D4 not in [n.num for n in a]
+    for n in a:
+        assert 36 <= n.position.latitude_i / 1e7 <= 47.5
+        assert 6 <= n.position.longitude_i / 1e7 <= 19
+
+
+def test_forbidden_port_rejected():
+    with pytest.raises(ValueError, match="8686"):
+        fr.validate_port(8686)
+    assert fr.DEFAULT_PORT == 4404
+
+
 # <<FIN>>
