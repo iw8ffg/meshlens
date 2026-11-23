@@ -2,9 +2,15 @@
 // sono punti `circle` con raggio in pixel a zoom 22 (px22): la GPU scala il cerchio con lo zoom,
 // nessun poligono per nodo. I nodi ignorati non compaiono mai (visibleNodes/isIgnored).
 import type { Feature, Point } from 'geojson'
+import type { Map as MLMap } from 'maplibre-gl'
 import type { Node } from '../types'
 import { precisionRadiusM } from '../geo'
 import { isIgnored } from '../filters'
+import type { LayerKey, LayerState } from './layerstate'
+import { addHeatLayer } from './HeatLayer'
+import { addPrecisionLayer } from './PrecisionLayer'
+import { addTakLayer } from './TakLayer'
+import type { MapTokens } from './tokens'
 
 export const PRECISION_MAX = 3000
 export const HEAT_MAX = 20000
@@ -45,3 +51,30 @@ export function heatPoints(nodes: Node[]): Feature<Point>[] {
 
 /** Con molte etichette si mostrano solo da zoom piu' alto. */
 export const denseLabels = (featureCount: number): boolean => featureCount > DENSE_LABELS
+
+/**
+ * Aggiunge i layer degli strati: va chiamata DOPO addNodeLayers (precision/heat si inseriscono prima
+ * di `precision-fill`). Ordine: precisione, calore, ATAK.
+ */
+export function addOverlayLayers(map: MLMap, t: MapTokens, hasGlyphs: boolean): void {
+  addPrecisionLayer(map, t)
+  addHeatLayer(map, t)
+  addTakLayer(map, t, hasGlyphs)
+}
+
+const LAYER_IDS: Record<LayerKey, string[]> = {
+  precision: ['precision-all-circle'],
+  heat: ['heat-layer'],
+  infra: [],
+  linkLabels: ['links-labels'],
+  tak: ['tak-points', 'tak-labels'],
+}
+
+/** Visibilita' dei layer in base allo stato degli strati; gli id inesistenti si ignorano. */
+export function applyOverlayVisibility(map: MLMap, s: LayerState): void {
+  for (const key of Object.keys(LAYER_IDS) as LayerKey[]) {
+    for (const id of LAYER_IDS[key]) {
+      if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', s[key] ? 'visible' : 'none')
+    }
+  }
+}
