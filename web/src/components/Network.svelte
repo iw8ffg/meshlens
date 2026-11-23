@@ -1,4 +1,5 @@
 <script lang="ts">
+import { safeStorage } from '../lib/storage'
   import { app } from '../lib/stores.svelte'
   import { ago } from '../lib/format'
   import { t, tn } from '../lib/i18n/index.svelte'
@@ -39,7 +40,7 @@
   let mineChoice = $state<boolean | null>(null)
   const onlyMine = $derived(mineChoice ?? hasMine)
   let onlyFav = $state(false)
-  const initialSort = loadView(localStorage).netSort ?? { key: 'last_heard', dir: 'desc' }
+  const initialSort = loadView(safeStorage()).netSort ?? { key: 'last_heard', dir: 'desc' }
   let key = $state<SortKey>(initialSort.key)
   let dir = $state<'asc' | 'desc'>(initialSort.dir)
 
@@ -59,7 +60,7 @@
       key = sk
       dir = sk === 'name' || sk === 'role' || sk === 'firmware' ? 'asc' : 'desc'
     }
-    saveView(localStorage, { netSort: { key, dir } })
+    saveView(safeStorage(), { netSort: { key, dir } })
   }
 </script>
 

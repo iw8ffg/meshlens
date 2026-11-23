@@ -1,16 +1,17 @@
 <script lang="ts">
+import { safeStorage } from '../storage'
   import type { Snippet } from 'svelte'
   import { t } from '../i18n/index.svelte'
   import { PANEL_MAX, PANEL_MIN, clampPanelWidth, loadPanelWidth, savePanelWidth } from './nav'
 
   let { children }: { children: Snippet } = $props()
 
-  let width = $state(loadPanelWidth(typeof localStorage === 'undefined' ? null : localStorage))
+  let width = $state(loadPanelWidth(safeStorage()))
   let startX = 0
   let startW = 0
   let dragging = $state(false)
 
-  const store = () => (typeof localStorage === 'undefined' ? null : localStorage)
+  const store = () => (safeStorage())
 
   function down(e: PointerEvent) {
     startX = e.clientX

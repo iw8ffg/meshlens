@@ -1,4 +1,5 @@
 <script lang="ts">
+import { safeStorage } from '../lib/storage'
   import { loadView, saveView, type NetView } from '../lib/viewstate'
   import { t } from '../lib/i18n/index.svelte'
   import Segmented from '../lib/ui/Segmented.svelte'
@@ -15,7 +16,7 @@
     { value: 'packets', label: t('network.view.packets') },
   ])
 
-  const saved = loadView(localStorage).netView
+  const saved = loadView(safeStorage()).netView
   let view = $state<NetView>(saved)
 
   const pickId = (id: string) => {
@@ -26,7 +27,7 @@
 
 <div class="page">
   <div class="views">
-    <Segmented items={VIEWS} bind:value={view} label={t('network.viewAria')} onchange={(v) => saveView(localStorage, { netView: v })} />
+    <Segmented items={VIEWS} bind:value={view} label={t('network.viewAria')} onchange={(v) => saveView(safeStorage(), { netView: v })} />
   </div>
   {#if view === 'stats'}
     <NetworkStats onpick={pickId} />
