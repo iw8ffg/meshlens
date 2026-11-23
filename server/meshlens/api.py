@@ -43,6 +43,7 @@ from . import notify
 from .notify import TELEGRAM_NO_CHAT, TOAST_UNAVAILABLE, Notifier, NotifyError
 from .updater import UpdateError
 from .mqtt_publish import MqttSendError, pick_broker
+from .radio import RadioBusy
 from .radio_manager import NoRadioConnected, TracerouteThrottled
 from .backup import NAME_RE, BackupUnusable, PendingRestore
 from .secretbox import SECRET_KEYS
@@ -498,14 +499,19 @@ def create_app(ctx: AppContext) -> FastAPI:
                 # cifre minime per un PIN nuovo (primo PIN o cambio)
                 "pin_min": MIN_PIN_LAN if lan else MIN_PIN}
 
+    setup_lock = asyncio.Lock()
+
     @app.post("/api/auth/setup", dependencies=[Depends(require_json)])
     async def auth_setup(body: PinBody, request: Request, response: Response):
         if ctx.auth.pin_is_set() or not is_local(request):
             raise HTTPException(403, "Impostazione del PIN non consentita")
-        try:
-            await ctx.auth.aset_pin(body.pin, min_pin_len())
-        except ValueError as e:
-            raise HTTPException(400, str(e))
+        async with setup_lock:  # due setup in parallelo non si sovrascrivono
+            if ctx.auth.pin_is_set():  # l'hash e' fuori dal loop: ricontrolla
+                raise HTTPException(403, "Impostazione del PIN non consentita")
+            try:
+                await ctx.auth.aset_pin(body.pin, min_pin_len())
+            except ValueError as e:
+                raise HTTPException(400, str(e))
         try:
             token = await ctx.auth.alogin(body.pin, client_ip(request),
                                           request.headers.get("user-agent"))
@@ -544,17 +550,17 @@ def create_app(ctx: AppContext) -> FastAPI:
     async def auth_sessions(request: Request):
         return ctx.auth.sessions(session_token(request))
 
-    @app.delete("/api/auth/sessions/{session_id}", dependencies=[Depends(require_auth)])
+    @app.delete("/api/auth/sessions/{session_id}", dependencies=[Depends(require_auth), Depends(require_json)])
     async def auth_revoke(session_id: str):
         if not ctx.auth.revoke(session_id):
             raise HTTPException(404, "Sessione non trovata")
         return {"ok": True}
 
-    @app.post("/api/auth/sessions/revoke-others", dependencies=[Depends(require_auth)])
+    @app.post("/api/auth/sessions/revoke-others", dependencies=[Depends(require_auth), Depends(require_json)])
     async def auth_revoke_others(request: Request):
         return {"ok": True, "revoked": ctx.auth.revoke_others(session_token(request))}
 
-    @app.post("/api/auth/logout")
+    @app.post("/api/auth/logout", dependencies=[Depends(require_json)])
     async def auth_logout(request: Request, response: Response):
         token = session_token(request)
         if token:
@@ -675,7 +681,7 @@ def create_app(ctx: AppContext) -> FastAPI:
     async def get_settings():
         return _mask_settings(load_settings(ctx.conn))
 
-    @app.put("/api/settings", dependencies=[Depends(require_auth)])
+    @app.put("/api/settings", dependencies=[Depends(require_auth), Depends(require_json)])
     async def put_settings(changes: dict):
         changes = dict(changes)
         if "mqtt_brokers" in changes:
@@ -889,7 +895,7 @@ def create_app(ctx: AppContext) -> FastAPI:
             raise HTTPException(502, str(e))
         return {"ok": True}
 
-    @app.post("/api/notify/telegram/chat", dependencies=[Depends(require_auth)])
+    @app.post("/api/notify/telegram/chat", dependencies=[Depends(require_auth), Depends(require_json)])
     async def notify_telegram_chat():
         token = load_settings(ctx.conn)["telegram_token"]
         if not token:
@@ -943,7 +949,7 @@ def create_app(ctx: AppContext) -> FastAPI:
     async def list_backups():
         return await asyncio.to_thread(backup_mgr().list)
 
-    @app.post("/api/backups", dependencies=[Depends(require_auth)])
+    @app.post("/api/backups", dependencies=[Depends(require_auth), Depends(require_json)])
     async def create_backup():
         try:
             return await backup_mgr().create("manuale")
@@ -1007,21 +1013,21 @@ def create_app(ctx: AppContext) -> FastAPI:
     async def radio_ports():
         return await radio_call(ctx.radios.ports())
 
-    @app.post("/api/radios/ble-scan", dependencies=[Depends(require_auth)])
+    @app.post("/api/radios/ble-scan", dependencies=[Depends(require_auth), Depends(require_json)])
     async def radio_ble_scan():
         return await radio_call(ctx.radios.ble_scan())
 
-    @app.delete("/api/radios/{radio_id}", dependencies=[Depends(require_auth)])
+    @app.delete("/api/radios/{radio_id}", dependencies=[Depends(require_auth), Depends(require_json)])
     async def delete_radio(radio_id: str):
         await radio_call(ctx.radios.remove(radio_id))
         return {"ok": True}
 
-    @app.post("/api/radios/{radio_id}/connect", dependencies=[Depends(require_auth)])
+    @app.post("/api/radios/{radio_id}/connect", dependencies=[Depends(require_auth), Depends(require_json)])
     async def connect_radio(radio_id: str):
         await radio_call(ctx.radios.connect(radio_id))
         return {"ok": True}
 
-    @app.post("/api/radios/{radio_id}/disconnect", dependencies=[Depends(require_auth)])
+    @app.post("/api/radios/{radio_id}/disconnect", dependencies=[Depends(require_auth), Depends(require_json)])
     async def disconnect_radio(radio_id: str):
         await radio_call(ctx.radios.disconnect(radio_id))
         return {"ok": True}
@@ -1053,10 +1059,12 @@ def create_app(ctx: AppContext) -> FastAPI:
             return await radio_call(ctx.radios.send_waypoint(
                 radio_id, body.name, body.description, body.icon, body.lat, body.lon,
                 body.expire_h, body.channel_index))
+        except RadioBusy as e:
+            raise HTTPException(409, str(e))
         except RuntimeError as e:
             raise HTTPException(502, str(e))
 
-    @app.delete("/api/waypoints/{wid}", dependencies=[Depends(require_auth)])
+    @app.delete("/api/waypoints/{wid}", dependencies=[Depends(require_auth), Depends(require_json)])
     async def delete_waypoint(wid: int):
         try:
             await ctx.radios.delete_waypoint(wid)
@@ -1064,7 +1072,7 @@ def create_app(ctx: AppContext) -> FastAPI:
             raise HTTPException(404, WAYPOINT_UNKNOWN)
         except PermissionError:
             raise HTTPException(403, WAYPOINT_ONLY_MINE)
-        except ValueError as e:
+        except (ValueError, RadioBusy) as e:
             raise HTTPException(409, str(e))
         except RuntimeError as e:
             raise HTTPException(502, str(e))
@@ -1097,6 +1105,8 @@ def create_app(ctx: AppContext) -> FastAPI:
             raise HTTPException(409, str(e))
         except TracerouteThrottled as e:
             raise HTTPException(429, str(e))
+        except RadioBusy as e:
+            raise HTTPException(409, str(e))
         except ValueError as e:
             raise HTTPException(400, str(e))
         except KeyError:
@@ -1282,7 +1292,7 @@ def create_app(ctx: AppContext) -> FastAPI:
         except SessionActive as e:
             raise HTTPException(409, str(e))
 
-    @app.post("/api/coverage/sessions/{sid}/stop", dependencies=[Depends(require_auth)])
+    @app.post("/api/coverage/sessions/{sid}/stop", dependencies=[Depends(require_auth), Depends(require_json)])
     async def coverage_stop(sid: int):
         s = coverage_session(sid)
         if s["ended"] is not None:
@@ -1305,7 +1315,7 @@ def create_app(ctx: AppContext) -> FastAPI:
         ctx.bus.publish({"type": "coverage", "session": summary, "point": None})
         return summary
 
-    @app.delete("/api/coverage/sessions/{sid}", dependencies=[Depends(require_auth)])
+    @app.delete("/api/coverage/sessions/{sid}", dependencies=[Depends(require_auth), Depends(require_json)])
     async def coverage_delete(sid: int):
         s = coverage_session(sid)
         if s["ended"] is None:
@@ -1335,11 +1345,11 @@ def create_app(ctx: AppContext) -> FastAPI:
     async def update_status():
         return await update_call(_update_status)
 
-    @app.post("/api/update/check", dependencies=[Depends(require_auth)])
+    @app.post("/api/update/check", dependencies=[Depends(require_auth), Depends(require_json)])
     async def update_check():
         return await update_call(lambda: ctx.updater.check())
 
-    @app.post("/api/update/download", status_code=202, dependencies=[Depends(require_auth)])
+    @app.post("/api/update/download", status_code=202, dependencies=[Depends(require_auth), Depends(require_json)])
     async def update_download():
         return await update_call(lambda: ctx.updater.start_download())
 
@@ -1374,11 +1384,11 @@ def create_app(ctx: AppContext) -> FastAPI:
     async def maps_download(body: MapsDownloadBody):
         return await maps_call(lambda: ctx.maps.start(body.kind, body.bbox, body.name))
 
-    @app.post("/api/maps/jobs/{job_id}/cancel", dependencies=[Depends(require_auth)])
+    @app.post("/api/maps/jobs/{job_id}/cancel", dependencies=[Depends(require_auth), Depends(require_json)])
     async def maps_cancel(job_id: str):
         return await maps_call(lambda: ctx.maps.cancel(job_id))
 
-    @app.delete("/api/maps/{map_id}", dependencies=[Depends(require_auth)])
+    @app.delete("/api/maps/{map_id}", dependencies=[Depends(require_auth), Depends(require_json)])
     async def maps_delete(map_id: str):
         await maps_call(lambda: ctx.maps.delete(map_id))
         return {"ok": True}

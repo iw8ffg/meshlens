@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { applyPlan, previewRestore, revealPsk, restorePlan } from './api'
+import { applyPlan, getJSON, previewRestore, revealPsk, restorePlan, send } from './api'
 
 function mockFetch() {
   const fn = vi.fn(async () => new Response('{}', { status: 200 }))
@@ -9,6 +9,23 @@ function mockFetch() {
 const init = (fn: ReturnType<typeof mockFetch>) => (fn.mock.calls[0] as unknown as [string, RequestInit])[1]
 
 afterEach(() => vi.unstubAllGlobals())
+
+describe('scritture senza dati', () => {
+  it('POST e DELETE senza corpo inviano {} con Content-Type JSON', async () => {
+    for (const method of ['POST', 'DELETE', 'PUT']) {
+      const fn = mockFetch()
+      await send(method, '/x')
+      expect(init(fn).body).toBe('{}')
+      expect(init(fn).headers).toEqual({ 'Content-Type': 'application/json' })
+    }
+  })
+  it('GET senza corpo e senza Content-Type', async () => {
+    const fn = mockFetch()
+    await getJSON('/x')
+    expect(init(fn).body).toBeUndefined()
+    expect(init(fn).headers).toBeUndefined()
+  })
+})
 
 describe('POST senza dati: il server esige JSON (415 altrimenti)', () => {
   it('previewRestore invia {} con Content-Type JSON', async () => {

@@ -272,3 +272,19 @@ def test_tray_sets_toast_on_context(tmp_path, monkeypatch):
     monkeypatch.setattr("PIL.Image.open", lambda p: object())
     assert tray.run_tray(tmp_path, 8686, open_browser=False) == 0
     assert Icon.last.notified == [("B", "T"), ("boom", "X")]
+
+
+def test_single_instance_ignores_system_proxy(monkeypatch):
+    # un proxy di sistema non deve mai intercettare il ping su 127.0.0.1
+    proxy = _serve(b'{"app":"altro"}')
+    srv = _serve(json.dumps({"app": "meshlens", "version": "1.0.0"}).encode())
+    url = f"http://127.0.0.1:{proxy.server_port}"
+    monkeypatch.setenv("HTTP_PROXY", url)
+    monkeypatch.setenv("http_proxy", url)
+    monkeypatch.delenv("NO_PROXY", raising=False)
+    monkeypatch.delenv("no_proxy", raising=False)
+    try:
+        assert tray.single_instance(srv.server_port) == "meshlens"
+    finally:
+        srv.shutdown()
+        proxy.shutdown()

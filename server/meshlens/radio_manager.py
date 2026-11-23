@@ -13,7 +13,7 @@ from .events import MeshEvent, WaypointData, node_id
 from .conversations import waypoint_json
 from .ingest import traceroute_chains
 from .messages import reply_problem
-from .radio import RadioConnector
+from .radio import RadioBusy, RadioConnector
 
 log = logging.getLogger(__name__)
 
@@ -574,7 +574,7 @@ class RadioManager:
         try:
             try:
                 packet_id = await conn.send_traceroute(num)
-            except asyncio.CancelledError:
+            except (asyncio.CancelledError, RadioBusy):
                 raise
             except Exception as exc:
                 raise ValueError(str(exc)) from exc

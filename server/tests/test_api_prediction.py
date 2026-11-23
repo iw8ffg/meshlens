@@ -23,10 +23,10 @@ async def test_requires_auth(tmp_path):
     async with client(ctx) as c:
         assert (await c.post("/api/prediction/estimate", json=PARAMS)).status_code == 401
         assert (await c.post("/api/prediction/jobs", json={"params": PARAMS})).status_code == 401
-        assert (await c.post("/api/prediction/jobs/x/cancel")).status_code == 401
+        assert (await c.post("/api/prediction/jobs/x/cancel", json={})).status_code == 401
         assert (await c.get("/api/predictions")).status_code == 401
         assert (await c.get("/api/predictions/p1-abcdef")).status_code == 401
-        assert (await c.delete("/api/predictions/p1-abcdef")).status_code == 401
+        assert (await c.request("DELETE", "/api/predictions/p1-abcdef", json={})).status_code == 401
         assert (await c.get("/api/predictions/p1-abcdef/compare?session_id=1")).status_code == 401
 
 
@@ -55,8 +55,8 @@ async def test_jobs_errors_and_lifecycle(tmp_path):
         await ctx.prediction._task
         items = (await c.get("/api/predictions")).json()
         assert len(items) == 1 and items[0]["id"] == ctx.prediction.job["result_id"]
-        assert (await c.post("/api/prediction/jobs/zzz/cancel")).status_code == 404
-        cancel = await c.post(f"/api/prediction/jobs/{r.json()['id']}/cancel")
+        assert (await c.post("/api/prediction/jobs/zzz/cancel", json={})).status_code == 404
+        cancel = await c.post(f"/api/prediction/jobs/{r.json()['id']}/cancel", json={})
         assert cancel.status_code == 200 and cancel.json()["status"] == "done"
 
 
@@ -68,8 +68,8 @@ async def test_get_delete_404(tmp_path):
         assert (await c.get("/api/predictions/..%2Fx")).status_code == 404
         r = await c.get(f"/api/predictions/{pid}")
         assert r.status_code == 200 and r.json()["nodata"] == -128 and r.json()["width"] == 10
-        assert (await c.delete(f"/api/predictions/{pid}")).status_code == 204
-        assert (await c.delete(f"/api/predictions/{pid}")).status_code == 404
+        assert (await c.request("DELETE", f"/api/predictions/{pid}", json={})).status_code == 204
+        assert (await c.request("DELETE", f"/api/predictions/{pid}", json={})).status_code == 404
         assert (await c.get("/api/predictions")).json() == []
 
 

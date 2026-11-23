@@ -9,8 +9,8 @@ async def test_requires_auth(tmp_path):
         assert (await c.get("/api/maps")).status_code == 401
         assert (await c.post("/api/maps/estimate", json={"kind": "world"})).status_code == 401
         assert (await c.post("/api/maps/download", json={"kind": "world"})).status_code == 401
-        assert (await c.post("/api/maps/jobs/x/cancel")).status_code == 401
-        assert (await c.delete("/api/maps/world")).status_code == 401
+        assert (await c.post("/api/maps/jobs/x/cancel", json={})).status_code == 401
+        assert (await c.request("DELETE", "/api/maps/world", json={})).status_code == 401
 
 
 async def test_status_estimate_download_delete(tmp_path):
@@ -26,8 +26,8 @@ async def test_status_estimate_download_delete(tmp_path):
         assert r.status_code == 202 and r.json()["status"] == "running"
         await ctx.maps._task
         assert [m["id"] for m in (await c.get("/api/maps")).json()["maps"]] == ["world"]
-        assert (await c.delete("/api/maps/world")).status_code == 200
-        assert (await c.delete("/api/maps/world")).status_code == 404
+        assert (await c.request("DELETE", "/api/maps/world", json={})).status_code == 200
+        assert (await c.request("DELETE", "/api/maps/world", json={})).status_code == 404
 
 
 async def test_errors_mapped(tmp_path):
@@ -41,7 +41,7 @@ async def test_errors_mapped(tmp_path):
         r = await c.post("/api/maps/download", json={"kind": "world"})
         assert r.status_code == 409 and "Spazio su disco insufficiente" in r.json()["detail"]
         assert (await c.post("/api/maps/download", json={"kind": "boh"})).status_code == 422
-        assert (await c.post("/api/maps/jobs/zzz/cancel")).status_code == 404
+        assert (await c.post("/api/maps/jobs/zzz/cancel", json={})).status_code == 404
         ctx.maps.head = lambda u: 404
         r = await c.post("/api/maps/estimate", json={"kind": "world"})
         assert r.status_code == 502
@@ -57,7 +57,7 @@ async def test_cancel_route_and_settings(tmp_path):
         await runner.started.wait()
         r = await c.post("/api/maps/download", json={"kind": "world"})
         assert r.status_code == 409
-        r = await c.post(f"/api/maps/jobs/{job['id']}/cancel")
+        r = await c.post(f"/api/maps/jobs/{job['id']}/cancel", json={})
         assert r.status_code == 200 and r.json()["status"] == "cancelled"
         r = await c.put("/api/settings", json={"map_mode": "offline",
                                                "maps_source_url": "https://a.b/c.pmtiles"})

@@ -102,7 +102,7 @@ async def test_setup_rules(ctx):
         assert "Secure" not in sc
         assert (await c.get("/api/auth/status")).json()["authenticated"] is True
         assert (await c.post("/api/auth/setup", json={"pin": "5678"})).status_code == 403
-        assert (await c.post("/api/auth/logout")).status_code == 200
+        assert (await c.post("/api/auth/logout", json={})).status_code == 200
         assert (await c.get("/api/nodes")).status_code == 401
 
 
@@ -211,11 +211,11 @@ async def test_sessions_api(ctx):
                 assert len(me) == 1 and me[0]["ip"] == "127.0.0.1"
                 assert set(me[0]) == {"id", "created", "last_seen", "user_agent", "ip", "current"}
                 phone = next(r for r in rows if r["user_agent"] == "Telefono")
-                assert (await c.delete(f"/api/auth/sessions/{phone['id']}")).status_code == 200
-                assert (await c.delete(f"/api/auth/sessions/{phone['id']}")).status_code == 404
-                assert (await c.delete("/api/auth/sessions/zz")).status_code == 404
+                assert (await c.request("DELETE", f"/api/auth/sessions/{phone['id']}", json={})).status_code == 200
+                assert (await c.request("DELETE", f"/api/auth/sessions/{phone['id']}", json={})).status_code == 404
+                assert (await c.request("DELETE", "/api/auth/sessions/zz", json={})).status_code == 404
                 assert (await other.get("/api/nodes")).status_code == 401
-                r = await c.post("/api/auth/sessions/revoke-others")
+                r = await c.post("/api/auth/sessions/revoke-others", json={})
                 assert r.json() == {"ok": True, "revoked": 1}
                 assert len((await c.get("/api/auth/sessions")).json()) == 1
             assert (await third.get("/api/nodes")).status_code == 401
@@ -318,7 +318,7 @@ def test_ws_closed_when_session_revoked(ctx):
             tc.cookies.set("meshlens_session", token_a)
             rows = tc.get("/api/auth/sessions").json()
             b = next(r for r in rows if r["user_agent"] == "Telefono")
-            assert tc.delete(f"/api/auth/sessions/{b['id']}").status_code == 200
+            assert tc.request("DELETE", f"/api/auth/sessions/{b['id']}", json={}).status_code == 200
             assert _ws_closed_code(ws) == 4401
 
 
@@ -331,12 +331,12 @@ def test_ws_closed_on_revoke_others_and_logout(ctx):
         with tc.websocket_connect("/ws", headers={"host": "127.0.0.1"}) as ws_b:
             tc.cookies.set("meshlens_session", token_a)
             with tc.websocket_connect("/ws", headers={"host": "127.0.0.1"}) as ws_a:
-                assert tc.post("/api/auth/sessions/revoke-others").json()["revoked"] == 1
+                assert tc.post("/api/auth/sessions/revoke-others", json={}).json()["revoked"] == 1
                 assert _ws_closed_code(ws_b) == 4401
                 # il proprio socket resta aperto
                 ctx.bus.publish({"type": "x"})
                 assert ws_a.receive_json() == {"type": "x"}
-                assert tc.post("/api/auth/logout").status_code == 200
+                assert tc.post("/api/auth/logout", json={}).status_code == 200
                 assert _ws_closed_code(ws_a) == 4401
     assert ctx.auth._watchers == {}
 
@@ -903,7 +903,7 @@ async def test_backup_routes(tmp_path):
         async with client_for_app(app) as c:
             assert (await c.post("/api/auth/setup", json={"pin": "1234"})).status_code == 200
             assert (await c.get("/api/backups")).json() == []
-            r = await c.post("/api/backups")
+            r = await c.post("/api/backups", json={})
             assert r.status_code == 200 and r.json()["reason"] == "manuale"
             name = r.json()["name"]
             lst = (await c.get("/api/backups")).json()
@@ -1013,7 +1013,7 @@ async def test_cookie_never_secure_for_loopback_even_on_https(ctx):
         sc = r.headers["set-cookie"]
         assert sc.startswith("meshlens_session_s=") and "Secure" not in sc
         assert (await c.get("/api/auth/status")).json()["authenticated"] is True
-        r = await c.post("/api/auth/logout")
+        r = await c.post("/api/auth/logout", json={})
         assert 'meshlens_session_s=""' in r.headers["set-cookie"]
 
 
@@ -1285,9 +1285,9 @@ def test_waypoint_routes():
         tc.cookies.set("meshlens_session", token)
         rid = tc.post("/api/radios", json={"kind": "usb", "address": "COM5"}).json()["id"]
         url = f"/api/radios/{rid}/waypoint"
-        tc.post(f"/api/radios/{rid}/disconnect")
+        tc.post(f"/api/radios/{rid}/disconnect", json={})
         assert tc.post(url, json=wp_body).status_code == 400  # radio non connessa
-        tc.post(f"/api/radios/{rid}/connect")
+        tc.post(f"/api/radios/{rid}/connect", json={})
         env.ingestor.set_radio_node(rid, int(MY_ID[1:], 16))
         assert tc.post(url, json={**wp_body, "name": "x" * 31}).status_code == 400
         assert tc.post(url, json={**wp_body, "icon": "ab"}).status_code == 400
@@ -1308,11 +1308,11 @@ def test_waypoint_routes():
             env.store.upsert_waypoint({"id": 5, "from_num": 0x42, "lat": 45.0, "lon": 9.0,
                                        "name": "Altrui", "time": time.time(), "source": "rf",
                                        "radio_id": rid, "channel": "0"})
-            r = tc.delete("/api/waypoints/5")
+            r = tc.request("DELETE", "/api/waypoints/5", json={})
             assert r.status_code == 403
             assert r.json()["detail"] == "Puoi eliminare solo i tuoi waypoint"
-            assert tc.delete("/api/waypoints/123").status_code == 404
-            r = tc.delete(f"/api/waypoints/{wp['id']}")
+            assert tc.request("DELETE", "/api/waypoints/123", json={}).status_code == 404
+            r = tc.request("DELETE", f"/api/waypoints/{wp['id']}", json={})
             assert r.status_code == 200 and r.json() == {"ok": True}
             assert sent[1][0].expire == 1 and sent[1][0].id == wp["id"]
             assert ws.receive_json() == {"type": "waypoint_deleted", "id": wp["id"]}
@@ -1321,8 +1321,8 @@ def test_waypoint_routes():
         env.store.upsert_waypoint({"id": 6, "from_num": int(MY_ID[1:], 16), "lat": 45.0,
                                    "lon": 9.0, "name": "Mio", "time": time.time(),
                                    "source": "rf", "radio_id": rid, "channel": "0"})
-        tc.post(f"/api/radios/{rid}/disconnect")
-        r = tc.delete("/api/waypoints/6")
+        tc.post(f"/api/radios/{rid}/disconnect", json={})
+        r = tc.request("DELETE", "/api/waypoints/6", json={})
         assert r.status_code == 409 and r.json()["detail"] == "Radio non connessa"
 
 
@@ -1377,7 +1377,7 @@ async def test_notify_test_without_config(ctx):
         assert r.status_code == 400 and r.json()["detail"] == TOAST_UNAVAILABLE
         r = await c.post("/api/notify/test", json={"channel": "sms"})
         assert r.status_code == 422
-        r = await c.post("/api/notify/telegram/chat")
+        r = await c.post("/api/notify/telegram/chat", json={})
         assert r.status_code == 400
         st = (await c.get("/api/notify/status")).json()
         assert st == {"toast_available": False, "telegram_last_ok": None,
@@ -1408,10 +1408,10 @@ async def test_notify_telegram_failure_502_without_token(ctx, monkeypatch):
         assert r.status_code == 502 and "SEGRETISSIMO" not in r.text
         st = (await c.get("/api/notify/status")).json()
         assert st["telegram_last_error"] and "SEGRETISSIMO" not in st["telegram_last_error"]
-        r = await c.post("/api/notify/telegram/chat")
+        r = await c.post("/api/notify/telegram/chat", json={})
         assert r.status_code == 404 and r.json()["detail"] == notify.TELEGRAM_NO_CHAT
         monkeypatch.setattr(notify, "telegram_find_chat", lambda tok, **_k: ("-100", "Gruppo"))
-        r = await c.post("/api/notify/telegram/chat")
+        r = await c.post("/api/notify/telegram/chat", json={})
         assert r.json() == {"chat_id": "-100", "title": "Gruppo"}
 
 
@@ -1473,3 +1473,31 @@ async def test_messages_filtered_by_broker(ctx):
         assert hist == ["7:1"]
         assert "7:3" in [m["key"] for m in (await c.get("/api/messages/history")).json()]
         assert (await c.get("/api/messages?broker=" + "x" * 25)).status_code == 422
+
+
+async def test_setup_concurrent_cannot_overwrite(ctx):
+    import asyncio
+    async with client(ctx) as c:
+        rs = await asyncio.gather(c.post("/api/auth/setup", json={"pin": "1234"}),
+                                  c.post("/api/auth/setup", json={"pin": "5678"}))
+    assert sorted(r.status_code for r in rs) == [200, 403]
+
+
+async def test_state_changing_routes_require_json(ctx):
+    async with client(ctx) as c:
+        await c.post("/api/auth/setup", json={"pin": "1234"})
+        for method, path in [("POST", "/api/backups"), ("POST", "/api/radios/rx/connect"),
+                             ("POST", "/api/radios/rx/disconnect"),
+                             ("POST", "/api/radios/ble-scan"), ("DELETE", "/api/radios/rx"),
+                             ("POST", "/api/update/check"), ("POST", "/api/update/download"),
+                             ("POST", "/api/coverage/sessions/1/stop"),
+                             ("DELETE", "/api/coverage/sessions/1"),
+                             ("POST", "/api/notify/telegram/chat"),
+                             ("POST", "/api/maps/jobs/x/cancel"), ("DELETE", "/api/maps/x"),
+                             ("PUT", "/api/settings"),
+                             ("DELETE", "/api/waypoints/1"),
+                             ("DELETE", "/api/auth/sessions/x"),
+                             ("POST", "/api/auth/sessions/revoke-others"),
+                             ("POST", "/api/auth/logout")]:
+            r = await c.request(method, path)
+            assert r.status_code == 415, (method, path, r.status_code)

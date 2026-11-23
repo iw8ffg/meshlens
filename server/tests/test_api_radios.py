@@ -26,7 +26,7 @@ def env():
 async def test_requires_auth(env):
     async with client(make_ctx(env)) as c:
         assert (await c.get("/api/radios")).status_code == 401
-        assert (await c.post("/api/radios/ble-scan")).status_code == 401
+        assert (await c.post("/api/radios/ble-scan", json={})).status_code == 401
         assert (await c.get("/api/messages/radio")).status_code == 401
 
 
@@ -40,18 +40,18 @@ async def test_add_list_duplicate_delete(env):
         assert dup.status_code == 400 and dup.json()["detail"] == "Radio già aggiunta"
         bad = await c.post("/api/radios", json={"kind": "wifi", "address": "x", "name": "H"})
         assert bad.status_code == 400
-        assert (await c.post(f"/api/radios/{rid}/disconnect")).status_code == 200
-        assert (await c.post(f"/api/radios/{rid}/connect")).status_code == 200
-        assert (await c.delete(f"/api/radios/{rid}")).status_code == 200
+        assert (await c.post(f"/api/radios/{rid}/disconnect", json={})).status_code == 200
+        assert (await c.post(f"/api/radios/{rid}/connect", json={})).status_code == 200
+        assert (await c.request("DELETE", f"/api/radios/{rid}", json={})).status_code == 200
         assert (await c.get("/api/radios")).json() == []
-        assert (await c.delete(f"/api/radios/{rid}")).status_code == 404
+        assert (await c.request("DELETE", f"/api/radios/{rid}", json={})).status_code == 404
 
 
 async def test_ports_and_ble_scan(env):
     async with logged(make_ctx(env)) as c:
         ports = (await c.get("/api/radios/ports")).json()
         assert ports[0]["device"] == "COM5" and ports[0]["likely_meshtastic"] is True
-        scan = await c.post("/api/radios/ble-scan")
+        scan = await c.post("/api/radios/ble-scan", json={})
         assert scan.json() == [{"address": "AA:BB", "name": "Meshtastic_1a2b"}]
 
 
