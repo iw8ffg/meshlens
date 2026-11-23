@@ -153,3 +153,87 @@ def parse_tak(payload: bytes) -> TakParsed | None:
                       msg.pli if msg.HasField("pli") else None, False)
     except Exception:
         return None
+
+
+_UPSERT = (
+    "INSERT INTO tak_contacts(node_num, callsign, device_callsign, team, role, battery, lat, lon, "
+    "altitude, speed, course, compressed, time, source, radio_id, broker) "
+    "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
+    "ON CONFLICT(node_num) DO UPDATE SET "
+    "callsign=COALESCE(excluded.callsign, callsign), "
+    "device_callsign=COALESCE(excluded.device_callsign, device_callsign), "
+    "team=COALESCE(excluded.team, team), role=COALESCE(excluded.role, role), "
+    "battery=COALESCE(excluded.battery, battery), lat=COALESCE(excluded.lat, lat), "
+    "lon=COALESCE(excluded.lon, lon), altitude=COALESCE(excluded.altitude, altitude), "
+    "speed=COALESCE(excluded.speed, speed), course=COALESCE(excluded.course, course), "
+    "compressed=excluded.compressed, time=excluded.time, source=excluded.source, "
+    "radio_id=excluded.radio_id, broker=excluded.broker "
+    "WHERE excluded.time >= tak_contacts.time")
+_COLS = ("node_num, callsign, device_callsign, team, role, battery, lat, lon, altitude, speed, "
+         "course, compressed, time, source")
+_CLOCK_SLACK_S = 300
+
+
+def contact_dict(row) -> dict:
+    """Forma TakContact (contratto §8.1) da una riga di tak_contacts (colonne di _COLS)."""
+    return {"node_id": node_id(row[0]), "callsign": row[1], "device_callsign": row[2],
+            "team": row[3], "role": row[4], "battery": row[5], "lat": row[6], "lon": row[7],
+            "altitude": row[8], "speed": row[9], "course": row[10], "compressed": bool(row[11]),
+            "time": row[12], "source": row[13]}
+
+
+class TakService:
+    """Salva l'ultimo PLI ATAK di ogni nodo (aggancio agli eventi, kind "tak")."""
+
+    def __init__(self, conn: sqlite3.Connection, publish: Callable[[dict], None],
+                 persists: Callable[[dict, str], bool], get_node: Callable[[int], dict | None],
+                 now: Callable[[], float] = time.time) -> None:
+        self.conn = conn
+        self.publish = publish
+        self.persists = persists
+        self.get_node = get_node
+        self.now = now
+
+    def on_event(self, ev: MeshEvent, outcome: str) -> None:
+        if ev.kind != "tak" or outcome != "new" or ev.replayed:
+            return
+        data = ev.payload
+        if not isinstance(data, AppData) or data.portnum != 72:
+            return
+        node = self.get_node(ev.from_node)
+        if node is None or not self.persists(node, ev.source):
+            return
+        p = parse_tak(data.payload)
+        if p is None or not p.has_pli:
+            return
+        now = self.now()
+        t = min(ev.rx_time or now, now + _CLOCK_SLACK_S)
+        try:
+            cur = self.conn.execute(
+                _UPSERT, (ev.from_node, p.callsign, p.device_callsign, p.team, p.role, p.battery,
+                          p.lat, p.lon, p.altitude, p.speed, p.course, int(p.compressed), t,
+                          "rf" if ev.source == "rf" else "mqtt", ev.radio_id,
+                          getattr(ev, "broker", None)))
+            changed = cur.rowcount > 0
+            self.conn.commit()
+            if not changed:
+                return
+            log.debug("PLI ATAK da %s (%s)", node_id(ev.from_node),
+                      "fallback" if p.fallback else "ok")
+            c = self.contact(ev.from_node)
+        except sqlite3.Error:
+            log.warning("Contatto ATAK non salvato")
+            return
+        if c is not None:
+            self.publish({"type": "tak_contact", "contact": c})
+
+    def contact(self, num: int) -> dict | None:
+        row = self.conn.execute(
+            f"SELECT {_COLS} FROM tak_contacts WHERE node_num = ?", (num,)).fetchone()
+        return contact_dict(row) if row else None
+
+    def contacts(self, since: float, limit: int = 500) -> list[dict]:
+        rows = self.conn.execute(
+            f"SELECT {_COLS} FROM tak_contacts WHERE time >= ? ORDER BY time DESC LIMIT ?",
+            (since, limit)).fetchall()
+        return [contact_dict(r) for r in rows]

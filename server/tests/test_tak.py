@@ -99,3 +99,129 @@ def test_callsign_cleaned():
 def test_wire_fields_stops_on_truncated_data():
     assert list(_wire_fields(b"\x0a\x05ab")) == []
     assert list(_wire_fields(b"\x08\x01")) == [(1, 0, 1)]
+
+
+# ---- servizio ----
+import time  # noqa: E402
+from types import SimpleNamespace  # noqa: E402
+
+from meshlens import db  # noqa: E402
+from meshlens.events import AppData, MeshEvent  # noqa: E402
+from meshlens.ext_map import install  # noqa: E402
+from meshlens.tak import TakService  # noqa: E402
+
+NUM = 0xAABBCCDD
+
+
+def make_ev(payload=None, rx=1000.0, kind="tak", source="rf", replayed=False, port=72):
+    pl = make_packet(**FULL) if payload is None else payload
+    return MeshEvent(source=source, from_node=NUM, to_node=0xFFFFFFFF, packet_id=1, channel="c",
+                     rx_time=rx, snr=None, rssi=None, hops=None, gateway_id=None, radio_id="r1",
+                     kind=kind, payload=AppData(portnum=port, payload=pl), replayed=replayed)
+
+
+class Env:
+    def __init__(self, persists=True, node=True):
+        self.conn = db.connect(":memory:")
+        self.events = []
+        self.svc = TakService(self.conn, self.events.append, lambda n, s: persists,
+                              (lambda num: {"country": "IT"} if node else None),
+                              now=lambda: 5000.0)
+
+    def rows(self):
+        return self.conn.execute("SELECT * FROM tak_contacts").fetchall()
+
+
+def test_new_pli_creates_contact_and_publishes():
+    e = Env()
+    e.svc.on_event(make_ev(), "new")
+    rows = e.rows()
+    assert len(rows) == 1
+    r = e.conn.execute("SELECT callsign, compressed, time FROM tak_contacts").fetchone()
+    assert tuple(r) == ("ALPHA-1", 0, 1000.0)
+    assert len(e.events) == 1 and e.events[0]["type"] == "tak_contact"
+    c = e.events[0]["contact"]
+    assert c["node_id"] == "!aabbccdd" and c["compressed"] is False
+
+
+def test_dup_or_replayed_or_ignored_outcome_not_stored():
+    e = Env()
+    e.svc.on_event(make_ev(), "dup")
+    e.svc.on_event(make_ev(), "ignored")
+    e.svc.on_event(make_ev(replayed=True), "new")
+    assert e.rows() == [] and e.events == []
+
+
+def test_not_persisted_node_skipped():
+    e = Env(persists=False)
+    e.svc.on_event(make_ev(), "new")
+    assert e.rows() == []
+
+
+def test_unknown_node_skipped():
+    e = Env(node=False)
+    e.svc.on_event(make_ev(), "new")
+    assert e.rows() == []
+
+
+def test_older_pli_does_not_overwrite():
+    e = Env()
+    e.svc.on_event(make_ev(rx=2000.0), "new")
+    e.svc.on_event(make_ev(make_packet(**{**FULL, "callsign": "OLD"}), rx=1000.0), "new")
+    assert e.conn.execute("SELECT callsign, time FROM tak_contacts").fetchone()[:] == ("ALPHA-1", 2000.0)
+    assert len(e.events) == 1
+
+
+def test_compressed_packet_keeps_previous_callsign():
+    e = Env()
+    e.svc.on_event(make_ev(rx=1000.0), "new")
+    e.svc.on_event(make_ev(make_packet(compressed=True, **{k: v for k, v in FULL.items()
+                                                           if k not in ("callsign", "device")}),
+                           rx=2000.0), "new")
+    r = e.conn.execute("SELECT callsign, compressed, time FROM tak_contacts").fetchone()
+    assert tuple(r) == ("ALPHA-1", 1, 2000.0)
+
+
+def test_non_pli_ignored():
+    e = Env()
+    e.svc.on_event(make_ev(make_packet(chat=True)), "new")
+    assert e.rows() == []
+
+
+def test_future_time_is_clamped():
+    e = Env()
+    e.svc.on_event(make_ev(rx=5000.0 + 10 ** 6), "new")
+    assert e.conn.execute("SELECT time FROM tak_contacts").fetchone()[0] <= 5300.0
+
+
+def test_garbage_payload_does_not_raise():
+    e = Env()
+    e.svc.on_event(make_ev(b"\xff\xff"), "new")
+    assert e.rows() == []
+
+
+def test_non_tak_event_ignored():
+    e = Env()
+    e.svc.on_event(make_ev(kind="text"), "new")
+    assert e.rows() == []
+
+
+def test_contacts_orders_by_time_desc_and_filters_since():
+    e = Env()
+    for num, t in ((1, 100.0), (2, 300.0), (3, 200.0)):
+        e.conn.execute("INSERT INTO tak_contacts(node_num, time, source) VALUES(?,?,'rf')", (num, t))
+    got = e.svc.contacts(since=150.0)
+    assert [c["time"] for c in got] == [300.0, 200.0]
+
+
+def test_install_registers_hook_and_ext():
+    hooks = []
+    conn = db.connect(":memory:")
+    rt = SimpleNamespace(add_event_hook=hooks.append,
+                         ingestor=SimpleNamespace(persists=lambda n, s: True))
+    ctx = SimpleNamespace(store=SimpleNamespace(conn=conn), bus=SimpleNamespace(publish=print),
+                          live=SimpleNamespace(nodes={}), ext={})
+    install(rt, ctx)
+    assert isinstance(ctx.ext["tak"], TakService)
+    assert hooks == [ctx.ext["tak"].on_event]
+    assert time.time() > 0
