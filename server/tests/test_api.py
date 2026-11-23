@@ -1552,3 +1552,25 @@ async def test_settings_cannot_turn_on_dedicated_switches(ctx):
         r = await c.post("/api/settings/import", json=doc)
         assert r.status_code == 200 and "bot_enabled" in r.json()["skipped"]
         assert load_settings(ctx.conn)["bot_enabled"] is False
+
+
+async def test_alert_sources_merged_and_sorted(ctx, caplog):
+    now = time.time()
+    ctx.live.nodes[1] = {**_alert_node(1, now - 10 * 3600)}
+    ctx.alert_sources.append(lambda now, s, prev: [{
+        "key": "rule:1:!00000001", "kind": "rule_battery", "node_id": "!00000001",
+        "node_name": "A", "value": 10, "since": now}])
+
+    def broken(now, s, prev):
+        raise RuntimeError("x")
+
+    ctx.alert_sources.append(broken)
+    kinds = [a["kind"] for a in ctx.alerts()]
+    assert kinds == ["silent", "rule_battery"]
+    assert "Sorgente di avvisi" in caplog.text
+
+
+def _alert_node(num, heard):
+    return {"num": num, "id": f"!{num:08x}", "long_name": "A", "short_name": "A",
+            "is_mine": True, "is_favorite": False, "last_heard": heard, "battery": None,
+            "firmware": None, "key_changed": None}

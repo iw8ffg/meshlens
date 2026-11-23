@@ -14,6 +14,7 @@ from .conversations import waypoint_json
 from .ingest import traceroute_chains
 from .messages import reply_problem
 from .radio import RadioBusy, RadioConnector
+from .store import route_signature
 
 log = logging.getLogger(__name__)
 
@@ -332,6 +333,7 @@ class RadioManager:
                       forward: list | None = None, back: list | None = None) -> None:
         result = self._traces.pop(key)
         result.update(status=status, error=error, forward=forward or [], back=back or [])
+        result["route"] = route_signature(result["forward"]) if status == "ok" else None
         self.store.update_traceroute(result["id"], status, error, result["forward"],
                                      result["back"])
         self.store.commit()
@@ -614,7 +616,8 @@ class RadioManager:
                 if rid in heard and heard[rid].get("hops") is not None}
         return min(hops, key=hops.get) if hops else connected[0]
 
-    async def traceroute(self, target_id: str, radio_id: str | None) -> dict:
+    async def traceroute(self, target_id: str, radio_id: str | None, auto: bool = False) -> dict:
+        """auto: lanciato dallo scheduler dei traceroute automatici (salvato in traceroutes.auto)."""
         if not _is_node_id(target_id):
             raise ValueError("Nodo non valido")
         num = int(target_id[1:], 16)
@@ -637,7 +640,7 @@ class RadioManager:
                 raise
             except Exception as exc:
                 raise ValueError(str(exc)) from exc
-            tid = self.store.add_traceroute(radio_id, num, now)
+            tid = self.store.add_traceroute(radio_id, num, now, auto)
             self.store.commit()
         except BaseException:
             self._last_trace.pop(radio_id, None)  # niente invio utile: libera il limite
@@ -645,7 +648,8 @@ class RadioManager:
         finally:
             self._tracing.discard(radio_id)
         result = {"id": tid, "radio_id": radio_id, "target_id": node_id(num), "time": now,
-                  "status": "pending", "error": None, "forward": [], "back": []}
+                  "status": "pending", "error": None, "forward": [], "back": [],
+                  "auto": bool(auto), "route": None}
         key = (radio_id, packet_id)
         self._traces[key] = result
         self.bus.publish({"type": "traceroute", "result": dict(result)})

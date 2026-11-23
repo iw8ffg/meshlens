@@ -763,3 +763,16 @@ async def test_traceroute_radio_busy_is_not_a_value_error_and_keeps_the_slot_fre
         await e.mgr.traceroute(TARGET, r["id"])
     conn.send_traceroute = orig
     await e.mgr.traceroute(TARGET, r["id"])  # nessun TracerouteThrottled
+
+
+async def test_traceroute_auto_flag_stored():
+    e = Env()
+    await e.mgr.add("usb", "COM5", "A")
+    res = await e.mgr.traceroute(TARGET, None, auto=True)
+    assert res["auto"] is True and res["route"] is None
+    row = e.store.conn.execute("SELECT auto FROM traceroutes WHERE id=?", (res["id"],)).fetchone()
+    assert row[0] == 1
+    e.now += 100
+    res2 = await e.mgr.traceroute(TARGET, None)
+    row = e.store.conn.execute("SELECT auto FROM traceroutes WHERE id=?", (res2["id"],)).fetchone()
+    assert row[0] == 0 and res2["auto"] is False

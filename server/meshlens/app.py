@@ -25,7 +25,8 @@ from .ingest import Ingestor
 from .live import LiveState
 from .paths import is_frozen, updates_dir
 from .elevation import ElevationCache
-from .events import RawPacket
+from .events import MeshEvent, RawPacket
+from . import extensions
 from .maps import MapsManager
 from .prediction_service import PredictionManager
 from .mqtt_client import MqttConnector
@@ -94,6 +95,39 @@ _SUMMED = ("msgs_per_s", "undecodable", "decoded", "reconnects", "queue_size",
            "queue_dropped", "raw_dropped", "watchdog_restarts")
 
 
+@dataclass(frozen=True)
+class MessageMeta:
+    """Contesto di un messaggio pubblicato dall'ingestione (per gli agganci dei messaggi)."""
+    event: MeshEvent | None  # evento che l'ha prodotto; None = registrato da MeshLens (invio)
+    outcome: str  # "new" | "dup" | "local"
+
+    @property
+    def live(self) -> bool:
+        """Primo arrivo dal vivo (non copia, non rigioco S&F, non invio proprio)."""
+        return self.event is not None and self.outcome == "new" and not self.event.replayed
+
+
+MessageHook = Callable[[dict, MessageMeta], None]
+EventHook = Callable[[MeshEvent, str], None]  # (evento, esito "new" | "dup" | "ignored")
+
+
+@dataclass(frozen=True)
+class PeriodicTask:
+    name: str
+    interval_s: float
+    fn: Callable[[], None] | Callable[[], Awaitable[None]]
+    first_delay_s: float
+
+
+def _call_hooks(hooks: list, *args) -> None:
+    """Chiama gli agganci in ordine: l'errore di uno va nel log e non ferma gli altri."""
+    for fn in list(hooks):
+        try:
+            fn(*args)
+        except Exception:
+            log.exception("Aggancio %s fallito", getattr(fn, "__qualname__", fn))
+
+
 @dataclass
 class Runtime:
     conn: object
@@ -138,6 +172,34 @@ class Runtime:
     netstats: NetStats | None = None
     # nodi archiviati, ricalcolati ogni 60 s: il thread paho lo legge senza lock (assegnazione unica)
     _archived: frozenset = frozenset()
+    # agganci della 1.6 (registrati dalle estensioni prima di start)
+    message_hooks: list = field(default_factory=list)
+    event_hooks: list = field(default_factory=list)
+    periodic: list = field(default_factory=list)
+    _started: bool = False
+
+    def add_message_hook(self, fn: MessageHook) -> None:
+        self.message_hooks.append(fn)
+
+    def add_event_hook(self, fn: EventHook) -> None:
+        self.event_hooks.append(fn)
+
+    def add_periodic(self, name: str, interval_s: float, fn,
+                     first_delay_s: float | None = None) -> None:
+        """Task periodico avviato da start(); l'errore di un giro non lo ferma."""
+        if self._started:
+            raise RuntimeError("Task periodico registrato dopo l'avvio")
+        self.periodic.append(PeriodicTask(name, interval_s, fn,
+                                          interval_s if first_delay_s is None else first_delay_s))
+
+    def _periodic_task(self, p: PeriodicTask):
+        if asyncio.iscoroutinefunction(p.fn):
+            return self._every_async(p.interval_s, p.fn, p.first_delay_s)
+
+        async def run() -> None:
+            await asyncio.sleep(p.first_delay_s)
+            await self._every(p.interval_s, p.fn, first_now=True)
+        return run()
 
     def start_connector(self, broker: dict) -> None:
         bid = broker["id"]
@@ -471,6 +533,7 @@ class Runtime:
                 conn.interrupt()
 
     async def start(self) -> None:
+        self._started = True
         self.loop = asyncio.get_running_loop()
         if self.maps is not None:
             self.maps.cleanup_tmp()  # .tmp rimasti da un download interrotto
@@ -511,6 +574,8 @@ class Runtime:
             self.tasks.append(asyncio.create_task(self._every(5, self.storeforward.check)))
         if self.updater is not None and self.auto_update:
             self.tasks.append(asyncio.create_task(self.updater.run()))
+        for p in self.periodic:
+            self.tasks.append(asyncio.create_task(self._periodic_task(p)))
 
     async def stop(self) -> None:
         # un quick_check lungo su un database grande non deve bloccare la chiusura
@@ -583,12 +648,18 @@ def build(data_dir: Path, connector_factory=MqttConnector,
         auth.forget_sessions_and_locks()
         log.warning("Dopo il ripristino: sessioni e blocchi dei tentativi azzerati, "
                     "ogni dispositivo deve accedere di nuovo")
+    # evento in elaborazione in on_event (pila: i rigiochi S&F annidati ripristinano il precedente)
+    current: list = [None]
+
     def on_message(msg: dict) -> None:
         bus.publish({"type": "message", "message": msg})
         try:
             notifier.on_message(msg)
         except Exception:  # noqa: BLE001 - una notifica fallita non ferma l'ingestione
             log.exception("Notifica del messaggio non riuscita")
+        ev = current[0]
+        meta = MessageMeta(ev, ingestor.last_outcome if ev is not None else "local")
+        _call_hooks(rt.message_hooks, msg, meta)
 
     ingestor = Ingestor(live, store, dedup, locator, lambda: rt.settings, on_message,
                         lambda key, status, error=None, heard_by=None: bus.publish(
@@ -612,6 +683,14 @@ def build(data_dir: Path, connector_factory=MqttConnector,
                              lambda rid: rt.radios.connector(rid))
 
     def on_event(ev) -> None:
+        prev = current[0]
+        current[0] = ev if isinstance(ev, MeshEvent) else None
+        try:
+            _on_event(ev)
+        finally:
+            current[0] = prev
+
+    def _on_event(ev) -> None:
         if isinstance(ev, RawPacket):  # non decodificato: solo l'ispettore dei pacchetti
             try:
                 packet_log.observe_raw(ev, ev.source == "rf" or ingestor.is_archived(ev.from_node))
@@ -637,6 +716,8 @@ def build(data_dir: Path, connector_factory=MqttConnector,
             packet_log.observe(ev, outcome, archived)
         except Exception:
             log.exception("Registro dei pacchetti")
+        if isinstance(ev, MeshEvent):
+            _call_hooks(rt.event_hooks, ev, outcome)
 
     rt.coverage, rt.on_event, rt.storeforward = coverage, on_event, sf
     rt.packet_log, rt.netstats = packet_log, netstats
@@ -675,6 +756,7 @@ def build(data_dir: Path, connector_factory=MqttConnector,
     ctx.mqtt_sender = MqttSender(
         lambda bid: rt.connectors.get(bid), lambda: rt.settings, rt.radios.radios, time.time,
         ingestor.record_outgoing_mqtt, key_for, on_result=ingestor.mqtt_publish_result)
+    extensions.install(rt, ctx)  # prima di create_app: le estensioni registrano gli agganci
     app = create_app(ctx)
 
     @contextlib.asynccontextmanager

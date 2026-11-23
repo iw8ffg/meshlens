@@ -10,7 +10,15 @@ BACK_ONLINE_KEEP_S = 3600
 FIRMWARE_MIN = (2, 5, 0)
 KEY_CHANGED_KEEP_S = 7 * 86400
 KIND_ORDER = {"battery_low": 0, "silent": 1, "key_changed": 2, "chutil_high": 3,
-              "firmware_old": 4, "back_online": 5}
+              "firmware_old": 4, "back_online": 5,
+              # 1.6: avvisi delle regole (WP2) e autonomia
+              "rule_keyword": 6, "rule_snr": 7, "rule_geofence": 8, "rule_battery": 9,
+              "rule_silent": 10, "sensor_detection": 11, "autonomy_low": 12}
+
+
+def sort_key(a: dict) -> tuple:
+    """Ordine degli avvisi: per tipo (gli sconosciuti in fondo), poi per nome del nodo."""
+    return (KIND_ORDER.get(a.get("kind"), 99), a.get("node_name") or "")
 
 
 _FW_RE = re.compile(r"\D*([0-9]+)\.([0-9]+)\.([0-9]+)", re.ASCII)
@@ -68,7 +76,7 @@ def compute_alerts(nodes: Iterable[dict], settings: dict, now: float,
             elif okey in previous and now - previous[okey]["since"] < BACK_ONLINE_KEEP_S:
                 found.append((okey, "back_online", previous[okey]["value"], None))
         out.extend(_alerts(n, found, now, previous))
-    out.sort(key=lambda a: (KIND_ORDER[a["kind"]], a["node_name"]))
+    out.sort(key=sort_key)
     return out
 
 

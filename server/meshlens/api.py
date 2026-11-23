@@ -25,7 +25,7 @@ from starlette.websockets import WebSocketDisconnect
 
 from . import api_prediction, api_storeforward
 from .api_data import register_data_routes
-from .alerts import CHUTIL_MIN_SAMPLES, CHUTIL_WINDOW_S, compute_alerts
+from .alerts import CHUTIL_MIN_SAMPLES, CHUTIL_WINDOW_S, compute_alerts, sort_key
 from .auth import LOOPBACK, MIN_PIN, MIN_PIN_LAN, Auth, LockedError
 from .bus import Bus
 from .channel_link import parse_channel_url
@@ -115,6 +115,11 @@ class AppContext:
     # notifiche di Windows: impostata dal lanciatore con l'icona (None senza icona)
     toast: Callable[[str, str], None] | None = None
     notifier: Notifier | None = None  # se manca se ne crea uno sulle impostazioni del database
+    # 1.6: servizi delle estensioni (ctx.ext["<nome>"]) e sorgenti di avvisi aggiuntive:
+    # (now, impostazioni, avvisi precedenti per chiave) -> avvisi nel formato di compute_alerts
+    ext: dict[str, object] = field(default_factory=dict)
+    alert_sources: list[Callable[[float, dict, dict[str, dict]], list[dict]]] = field(
+        default_factory=list)
     _alerts: list = field(default_factory=list)
     _alerts_ready: bool = False
 
@@ -145,8 +150,16 @@ class AppContext:
         stats = self.store.channel_util_stats([n["num"] for n in mine], now - CHUTIL_WINDOW_S)
         chutil = {n["id"]: stats[n["num"]][0] for n in mine
                   if n["num"] in stats and stats[n["num"]][1] >= CHUTIL_MIN_SAMPLES}
-        new = compute_alerts(self.live.nodes.values(), load_settings(self.conn), now,
-                             {a["key"]: a for a in old}, chutil)
+        settings = load_settings(self.conn)
+        prev = {a["key"]: a for a in old}
+        new = compute_alerts(self.live.nodes.values(), settings, now, prev, chutil)
+        for src in list(self.alert_sources):
+            try:
+                new.extend(src(now, settings, prev))
+            except Exception:  # noqa: BLE001 - una sorgente rotta non ferma gli altri avvisi
+                logging.getLogger(__name__).exception("Sorgente di avvisi %s fallita",
+                                                      getattr(src, "__qualname__", src))
+        new.sort(key=sort_key)
         self._alerts = new
         if [(a["key"], a["value"]) for a in new] != [(a["key"], a["value"]) for a in old]:
             self.bus.publish({"type": "alerts", "alerts": new})
