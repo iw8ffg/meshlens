@@ -1,7 +1,7 @@
 <script lang="ts">
   import { getJSON, send, ApiError } from '../lib/api'
   import { app, setRadios, openConfig } from '../lib/stores.svelte'
-  import { sortPorts, stateLabel } from '../lib/radios'
+  import { sortPorts, stateLabel, kindIcon, kindLabel, tcpAddress } from '../lib/radios'
   import { t } from '../lib/i18n/index.svelte'
   import { translateServer } from '../lib/i18n/server'
   import Button from '../lib/ui/Button.svelte'
@@ -17,15 +17,17 @@
   import StoreForward from './StoreForward.svelte'
   import Toast from '../lib/ui/Toast.svelte'
   import { clearSfNotice, sf } from '../lib/storeforward.svelte'
-  import type { BleDevice, Port, Radio } from '../lib/types'
+  import type { BleDevice, Port, Radio, RadioKind } from '../lib/types'
 
   let adding = $state(false)
-  let kind = $state<'usb' | 'ble'>('usb')
+  let kind = $state<RadioKind>('usb')
   let ports = $state<Port[]>([])
   let ble = $state<BleDevice[]>([])
   let scanning = $state(false)
   let scanned = $state(false)
   let address = $state('')
+  let host = $state('')
+  let tcpPort = $state('4403')
   let name = $state('')
   let busy = $state(false)
   let acting = $state(false) // azione su una radio in corso (Connetti/Scollega/Rimuovi)
@@ -90,9 +92,11 @@
     pickKind('usb')
   }
 
-  function pickKind(k: 'usb' | 'ble') {
+  function pickKind(k: RadioKind) {
     kind = k
     address = ''
+    host = ''
+    tcpPort = '4403'
     name = ''
     ble = []
     scanned = false
@@ -116,7 +120,7 @@
     busy = true
     error = ''
     try {
-      await send('POST', '/radios', { kind, address, name: name.trim() })
+      await send('POST', '/radios', { kind, address: kind === 'tcp' ? tcpAddress(host, tcpPort) : address, name: name.trim() })
       adding = false
       await reload()
     } catch (e) {
@@ -146,12 +150,12 @@
     <Card>
       <div class="radio">
         <div class="head">
-          <Icon name={r.kind === 'usb' ? 'usb' : 'bt'} size={20} />
+          <Icon name={kindIcon(r.kind)} size={20} />
           <strong>{r.name}</strong>
           <Badge kind={stateKind(r)}>{stateLabel(r.state)}</Badge>
         </div>
         <div class="muted">
-          {r.kind === 'usb' ? t('radios.usb') : t('radios.bluetooth')} · <span class="ui-mono">{r.address}</span>{#if r.my_node_id}
+          {kindLabel(r.kind)} · <span class="ui-mono">{r.address}</span>{#if r.my_node_id}
             {t('radios.localNode', { name: r.my_node_name ?? '' })} <span class="ui-mono">{r.my_node_id}</span>{/if}
         </div>
         {#if r.error}<Banner kind="danger" title={t('radios.errorTitle')}>{translateServer(r.error)}</Banner>{/if}
@@ -193,6 +197,7 @@
           items={[
             { value: 'usb', label: t('radios.usb') },
             { value: 'ble', label: t('radios.bluetooth') },
+            { value: 'tcp', label: t('radios.network') },
           ]}
           value={kind}
           onchange={pickKind}
@@ -214,6 +219,18 @@
             {/snippet}
           </Field>
           <div><Button icon="refresh" onclick={loadPorts}>{t('radios.refresh')}</Button></div>
+        {:else if kind === 'tcp'}
+          <Field label={t('radios.host')} for="radio-host">
+            {#snippet children()}
+              <input id="radio-host" class="ui-input" bind:value={host} maxlength="253" placeholder={t('radios.hostPh')} />
+            {/snippet}
+          </Field>
+          <Field label={t('radios.tcpPort')} for="radio-tcp-port">
+            {#snippet children()}
+              <input id="radio-tcp-port" class="ui-input" inputmode="numeric" bind:value={tcpPort} maxlength="5" />
+            {/snippet}
+          </Field>
+          <p class="muted">{t('radios.tcpNote')}</p>
         {:else}
           <div>
             <Button icon="bt" onclick={scan} disabled={scanning}>
@@ -238,13 +255,13 @@
           </p>
         {/if}
 
-        <Field label={t('radios.name')} for="radio-name">
+        <Field label={kind === 'tcp' ? t('radios.nameOpt') : t('radios.name')} for="radio-name">
           {#snippet children()}
             <input id="radio-name" class="ui-input" bind:value={name} maxlength="40" placeholder={t('radios.namePh')} />
           {/snippet}
         </Field>
         <div class="btns">
-          <Button type="submit" kind="primary" disabled={busy || !address || !name.trim()}>{t('radios.addBtn')}</Button>
+          <Button type="submit" kind="primary" disabled={busy || (kind === 'tcp' ? !host.trim() : !address || !name.trim())}>{t('radios.addBtn')}</Button>
           <Button onclick={() => (adding = false)}>{t('common.cancel')}</Button>
         </div>
       </form>

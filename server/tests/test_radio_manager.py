@@ -633,3 +633,59 @@ async def test_traceroute_early_reply_returns_final_state_and_canonical_target()
     fc.send_traceroute = send_with_early_reply
     res = await e.mgr.traceroute("!0000004A", None)
     assert res["status"] == "ok" and res["target_id"] == "!0000004a"
+
+
+@pytest.mark.parametrize("text,expected", [
+    ("192.168.1.5", ("192.168.1.5", 4403)),
+    ("192.168.1.5:4403", ("192.168.1.5", 4403)),
+    (" Radio.Local:5000 ", ("radio.local", 5000)),
+    ("[::1]", ("::1", 4403)),
+    ("[fe80::1]:4500", ("fe80::1", 4500)),
+])
+def test_parse_tcp_address_ok(text, expected):
+    from meshlens.radio_manager import parse_tcp_address
+    assert parse_tcp_address(text) == expected
+
+
+@pytest.mark.parametrize("text", [
+    "", "   ", ":4403", "host:", "host:0", "host:65536", "host:abc", "host:-1", "ho st",
+    "http://host", "host/x", "a..b", "-a.b", "::1", "[::1", "[::1]x", "[zz]:4403", "a:1:2",
+])
+def test_parse_tcp_address_invalid(text):
+    from meshlens.radio_manager import parse_tcp_address
+    with pytest.raises(ValueError):
+        parse_tcp_address(text)
+
+
+async def test_add_tcp_normalizes_and_rejects_duplicates():
+    e = Env()
+    r = await e.mgr.add("tcp", " 192.168.1.5:4403 ", "")
+    assert (r["kind"], r["address"], r["name"]) == ("tcp", "192.168.1.5", "192.168.1.5")
+    for dup in ("192.168.1.5", "192.168.1.5:4403"):
+        with pytest.raises(ValueError, match="già aggiunta"):
+            await e.mgr.add("tcp", dup, "x")
+    other = await e.mgr.add("tcp", "192.168.1.5:5000", "porta diversa")
+    assert other["address"] == "192.168.1.5:5000"
+    v6 = await e.mgr.add("tcp", "[::1]:4403", "v6")
+    assert v6["address"] == "[::1]"
+    with pytest.raises(ValueError, match="Porta non valida"):
+        await e.mgr.add("tcp", "192.168.1.9:99999", "x")
+    with pytest.raises(ValueError, match="Indirizzo mancante"):
+        await e.mgr.add("tcp", "  ", "x")
+    assert len(e.mgr.radios()) == 3
+
+
+def test_default_factory_builds_tcp_interface(monkeypatch):
+    import meshtastic.tcp_interface as ti
+    from meshlens.radio_manager import default_iface_factory
+    seen = {}
+
+    class Fake:
+        def __init__(self, hostname, portNumber):
+            seen.update(hostname=hostname, portNumber=portNumber)
+
+    monkeypatch.setattr(ti, "TCPInterface", Fake)
+    default_iface_factory({"kind": "tcp", "address": "[::1]:5000"})
+    assert seen == {"hostname": "::1", "portNumber": 5000}
+    default_iface_factory({"kind": "tcp", "address": "radio.lan"})
+    assert seen == {"hostname": "radio.lan", "portNumber": 4403}

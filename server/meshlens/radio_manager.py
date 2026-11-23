@@ -1,8 +1,10 @@
 """Gestione delle radio collegate: persistenza, connettori, invio e stato."""
 import asyncio
 import contextlib
+import ipaddress
 import logging
 import math
+import re
 import secrets
 import time
 from typing import Any
@@ -15,7 +17,8 @@ from .radio import RadioConnector
 
 log = logging.getLogger(__name__)
 
-KINDS = ("usb", "ble")
+KINDS = ("usb", "ble", "tcp")
+DEFAULT_TCP_PORT = 4403
 MAX_TEXT_BYTES = 200
 BLE_SCAN_TIMEOUT = 12.0
 LIKELY_VIDS = {"239A", "303A", "10C4", "1A86", "2886"}
@@ -67,6 +70,10 @@ def default_iface_factory(cfg: dict):
     if cfg["kind"] == "usb":
         from meshtastic.serial_interface import SerialInterface
         return SerialInterface(devPath=cfg["address"])
+    if cfg["kind"] == "tcp":
+        from meshtastic.tcp_interface import TCPInterface
+        host, port = parse_tcp_address(cfg["address"])
+        return TCPInterface(hostname=host, portNumber=port)
     from .ble_safe import SafeBLEInterface
     return SafeBLEInterface(cfg["address"])
 
@@ -81,8 +88,55 @@ def default_list_ports():
     return list_ports.comports()
 
 
-def _norm_address(address: str) -> str:
+def _norm_address(address: str, kind: str | None = None) -> str:
+    if kind == "tcp":
+        try:
+            host, port = parse_tcp_address(address)
+        except ValueError:
+            return address.strip().upper()
+        return f"{host}:{port}".upper()
     return address.strip().upper()
+
+
+_HOST_LABEL = re.compile(r"^[A-Za-z0-9_]([A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?$")
+MSG_TCP_HOST = "Indirizzo di rete non valido: usa un nome o un IP, es. 192.168.1.20"
+MSG_TCP_PORT = "Porta non valida: deve essere un numero da 1 a 65535"
+
+
+def parse_tcp_address(address: str) -> tuple[str, int]:
+    """Da «host», «host:porta» o «[ipv6]:porta» a (host, porta); ValueError in italiano."""
+    text = (address or "").strip()
+    if not text:
+        raise ValueError("Indirizzo mancante")
+    port_text: str | None = None
+    if text.startswith("["):
+        end = text.find("]")
+        if end < 0:
+            raise ValueError(MSG_TCP_HOST)
+        host, rest = text[1:end], text[end + 1:]
+        if rest:
+            if not rest.startswith(":"):
+                raise ValueError(MSG_TCP_HOST)
+            port_text = rest[1:]
+        try:
+            ipaddress.IPv6Address(host)
+        except ValueError:
+            raise ValueError(MSG_TCP_HOST) from None
+        host = host.lower()
+    else:
+        if text.count(":") > 1:
+            raise ValueError("Per un indirizzo IPv6 usa le parentesi quadre, es. [fe80::1]:4403")
+        host, sep, port_text = text.partition(":")
+        if not sep:
+            port_text = None
+        host = host.lower()
+        if not host or len(host) > 253 or not all(_HOST_LABEL.match(p) for p in host.split(".")):
+            raise ValueError(MSG_TCP_HOST)
+    if port_text is None:
+        return host, DEFAULT_TCP_PORT
+    if not port_text.isascii() or not port_text.isdigit() or not 1 <= int(port_text) <= 65535:
+        raise ValueError(MSG_TCP_PORT)
+    return host, int(port_text)
 
 
 def _is_node_id(value: str) -> bool:
@@ -257,7 +311,11 @@ class RadioManager:
         address = (address or "").strip()
         if not address:
             raise ValueError("Indirizzo mancante")
-        if any(_norm_address(c["address"]) == _norm_address(address)
+        if kind == "tcp":
+            host, port = parse_tcp_address(address)
+            address = (f"[{host}]" if ":" in host else host) + (
+                "" if port == DEFAULT_TCP_PORT else f":{port}")
+        if any(c["kind"] == kind and _norm_address(c["address"], kind) == _norm_address(address, kind)
                for c in self._cfgs.values()):
             raise ValueError("Radio già aggiunta")
         rid = "r" + secrets.token_hex(4)

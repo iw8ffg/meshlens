@@ -151,12 +151,13 @@ export interface SessionInfo {
 // Impostazioni: la forma esatta e' definita dal backend (task successivi).
 export type Settings = Record<string, unknown>
 
+export type RadioKind = 'usb' | 'ble' | 'tcp'
 export type RadioState = 'disconnected' | 'connecting' | 'connected' | 'reconnecting' | 'error'
 
 export interface Radio {
   id: string
   name: string
-  kind: 'usb' | 'ble'
+  kind: RadioKind
   address: string
   auto_connect: boolean
   state: RadioState

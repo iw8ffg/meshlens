@@ -26,6 +26,9 @@ MSG_BLE_MISSING = "Radio Bluetooth non trovata: è accesa e vicina?"
 MSG_BLE_MULTIPLE = "Più radio Bluetooth corrispondono: usa l'indirizzo esatto"
 MSG_BLE_PAIR = ("Radio Bluetooth non abbinata: abbinala da Impostazioni Windows → Bluetooth "
                 "(PIN sullo schermo della radio)")
+MSG_TCP_NOT_FOUND = "Indirizzo non trovato: controlla il nome o l'IP della radio"
+MSG_TCP_REFUSED = "Connessione rifiutata: la radio ha il WiFi o l'Ethernet attivo?"
+MSG_TCP_UNREACHABLE = "Radio non raggiungibile in rete: è accesa e sulla stessa rete?"
 MSG_BLE_CONNECT = "Connessione Bluetooth non riuscita: avvicina la radio e riprova"
 CLOSE_TIMEOUT = 12.0
 SEND_TIMEOUT = 30.0
@@ -95,7 +98,22 @@ def _silence_library_prints() -> None:
 _silence_library_prints()
 
 
-def describe_error(exc: BaseException) -> str:
+def _describe_tcp_error(exc: BaseException) -> str | None:
+    import socket
+    if isinstance(exc, socket.gaierror):
+        return MSG_TCP_NOT_FOUND
+    if isinstance(exc, ConnectionRefusedError):
+        return MSG_TCP_REFUSED
+    if isinstance(exc, OSError):  # timeout, rete irraggiungibile, connessione azzerata...
+        return MSG_TCP_UNREACHABLE
+    return None
+
+
+def describe_error(exc: BaseException, kind: str | None = None) -> str:
+    if kind == "tcp":
+        msg = _describe_tcp_error(exc)
+        if msg:
+            return msg
     text = f"{type(exc).__name__}: {exc}"
     if (isinstance(exc, PermissionError) or "Access is denied" in text
             or "PermissionError(13" in text):
@@ -303,7 +321,7 @@ class RadioConnector:
             raise
         except _LibraryError as err:
             log.warning("connessione radio %s fallita: %r", self.radio_id, err.original)
-            self._set_state("error", describe_error(err.original))
+            self._set_state("error", describe_error(err.original, self._cfg.get("kind")))
             return False
         self._iface = iface
         self._hub.register(iface, self)

@@ -1029,3 +1029,13 @@ async def test_unhandled_packet_emits_raw():
     assert [type(e) for e in h.events] == [RawPacket, RawPacket]
     assert h.events[0].status == "unsupported" and h.events[0].meta.portnum == "ADMIN_APP"
     await h.conn.stop()
+
+
+def test_describe_error_tcp():
+    import socket
+    from meshlens.radio import describe_error
+    assert "non trovato" in describe_error(socket.gaierror(11001, "x"), "tcp")
+    assert "rifiutata" in describe_error(ConnectionRefusedError(), "tcp")
+    assert "non raggiungibile" in describe_error(TimeoutError(), "tcp")
+    assert "non raggiungibile" in describe_error(OSError(10065, "x"), "tcp")
+    assert describe_error(TimeoutError()).startswith("Connessione Bluetooth")
