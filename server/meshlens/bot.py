@@ -9,9 +9,13 @@ Regole (contratto §0.7, §6.5 e decisione R5.2):
 - invio solo attraverso RadioManager.send / MqttSender.send (conferma pubblica mai data in
   automatico), mai override del duty cycle; coda con limiti e pausa sui rifiuti del firmware.
 """
+import json
 import logging
+import math
+import os
 import time
 from dataclasses import dataclass
+from pathlib import Path
 
 log = logging.getLogger(__name__)
 
@@ -200,7 +204,8 @@ class Bot:
     radios.send (async) e mqtt_sender.send sono gli UNICI percorsi d'invio."""
 
     def __init__(self, get_settings, clock, radios, mqtt_sender, live, local_ids,
-                 own_node_ids, weather_lookup, publish, version: str):
+                 own_node_ids, weather_lookup, publish, version: str,
+                 state_path: Path | None = None):
         self.get_settings, self.clock = get_settings, clock
         self.radios, self.mqtt_sender, self.live = radios, mqtt_sender, live
         self.local_ids, self.own_node_ids = local_ids, own_node_ids
@@ -218,6 +223,61 @@ class Bot:
         self.last_error: str | None = None
         self.dropped: dict[str, int] = {}
         self._published: dict | None = None
+        # invii dell'ultima ora, ultimo invio e pausa sopravvivono al riavvio (M2)
+        self.state_path = Path(state_path) if state_path else None
+        self._load_state()
+
+    # ---- stato persistente ------------------------------------------------------------
+    def _load_state(self) -> None:
+        if self.state_path is None:
+            return
+        try:
+            data = json.loads(self.state_path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            return
+        except (OSError, ValueError):
+            log.warning("Bot: stato salvato illeggibile, ignorato")
+            return
+        if not isinstance(data, dict):
+            return
+        now = self.clock()
+
+        def num(v) -> float | None:
+            ok = isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
+            return float(v) if ok else None
+
+        sent = data.get("sent_ts")
+        if isinstance(sent, list):
+            self._sent_ts = sorted(t for t in map(num, sent)
+                                   if t is not None and now - HOUR_S < t <= now + 60)
+        last = num(data.get("last_sent"))
+        if last is not None and last > now - HOUR_S:
+            self.last_sent = min(last, now)
+        paused = num(data.get("paused_until"))
+        if paused is not None and paused > now:
+            self.paused_until = min(paused, now + BACKOFF_MAX_S)
+        backoff = num(data.get("last_backoff"))
+        strikes = data.get("strikes")
+        if (backoff is not None and isinstance(strikes, int) and not isinstance(strikes, bool)
+                and 0 <= strikes <= 64 and now - backoff < BACKOFF_RESET_S):
+            self._last_backoff, self._strikes = min(backoff, now), strikes
+
+    def _save_state(self) -> None:
+        if self.state_path is None:
+            return
+        now = self.clock()
+        data = {"sent_ts": [t for t in self._sent_ts if now - t < HOUR_S],
+                "last_sent": self.last_sent if math.isfinite(self.last_sent) else None,
+                "paused_until": self.paused_until,
+                "strikes": self._strikes,
+                "last_backoff": (self._last_backoff if math.isfinite(self._last_backoff)
+                                 else None)}
+        tmp = self.state_path.with_name(self.state_path.name + ".tmp")
+        try:
+            tmp.write_text(json.dumps(data), encoding="utf-8")
+            os.replace(tmp, self.state_path)
+        except OSError:
+            log.warning("Bot: stato non salvato")
 
     # ---- ammissione (aggancio dei messaggi: sincrona, senza I/O) --------------------
     def _drop(self, reason: str) -> None:
@@ -391,6 +451,7 @@ class Bot:
             return
         self.last_sent = now
         self._sent_ts.append(now)
+        self._save_state()
         key = (message or {}).get("key")
         if key:
             self._inflight[key] = (now, job)
@@ -455,6 +516,7 @@ class Bot:
         self.paused_until = now + pause
         self._queue.clear()
         self.last_error = error.lower()
+        self._save_state()
         log.warning("Bot in pausa per %d s: %s", pause, error)
 
     # ---- stato ------------------------------------------------------------------------

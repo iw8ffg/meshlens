@@ -189,7 +189,7 @@ class FakeMqtt:
 
 
 class BotEnv:
-    def __init__(self, **settings):
+    def __init__(self, state_path=None, **settings):
         self.clock = Clock()
         self.radios = FakeRadios()
         self.mqtt = FakeMqtt()
@@ -203,9 +203,14 @@ class BotEnv:
                          "bot_max_per_hour": 20, "bot_node_cooldown_s": 300,
                          "mqtt_node_id": "!0000beef", "mqtt_send_confirmed_brokers": ["b1"],
                          **settings}
-        self.bot = Bot(lambda: self.settings, self.clock, self.radios, self.mqtt, self.live,
-                       self.radios.local_ids, lambda: set(), self.lookup, self.bus.publish,
-                       "1.6.0")
+        self.state_path = state_path
+        self.bot = self.make_bot()
+
+    def make_bot(self):
+        """Un Bot nuovo con le stesse dipendenze (simula il riavvio di MeshLens)."""
+        return Bot(lambda: self.settings, self.clock, self.radios, self.mqtt, self.live,
+                   self.radios.local_ids, lambda: set(), self.lookup, self.bus.publish,
+                   "1.6.0", state_path=self.state_path)
 
     def lookup(self, num):
         return self.weather
@@ -666,3 +671,55 @@ def test_weather_lookup_reads_recent_environment_metrics():
     st.add_metrics(0x99, T0 - 10, "device", {"voltage": 4.0})
     assert weather_lookup(conn, 0x99, T0) == {"temperature": 19.0, "relative_humidity": 60.0}
     assert weather_lookup(conn, 0x98, T0) == {}
+
+
+# ---- M2: limiti e pausa sopravvivono al riavvio ------------------------------------
+async def test_hourly_budget_and_min_interval_survive_restart(tmp_path):
+    path = tmp_path / "bot_state.json"
+    e = BotEnv(state_path=path, bot_max_per_hour=2, bot_min_interval_s=15)
+    e.feed(sender="!000000a1")
+    await e.bot.pump()
+    e.clock.t += 20
+    e.feed(sender="!000000a2")
+    await e.bot.pump()
+    assert len(e.radios.calls) == 2 and path.exists()
+    e.bot = e.make_bot()  # riavvio
+    assert e.bot.status()["sent_last_hour"] == 2
+    e.clock.t += 20
+    e.feed(sender="!000000a3")
+    await e.bot.pump()
+    assert len(e.radios.calls) == 2  # tetto orario ancora pieno
+    e2 = BotEnv(state_path=tmp_path / "b2.json", bot_min_interval_s=30)
+    e2.feed(sender="!000000b1")
+    await e2.bot.pump()
+    e2.bot = e2.make_bot()
+    e2.clock.t += 5
+    e2.feed(sender="!000000b2")
+    await e2.bot.pump()
+    assert len(e2.radios.calls) == 1  # intervallo minimo dall'ultimo invio
+    e2.clock.t += 30
+    await e2.bot.pump()
+    assert len(e2.radios.calls) == 2
+
+
+async def test_duty_cycle_pause_survives_restart(tmp_path):
+    path = tmp_path / "bot_state.json"
+    e = BotEnv(state_path=path, bot_min_interval_s=15, bot_node_cooldown_s=30)
+    await nak(e, "DUTY_CYCLE_LIMIT")
+    until = e.bot.paused_until
+    assert until == e.clock.t + 300
+    e.bot = e.make_bot()
+    assert e.bot.status()["paused_until"] == until
+    e.clock.t = until  # la pausa successiva raddoppia ancora (strike conservato)
+    await nak(e, "DUTY_CYCLE_LIMIT")
+    assert e.bot.paused_until == e.clock.t + 600
+
+
+def test_bad_state_file_is_ignored(tmp_path):
+    path = tmp_path / "bot_state.json"
+    path.write_text("non json", encoding="utf-8")
+    e = BotEnv(state_path=path)
+    assert e.bot.status()["paused_until"] is None and e.bot.status()["sent_last_hour"] == 0
+    path.write_text('{"sent_ts": ["x"], "paused_until": "y"}', encoding="utf-8")
+    e.bot = e.make_bot()
+    assert e.bot.status()["paused_until"] is None
