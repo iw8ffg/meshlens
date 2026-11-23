@@ -64,3 +64,12 @@ def test_ignored_nodes_are_kept():
     live.enforce_cap()
     assert 0 in live.nodes and 1 not in live.nodes
     assert live.evict_older_than(5000) >= 1 and 0 in live.nodes
+
+
+
+def test_is_ignored_helper():
+    live = LiveState()
+    live.load([{"num": 1, "is_ignored": True}, {"num": 2}])
+    assert live.is_ignored(1) and not live.is_ignored(2) and not live.is_ignored(3)
+    assert live.is_ignored_id("!00000001") and not live.is_ignored_id("boh")
+    assert not live.is_ignored_id(None)

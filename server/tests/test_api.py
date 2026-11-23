@@ -1627,3 +1627,31 @@ def test_is_loopback_request():
     for host, ok in (("127.0.0.1", True), ("::1", True), ("192.168.1.5", False)):
         assert is_loopback_request(SimpleNamespace(client=SimpleNamespace(host=host))) is ok
     assert is_loopback_request(SimpleNamespace(client=None)) is False
+
+
+
+async def test_ignored_node_hides_messages_and_alerts_reversibly(ctx):
+    now = time.time()
+    ctx.store.upsert_node({"num": 1, "id": "!00000001", "last_heard": now - 10 * 3600})
+    ctx.live.nodes[1]["last_heard"] = now - 10 * 3600  # nodo mio silenzioso: avviso
+    ctx.live.messages.append({"key": "1:9", "from": "!00000001", "text": "x", "country": "IT",
+                              "time": now})
+    ctx.store.add_message({"key": "1:9", "from": "!00000001", "to": "!ffffffff", "text": "x",
+                           "time": now, "country": "IT", "source": "rf", "radio_id": "r1"})
+    ctx.alert_sources.append(lambda n, s, p: [{"key": "rule:1:!00000001", "kind": "rule_battery",
+                                               "node_id": "!00000001", "node_name": "A",
+                                               "value": 1, "since": n}])
+    assert any(a["node_id"] == "!00000001" for a in ctx.alerts())
+    q = ctx.bus.subscribe()
+    node = ctx.set_node_ignored(1, True)
+    assert node["is_ignored"] is True and ctx.store.get_node(1)["is_ignored"] is True
+    assert q.get_nowait() == {"type": "resync"}
+    assert not any(a.get("node_id") == "!00000001" for a in ctx.alerts())
+    async with logged(ctx) as c:
+        assert all(m["key"] != "1:9" for m in (await c.get("/api/messages")).json())
+        assert (await c.get("/api/messages/radio")).json() == []
+        ctx.set_node_ignored(1, False)
+        assert any(m["key"] == "1:9" for m in (await c.get("/api/messages")).json())
+        assert len((await c.get("/api/messages/radio")).json()) == 1
+    assert any(a["node_id"] == "!00000001" for a in ctx.alerts())
+    assert ctx.set_node_ignored(999, True) is None

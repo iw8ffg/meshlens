@@ -131,3 +131,14 @@ def test_sort_key_unknown_kind_last():
         "battery_low", "silent", "key_changed", "chutil_high", "firmware_old", "back_online",
         "rule_keyword", "rule_snr", "rule_geofence", "rule_battery", "rule_silent",
         "sensor_detection", "autonomy_low"}
+
+
+
+def test_ignored_nodes_have_no_alerts():
+    from meshlens.alerts import compute_alerts
+    now = 1_800_000_000.0
+    n = {"id": "!00000001", "num": 1, "long_name": "A", "is_mine": True, "last_heard": now - 86400,
+         "battery": 5}
+    settings = {"battery_alert_pct": 20, "silent_alert_hours": 6}
+    assert compute_alerts([n], settings, now, {})
+    assert compute_alerts([{**n, "is_ignored": True}], settings, now, {}) == []

@@ -122,6 +122,16 @@ def register_retention_rule(rule: RetentionRule) -> None:
     _EXTRA_RULES.append(rule)
 
 
+# Nodi ignorati: i loro messaggi restano nel database ma non si mostrano (reversibile).
+# Condizione SQL da aggiungere alle query su messages (alias della tabella: "m" o nessuno).
+NOT_IGNORED_SENDER_SQL = "from_num NOT IN (SELECT num FROM nodes WHERE is_ignored = 1)"
+
+
+def ignored_nums(conn: sqlite3.Connection) -> set[int]:
+    """Numeri dei nodi ignorati (vale anche su una connessione in sola lettura)."""
+    return {r[0] for r in conn.execute("SELECT num FROM nodes WHERE is_ignored = 1")}
+
+
 def route_signature(forward: list[dict]) -> str:
     """Firma del percorso di andata di un traceroute: id dei salti uniti da ">"."""
     return ">".join(h["id"] for h in forward)
@@ -575,7 +585,7 @@ class Store:
     def messages(self, countries: list[str] | None, before: float | None, limit: int,
                  radio_only: bool = False, broker: str | None = None) -> list[dict]:
         sql = ("SELECT m.*, n.long_name AS from_name FROM messages m "
-               "LEFT JOIN nodes n ON n.num = m.from_num WHERE 1=1")
+               "LEFT JOIN nodes n ON n.num = m.from_num WHERE COALESCE(n.is_ignored, 0) = 0")
         params: list = []
         if radio_only:
             sql += " AND m.radio_id IS NOT NULL"

@@ -148,6 +148,22 @@ class AppContext:
             t.daemon = True
             t.start()
 
+    def set_node_ignored(self, num: int, ignored: bool) -> dict | None:
+        """Ignora (o ripristina) un nodo: database, memoria, evento "nodes" e "resync" (i client
+        ricaricano messaggi e avvisi). None se il nodo non e' noto. Usata dalla rotta di WP4."""
+        node = self.live.nodes.get(num)
+        if node is None:
+            stored = self.store.get_node(num)
+            if stored is None:
+                return None
+            node = self.live.nodes[num] = revive_node(self.store, num)
+        self.store.set_ignored(num, ignored)
+        self.store.commit()
+        node["is_ignored"] = bool(ignored)
+        self.live.mark_changed(num)
+        self.bus.publish({"type": "resync"})
+        return node
+
     def alerts(self) -> list[dict]:
         """Ricalcola gli avvisi; pubblica sul WS solo se key o value cambiano."""
         old = self._alerts
@@ -165,6 +181,8 @@ class AppContext:
             except Exception:  # noqa: BLE001 - una sorgente rotta non ferma gli altri avvisi
                 logging.getLogger(__name__).exception("Sorgente di avvisi %s fallita",
                                                       getattr(src, "__qualname__", src))
+        # nodi ignorati: nessun avviso, nemmeno dalle sorgenti delle estensioni
+        new = [a for a in new if not self.live.is_ignored_id(a.get("node_id"))]
         new.sort(key=sort_key)
         self._alerts = new
         if [(a["key"], a["value"]) for a in new] != [(a["key"], a["value"]) for a in old]:
@@ -670,6 +688,8 @@ def create_app(ctx: AppContext) -> FastAPI:
                 break
             if broker is not None and msg.get("broker") != broker:
                 continue
+            if msg.get("direction") != "out" and ctx.live.is_ignored_id(msg.get("from")):
+                continue  # mittente ignorato
             if _matches(msg.get("country"), wanted):
                 out.append(msg)
         return out

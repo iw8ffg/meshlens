@@ -1066,3 +1066,19 @@ def test_extensions_installed_before_app_and_errors_logged(tmp_path, monkeypatch
     app, rt = build(tmp_path, connector_factory=FakeConnector, static_dir=None)
     assert rt.ctx.ext["x"] == 1
     assert "Estensione ext_map non avviata" in caplog.text
+
+
+
+def test_ignored_sender_messages_stored_not_published(tmp_path):
+    rt, calls = _hooked(tmp_path)
+    rt.on_event(_text_ev(pid=1))  # crea il nodo 0x0A
+    rt.live.nodes[0x0A]["is_ignored"] = True
+    q = rt.bus.subscribe()
+    rt.on_event(_text_ev(pid=2, text="nascosto", source="rf", radio_id="r1"))  # RF: si archivia
+    published = []
+    while not q.empty():
+        published.append(q.get_nowait())
+    assert not any(m.get("type") == "message" for m in published)
+    assert calls[-1][1].ignored is True and calls[-1][1].live is False
+    rt.store.commit()
+    assert rt.conn.execute("SELECT COUNT(*) FROM messages WHERE text='nascosto'").fetchone()[0] == 1

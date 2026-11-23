@@ -4,7 +4,8 @@ from meshlens.db import connect
 from meshlens.events import TelemetryData
 from meshlens.settings import DEFAULTS
 from meshlens import store as store_mod
-from meshlens.store import (BUILTIN_RETENTION_RULES, RetentionRule, Store, register_retention_rule,
+from meshlens.store import (BUILTIN_RETENTION_RULES, RetentionRule, Store, ignored_nums,
+                            register_retention_rule,
                             retention_rules, route_signature, time_rule)
 
 DAY = 86400
@@ -594,3 +595,17 @@ def test_traceroute_auto_and_route(store):
     latest = store.traceroutes(5)[0]
     assert latest["id"] == tid2 and latest["route"] is None and latest["auto"] is False
     assert [x["id"] for x in store.traceroutes(5, before=NOW + 5)] == [tid]
+
+
+
+def test_messages_of_ignored_senders_kept_but_hidden(store):
+    store.upsert_node(node(num=0xA1B2C3D4), is_ignored=True)
+    store.add_message({**msg("1:1", NOW), "radio_id": "r1"})
+    store.add_message({**msg("1:2", NOW, frm="!00000009"), "radio_id": "r1"})
+    assert store.conn.execute("SELECT COUNT(*) FROM messages").fetchone()[0] == 2
+    assert [m["key"] for m in store.messages(None, None, 10)] == ["1:2"]
+    assert [m["key"] for m in store.radio_messages(None, 10)] == ["1:2"]
+    assert ignored_nums(store.conn) == {0xA1B2C3D4}
+    store.set_ignored(0xA1B2C3D4, False)  # reversibile: tutto torna
+    assert len(store.messages(None, None, 10)) == 2
+    assert ignored_nums(store.conn) == set()

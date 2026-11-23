@@ -100,11 +100,14 @@ class MessageMeta:
     """Contesto di un messaggio pubblicato dall'ingestione (per gli agganci dei messaggi)."""
     event: MeshEvent | None  # evento che l'ha prodotto; None = registrato da MeshLens (invio)
     outcome: str  # "new" | "dup" | "local"
+    ignored: bool = False  # mittente ignorato: messaggio salvato ma non mostrato
 
     @property
     def live(self) -> bool:
-        """Primo arrivo dal vivo (non copia, non rigioco S&F, non invio proprio)."""
-        return self.event is not None and self.outcome == "new" and not self.event.replayed
+        """Primo arrivo dal vivo (non copia, non rigioco S&F, non invio proprio, mittente
+        non ignorato)."""
+        return (self.event is not None and self.outcome == "new" and not self.event.replayed
+                and not self.ignored)
 
 
 MessageHook = Callable[[dict, MessageMeta], None]
@@ -652,13 +655,16 @@ def build(data_dir: Path, connector_factory=MqttConnector,
     current: list = [None]
 
     def on_message(msg: dict) -> None:
-        bus.publish({"type": "message", "message": msg})
-        try:
-            notifier.on_message(msg)
-        except Exception:  # noqa: BLE001 - una notifica fallita non ferma l'ingestione
-            log.exception("Notifica del messaggio non riuscita")
+        # mittente ignorato: salvato (l'ingestione l'ha gia' scritto) ma non pubblicato ne' notificato
+        ignored = msg.get("direction") != "out" and live.is_ignored_id(msg.get("from"))
+        if not ignored:
+            bus.publish({"type": "message", "message": msg})
+            try:
+                notifier.on_message(msg)
+            except Exception:  # noqa: BLE001 - una notifica fallita non ferma l'ingestione
+                log.exception("Notifica del messaggio non riuscita")
         ev = current[0]
-        meta = MessageMeta(ev, ingestor.last_outcome if ev is not None else "local")
+        meta = MessageMeta(ev, ingestor.last_outcome if ev is not None else "local", ignored)
         _call_hooks(rt.message_hooks, msg, meta)
 
     ingestor = Ingestor(live, store, dedup, locator, lambda: rt.settings, on_message,

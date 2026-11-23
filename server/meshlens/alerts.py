@@ -41,6 +41,8 @@ def compute_alerts(nodes: Iterable[dict], settings: dict, now: float,
                    chutil: dict[str, float] | None = None) -> list[dict]:
     out = []
     for n in nodes:
+        if n.get("is_ignored"):
+            continue  # nodo ignorato: nessun avviso
         mine = bool(n.get("is_mine"))
         if not mine and not n.get("is_favorite"):
             continue

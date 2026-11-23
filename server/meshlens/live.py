@@ -23,6 +23,20 @@ class LiveState:
         for node in nodes:
             self.nodes[node["num"]] = node
 
+    def is_ignored(self, num: int) -> bool:
+        """Nodo ignorato: nascosto ovunque (mappa, elenco, messaggi, avvisi), mai cancellato."""
+        node = self.nodes.get(num)
+        return node is not None and bool(node.get("is_ignored"))
+
+    def is_ignored_id(self, node_id) -> bool:
+        """Come is_ignored, dall'id "!xxxxxxxx" (False se l'id non e' valido)."""
+        if not isinstance(node_id, str) or not node_id.startswith("!"):
+            return False
+        try:
+            return self.is_ignored(int(node_id[1:], 16))
+        except ValueError:
+            return False
+
     def mark_changed(self, num: int) -> None:
         self._changed.add(num)
 
