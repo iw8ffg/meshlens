@@ -232,6 +232,8 @@ class Auth:
             return self._finish(role, pin, client_ip, user_agent)
 
     async def _averify(self, stored: str | None, pin: str) -> bool:
+        if stored is None:  # nessun PIN da confrontare (es. PIN ospite non impostato)
+            return False
         async with self._verify_sem():
             return await asyncio.to_thread(self._verify, stored, pin)
 
