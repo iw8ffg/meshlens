@@ -1,5 +1,10 @@
 // Tiene un elemento (il compositore della chat) sopra la tastiera su telefono, con visualViewport.
 
+/** Ctrl+K (Cmd+K su Mac), senza Alt né Maiusc: apre la ricerca globale, anche con il focus in un campo. */
+export function isSearchShortcut(e: Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'metaKey' | 'altKey' | 'shiftKey'>): boolean {
+  return (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'k'
+}
+
 /**
  * Di quanti pixel sollevare l'elemento: il suo bordo inferiore "naturale" (senza sollevamento)
  * meno il bordo inferiore del viewport visibile; mai negativo.

@@ -2,6 +2,8 @@
   import { ago } from '../../lib/format'
   import { filterConversations, type ConvItem } from '../../lib/conversations'
   import { t, tn } from '../../lib/i18n/index.svelte'
+  import { openGlobalSearch } from '../../lib/globalsearch.svelte'
+  import Button from '../../lib/ui/Button.svelte'
   import Empty from '../../lib/ui/Empty.svelte'
   import type { Snippet } from 'svelte'
   import type { Message } from '../../lib/types'
@@ -31,6 +33,7 @@
 <div class="convs">
   <div class="search">
     <input class="ui-input" type="search" aria-label={t('chat.searchConversations')} placeholder={t('chat.searchPlaceholder')} bind:value={query} />
+    <Button kind="ghost" iconOnly icon="search" label={t('search.open')} title={t('search.open')} onclick={openGlobalSearch} />
     {@render actions?.()}
   </div>
   {#if shown.length === 0}
