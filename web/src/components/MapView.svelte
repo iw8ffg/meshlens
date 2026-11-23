@@ -118,19 +118,36 @@ import { safeStorage } from '../lib/storage'
     lastPush = Date.now()
     src('nodes')?.setData({ type: 'FeatureCollection', features: nodeFeatures(shown, now) })
     pushOverlays()
+    // le estremita' dei collegamenti seguono i nodi: stesso ritmo (1 s) delle posizioni
+    if (app.filter.links) pushLinks()
   }
 
   // Strati precisione/calore/ATAK: nessun costo con gli strati spenti (solo la firma); le
   // sorgenti si riscrivono solo se la firma cambia. Chiamata da pushNodes (throttle da 1 s) e
   // dall'effetto su layers/tak.contacts.
+  /** Firma economica di posizione e precisione di una lista di nodi (rileva spostamenti a parita' di numero). */
+  function posHash(list: Node[]): string {
+    let h = 0
+    for (const n of list) {
+      if (n.lat === null || n.lon === null) continue
+      h = (Math.imul(h, 31) + Math.round(n.lat * 1e5)) | 0
+      h = (Math.imul(h, 31) + Math.round(n.lon * 1e5)) | 0
+      h = (Math.imul(h, 31) + (n.precision_bits ?? 0)) | 0
+    }
+    return h.toString(36)
+  }
+
   function pushOverlays() {
     if (!ready) return
     const l = layers
     const list = shown
     const takList = l.tak ? [...tak.contacts.values()].filter((c) => !isIgnored(app.nodes.get(c.node_id))) : []
     const parts: string[] = []
-    if (l.precision) parts.push(`p${list.length}`)
-    if (l.heat) parts.push(`h${list.length}`)
+    if (l.precision || l.heat) {
+      const ph = posHash(list)
+      if (l.precision) parts.push(`p${list.length}:${ph}`)
+      if (l.heat) parts.push(`h${list.length}:${ph}`)
+    }
     if (l.tak) parts.push(`t${takList.length}:${takList.reduce((m, c) => Math.max(m, c.time), 0)}`)
     if (l.precision || l.heat) parts.push(String(Math.floor(now / 60)))
     const sig = parts.join('|') || 'off'
@@ -303,6 +320,8 @@ import { safeStorage } from '../lib/storage'
         }
         m.on('click', 'tak-points', (e: maplibregl.MapLayerMouseEvent) => {
           if (picking || tool !== 'none') return
+          // stesse coordinate del nodo che trasmette: vince il popup del nodo (DM, dettagli, copia)
+          if (m.queryRenderedFeatures(e.point, { layers: ['points', 'points-mine', 'points-fav', 'clusters'] }).length > 0) return
           const id = e.features?.[0]?.properties?.id
           const c = typeof id === 'string' ? tak.contacts.get(id) : undefined
           if (c) showTakPopup(e.lngLat, c)
@@ -1017,9 +1036,10 @@ import { safeStorage } from '../lib/storage'
     return () => clearInterval(timer)
   })
   $effect(() => {
-    void shown // le posizioni dei nodi cambiano le estremita' delle linee
+    // le posizioni dei nodi arrivano da pushNodes (throttle da 1 s): qui solo etichette e lingua
     void layers.linkLabels
-    pushLinks()
+    void i18n.lang
+    untrack(pushLinks)
   })
   $effect(() => {
     void track

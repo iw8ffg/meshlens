@@ -13,13 +13,20 @@
   }
   let { node }: Props = $props()
 
+  // orologio che avanza: il tempo relativo dell'ultimo PLI non resta fermo
+  let now = $state(Math.floor(Date.now() / 1000))
+
   onMount(() => {
     if (!tak.loaded) void loadTak()
-    return startTakLive()
+    const iv = setInterval(() => (now = Math.floor(Date.now() / 1000)), 15_000)
+    const off = startTakLive()
+    return () => {
+      clearInterval(iv)
+      off()
+    }
   })
 
   const c = $derived(isIgnored(node) ? undefined : tak.contacts.get(node.id))
-  const now = $derived(Math.floor(Date.now() / 1000))
   const teamKey = $derived(c ? takTeamKey(c.team) : null)
   const roleKey = $derived(c ? takRoleKey(c.role) : null)
 </script>

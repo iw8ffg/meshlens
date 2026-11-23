@@ -54,7 +54,9 @@
       data = r
       now = Date.now() / 1000
       showOthers = splitHealth(r.nodes).others.length <= OTHERS_COLLAPSE_AFTER
-      compareIds = compareIds.filter((id) => r.nodes.some((n) => n.node_id === id))
+      // stesso array se nulla cambia: NodeCompare non deve riscaricare tutto a ogni risincronizzazione
+      const kept = compareIds.filter((id) => r.nodes.some((n) => n.node_id === id))
+      if (kept.length !== compareIds.length) compareIds = kept
     } catch (e) {
       if (!alive || mine !== seq) return
       failed = e instanceof ApiError ? e.message : t('health.loadFailed')

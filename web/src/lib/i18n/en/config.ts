@@ -211,4 +211,7 @@ export const config: Record<keyof typeof itArea, string> = {
   'config.cmd.nodedb_reset.body': "The radio forgets the nodes it knows, except favorites. MeshLens keeps all its data. The radio may reboot.",
   'config.cmd.shutdown.body': "The radio turns off and does not turn back on by itself: use the power button or remove and restore power.",
   'config.cmd.shutdown.remote': "A remote node stays unreachable until someone turns it back on.",
+  'config.cmd.shutdown.riskLocal': "I understand the radio will not turn back on by itself.",
+  'config.cmd.shutdown.riskRemote': "I understand the node will not come back on by itself until someone powers it on by hand.",
+  'config.cmd.nodedb_reset.risk': "I understand the radio forgets the nodes it knows, except favorites.",
 }

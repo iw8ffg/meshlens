@@ -19,6 +19,7 @@ export const channels: Record<keyof typeof itArea, string> = {
   'channels.share.add': "Add channels",
   'channels.share.channel': "Channel {n}: {name}",
   'channels.share.primaryRequired': "To replace the channels the primary channel (0) is also needed",
+  'channels.share.stale': "Selection changed: press Update to regenerate the link and QR.",
   'channels.share.update': "Update the QR code",
   'channels.share.qrAria': "Channel QR code",
   'channels.share.copy': "Copy the link",

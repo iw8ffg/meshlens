@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ZONE_MAX, addVertex, moveVertex, removeVertex, zoneBounds, zoneError, zoneGeoJSON } from './zone'
+import { ZONE_MAX, addVertex, moveVertex, removeVertex, zoneBasemap, zoneBounds, zoneError, zoneGeoJSON } from './zone'
 import type { ZonePoint } from './zone'
 
 const square: ZonePoint[] = [[0, 0], [10, 0], [10, 10], [0, 10]]
@@ -67,5 +67,18 @@ describe('zoneGeoJSON / zoneBounds', () => {
   it('bounds', () => {
     expect(zoneBounds(square)).toEqual([[0, 0], [10, 10]])
     expect(zoneBounds([])).toBeNull()
+  })
+})
+
+describe('zoneBasemap', () => {
+  it('offline: mai rete', () => {
+    expect(zoneBasemap('offline', true, true)).toBe('offline')
+    expect(zoneBasemap('offline', false, true)).toBe('fallback')
+  })
+  it("auto senza rete ripiega sull'offline", () => {
+    expect(zoneBasemap('auto', true, false)).toBe('offline')
+    expect(zoneBasemap('auto', false, false)).toBe('fallback')
+    expect(zoneBasemap('auto', true, true)).toBe('online')
+    expect(zoneBasemap('online', true, false)).toBe('online')
   })
 })

@@ -56,21 +56,35 @@ const mulberry32 = (seed: number): (() => number) => {
   }
 }
 
-export function layout(
-  nodes: Pick<TopologyNode, 'id' | 'degree'>[],
-  edges: Pick<TopologyEdge, 'a' | 'b'>[],
-  opts: { width?: number; height?: number; seed?: number; iterations?: number } = {},
-): Map<string, Pt> {
+export interface LayoutOpts {
+  width?: number
+  height?: number
+  seed?: number
+  iterations?: number
+  /** Posizioni precedenti: i nodi noti partono da li' (layout stabile tra un refresh e l'altro). */
+  seeds?: ReadonlyMap<string, Pt>
+}
+
+export interface LayoutJob {
+  /** Esegue al massimo `n` iterazioni; true se il layout e' completo. */
+  step(n: number): boolean
+  readonly done: boolean
+  result(): Map<string, Pt>
+}
+
+/** Layout incrementale: stessa matematica di `layout`, ma eseguibile a blocchi di iterazioni. */
+export function layoutJob(nodes: Pick<TopologyNode, 'id' | 'degree'>[], edges: Pick<TopologyEdge, 'a' | 'b'>[], opts: LayoutOpts = {}): LayoutJob {
   const W = opts.width ?? 1000
   const H = opts.height ?? 700
   const PAD = 24
   const ids = [...new Set(nodes.map((n) => n.id))].sort()
   const n = ids.length
   const out = new Map<string, Pt>()
-  if (n === 0) return out
+  if (n === 0) return { step: () => true, done: true, result: () => out }
   if (n === 1) {
-    out.set(ids[0], { x: W / 2, y: H / 2 })
-    return out
+    const s1 = opts.seeds?.get(ids[0])
+    out.set(ids[0], s1 ? { ...s1 } : { x: W / 2, y: H / 2 })
+    return { step: () => true, done: true, result: () => out }
   }
   const rnd = mulberry32(opts.seed ?? fnv1a(ids.join('|')))
   const index = new Map(ids.map((id, i) => [id, i]))
@@ -86,17 +100,30 @@ export function layout(
   const x = new Float64Array(n)
   const y = new Float64Array(n)
   const r0 = 0.35 * Math.min(W, H)
+  let seeded = 0
   for (let i = 0; i < n; i++) {
     const ang = (2 * Math.PI * i) / n + (rnd() - 0.5) * 0.2
-    x[i] = W / 2 + r0 * Math.cos(ang)
-    y[i] = H / 2 + r0 * Math.sin(ang)
+    const sp = opts.seeds?.get(ids[i])
+    if (sp) {
+      x[i] = sp.x
+      y[i] = sp.y
+      seeded++
+    } else {
+      x[i] = W / 2 + r0 * Math.cos(ang)
+      y[i] = H / 2 + r0 * Math.sin(ang)
+    }
   }
-  const iterations = opts.iterations ?? (n <= 150 ? 300 : n <= 400 ? 180 : 120)
+  // con posizioni di partenza basta un assestamento breve e "freddo": il grafo non salta
+  const warm = seeded >= n / 2
+  const base = n <= 150 ? 300 : n <= 400 ? 180 : 120
+  const iterations = opts.iterations ?? (warm ? Math.max(30, Math.round(base / 4)) : base)
+  const tScale = warm ? 0.25 : 1
   const k = 0.9 * Math.sqrt((W * H) / n)
   const k2 = k * k
   const dx = new Float64Array(n)
   const dy = new Float64Array(n)
-  for (let it = 0; it < iterations; it++) {
+  let it = 0
+  const iterate = () => {
     dx.fill(0)
     dy.fill(0)
     for (let i = 0; i < n; i++) {
@@ -127,7 +154,7 @@ export function layout(
       dx[j] += vx * f
       dy[j] += vy * f
     }
-    const temp = (W / 10) * (1 - it / iterations)
+    const temp = (W / 10) * tScale * (1 - it / iterations)
     for (let i = 0; i < n; i++) {
       dx[i] -= 0.02 * (x[i] - W / 2)
       dy[i] -= 0.02 * (y[i] - H / 2)
@@ -140,9 +167,56 @@ export function layout(
       x[i] = Math.min(W - PAD, Math.max(PAD, x[i]))
       y[i] = Math.min(H - PAD, Math.max(PAD, y[i]))
     }
+    it++
   }
-  for (let i = 0; i < n; i++) out.set(ids[i], { x: x[i], y: y[i] })
-  return out
+  const job: LayoutJob = {
+    step(m) {
+      for (let c = 0; c < m && it < iterations; c++) iterate()
+      return it >= iterations
+    },
+    get done() {
+      return it >= iterations
+    },
+    result() {
+      for (let i = 0; i < n; i++) out.set(ids[i], { x: x[i], y: y[i] })
+      return out
+    },
+  }
+  return job
+}
+
+export function layout(nodes: Pick<TopologyNode, 'id' | 'degree'>[], edges: Pick<TopologyEdge, 'a' | 'b'>[], opts: LayoutOpts = {}): Map<string, Pt> {
+  const job = layoutJob(nodes, edges, opts)
+  job.step(Infinity)
+  return job.result()
+}
+
+/** Layout senza bloccare il thread: blocchi di iterazioni da ~`budgetMs` ciascuno, con `yieldFn` (rAF) in mezzo. */
+export async function layoutAsync(
+  nodes: Pick<TopologyNode, 'id' | 'degree'>[],
+  edges: Pick<TopologyEdge, 'a' | 'b'>[],
+  opts: LayoutOpts = {},
+  isStale: () => boolean = () => false,
+  yieldFn: () => Promise<void> = () => new Promise((r) => requestAnimationFrame(() => r())),
+  budgetMs = 8,
+): Promise<Map<string, Pt> | null> {
+  const job = layoutJob(nodes, edges, opts)
+  while (!job.done) {
+    const t0 = performance.now()
+    do job.step(1)
+    while (!job.done && performance.now() - t0 < budgetMs)
+    if (job.done) break
+    await yieldFn()
+    if (isStale()) return null
+  }
+  return job.result()
+}
+
+/** Firma di nodi e archi (id): se invariata dopo un refresh non serve ricalcolare nulla. */
+export function topologySignature(d: Pick<TopologyResult, 'nodes' | 'edges'>): string {
+  const ns = d.nodes.map((n) => `${n.id}:${n.cut ? 1 : 0}${n.hub ? 1 : 0}`).sort().join(',')
+  const es = d.edges.map((e) => `${e.a}>${e.b}:${e.snr ?? ''}:${[...e.sources].sort().join('+')}`).sort().join(',')
+  return `${ns}|${es}`
 }
 
 export interface ViewBox {

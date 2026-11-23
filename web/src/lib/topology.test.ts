@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const getJSON = vi.fn()
 vi.mock('./api', () => ({ getJSON: (p: string) => getJSON(p) }))
 
-import { fitViewBox, layout, listCuts, listHubs, neighborsOf, needsNeighborInfoHelp, nodeClass, panBy, snrClass, topologyData, zoomAt } from './topology'
+import { fitViewBox, layout, layoutAsync, layoutJob, listCuts, topologySignature, listHubs, neighborsOf, needsNeighborInfoHelp, nodeClass, panBy, snrClass, topologyData, zoomAt } from './topology'
 import type { TopologyEdge, TopologyNode, TopologyResult } from './types'
 
 const tn = (id: string, o: Partial<TopologyNode> = {}): TopologyNode => ({ id, name: id, role: null, lat: null, lon: null, is_mine: false, last_heard: 0, degree: 1, component: 0, cut: false, hub: false, impact: 0, ...o })
@@ -19,6 +19,50 @@ const graph = () => {
 }
 
 beforeEach(() => getJSON.mockReset())
+
+describe('layout incrementale e stabile', () => {
+  it('layoutJob a blocchi = layout in un colpo', () => {
+    const { nodes, edges } = graph()
+    const job = layoutJob(nodes, edges)
+    let guard = 0
+    while (!job.step(7) && guard++ < 1000);
+    expect(job.result()).toEqual(layout(nodes, edges))
+  })
+  it('layoutAsync cede il controllo e da lo stesso risultato', async () => {
+    const { nodes, edges } = graph()
+    let yields = 0
+    const r = await layoutAsync(nodes, edges, {}, () => false, async () => void yields++, 0)
+    expect(yields).toBeGreaterThan(0)
+    expect(r).toEqual(layout(nodes, edges))
+  })
+  it('layoutAsync si interrompe se superato', async () => {
+    const { nodes, edges } = graph()
+    expect(await layoutAsync(nodes, edges, {}, () => true, async () => {}, 0)).toBeNull()
+  })
+  it('con posizioni di partenza il grafo resta vicino (niente salti) e fa meno iterazioni', () => {
+    const { nodes, edges } = graph()
+    const first = layout(nodes, edges)
+    const again = layout(nodes, edges, { seeds: first })
+    for (const [id, p] of first) {
+      const q = again.get(id)!
+      expect(Math.hypot(p.x - q.x, p.y - q.y)).toBeLessThan(150)
+    }
+  })
+  it('un nodo nuovo parte dal cerchio, i noti dalle posizioni date', () => {
+    const { nodes, edges } = graph()
+    const first = layout(nodes, edges)
+    const more = [...nodes, tn('zz-new')]
+    const r = layout(more, edges, { seeds: first })
+    expect(r.has('zz-new')).toBe(true)
+    expect(r.size).toBe(more.length)
+  })
+  it('firma: invariata con gli stessi id, cambia se cambia un arco', () => {
+    const { nodes, edges } = graph()
+    const a = topologySignature({ nodes, edges } as never)
+    expect(topologySignature({ nodes: [...nodes].reverse(), edges: [...edges].reverse() } as never)).toBe(a)
+    expect(topologySignature({ nodes, edges: edges.slice(1) } as never)).not.toBe(a)
+  })
+})
 
 describe('layout', () => {
   it('deterministico e indipendente dall\'ordine', () => {

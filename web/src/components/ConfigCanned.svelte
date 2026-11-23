@@ -2,11 +2,13 @@
   // WP4 (E10): messaggi predefiniti delle radio con tastiera/rotella (T-Deck, T-Pager).
   // Il separatore | lo gestisce MeshLens; limite di 200 byte con i separatori.
   import { ApiError, getJSON } from '../lib/api'
-  import { CANNED_MAX_BYTES, cannedBytes, cannedError, getCanned, putCanned } from '../lib/canned'
+  import { CANNED_MAX_BYTES, cannedBytes, cannedError, getCanned, putCanned, quickToCanned } from '../lib/canned'
   import { t } from '../lib/i18n/index.svelte'
   import type { AppSettings } from '../lib/settings'
   import Banner from '../lib/ui/Banner.svelte'
   import Button from '../lib/ui/Button.svelte'
+  import Modal from '../lib/ui/Modal.svelte'
+  import { untrack } from 'svelte'
 
   let { nodeId, radioId, lock }: { nodeId: string; radioId: string | null; lock: boolean } = $props()
 
@@ -16,6 +18,9 @@
   let busy = $state(false)
   let error = $state('')
   let info = $state('')
+  // elenco letto dalla radio in questa sessione (null = mai letto): serve a non sovrascriverlo alla cieca
+  let radioList = $state<string[] | null>(null)
+  let confirmOverwrite = $state(false)
 
   const texts = $derived(items.map((i) => i.text))
   const bytes = $derived(cannedBytes(texts))
@@ -24,12 +29,28 @@
   const setList = (list: string[]) => (items = list.map((text) => ({ id: nextId++, text })))
   const errText = (e: unknown) => (e instanceof ApiError ? e.message : t('canned.failed'))
 
+  // cambio di radio o nodo con il pannello riusato: niente elenco della radio precedente
+  $effect(() => {
+    void nodeId
+    void radioId
+    untrack(() => {
+      items = []
+      loaded = false
+      radioList = null
+      confirmOverwrite = false
+      error = ''
+      info = ''
+    })
+  })
+
   async function read() {
     busy = true
     error = ''
     info = ''
     try {
-      setList((await getCanned(nodeId, radioId ?? undefined)).messages)
+      const m = (await getCanned(nodeId, radioId ?? undefined)).messages
+      radioList = m
+      setList(m)
       loaded = true
     } catch (e) {
       error = errText(e)
@@ -38,13 +59,40 @@
     }
   }
 
+  const same = (a: string[], b: string[]) => a.length === b.length && a.every((x, i) => x.trim() === b[i].trim())
+
+  /** Prima di scrivere legge l'elenco della radio (se non l'ha mai letto) e chiede conferma se verrebbe sostituito. */
   async function write() {
     if (problem) return
+    if (radioList === null) {
+      busy = true
+      error = ''
+      info = ''
+      try {
+        radioList = (await getCanned(nodeId, radioId ?? undefined)).messages
+      } catch (e) {
+        error = errText(e)
+        return
+      } finally {
+        busy = false
+      }
+    }
+    if (radioList.length > 0 && !same(radioList, texts)) {
+      confirmOverwrite = true
+      return
+    }
+    await doWrite()
+  }
+
+  async function doWrite() {
+    confirmOverwrite = false
     busy = true
     error = ''
     info = ''
     try {
-      setList((await putCanned(nodeId, texts, radioId ?? undefined)).messages)
+      const m = (await putCanned(nodeId, texts, radioId ?? undefined)).messages
+      radioList = m
+      setList(m)
       info = t('canned.written')
     } catch (e) {
       error = errText(e)
@@ -58,15 +106,13 @@
     info = ''
     try {
       const quick = (await getJSON<AppSettings>('/settings')).quick_replies ?? []
-      const out: string[] = []
-      for (const q of quick) {
-        if (q.includes('|')) continue
-        if (cannedBytes([...out, q]) > CANNED_MAX_BYTES) break
-        out.push(q)
-      }
+      const { out, skippedVars, truncated } = quickToCanned(quick)
       setList(out)
       loaded = true
-      if (out.length < quick.length) info = t('canned.quickTruncated', { n: out.length, total: quick.length })
+      const notes: string[] = []
+      if (truncated) notes.push(t('canned.quickTruncated', { n: out.length, total: quick.length }))
+      if (skippedVars > 0) notes.push(t('canned.quickVars', { n: skippedVars }))
+      info = notes.join(' ')
     } catch (e) {
       error = errText(e)
     }
@@ -109,6 +155,17 @@
   {#if error}<Banner kind="danger" title={error} />{/if}
   {#if info}<Banner kind="ok" title={info} />{/if}
 </section>
+
+<Modal
+  open={confirmOverwrite}
+  title={t('canned.overwriteTitle')}
+  danger
+  confirmLabel={t('canned.write')}
+  onconfirm={doWrite}
+  oncancel={() => (confirmOverwrite = false)}
+>
+  <p>{t('canned.overwriteBody', { n: radioList?.length ?? 0 })}</p>
+</Modal>
 
 <style>
   .cc {

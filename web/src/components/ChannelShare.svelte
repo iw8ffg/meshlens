@@ -24,9 +24,11 @@
   let busy = $state(false)
   let error = $state('')
   let copied = $state(false)
+  let gen = 0 // invalida le risposte in volo dopo chiusura o nuova richiesta
+  let urlKey = '' // selezione (modo + canali) a cui si riferisce `url`
 
   const qr = $derived.by(() => {
-    if (!url) return null
+    if (!url || !fresh) return null
     try {
       return qrPath(qrMatrix(url))
     } catch {
@@ -34,10 +36,16 @@
     }
   })
   const picked = $derived(channels.filter((c) => on[c.index]).map((c) => c.index))
+  const selKey = $derived(`${mode}:${picked.join(',')}`)
+  // il link vale solo per la selezione con cui e' stato generato: dopo una modifica sparisce fino a "Aggiorna"
+  const fresh = $derived(url !== '' && urlKey === selKey)
   const primaryMissing = $derived(mode === 'replace' && channels.some((c) => c.index === 0) && !on[0])
 
   function reset() {
+    gen++
+    busy = false
     url = ''
+    urlKey = ''
     channels = []
     on = {}
     mode = 'replace'
@@ -48,19 +56,23 @@
 
   async function start() {
     reset()
+    const my = gen
     busy = true
     try {
       const st = await getJSON<AuthStatus>('/auth/status')
+      if (my !== gen) return
       local = st.is_local
       if (!local) return
       const res = await exportChannels(nodeId, null, false)
+      if (my !== gen) return // chiuso nel frattempo: il link non deve tornare in memoria
       channels = res.channels
       on = Object.fromEntries(res.channels.map((c) => [c.index, true]))
+      urlKey = `replace:${res.channels.map((c) => c.index).join(',')}`
       url = res.url
     } catch (e) {
-      error = e instanceof ApiError ? e.message : t('channels.failed')
+      if (my === gen) error = e instanceof ApiError ? e.message : t('channels.failed')
     } finally {
-      busy = false
+      if (my === gen) busy = false
     }
   }
 
@@ -69,14 +81,21 @@
     busy = true
     error = ''
     copied = false
+    const my = ++gen
+    const key = selKey
     try {
       const all = picked.length === channels.length
-      url = (await exportChannels(nodeId, all ? null : picked, mode === 'add')).url
+      const u = (await exportChannels(nodeId, all ? null : picked, mode === 'add')).url
+      if (my !== gen) return
+      url = u
+      urlKey = key
     } catch (e) {
+      if (my !== gen) return
       url = ''
+      urlKey = ''
       error = e instanceof ApiError ? e.message : t('channels.failed')
     } finally {
-      busy = false
+      if (my === gen) busy = false
     }
   }
 
@@ -117,9 +136,10 @@
           {/each}
         </div>
         {#if primaryMissing}<p class="hint">{t('channels.share.primaryRequired')}</p>{/if}
+        {#if url && !fresh && !primaryMissing}<p class="hint">{t('channels.share.stale')}</p>{/if}
         <div><Button disabled={busy || picked.length === 0 || primaryMissing} onclick={refresh}>{t('channels.share.update')}</Button></div>
       {/if}
-      {#if qr && url}
+      {#if qr && url && fresh}
         <!-- QR sempre scuro su chiaro: i lettori non riconoscono i colori invertiti del tema scuro -->
         <svg class="qr" viewBox={qr.viewBox} role="img" aria-label={t('channels.share.qrAria')} shape-rendering="crispEdges">
           <rect width="100%" height="100%" fill="#ffffff" />
