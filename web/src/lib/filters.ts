@@ -11,9 +11,19 @@ export type NodeFilter = {
   favorites?: boolean
 }
 
+/** Nodo ignorato (contratto §4.6): nascosto ovunque, mai cancellato. */
+export const isIgnored = (n: Pick<Node, 'is_ignored'> | null | undefined): boolean => !!n?.is_ignored
+
+/** Unico aiuto per togliere i nodi ignorati da una vista (mappa, elenchi, ricerche, selettori). */
+export function visibleNodes<T extends Pick<Node, 'is_ignored'>>(nodes: Iterable<T>): T[] {
+  const out: T[] = []
+  for (const n of nodes) if (!isIgnored(n)) out.push(n)
+  return out
+}
+
 export function matchNode(n: Node, f: NodeFilter, now: number): boolean {
   // Un nodo ignorato non compare mai (nemmeno se mio): lo si ripristina dalle impostazioni.
-  if (n.is_ignored) return false
+  if (isIgnored(n)) return false
   // I miei nodi e la radio locale restano sempre in vista, qualunque nazione sia scelta.
   if (f.countries.length > 0 && !n.is_mine && !n.is_local_radio) {
     const key = n.country ?? 'none'

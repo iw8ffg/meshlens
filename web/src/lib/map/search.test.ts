@@ -36,3 +36,10 @@ describe('searchNodes', () => {
     expect(searchNodes(nodes, 'base', 3)).toHaveLength(3)
   })
 })
+
+describe('nodi ignorati', () => {
+  it('non compaiono nella ricerca sulla mappa', () => {
+    const list = [node({ id: '!00000001', short_name: 'AB' }), node({ id: '!00000002', short_name: 'AC', is_ignored: true })]
+    expect(searchNodes(list, 'a').map((n) => n.id)).toEqual(['!00000001'])
+  })
+})

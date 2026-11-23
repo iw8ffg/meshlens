@@ -1,5 +1,6 @@
 import type { Feature, FeatureCollection, LineString } from 'geojson'
 import type { Link, Node } from './types'
+import { isIgnored } from './filters'
 
 export function snrColor(snr: number | null): string {
   if (snr === null) return '#8a8a8a'
@@ -10,7 +11,7 @@ export function snrColor(snr: number | null): string {
 
 /**
  * Linee della mappa: A->B e B->A diventano una sola linea (SNR migliore, tempo piu' recente).
- * I link con un estremo assente o senza posizione sono saltati.
+ * I link con un estremo assente, senza posizione o ignorato sono saltati.
  */
 export function linksToGeoJSON(
   links: Link[],
@@ -37,6 +38,7 @@ export function linksToGeoJSON(
     const na = nodes.get(m.a)
     const nb = nodes.get(m.b)
     if (!na || !nb || na.lat === null || na.lon === null || nb.lat === null || nb.lon === null) continue
+    if (isIgnored(na) || isIgnored(nb)) continue // nodo ignorato: niente linee verso di lui
     features.push({
       type: 'Feature',
       geometry: {

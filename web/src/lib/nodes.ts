@@ -1,3 +1,4 @@
+import { visibleNodes } from './filters'
 // Funzioni pure per Nodi, dettaglio e Rete (nessuna dipendenza dall'interfaccia).
 import { num } from './format'
 import type { SourceKind } from './ui/logic'
@@ -75,7 +76,7 @@ export function hopsLabel(hops: number | null | undefined, hopsMin?: number | nu
   return '—'
 }
 
-/** Nodi da mostrare in Rete: «solo miei» e «solo preferiti» si combinano in AND. */
-export function networkNodes<T extends Pick<Node, 'is_mine' | 'is_favorite'>>(nodes: T[], onlyMine: boolean, onlyFav: boolean): T[] {
-  return nodes.filter((n) => (!onlyMine || !!n.is_mine) && (!onlyFav || !!n.is_favorite))
+/** Nodi da mostrare in Rete: «solo miei» e «solo preferiti» si combinano in AND; mai gli ignorati. */
+export function networkNodes<T extends Pick<Node, 'is_mine' | 'is_favorite' | 'is_ignored'>>(nodes: T[], onlyMine: boolean, onlyFav: boolean): T[] {
+  return visibleNodes(nodes).filter((n) => (!onlyMine || !!n.is_mine) && (!onlyFav || !!n.is_favorite))
 }

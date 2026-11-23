@@ -30,7 +30,7 @@ import { safeStorage } from './lib/storage'
   import { viewport } from './lib/viewport.svelte'
   import { MORE_TABS, effectiveTab, isMoreTab, isPageTab, loadChatExpanded, saveChatExpanded, sheetVisible, type Tab } from './lib/shell/nav'
   import type { SheetSnap } from './lib/ui/sheetSnap'
-  import { matchNode } from './lib/filters'
+  import { matchNode, visibleNodes } from './lib/filters'
   import { myOrigin } from './lib/distance'
   import { geopos } from './lib/geopos.svelte'
   import type { NodeSortKey } from './lib/nodesort'
@@ -281,7 +281,7 @@ import { safeStorage } from './lib/storage'
     />
     <NodeList nodes={visible} {now} sort={nodeSort} {origin} onpick={pick} />
   {:else if activeTab === 'network'}
-    <NetworkPage nodes={[...app.nodes.values()]} {now} onpick={pick} />
+    <NetworkPage nodes={visibleNodes(app.nodes.values())} {now} onpick={pick} />
   {:else if activeTab === 'coverage'}
     <Coverage {now} />
   {:else if activeTab === 'chat'}

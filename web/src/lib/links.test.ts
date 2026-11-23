@@ -45,3 +45,10 @@ test('SNR null non batte uno noto', () => {
   const fc = linksToGeoJSON([link('!a', '!b', null, 5), link('!b', '!a', -8, 4)], nodes, 10)
   expect(fc.features[0].properties!.snr).toBe(-8)
 })
+
+test('i link con un estremo ignorato sono saltati', () => {
+  const withIgnored = new Map(nodes)
+  withIgnored.set('!b', { ...node('!b', 46, 10), is_ignored: true })
+  expect(linksToGeoJSON([link('!a', '!b', 1, 10)], withIgnored).features).toHaveLength(0)
+  expect(linksToGeoJSON([link('!a', '!b', 1, 10)], nodes).features).toHaveLength(1)
+})

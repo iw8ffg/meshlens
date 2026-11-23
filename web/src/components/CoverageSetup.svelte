@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { visibleNodes } from '../lib/filters'
   import { ApiError, coverageCheck, preparePlan, startCoverage } from '../lib/api'
   import { checklist, validInterval } from '../lib/coverage'
   import { app, coverage } from '../lib/stores.svelte'
@@ -52,7 +53,7 @@
     `${n.long_name || n.short_name || n.id} (${n.id})`
 
   const candidates = $derived.by(() => {
-    const all = [...app.nodes.values()].filter((n) => !n.is_local_radio && !radioNodeIds.has(n.id))
+    const all = visibleNodes(app.nodes.values()).filter((n) => !n.is_local_radio && !radioNodeIds.has(n.id))
     const q = query.trim().toLowerCase()
     if (q) {
       return all

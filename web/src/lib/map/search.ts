@@ -1,5 +1,6 @@
 // Ricerca di un nodo sulla mappa: senza maiuscole né accenti, solo nodi con posizione.
 import type { Node } from '../types'
+import { isIgnored } from '../filters'
 
 const norm = (s: string | null | undefined): string =>
   (s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
@@ -22,7 +23,7 @@ export function searchNodes(nodes: Iterable<Node>, q: string, limit = 8): Node[]
   const qid = query.replace(/^!/, '')
   const hits: { n: Node; s: number }[] = []
   for (const n of nodes) {
-    if (n.lat === null || n.lon === null) continue
+    if (n.lat === null || n.lon === null || isIgnored(n)) continue
     const s = score(n, query, qid)
     if (s >= 0) hits.push({ n, s })
   }

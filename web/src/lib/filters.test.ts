@@ -183,3 +183,14 @@ test('i nodi ignorati non compaiono mai, nemmeno se miei', () => {
   expect(matchNode({ ...n, is_ignored: false }, f, now)).toBe(true)
   expect(matchNode(n, f, now)).toBe(true)
 })
+
+test('visibleNodes e isIgnored: un solo aiuto per nascondere i nodi ignorati', async () => {
+  const { visibleNodes, isIgnored } = await import('./filters')
+  const a = { ...n, id: '!a' }
+  const b = { ...n, id: '!b', is_ignored: true }
+  expect(visibleNodes([a, b]).map((x) => x.id)).toEqual(['!a'])
+  expect(visibleNodes(new Map([['!a', a], ['!b', b]]).values()).map((x) => x.id)).toEqual(['!a'])
+  expect(isIgnored(b)).toBe(true)
+  expect(isIgnored(a)).toBe(false)
+  expect(isIgnored(undefined)).toBe(false)
+})

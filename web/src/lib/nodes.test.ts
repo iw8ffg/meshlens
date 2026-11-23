@@ -64,3 +64,11 @@ describe('networkNodes', () => {
     expect(networkNodes(list, true, true)).toHaveLength(1)
   })
 })
+
+describe('networkNodes e nodi ignorati', () => {
+  it('esclude sempre i nodi ignorati', () => {
+    const list = [{ is_mine: true }, { is_mine: true, is_ignored: true }, {}]
+    expect(networkNodes(list, false, false)).toHaveLength(2)
+    expect(networkNodes(list, true, false)).toHaveLength(1)
+  })
+})

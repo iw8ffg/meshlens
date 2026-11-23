@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { visibleNodes } from '../lib/filters'
   import { locale, t } from '../lib/i18n/index.svelte'
   import { translateServer } from '../lib/i18n/server'
   import { untrack } from 'svelte'
@@ -25,7 +26,7 @@
 
   // Siti proposti: i miei nodi e le radio locali che hanno una posizione
   const sites = $derived(
-    [...app.nodes.values()].filter((n) => (n.is_mine || n.is_local_radio) && n.lat !== null && n.lon !== null),
+    visibleNodes(app.nodes.values()).filter((n) => (n.is_mine || n.is_local_radio) && n.lat !== null && n.lon !== null),
   )
   let siteSel = $state(MANUAL)
   let params = $state(defaultParams())
