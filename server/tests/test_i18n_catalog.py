@@ -16,6 +16,19 @@ from pathlib import Path
 
 SERVER = Path(__file__).parents[1] / "meshlens"
 CATALOG = Path(__file__).parents[2] / "web" / "src" / "lib" / "i18n" / "server-en.json"
+# frammenti della 1.6: uno per pacchetto di lavoro, ognuno scrive solo nel proprio
+FRAGMENTS = [CATALOG.parent / "server-en" / f"wp{i}.json" for i in range(1, 7)]
+
+
+def _load_catalog() -> dict:
+    """Catalogo unito: principale + frammenti (exact fusi, patterns concatenati)."""
+    cat = json.loads(CATALOG.read_text(encoding="utf-8"))
+    exact, patterns = dict(cat["exact"]), list(cat["patterns"])
+    for frag in FRAGMENTS:
+        part = json.loads(frag.read_text(encoding="utf-8"))
+        exact.update(part["exact"])
+        patterns += part["patterns"]
+    return {"exact": exact, "patterns": patterns}
 
 # classe d'errore -> indice dell'argomento posizionale con il messaggio. L'elenco viene da
 # `grep -n "class .*Error" server/meshlens/*.py` (piu' le eccezioni di dominio che arrivano
@@ -148,9 +161,22 @@ def _is_user_text(text: str) -> bool:
     return bool(LETTERS.search(text)) and not re.fullmatch(r"[A-Z0-9_]+|[a-z0-9_]+", text.strip())
 
 
+def test_fragments_are_valid_and_disjoint():
+    seen: dict[str, str] = {}
+    for path in [CATALOG, *FRAGMENTS]:
+        assert path.exists(), path
+        part = json.loads(path.read_text(encoding="utf-8"))
+        assert set(part) == {"exact", "patterns"}, path
+        assert isinstance(part["exact"], dict) and isinstance(part["patterns"], list), path
+        for key in part["exact"]:
+            assert key not in seen, f"{key!r} in {seen.get(key)} e in {path.name}"
+            seen[key] = path.name
+
+
 def test_catalog_is_valid_json_with_compilable_patterns():
-    cat = json.loads(CATALOG.read_text(encoding="utf-8"))
-    assert set(cat) == {"exact", "patterns"}
+    for path in [CATALOG, *FRAGMENTS]:
+        assert set(json.loads(path.read_text(encoding="utf-8"))) == {"exact", "patterns"}
+    cat = _load_catalog()
     assert all(isinstance(k, str) and isinstance(v, str) and v for k, v in cat["exact"].items())
     for pat, repl in cat["patterns"]:
         re.compile(pat)
@@ -158,7 +184,7 @@ def test_catalog_is_valid_json_with_compilable_patterns():
 
 
 def test_every_server_message_has_an_english_translation():
-    cat = json.loads(CATALOG.read_text(encoding="utf-8"))
+    cat = _load_catalog()
     exact = cat["exact"]
     patterns = [re.compile(p) for p, _ in cat["patterns"]]
     missing = []

@@ -14,7 +14,7 @@ from meshlens.db import connect
 from meshlens.events import TelemetryData
 from meshlens.geo import CountryLocator
 from meshlens.live import LiveState
-from meshlens.settings import load_settings, save_settings
+from meshlens.settings import LOCAL_ONLY_KEYS, load_settings, save_settings
 from meshlens.store import Store
 
 
@@ -880,7 +880,7 @@ async def test_settings_import_skips_masked(ctx):
         body = r.json()
         # i segreti mascherati dei broker si risolvono con quelli salvati (stesso id)
         assert set(body["skipped"]) == {"update_token", "mqtt_send_confirmed",
-                                        "mqtt_send_confirmed_brokers"}
+                                        "mqtt_send_confirmed_brokers", *LOCAL_ONLY_KEYS}
         assert "hunter2pw" not in r.text and "AQ==" not in r.text
         assert body["settings"]["retention_messages_days"] == 30
         from meshlens.settings import load_settings
@@ -1536,3 +1536,122 @@ async def test_state_changing_routes_require_json(ctx):
                              ("POST", "/api/auth/logout")]:
             r = await c.request(method, path)
             assert r.status_code == 415, (method, path, r.status_code)
+
+
+async def test_settings_cannot_turn_on_dedicated_switches(ctx):
+    """bot, webhook e accesso ospite si accendono solo dalle loro rotte, mai da /api/settings."""
+    async with logged(ctx) as c:
+        for key in ("bot_enabled", "webhook_enabled", "guest_enabled"):
+            r = await c.put("/api/settings", json={key: True})
+            assert r.status_code == 400, key
+            assert r.json()["detail"] == "Questa funzione si attiva dalla sua pagina in Impostazioni"
+            r = await c.put("/api/settings", json={key: False})
+            assert r.status_code == 200, key
+            assert r.json()[key] is False
+        doc = {"format": 1, "settings": {"bot_enabled": True, "retention_messages_days": 30}}
+        r = await c.post("/api/settings/import", json=doc)
+        assert r.status_code == 200 and "bot_enabled" in r.json()["skipped"]
+        assert load_settings(ctx.conn)["bot_enabled"] is False
+
+
+async def test_alert_sources_merged_and_sorted(ctx, caplog):
+    now = time.time()
+    ctx.live.nodes[1] = {**_alert_node(1, now - 10 * 3600)}
+    ctx.alert_sources.append(lambda now, s, prev: [{
+        "key": "rule:1:!00000001", "kind": "rule_battery", "node_id": "!00000001",
+        "node_name": "A", "value": 10, "since": now}])
+
+    def broken(now, s, prev):
+        raise RuntimeError("x")
+
+    ctx.alert_sources.append(broken)
+    kinds = [a["kind"] for a in ctx.alerts()]
+    assert kinds == ["silent", "rule_battery"]
+    assert "Sorgente di avvisi" in caplog.text
+
+
+def _alert_node(num, heard):
+    return {"num": num, "id": f"!{num:08x}", "long_name": "A", "short_name": "A",
+            "is_mine": True, "is_favorite": False, "last_heard": heard, "battery": None,
+            "firmware": None, "key_changed": None}
+
+
+# ---- 1.6: moduli di rotte pre-registrati ----
+
+FEATURE_MODULES = ("api_search", "api_monitor", "api_topology", "api_radioadmin", "api_automation")
+RESERVED_PREFIXES = (
+    "/api/messages/search", "/api/search", "/api/alert-rules", "/api/health", "/api/topology",
+    "/api/tak", "/api/profiles", "/api/privacy", "/api/trace-targets", "/api/bot",
+    "/api/webhook", "/api/retention", "/api/radios/diagnose", "/api/update/notes",
+    "/api/update/seen", "/api/auth/guest")
+RESERVED_PATTERNS = (
+    "/export", "/sensor-events", "/ignored", "/radio-flags", "/channels/export", "/admin",
+    "/canned", "/diagnose")
+
+
+async def test_feature_route_modules_registered(tmp_path, monkeypatch):
+    import meshlens.api_monitor
+
+    def register(app, ctx, require_auth, require_json):
+        from fastapi import Depends
+
+        @app.get("/api/health/ping", dependencies=[Depends(require_auth)])
+        async def health_ping():
+            return {"ok": True}
+
+    monkeypatch.setattr(meshlens.api_monitor, "register", register)
+    (tmp_path / "index.html").write_text("<html>SPA</html>")
+    ctx = make_ctx(static_dir=tmp_path)
+    async with client(ctx) as c:
+        assert (await c.get("/api/health/ping")).status_code == 401
+    async with logged(ctx) as c:
+        r = await c.get("/api/health/ping")
+        assert r.status_code == 200 and r.json() == {"ok": True}
+
+
+def test_feature_modules_contract(ctx):
+    import importlib
+    for name in FEATURE_MODULES:
+        mod = importlib.import_module(f"meshlens.{name}")
+        assert isinstance(mod.GUEST_GET_PATHS, tuple) and callable(mod.register)
+    paths = [getattr(r, "path", "") for r in create_app(ctx).routes]
+    for p in paths:
+        assert not p.startswith(RESERVED_PREFIXES), p
+        if p.startswith(("/api/conversations/", "/api/nodes/", "/api/config/", "/api/radios/")):
+            assert not p.endswith(RESERVED_PATTERNS), p
+
+
+def test_is_loopback_request():
+    from types import SimpleNamespace
+    from meshlens.api import is_loopback_request
+    for host, ok in (("127.0.0.1", True), ("::1", True), ("192.168.1.5", False)):
+        assert is_loopback_request(SimpleNamespace(client=SimpleNamespace(host=host))) is ok
+    assert is_loopback_request(SimpleNamespace(client=None)) is False
+
+
+
+async def test_ignored_node_hides_messages_and_alerts_reversibly(ctx):
+    now = time.time()
+    ctx.store.upsert_node({"num": 1, "id": "!00000001", "last_heard": now - 10 * 3600})
+    ctx.live.nodes[1]["last_heard"] = now - 10 * 3600  # nodo mio silenzioso: avviso
+    ctx.live.messages.append({"key": "1:9", "from": "!00000001", "text": "x", "country": "IT",
+                              "time": now})
+    ctx.store.add_message({"key": "1:9", "from": "!00000001", "to": "!ffffffff", "text": "x",
+                           "time": now, "country": "IT", "source": "rf", "radio_id": "r1"})
+    ctx.alert_sources.append(lambda n, s, p: [{"key": "rule:1:!00000001", "kind": "rule_battery",
+                                               "node_id": "!00000001", "node_name": "A",
+                                               "value": 1, "since": n}])
+    assert any(a["node_id"] == "!00000001" for a in ctx.alerts())
+    q = ctx.bus.subscribe()
+    node = ctx.set_node_ignored(1, True)
+    assert node["is_ignored"] is True and ctx.store.get_node(1)["is_ignored"] is True
+    assert q.get_nowait() == {"type": "resync"}
+    assert not any(a.get("node_id") == "!00000001" for a in ctx.alerts())
+    async with logged(ctx) as c:
+        assert all(m["key"] != "1:9" for m in (await c.get("/api/messages")).json())
+        assert (await c.get("/api/messages/radio")).json() == []
+        ctx.set_node_ignored(1, False)
+        assert any(m["key"] == "1:9" for m in (await c.get("/api/messages")).json())
+        assert len((await c.get("/api/messages/radio")).json()) == 1
+    assert any(a["node_id"] == "!00000001" for a in ctx.alerts())
+    assert ctx.set_node_ignored(999, True) is None

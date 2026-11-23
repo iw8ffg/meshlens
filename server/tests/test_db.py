@@ -1,6 +1,7 @@
 import sqlite3
 
-from meshlens.db import SCHEMA_VERSION, connect, schema_version
+from meshlens import db
+from meshlens.db import SCHEMA_VERSION, connect, ensure_search_index, schema_version, search_engine
 
 EXPECTED_INDEXES = {
     "idx_messages_country_time", "idx_messages_radio_time", "idx_nodes_last_heard",
@@ -29,7 +30,7 @@ def _cols(conn, table):
 def test_new_db_has_current_version_and_incremental_vacuum(tmp_path):
     calls = []
     conn = connect(tmp_path / "n.db", lambda *a: calls.append(a))
-    assert schema_version(conn) == SCHEMA_VERSION == 6
+    assert schema_version(conn) == SCHEMA_VERSION == 7
     assert conn.execute("PRAGMA auto_vacuum").fetchone()[0] == 2
     assert calls == []
     assert "ip" in _cols(conn, "sessions")
@@ -44,10 +45,10 @@ def test_legacy_db_is_migrated_after_hook(tmp_path):
         calls.append((old, new, "radio_id" in _cols(conn, "messages")))
 
     conn = connect(path, hook)
-    assert calls == [(0, 6, False)]
+    assert calls == [(0, 7, False)]
     assert "radio_id" in _cols(conn, "messages")
     assert conn.execute("SELECT text FROM messages WHERE key='k'").fetchone()[0] == "ciao"
-    assert schema_version(conn) == 6
+    assert schema_version(conn) == SCHEMA_VERSION == 7
 
 
 def test_reopen_does_not_migrate_again(tmp_path):
@@ -95,8 +96,8 @@ def test_migration_3_adds_broker_column(tmp_path):
     assert "broker" not in _cols(sqlite3.connect(path), "messages")
     calls = []
     conn = connect(path, lambda *a: calls.append(a))
-    assert [c[1:] for c in calls] == [(2, 6)]
-    assert schema_version(conn) == 6
+    assert [c[1:] for c in calls] == [(2, 7)]
+    assert schema_version(conn) == SCHEMA_VERSION == 7
     assert "broker" in _cols(conn, "messages")
     row = conn.execute("SELECT text, broker FROM messages WHERE key='k'").fetchone()
     assert (row[0], row[1]) == ("ciao", None)
@@ -116,8 +117,8 @@ def test_migration_4_columns_and_tables(tmp_path):
     conn.close()
     calls = []
     conn = connect(path, lambda *a: calls.append(a))
-    assert [c[1:] for c in calls] == [(3, 6)]
-    assert schema_version(conn) == 6
+    assert [c[1:] for c in calls] == [(3, 7)]
+    assert schema_version(conn) == SCHEMA_VERSION == 7
     assert {"reply_id", "emoji", "pki", "error"} <= _cols(conn, "messages")
     assert {"public_key", "key_changed"} <= _cols(conn, "nodes")
     assert {"id", "from_num", "locked_to", "deleted"} <= _cols(conn, "waypoints")
@@ -131,13 +132,13 @@ def test_migration_4_columns_and_tables(tmp_path):
 
 def test_new_db_runs_migration_4():
     conn = connect(":memory:")
-    assert schema_version(conn) == 6
+    assert schema_version(conn) == SCHEMA_VERSION == 7
     assert _cols(conn, "waypoints") and _cols(conn, "conversation_reads")
 
 
 def test_new_db_is_v5_with_new_tables():
     conn = connect(":memory:")
-    assert schema_version(conn) == 6
+    assert schema_version(conn) == SCHEMA_VERSION == 7
     names = {r[0] for r in conn.execute("SELECT name FROM sqlite_master")}
     assert {"metrics", "packets", "stats_hourly", "node_hourly"} <= names
     assert {"idx_metrics_node", "idx_metrics_time", "idx_packets_time", "idx_packets_from_time",
@@ -156,9 +157,9 @@ def test_v4_db_migrates_to_5_without_touching_telemetry(tmp_path):
     conn.close()
     calls = []
     conn = connect(path, lambda c, old, new: calls.append((old, new)))
-    assert calls == [(4, 6)]
+    assert calls == [(4, 7)]
     assert conn.execute("SELECT COUNT(*) FROM telemetry").fetchone()[0] == 3
-    assert schema_version(conn) == 6
+    assert schema_version(conn) == SCHEMA_VERSION == 7
     assert _cols(conn, "metrics") == {"node_num", "time", "variant", "metric", "value"}
     conn.close()
     calls.clear()
@@ -176,6 +177,144 @@ def test_v5_db_migrates_to_6_with_heard_by(tmp_path):
     conn.close()
     calls = []
     conn = connect(path, lambda c, old, new: calls.append((old, new)))
-    assert calls == [(5, 6)] and schema_version(conn) == 6
+    assert calls == [(5, 7)] and schema_version(conn) == SCHEMA_VERSION == 7
     assert "heard_by" in _cols(conn, "messages")
     assert conn.execute("SELECT status, heard_by FROM messages WHERE key='k'").fetchone()[:] == ("sent", None)
+
+
+# ---- schema 7 (1.6) ----
+
+V7_TABLES = {"alert_rules", "config_profiles", "sensor_events", "trace_targets", "tak_contacts"}
+V7_INDEXES = {
+    "idx_alert_rules_kind", "idx_config_profiles_name", "idx_sensor_events_node_time",
+    "idx_sensor_events_time", "idx_tak_contacts_time", "idx_traceroutes_time",
+    "idx_messages_from_time",
+}
+
+
+def _names(conn, kind):
+    return {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type=?", (kind,))}
+
+
+def _match(conn, word):
+    return [r[0] for r in conn.execute(
+        "SELECT rowid FROM messages_fts WHERE messages_fts MATCH ?", (word,))]
+
+
+def test_v7_tables_columns_indexes(tmp_path):
+    conn = connect(tmp_path / "v7.db")
+    assert V7_TABLES <= _names(conn, "table")
+    assert "is_ignored" in _cols(conn, "nodes")
+    assert "role" in _cols(conn, "sessions")
+    assert {"auto", "route"} <= _cols(conn, "traceroutes")
+    assert V7_INDEXES <= _names(conn, "index")
+    unique = {r[1]: r[2] for r in conn.execute("PRAGMA index_list(config_profiles)")}
+    assert unique["idx_config_profiles_name"] == 1
+
+
+def test_v7_migration_is_idempotent(tmp_path):
+    conn = connect(tmp_path / "v7.db")
+    before = conn.execute("SELECT COUNT(*) FROM sqlite_master").fetchone()[0]
+    conn.execute("BEGIN")
+    db._migration_7(conn)
+    conn.execute("COMMIT")
+    assert conn.execute("SELECT COUNT(*) FROM sqlite_master").fetchone()[0] == before
+
+
+def _drop_search_index(conn):
+    """Toglie gli oggetti FTS: un vero database 1.5.1 non li ha."""
+    for trig in db.SEARCH_TRIGGERS:
+        conn.execute(f"DROP TRIGGER IF EXISTS {trig}")
+    conn.execute("DROP TABLE IF EXISTS messages_fts")
+
+
+def test_upgrade_from_v6_keeps_data(tmp_path, monkeypatch):
+    path = tmp_path / "v6.db"
+    monkeypatch.setattr(db, "SCHEMA_VERSION", 6)
+    conn = connect(path)
+    assert schema_version(conn) == 6
+    _drop_search_index(conn)
+    conn.execute("INSERT INTO sessions(token_hash, created, last_seen) VALUES('h', 1, 1)")
+    conn.execute("INSERT INTO nodes(num, id, last_heard) VALUES(1, '!00000001', 1)")
+    conn.execute("INSERT INTO messages(key, text, time) VALUES('a', 'Ciao a tutti', 1)")
+    conn.execute("INSERT INTO messages(key, text, time) VALUES('b', 'altro testo', 2)")
+    conn.commit()
+    conn.close()
+    monkeypatch.undo()
+    calls = []
+
+    def hook(c, old, new):
+        calls.append((old, new, "role" in _cols(c, "sessions")))
+
+    conn = connect(path, hook)
+    assert calls == [(6, 7, False)]
+    assert schema_version(conn) == 7
+    assert conn.execute("SELECT role FROM sessions").fetchone()[0] == "admin"
+    flag = conn.execute("SELECT value FROM settings WHERE key='onboarding_done'").fetchone()
+    assert flag[0] == "true"
+    assert conn.execute("SELECT COUNT(*) FROM messages").fetchone()[0] == 2
+    rowid = conn.execute("SELECT rowid FROM messages WHERE key='a'").fetchone()[0]
+    assert _match(conn, "ciao") == [rowid]
+    conn.close()
+    calls.clear()
+    connect(path, lambda *a: calls.append(a)).close()
+    assert calls == []
+
+
+def test_fresh_db_has_no_onboarding_flag(tmp_path):
+    conn = connect(tmp_path / "f.db")
+    assert conn.execute("SELECT 1 FROM settings WHERE key='onboarding_done'").fetchone() is None
+
+
+def test_fts_triggers_follow_inserts_and_deletes(tmp_path):
+    conn = connect(tmp_path / "f.db")
+    conn.execute("INSERT INTO messages(key, text, time) VALUES('k', 'perché città', 1)")
+    assert len(_match(conn, "perche")) == 1
+    conn.execute("INSERT OR IGNORE INTO messages(key, text, time) VALUES('k', 'perché città', 1)")
+    assert conn.execute("SELECT COUNT(*) FROM messages_fts WHERE messages_fts MATCH 'citta'"
+                        ).fetchone()[0] == 1
+    conn.execute("DELETE FROM messages")
+    assert _match(conn, "perche") == []
+
+
+def test_search_engine_reports_fts5(tmp_path):
+    conn = connect(tmp_path / "f.db")
+    assert search_engine(conn) == "fts5"
+
+
+def _db_without_fts(path, monkeypatch):
+    """Database con indice aperto da un SQLite senza FTS5 e un messaggio inserito senza trigger."""
+    conn = connect(path)
+    monkeypatch.setattr(db, "fts5_available", lambda conn: False)
+    assert ensure_search_index(conn) == "like"
+    conn.commit()
+    conn.execute("INSERT INTO messages(key, text, time) VALUES('k', 'x', 1)")
+    conn.commit()
+    return conn
+
+
+def test_without_fts5_triggers_dropped_and_inserts_work(tmp_path, monkeypatch):
+    conn = _db_without_fts(tmp_path / "nofts.db", monkeypatch)
+    assert not set(db.SEARCH_TRIGGERS) & _names(conn, "trigger")
+    assert conn.execute("SELECT text FROM messages WHERE key='k'").fetchone()[0] == "x"
+    assert search_engine(conn) == "like"
+
+
+def test_fts5_back_rebuilds_index(tmp_path, monkeypatch):
+    path = tmp_path / "nofts.db"
+    _db_without_fts(path, monkeypatch).close()
+    monkeypatch.undo()
+    conn = connect(path)
+    assert search_engine(conn) == "fts5"
+    assert set(db.SEARCH_TRIGGERS) <= _names(conn, "trigger")
+    rowid = conn.execute("SELECT rowid FROM messages WHERE key='k'").fetchone()[0]
+    assert _match(conn, "x") == [rowid]
+
+
+def test_new_db_without_fts5_migrates(tmp_path, monkeypatch):
+    monkeypatch.setattr(db, "fts5_available", lambda conn: False)
+    conn = connect(tmp_path / "nofts.db")
+    assert schema_version(conn) == 7
+    assert "messages_fts" not in _names(conn, "table")
+    conn.execute("INSERT INTO messages(key, text, time) VALUES('k', 'x', 1)")
+    assert search_engine(conn) == "like"

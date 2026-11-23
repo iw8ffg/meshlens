@@ -12,6 +12,8 @@ export type NodeFilter = {
 }
 
 export function matchNode(n: Node, f: NodeFilter, now: number): boolean {
+  // Un nodo ignorato non compare mai (nemmeno se mio): lo si ripristina dalle impostazioni.
+  if (n.is_ignored) return false
   // I miei nodi e la radio locale restano sempre in vista, qualunque nazione sia scelta.
   if (f.countries.length > 0 && !n.is_mine && !n.is_local_radio) {
     const key = n.country ?? 'none'

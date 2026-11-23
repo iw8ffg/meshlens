@@ -946,3 +946,139 @@ async def test_stop_delivers_queued_inbox_events_before_closing_db(tmp_path):
     inbox.put("b")  # in coda, drain non ancora girato
     await rt.stop()
     assert seen == [("a", 1), ("b", 1)]  # elaborati a database aperto, senza errori
+
+
+# ---- 1.6: agganci del Runtime, estensioni ----
+
+def _text_ev(pid=7, source="mqtt", radio_id=None, replayed=False, text="ciao", num=0x0A):
+    from meshlens.events import MeshEvent, TextData
+    return MeshEvent(source=source, from_node=num, to_node=0xFFFFFFFF, packet_id=pid,
+                     channel="LongFast" if source == "mqtt" else "0", rx_time=time.time(),
+                     snr=-5.0, rssi=None, hops=1, gateway_id="!00000001" if source == "mqtt" else None,
+                     radio_id=radio_id, kind="text", payload=TextData(text=text), replayed=replayed)
+
+
+def _hooked(tmp_path):
+    app, rt = build(tmp_path, connector_factory=FakeConnector, static_dir=None)
+    calls = []
+    rt.add_message_hook(lambda msg, meta: calls.append((msg, meta)))
+    return rt, calls
+
+
+def test_message_hook_receives_live_meta(tmp_path):
+    rt, calls = _hooked(tmp_path)
+    rt.on_event(_text_ev())
+    assert len(calls) == 1
+    msg, meta = calls[0]
+    assert meta.outcome == "new" and meta.live is True and meta.event.packet_id == 7
+    assert msg["direction"] == "in"
+
+
+def test_message_hook_dup_and_replayed_not_live(tmp_path):
+    rt, calls = _hooked(tmp_path)
+    rt.on_event(_text_ev())
+    rt.on_event(_text_ev(source="rf", radio_id="r1"))
+    assert len(calls) == 2
+    assert calls[1][1].outcome == "dup" and calls[1][1].live is False
+    rt.on_event(_text_ev(pid=99, replayed=True, num=0x0B))
+    assert calls[-1][1].event.replayed and calls[-1][1].live is False
+
+
+def test_message_hook_local_for_outgoing(tmp_path):
+    rt, calls = _hooked(tmp_path)
+    rt.ingestor.record_outgoing_mqtt(0x0C, 0xFFFFFFFF, 5, "uscita", "LongFast")
+    assert len(calls) == 1
+    msg, meta = calls[0]
+    assert meta.event is None and meta.outcome == "local" and meta.live is False
+    assert msg["direction"] == "out"
+
+
+def test_failing_hooks_do_not_stop_ingestion(tmp_path, caplog):
+    rt, calls = _hooked(tmp_path)
+    seen = []
+
+    def boom(*a):
+        raise RuntimeError("x")
+
+    rt.message_hooks.insert(0, boom)
+    rt.add_event_hook(boom)
+    rt.add_event_hook(lambda ev, outcome: seen.append(outcome))
+    rt.on_event(_text_ev())
+    assert 0x0A in rt.live.nodes
+    assert len(calls) == 1 and seen == ["new"]
+    assert "Aggancio" in caplog.text
+
+
+def test_event_hook_called_for_mesh_events_only(tmp_path):
+    from meshlens.events import MeshEvent, PacketMeta, PositionData, RawPacket
+    app, rt = build(tmp_path, connector_factory=FakeConnector, static_dir=None)
+    seen = []
+    rt.add_event_hook(lambda ev, outcome: seen.append((ev.kind, outcome)))
+    rt.on_event(MeshEvent(source="mqtt", from_node=0x0D, to_node=0xFFFFFFFF, packet_id=3,
+                          channel="LongFast", rx_time=time.time(), snr=None, rssi=None, hops=1,
+                          gateway_id="!00000001", radio_id=None, kind="position",
+                          payload=PositionData(lat=45.0, lon=9.0)))
+    assert seen == [("position", "new")]
+    rt.on_event(RawPacket(source="mqtt", from_node=0x0D, to_node=0, packet_id=4, channel="x",
+                          rx_time=time.time(), snr=None, rssi=None, gateway_id=None,
+                          radio_id=None, broker=None, relay_node=None, status="encrypted",
+                          meta=PacketMeta(portnum=None, hop_start=None, hop_limit=None)))
+    assert len(seen) == 1
+
+
+async def test_periodic_task_runs_and_late_registration_fails(tmp_path):
+    import asyncio
+    import pytest
+    app, rt = build(tmp_path, connector_factory=FakeConnector, static_dir=None)
+    runs = {"a": 0, "s": 0}
+
+    async def tick():
+        runs["a"] += 1
+
+    def tick_sync():
+        runs["s"] += 1
+
+    rt.add_periodic("t", 0.05, tick, first_delay_s=0)
+    rt.add_periodic("s", 0.05, tick_sync, first_delay_s=0)
+    await rt.start()
+    try:
+        await asyncio.sleep(0.2)
+        assert runs["a"] >= 1 and runs["s"] >= 1
+        with pytest.raises(RuntimeError):
+            rt.add_periodic("late", 1, tick)
+    finally:
+        await rt.stop()
+    assert all(t.done() for t in rt.tasks)
+
+
+def test_extensions_installed_before_app_and_errors_logged(tmp_path, monkeypatch, caplog):
+    import meshlens.ext_map
+    import meshlens.ext_monitor
+
+    def fail(rt, ctx):
+        raise RuntimeError("rotta")
+
+    def ok(rt, ctx):
+        ctx.ext["x"] = 1
+
+    monkeypatch.setattr(meshlens.ext_map, "install", fail)
+    monkeypatch.setattr(meshlens.ext_monitor, "install", ok)
+    app, rt = build(tmp_path, connector_factory=FakeConnector, static_dir=None)
+    assert rt.ctx.ext["x"] == 1
+    assert "Estensione ext_map non avviata" in caplog.text
+
+
+
+def test_ignored_sender_messages_stored_not_published(tmp_path):
+    rt, calls = _hooked(tmp_path)
+    rt.on_event(_text_ev(pid=1))  # crea il nodo 0x0A
+    rt.live.nodes[0x0A]["is_ignored"] = True
+    q = rt.bus.subscribe()
+    rt.on_event(_text_ev(pid=2, text="nascosto", source="rf", radio_id="r1"))  # RF: si archivia
+    published = []
+    while not q.empty():
+        published.append(q.get_nowait())
+    assert not any(m.get("type") == "message" for m in published)
+    assert calls[-1][1].ignored is True and calls[-1][1].live is False
+    rt.store.commit()
+    assert rt.conn.execute("SELECT COUNT(*) FROM messages WHERE text='nascosto'").fetchone()[0] == 1

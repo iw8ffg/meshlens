@@ -12,6 +12,9 @@ const KIND_KEYS: Record<string, MsgKey> = {
   neighbors: 'packets.kind.neighbors',
   traceroute: 'packets.kind.traceroute',
   rangetest: 'packets.kind.rangetest',
+  detection: 'packets.kind.detection',
+  paxcounter: 'packets.kind.paxcounter',
+  tak: 'packets.kind.tak',
 }
 
 /** Tipo di pacchetto nella lingua corrente; un tipo ignoto mostra il codice. */

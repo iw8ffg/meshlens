@@ -829,3 +829,30 @@ def test_heard_outside_window_ignored(env):
     ing.handle(ev("text", TextData("ciao"), num=ME_NUM, pid=77, t=NOW + 700,
                   gateway_id="!0badcafe"))
     assert all(s[1] != "heard" for s in st)
+
+
+def test_app_event_updates_node_without_payload_handling(env):
+    from meshlens.events import AppData
+    ing, live, store, conn, _ = env
+    ing.handle(ev("paxcounter", AppData(34, b""), num=9, source="rf", radio_id="r1"))
+    assert live.nodes[9]["last_heard"] == NOW
+    assert ing.last_outcome == "new"
+    assert count(conn, "telemetry") == 0 and count(conn, "metrics") == 0
+    assert store.get_node(9) is not None
+
+
+def test_persists_helper(env):
+    ing = env[0]
+    base = _new_node(5)
+    assert ing.persists({**base, "country": "DE"}, "rf")
+    assert ing.persists({**base, "country": "DE", "is_mine": True}, "mqtt")
+    assert ing.persists({**base, "country": "DE", "is_favorite": True}, "mqtt")
+    assert ing.persists({**base, "country": "IT"}, "mqtt")
+    assert not ing.persists({**base, "country": "DE"}, "mqtt")
+
+
+def test_new_node_has_is_ignored_false(env):
+    ing, live, *_ = env
+    ing.handle(ev("position", pos(MILAN), num=3))
+    assert live.nodes[3]["is_ignored"] is False
+    assert _new_node(4)["is_ignored"] is False

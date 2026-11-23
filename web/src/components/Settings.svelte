@@ -22,6 +22,11 @@
   import Devices from './settings/Devices.svelte'
   import Brokers from './settings/Brokers.svelte'
   import Notifications from './settings/Notifications.svelte'
+  import QuickReplies from './settings/QuickReplies.svelte'
+  import AlertRules from './settings/AlertRules.svelte'
+  import Automations from './settings/Automations.svelte'
+  import IgnoredNodes from './settings/IgnoredNodes.svelte'
+  import GuestAccess from './settings/GuestAccess.svelte'
   import { channelOptions, checkMqttNodeId, filterChannels, httpsNote, type AppSettings, type Broker, type MqttChannel, type TlsInfo } from '../lib/settings'
   import { channelNameError, fromServer, pskError } from '../lib/brokers'
   import { formatDate, countryName } from '../lib/format'
@@ -263,6 +268,9 @@
       </Card>
 
       <Notifications />
+      <QuickReplies />
+      <AlertRules />
+      <Automations />
 
       <Card>
         <section class="sec">
@@ -283,6 +291,8 @@
       </Card>
 
       <Devices />
+      <GuestAccess />
+      <IgnoredNodes />
 
       <Card>
         <section class="sec">

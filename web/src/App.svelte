@@ -14,6 +14,9 @@ import { safeStorage } from './lib/storage'
   import NetworkPage from './components/NetworkPage.svelte'
   import Coverage from './components/Coverage.svelte'
   import ConfigPanel from './components/ConfigPanel.svelte'
+  import Onboarding from './components/Onboarding.svelte'
+  import GlobalSearch from './components/GlobalSearch.svelte'
+  import WhatsNew from './components/WhatsNew.svelte'
   import TopBar from './lib/shell/TopBar.svelte'
   import Panel from './lib/shell/Panel.svelte'
   import BottomNav from './lib/shell/BottomNav.svelte'
@@ -37,6 +40,7 @@ import { safeStorage } from './lib/storage'
   import { applySfJob, setSfRouters } from './lib/storeforward.svelte'
   import { ApiError, getJSON, alerts as fetchAlerts, conversations, waypoints as fetchWaypoints, coverageSessions, coverageSession, updateStatus, AUTH_REQUIRED } from './lib/api'
   import { connectWS } from './lib/ws'
+  import { notifyWsResync } from './lib/wsext'
   import { onIncoming } from './lib/incoming'
   import { unread, applySummaries, applyRead, totalUnread } from './lib/unread.svelte'
   import { titleFor } from './lib/notify'
@@ -227,8 +231,12 @@ import { safeStorage } from './lib/storage'
       reconnected: () => {
         load()
         app.reconnects++
+        notifyWsResync()
       },
-      resync: load,
+      resync: () => {
+        load()
+        notifyWsResync()
+      },
       authLost: resetConn,
       connection: (on) => (on ? markOnline(Date.now()) : markOffline(Date.now())),
       nodes: upsertNodes,
@@ -298,6 +306,9 @@ import { safeStorage } from './lib/storage'
   <Login status={auth} onsuccess={refresh} />
 {:else}
   <div class="app">
+    <Onboarding />
+    <GlobalSearch />
+    <WhatsNew />
     <TopBar visible={visible.length} {now} tab={activeTab} onselect={goTab} onupdate={() => goTab('settings')} onpickalert={pickId} />
     <ConnectionBar />
     <div class="main">

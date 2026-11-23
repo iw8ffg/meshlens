@@ -2,6 +2,7 @@
 import json
 import sqlite3
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from .events import TelemetryData
@@ -20,6 +21,122 @@ class PurgeStep:
     done: bool
 
 
+# --- conservazione: registro delle regole ---
+# La clausola WHERE di una regola e' testo costante del codice; i valori (soglie, id dei broker)
+# passano solo dai parametri.
+
+@dataclass(frozen=True)
+class RetentionRule:
+    name: str                      # unico, es. "messages", "messages_broker"
+    table: str                     # tabella (costante del codice, mai input)
+    where: Callable[[dict, float], list[tuple[str, tuple]]]
+    counted_as: str | None = None  # chiave di PurgeStep.deleted a cui sommare le righe
+
+
+@dataclass(frozen=True)
+class _TimeWhere:
+    """`<column> < ?` (+ extra_where): confrontabile, cosi' due time_rule uguali sono uguali."""
+    setting_key: str
+    unit_s: float
+    extra_where: str
+    column: str
+
+    def __call__(self, settings: dict, now: float) -> list[tuple[str, tuple]]:
+        clause = f"{self.column} < ?"
+        if self.extra_where:
+            clause += f" AND ({self.extra_where})"
+        return [(clause, (now - settings[self.setting_key] * self.unit_s,))]
+
+
+def time_rule(name: str, table: str, setting_key: str, unit_s: float = _DAY,
+              counted_as: str | None = None, extra_where: str = "",
+              column: str = "time") -> RetentionRule:
+    return RetentionRule(name, table, _TimeWhere(setting_key, unit_s, extra_where, column),
+                         counted_as)
+
+
+def _nodes_where(settings: dict, now: float) -> list[tuple[str, tuple]]:
+    # i nodi miei, preferiti e ignorati non si cancellano mai
+    return [("(last_heard < ? OR last_heard IS NULL) AND is_mine = 0 AND is_favorite = 0 "
+             "AND COALESCE(is_ignored, 0) = 0",
+             (now - settings["retention_positions_days"] * _DAY,))]
+
+
+def _waypoints_where(settings: dict, now: float) -> list[tuple[str, tuple]]:
+    return [("(expire > 0 AND expire < ?) OR time < ?",
+             (now, now - settings["retention_positions_days"] * _DAY))]
+
+
+def _broker_messages_where(settings: dict, now: float) -> list[tuple[str, tuple]]:
+    """Un broker puo' solo conservare meno dei giorni generali dei messaggi, mai di piu'."""
+    general = settings["retention_messages_days"]
+    out = []
+    for broker, days in (settings.get("retention_broker_days") or {}).items():
+        if days < general:
+            out.append(("source = 'mqtt' AND broker = ? AND time < ?",
+                        (broker, now - days * _DAY)))
+    return out
+
+
+def _traceroutes_where(settings: dict, now: float) -> list[tuple[str, tuple]]:
+    days = settings.get("retention_traceroutes_days", 365)
+    return [("time < ?", (now - days * _DAY,))]
+
+
+BUILTIN_RETENTION_RULES: tuple[RetentionRule, ...] = (
+    time_rule("messages", "messages", "retention_messages_days", counted_as="messages"),
+    time_rule("positions", "positions", "retention_positions_days", counted_as="positions"),
+    time_rule("telemetry", "telemetry", "retention_telemetry_days", counted_as="telemetry"),
+    time_rule("links", "links", "retention_positions_days"),
+    time_rule("metrics", "metrics", "retention_telemetry_days", counted_as="metrics"),
+    time_rule("stats_hourly", "stats_hourly", "retention_telemetry_days"),
+    time_rule("node_hourly", "node_hourly", "retention_positions_days"),
+    time_rule("packets", "packets", "retention_packets_hours", unit_s=3600,
+              counted_as="packets"),
+    RetentionRule("nodes", "nodes", _nodes_where, "nodes"),
+    RetentionRule("waypoints", "waypoints", _waypoints_where),
+    time_rule("conversation_reads", "conversation_reads", "retention_messages_days",
+              column="read_time"),
+    RetentionRule("messages_broker", "messages", _broker_messages_where, "messages"),
+    RetentionRule("traceroutes", "traceroutes", _traceroutes_where),
+    time_rule("sensor_events", "sensor_events", "retention_telemetry_days"),
+    time_rule("tak_contacts", "tak_contacts", "retention_positions_days"),
+)
+_EXTRA_RULES: list[RetentionRule] = []
+# erose dal limite di spazio, in quest'ordine
+CAP_TABLES: tuple[str, ...] = ("packets", "positions", "messages")
+
+
+def retention_rules() -> tuple[RetentionRule, ...]:
+    """Regole predefinite e registrate, in ordine."""
+    return BUILTIN_RETENTION_RULES + tuple(_EXTRA_RULES)
+
+
+def register_retention_rule(rule: RetentionRule) -> None:
+    """Aggiunge una regola in coda; la stessa regola due volte non ha effetto."""
+    for r in retention_rules():
+        if r.name == rule.name:
+            if r == rule:
+                return
+            raise ValueError(f"Regola di conservazione già registrata: {rule.name}")
+    _EXTRA_RULES.append(rule)
+
+
+# Nodi ignorati: i loro messaggi restano nel database ma non si mostrano (reversibile).
+# Condizione SQL da aggiungere alle query su messages (alias della tabella: "m" o nessuno).
+NOT_IGNORED_SENDER_SQL = "from_num NOT IN (SELECT num FROM nodes WHERE is_ignored = 1)"
+
+
+def ignored_nums(conn: sqlite3.Connection) -> set[int]:
+    """Numeri dei nodi ignorati (vale anche su una connessione in sola lettura)."""
+    return {r[0] for r in conn.execute("SELECT num FROM nodes WHERE is_ignored = 1")}
+
+
+def route_signature(forward: list[dict]) -> str:
+    """Firma del percorso di andata di un traceroute: id dei salti uniti da ">"."""
+    return ">".join(h["id"] for h in forward)
+
+
 def _id_to_num(node_id: str) -> int:
     return int(node_id[1:], 16)
 
@@ -36,7 +153,7 @@ class Store:
         self.conn.commit()
 
     def upsert_node(self, node: dict, is_mine: bool | None = None,
-                    is_favorite: bool | None = None) -> None:
+                    is_favorite: bool | None = None, is_ignored: bool | None = None) -> None:
         cols = ["num", "sources", "heard_by", *_NODE_FIELDS]
         values = [node["num"], json.dumps(node.get("sources") or []),
                   json.dumps(node.get("heard_by") or {})]
@@ -49,6 +166,9 @@ class Store:
         if is_favorite is not None:
             cols.append("is_favorite")
             values.append(1 if is_favorite else 0)
+        if is_ignored is not None:
+            cols.append("is_ignored")
+            values.append(1 if is_ignored else 0)
         updates = ", ".join(f"{c}=excluded.{c}" for c in cols[1:])
         self.conn.execute(
             f"INSERT INTO nodes({', '.join(cols)}) VALUES({', '.join('?' * len(cols))}) "
@@ -183,6 +303,7 @@ class Store:
         d["heard_by"] = json.loads(d["heard_by"]) if d["heard_by"] else {}
         d["is_mine"] = bool(d["is_mine"])
         d["is_favorite"] = bool(d["is_favorite"])
+        d["is_ignored"] = bool(d.get("is_ignored"))
         return d
 
     def load_nodes(self) -> list[dict]:
@@ -197,6 +318,9 @@ class Store:
 
     def set_favorite(self, num: int, favorite: bool) -> None:
         self.conn.execute("UPDATE nodes SET is_favorite=? WHERE num=?", (1 if favorite else 0, num))
+
+    def set_ignored(self, num: int, ignored: bool) -> None:
+        self.conn.execute("UPDATE nodes SET is_ignored=? WHERE num=?", (1 if ignored else 0, num))
 
     def upsert_link(self, from_num: int, to_num: int, source: str, snr: float | None,
                     time: float) -> None:
@@ -304,31 +428,39 @@ class Store:
             "UPDATE coverage_points SET lat=?, lon=?, precision_bits=? WHERE id=?",
             (lat, lon, precision_bits, point_id))
 
-    def add_traceroute(self, radio_id: str, target_num: int, time: float) -> int:
+    def add_traceroute(self, radio_id: str, target_num: int, time: float,
+                       auto: bool = False) -> int:
         cur = self.conn.execute(
-            "INSERT INTO traceroutes(radio_id, target_num, time, status, forward, back) "
-            "VALUES(?,?,?,'pending','[]','[]')", (radio_id, target_num, time))
+            "INSERT INTO traceroutes(radio_id, target_num, time, status, forward, back, auto) "
+            "VALUES(?,?,?,'pending','[]','[]',?)", (radio_id, target_num, time, 1 if auto else 0))
         return cur.lastrowid
 
     def update_traceroute(self, tid: int, status: str, error: str | None,
                           forward: list, back: list) -> None:
+        """Esito di un traceroute; route (firma del percorso) solo se riuscito."""
+        route = route_signature(forward) if status == "ok" else None
         self.conn.execute(
-            "UPDATE traceroutes SET status=?, error=?, forward=?, back=? WHERE id=?",
-            (status, error, json.dumps(forward), json.dumps(back), tid))
+            "UPDATE traceroutes SET status=?, error=?, forward=?, back=?, route=? WHERE id=?",
+            (status, error, json.dumps(forward), json.dumps(back), route, tid))
 
     def expire_pending_traceroutes(self, error: str) -> None:
         self.conn.execute("UPDATE traceroutes SET status='timeout', error=? WHERE status='pending'",
                           (error,))
 
-    def traceroutes(self, target_num: int, limit: int = 10) -> list[dict]:
-        rows = self.conn.execute(
-            "SELECT * FROM traceroutes WHERE target_num=? ORDER BY time DESC, id DESC LIMIT ?",
-            (target_num, limit))
+    def traceroutes(self, target_num: int, limit: int = 10,
+                    before: float | None = None) -> list[dict]:
+        sql = "SELECT * FROM traceroutes WHERE target_num=?"
+        params: list = [target_num]
+        if before is not None:
+            sql += " AND time < ?"
+            params.append(before)
+        rows = self.conn.execute(sql + " ORDER BY time DESC, id DESC LIMIT ?", (*params, limit))
         return [{"id": r["id"], "radio_id": r["radio_id"],
                  "target_id": _num_to_id(r["target_num"]), "time": r["time"],
                  "status": r["status"], "error": r["error"],
                  "forward": json.loads(r["forward"] or "[]"),
-                 "back": json.loads(r["back"] or "[]")} for r in rows]
+                 "back": json.loads(r["back"] or "[]"),
+                 "auto": bool(r["auto"]), "route": r["route"]} for r in rows]
 
     # --- configurazione del nodo (letture, copie di sicurezza, lavori): non scadono ---
     def add_read(self, node_num: int, radio_id: str | None, time: float, sections: list,
@@ -453,7 +585,7 @@ class Store:
     def messages(self, countries: list[str] | None, before: float | None, limit: int,
                  radio_only: bool = False, broker: str | None = None) -> list[dict]:
         sql = ("SELECT m.*, n.long_name AS from_name FROM messages m "
-               "LEFT JOIN nodes n ON n.num = m.from_num WHERE 1=1")
+               "LEFT JOIN nodes n ON n.num = m.from_num WHERE COALESCE(n.is_ignored, 0) = 0")
         params: list = []
         if radio_only:
             sql += " AND m.radio_id IS NOT NULL"
@@ -559,45 +691,28 @@ class Store:
         return (pages - free) * page_size
 
     def purge_step(self, now: float, settings: dict, limit: int = PURGE_CHUNK) -> PurgeStep:
-        """Un passo di pulizia: al massimo `limit` righe per tabella. `done` quando non resta
-        nulla di scaduto e lo spazio e' entro il limite. Non fa commit."""
+        """Un passo di pulizia guidato dal registro delle regole: al massimo `limit` righe per
+        clausola. `done` quando non resta nulla di scaduto e lo spazio e' entro il limite.
+        Non fa commit."""
         deleted: dict[str, int] = {}
-        full = False  # una tabella ha cancellato `limit` righe: potrebbe averne ancora
-        pos_cutoff = now - settings["retention_positions_days"] * _DAY
-        for table, cutoff in (("messages", now - settings["retention_messages_days"] * _DAY),
-                              ("positions", pos_cutoff),
-                              ("telemetry", now - settings["retention_telemetry_days"] * _DAY),
-                              ("links", pos_cutoff),
-                              ("metrics", now - settings["retention_telemetry_days"] * _DAY),
-                              ("stats_hourly", now - settings["retention_telemetry_days"] * _DAY),
-                              ("node_hourly", pos_cutoff),
-                              ("packets", now - settings["retention_packets_hours"] * 3600)):
-            n = self.conn.execute(
-                f"DELETE FROM {table} WHERE rowid IN "
-                f"(SELECT rowid FROM {table} WHERE time < ? LIMIT ?)", (cutoff, limit)).rowcount
-            full = full or n >= limit
-            if table not in ("links", "stats_hourly", "node_hourly"):  # non nel conteggio
-                deleted[table] = n
-        n = self.conn.execute(
-            "DELETE FROM nodes WHERE rowid IN (SELECT rowid FROM nodes WHERE "
-            "(last_heard < ? OR last_heard IS NULL) AND is_mine = 0 AND is_favorite = 0 LIMIT ?)",
-            (pos_cutoff, limit)).rowcount
-        deleted["nodes"] = n
-        full = full or n >= limit
-        n = self.conn.execute(
-            "DELETE FROM waypoints WHERE rowid IN (SELECT rowid FROM waypoints WHERE "
-            "(expire > 0 AND expire < ?) OR time < ? LIMIT ?)", (now, pos_cutoff, limit)).rowcount
-        full = full or n >= limit  # i waypoint non entrano nel conteggio restituito
-        self.conn.execute(
-            "DELETE FROM conversation_reads WHERE conv IN (SELECT conv FROM conversation_reads "
-            "WHERE read_time < ? LIMIT ?)",
-            (now - settings["retention_messages_days"] * _DAY, limit))
+        full = False  # una clausola ha cancellato `limit` righe: potrebbe averne ancora
+        for rule in retention_rules():
+            if rule.counted_as is not None:
+                deleted.setdefault(rule.counted_as, 0)
+            for clause, params in rule.where(settings, now):
+                n = self.conn.execute(
+                    f"DELETE FROM {rule.table} WHERE rowid IN "
+                    f"(SELECT rowid FROM {rule.table} WHERE {clause} LIMIT ?)",
+                    (*params, limit)).rowcount
+                full = full or n >= limit
+                if rule.counted_as is not None:
+                    deleted[rule.counted_as] += n
         if not full and self._used_bytes() > settings["storage_cap_mb"] * 1024 * 1024:
-            for table in ("packets", "positions", "messages"):
+            for table in CAP_TABLES:
                 removed = self.conn.execute(
                     f"DELETE FROM {table} WHERE rowid IN "
                     f"(SELECT rowid FROM {table} ORDER BY time LIMIT ?)", (limit,)).rowcount
-                deleted[table] += removed
+                deleted[table] = deleted.get(table, 0) + removed
                 full = full or removed > 0
         return PurgeStep(deleted, not full)
 

@@ -3,7 +3,10 @@ import pytest
 from meshlens.db import connect
 from meshlens.events import TelemetryData
 from meshlens.settings import DEFAULTS
-from meshlens.store import Store
+from meshlens import store as store_mod
+from meshlens.store import (BUILTIN_RETENTION_RULES, RetentionRule, Store, ignored_nums,
+                            register_retention_rule,
+                            retention_rules, route_signature, time_rule)
 
 DAY = 86400
 NOW = 1_800_000_000.0
@@ -110,9 +113,9 @@ def test_purge_storage_cap(store):
         store.add_position(1, NOW - i, 45.0, 9.0, 13, "mqtt")
         store.add_message(msg(f"1:{i}", NOW - i))
     store.commit()
-    assert store._used_bytes() > 0.3 * 1024 * 1024
-    res = store.purge(NOW, {**DEFAULTS, "storage_cap_mb": 0.3})
-    assert store._used_bytes() <= 0.3 * 1024 * 1024
+    assert store._used_bytes() > 0.5 * 1024 * 1024
+    res = store.purge(NOW, {**DEFAULTS, "storage_cap_mb": 0.5})
+    assert store._used_bytes() <= 0.5 * 1024 * 1024
     assert res["positions"] > 0 and res["messages"] > 0
 
 
@@ -199,7 +202,8 @@ def test_traceroute_roundtrip(store):
     store.update_traceroute(tid, "ok", None, fwd, [])
     t = store.traceroutes(10)[0]
     assert t == {"id": tid, "radio_id": "r1", "target_id": "!0000000a", "time": 100.0,
-                 "status": "ok", "error": None, "forward": fwd, "back": []}
+                 "status": "ok", "error": None, "forward": fwd, "back": [],
+                 "auto": False, "route": "!0000000a"}
     assert store.traceroutes(11) == []
 
 
@@ -457,3 +461,151 @@ def test_purge_covers_new_tables(store):
     assert "stats_hourly" not in res and "node_hourly" not in res
     for table in ("metrics", "packets", "stats_hourly", "node_hourly"):
         assert store.conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 1, table
+
+
+# ---- 1.6: registro delle regole di conservazione, nodi ignorati, traceroute ----
+
+RULE_NAMES = ["messages", "positions", "telemetry", "links", "metrics", "stats_hourly",
+              "node_hourly", "packets", "nodes", "waypoints", "conversation_reads",
+              "messages_broker", "traceroutes", "sensor_events", "tak_contacts"]
+
+
+@pytest.fixture
+def clean_rules():
+    yield
+    store_mod._EXTRA_RULES.clear()
+
+
+def test_builtin_rules_order_and_names():
+    assert [r.name for r in BUILTIN_RETENTION_RULES] == RULE_NAMES
+
+
+def test_purge_deleted_keys_unchanged(store):
+    assert set(store.purge(NOW, DEFAULTS)) == {
+        "messages", "positions", "telemetry", "metrics", "packets", "nodes"}
+    assert set(store.purge_step(NOW, DEFAULTS).deleted) == {
+        "messages", "positions", "telemetry", "metrics", "packets", "nodes"}
+
+
+def test_purge_keeps_ignored_nodes(store):
+    old = NOW - 100 * DAY
+    store.upsert_node(node(num=1, last_heard=old), is_ignored=True)
+    store.upsert_node(node(num=2, last_heard=old))
+    assert store.purge(NOW, DEFAULTS)["nodes"] == 1
+    assert [n["num"] for n in store.load_nodes()] == [1]
+
+
+def _trace_count(store):
+    return store.conn.execute("SELECT COUNT(*) FROM traceroutes").fetchone()[0]
+
+
+def test_purge_traceroutes_by_setting(store):
+    store.add_traceroute("r1", 5, NOW - 400 * DAY)
+    store.add_traceroute("r1", 5, NOW - 10 * DAY)
+    store.purge(NOW, DEFAULTS)
+    assert _trace_count(store) == 1
+    store.purge(NOW, {**DEFAULTS, "retention_traceroutes_days": 5})
+    assert _trace_count(store) == 0
+
+
+def test_purge_sensor_events_and_tak(store):
+    c = store.conn
+    for t in (NOW - 366 * DAY, NOW - DAY):
+        c.execute("INSERT INTO sensor_events(node_num, time, kind, source) "
+                  "VALUES(1, ?, 'detection', 'rf')", (t,))
+    c.execute("INSERT INTO tak_contacts(node_num, time, source) VALUES(1, ?, 'rf')",
+              (NOW - 91 * DAY,))
+    c.execute("INSERT INTO tak_contacts(node_num, time, source) VALUES(2, ?, 'rf')", (NOW - DAY,))
+    store.purge(NOW, DEFAULTS)
+    assert [r[0] for r in c.execute("SELECT time FROM sensor_events")] == [NOW - DAY]
+    assert [r[0] for r in c.execute("SELECT node_num FROM tak_contacts")] == [2]
+
+
+def _bmsg(key, t, source="mqtt", broker="b1"):
+    return {**msg(key, t), "source": source, "broker": broker}
+
+
+def _keys(store):
+    return {r[0] for r in store.conn.execute("SELECT key FROM messages")}
+
+
+def test_purge_broker_retention_shorter_only(store):
+    for m in (_bmsg("old_b1", NOW - 10 * DAY), _bmsg("new_b1", NOW - 60),
+              _bmsg("old_rf", NOW - 10 * DAY, source="rf", broker=None),
+              _bmsg("old_def", NOW - 10 * DAY, broker="default")):
+        store.add_message(m)
+    res = store.purge(NOW, {**DEFAULTS, "retention_broker_days": {"b1": 120}})
+    assert res["messages"] == 0 and len(_keys(store)) == 4
+    res = store.purge(NOW, {**DEFAULTS, "retention_broker_days": {"b1": 7}})
+    assert res["messages"] == 1
+    assert _keys(store) == {"new_b1", "old_rf", "old_def"}
+
+
+def test_purge_without_new_settings_keys(store):
+    """Impostazioni di prima della 1.6 (senza le chiavi nuove): nessun errore."""
+    old = {k: v for k, v in DEFAULTS.items()
+           if k not in ("retention_traceroutes_days", "retention_broker_days")}
+    store.add_traceroute("r1", 5, NOW - 400 * DAY)
+    store.purge(NOW, old)
+    assert _trace_count(store) == 0
+
+
+def test_register_retention_rule(store, clean_rules):
+    store.conn.execute("CREATE TABLE extra(time REAL)")
+    store.conn.execute("INSERT INTO extra(time) VALUES(?)", (NOW - 400 * DAY,))
+    rule = time_rule("extra", "extra", "retention_telemetry_days")
+    register_retention_rule(rule)
+    register_retention_rule(rule)  # stessa regola: nessun effetto
+    assert [r.name for r in retention_rules()].count("extra") == 1
+    store.purge(NOW, DEFAULTS)
+    assert store.conn.execute("SELECT COUNT(*) FROM extra").fetchone()[0] == 0
+    with pytest.raises(ValueError):
+        register_retention_rule(time_rule("extra", "extra", "retention_positions_days"))
+    with pytest.raises(ValueError):
+        register_retention_rule(RetentionRule("messages", "messages", lambda s, now: []))
+
+
+def test_purge_sql_uses_parameters(store):
+    store.add_message(_bmsg("x", NOW - 2 * DAY, broker="x-1"))
+    store.purge(NOW, {**DEFAULTS, "retention_broker_days": {"x-1": 1}})
+    assert _keys(store) == set()
+
+
+def test_set_ignored_roundtrip(store):
+    store.upsert_node(node(num=7), is_ignored=True)
+    assert store.get_node(7)["is_ignored"] is True
+    store.upsert_node(node(num=7, long_name="Altro"))  # flag preservato
+    assert store.get_node(7)["is_ignored"] is True
+    store.set_ignored(7, False)
+    assert store.get_node(7)["is_ignored"] is False
+    store.upsert_node(node(num=8))
+    assert all("is_ignored" in n for n in store.load_nodes())
+    assert store.get_node(8)["is_ignored"] is False
+
+
+def test_traceroute_auto_and_route(store):
+    tid = store.add_traceroute("r1", 5, NOW, auto=True)
+    fwd = [{"id": "!0000000a", "snr": 1.0}, {"id": "!0000000b", "snr": 2.0}]
+    store.update_traceroute(tid, "ok", None, fwd, [])
+    t = store.traceroutes(5)[0]
+    assert t["auto"] is True and t["route"] == "!0000000a>!0000000b"
+    assert route_signature([]) == ""
+    tid2 = store.add_traceroute("r1", 5, NOW + 10)
+    store.update_traceroute(tid2, "failed", "x", [], [])
+    latest = store.traceroutes(5)[0]
+    assert latest["id"] == tid2 and latest["route"] is None and latest["auto"] is False
+    assert [x["id"] for x in store.traceroutes(5, before=NOW + 5)] == [tid]
+
+
+
+def test_messages_of_ignored_senders_kept_but_hidden(store):
+    store.upsert_node(node(num=0xA1B2C3D4), is_ignored=True)
+    store.add_message({**msg("1:1", NOW), "radio_id": "r1"})
+    store.add_message({**msg("1:2", NOW, frm="!00000009"), "radio_id": "r1"})
+    assert store.conn.execute("SELECT COUNT(*) FROM messages").fetchone()[0] == 2
+    assert [m["key"] for m in store.messages(None, None, 10)] == ["1:2"]
+    assert [m["key"] for m in store.radio_messages(None, 10)] == ["1:2"]
+    assert ignored_nums(store.conn) == {0xA1B2C3D4}
+    store.set_ignored(0xA1B2C3D4, False)  # reversibile: tutto torna
+    assert len(store.messages(None, None, 10)) == 2
+    assert ignored_nums(store.conn) == set()

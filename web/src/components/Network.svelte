@@ -15,6 +15,7 @@ import { safeStorage } from '../lib/storage'
   import Badge from '../lib/ui/Badge.svelte'
   import Icon from '../lib/ui/Icon.svelte'
   import Empty from '../lib/ui/Empty.svelte'
+  import EmptyAction from '../lib/ui/EmptyAction.svelte'
   import SnrBadge from '../lib/ui/SnrBadge.svelte'
   import Switch from '../lib/ui/Switch.svelte'
   import Table, { type Column } from '../lib/ui/Table.svelte'
@@ -87,7 +88,9 @@ import { safeStorage } from '../lib/storage'
   {:else if onlyFav && rows.length === 0 && !nodes.some((n) => n.is_favorite)}
     <Empty icon="star" title={t('network.empty.favTitle')}>{t('network.empty.favHint')}</Empty>
   {:else if rows.length === 0}
-    <Empty icon="network" title={t('network.empty.none')} />
+    <Empty icon="network" title={t('network.empty.none')}>
+      {#snippet action()}<EmptyAction kind="network" />{/snippet}
+    </Empty>
   {:else}
     <Table columns={COLS} {rows} rowKey={(n) => n.id} sortKey={key} sortDir={dir} onsort={sortBy} selectedKey={app.selectedId} onrowclick={onpick} caption={t('network.caption')}>
       {#snippet cell(n, c)}

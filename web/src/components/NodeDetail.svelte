@@ -15,6 +15,10 @@
   import { app, upsertNodes, openChat, openConfig } from '../lib/stores.svelte'
   import NodeCharts from './NodeCharts.svelte'
   import Traceroute from './Traceroute.svelte'
+  import NodeFlags from './node/NodeFlags.svelte'
+  import SensorSection from './node/SensorSection.svelte'
+  import TraceSchedule from './node/TraceSchedule.svelte'
+  import TakInfo from './node/TakInfo.svelte'
   import { formatPrecision } from '../lib/geo'
   import { copyText } from '../lib/clipboard'
   import { nodeLink } from '../lib/route'
@@ -215,6 +219,7 @@
   <div class="flags">
     <Button icon="star" aria-pressed={!!node.is_favorite} disabled={favBusy} onclick={toggleFavorite} class={node.is_favorite ? 'fav on' : 'fav'}>{t('nodes.favorite')}</Button>
     <Button icon="house" aria-pressed={!!node.is_mine} disabled={mineBusy} onclick={toggleMine} class={node.is_mine ? 'mine on' : 'mine'}>{t('nodes.mine')}</Button>
+    <NodeFlags {node} />
   </div>
 
   <div class="acts">
@@ -280,9 +285,12 @@
       {#if showMqtt}<li><SourceMark source="mqtt" size={18} /><b>MQTT</b> <span>{t('nodes.detail.gateways', { n: node.mqtt_gateways })}</span></li>{/if}
     </ul>
   {/if}
+  <TakInfo {node} />
 
   <NodeCharts nodeId={node.id} />
+  <SensorSection {node} />
   <Traceroute {node} />
+  <TraceSchedule {node} />
 </section>
 
 <style>

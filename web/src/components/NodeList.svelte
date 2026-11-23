@@ -11,6 +11,7 @@
   import { contactClass } from '../lib/ui/logic'
   import BatteryBadge from '../lib/ui/BatteryBadge.svelte'
   import Empty from '../lib/ui/Empty.svelte'
+  import EmptyAction from '../lib/ui/EmptyAction.svelte'
   import Icon from '../lib/ui/Icon.svelte'
   import Flag from '../lib/ui/Flag.svelte'
   import SnrBadge from '../lib/ui/SnrBadge.svelte'
@@ -33,6 +34,7 @@
     {t('nodes.empty.hint')}
     {#snippet action()}
       {#if hasFilters}<Button onclick={() => (app.filter = clearAllFilters(app.filter))}>{t('nodes.clearFilters')}</Button>{/if}
+      <EmptyAction kind="nodes" />
     {/snippet}
   </Empty>
 {:else}

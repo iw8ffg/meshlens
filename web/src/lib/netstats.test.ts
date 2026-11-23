@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { barRects, kindLabel, kindTotals, packetsPerHour, snrBinLabel } from './netstats'
+import { setLang } from './i18n/index.svelte'
 
 const rows = [
   { time: 7200, kind: 'text', packets: 3, receptions: 4 },
@@ -42,5 +43,19 @@ describe('netstats', () => {
   it('kindLabel: ripiego sulla chiave', () => {
     expect(kindLabel('xyz')).toBe('xyz')
     expect(kindLabel('text')).toBe('Messaggi')
+  })
+})
+
+describe('kindLabel: tipi delle app (1.6)', () => {
+  it('Sensore, Paxcounter, ATAK in italiano e inglese', () => {
+    expect(kindLabel('paxcounter')).toBe('Paxcounter')
+    expect(kindLabel('detection')).toBe('Sensore')
+    expect(kindLabel('tak')).toBe('ATAK')
+    setLang('en')
+    try {
+      expect(kindLabel('detection')).toBe('Sensor')
+    } finally {
+      setLang('it')
+    }
   })
 })

@@ -4,6 +4,9 @@ import { it as itCat } from './it'
 import { en as enCat } from './en'
 import { translateServer } from './server'
 
+// frammento finto: il catalogo unito deve leggere anche i frammenti dei pacchetti di lavoro
+vi.mock('./server-en/wp3.json', () => ({ default: { exact: { 'Prova WP3': 'WP3 test' }, patterns: [] } }))
+
 function fakeStorage(initial: Record<string, string> = {}) {
   const data = { ...initial }
   return {
@@ -82,6 +85,8 @@ const SAME_OK = new Set([
   'Config · {sec}', 'Host', 'Password', 'TLS', 'Area', 'PIN', 'Telegram', 'Russia', 'India', 'Singapore 923 MHz', 'Nepal 865 MHz',
   'GitHub → Settings → Developer settings → Personal access tokens → Fine-grained tokens → Generate new token.',
   'Repository access: Only select repositories → iw8ffg/meshlens.', 'Permissions: Contents → Read-only.',
+  // 1.6: tipi di pacchetto delle app (nomi propri)
+  'Paxcounter', 'ATAK',
 ])
 
 describe('test_en_complete', () => {
@@ -174,3 +179,37 @@ describe('translateServer', () => {
     expect(translateServer('Broker b1: id non valido')).toBe('Broker b1: invalid id')
   })
 })
+
+describe('catalogo del server: principale e frammenti (1.6)', () => {
+  afterEach(() => setLang('it'))
+  it('traduce le voci di un frammento e continua a tradurre il principale', () => {
+    setLang('en')
+    expect(translateServer('Prova WP3')).toBe('WP3 test')
+    expect(translateServer('update_channel deve essere stable oppure beta')).toBe('update_channel must be stable or beta')
+  })
+})
+
+describe('aree registrate', () => {
+  it('it contiene le chiavi di ogni area esistente', () => {
+    const areas = import.meta.glob('./it/*.ts', { eager: true }) as Record<string, Record<string, Record<string, string>>>
+    const missing: string[] = []
+    for (const [file, mod] of Object.entries(areas)) {
+      for (const area of Object.values(mod)) {
+        for (const key of Object.keys(area)) if (!Object.hasOwn(itCat, key)) missing.push(`${file}: ${key}`)
+      }
+    }
+    expect(missing).toEqual([])
+  })
+  it('le aree della 1.6 esistono in italiano e in inglese', () => {
+    const it16 = import.meta.glob('./it/*.ts')
+    const en16 = import.meta.glob('./en/*.ts')
+    for (const a of AREAS_16) {
+      expect(Object.hasOwn(it16, `./it/${a}.ts`), a).toBe(true)
+      expect(Object.hasOwn(en16, `./en/${a}.ts`), a).toBe(true)
+    }
+  })
+})
+
+const AREAS_16 = ['search', 'quick', 'onboarding', 'alertrules', 'sensors', 'health', 'layers', 'topology', 'tak',
+  'nodeflags', 'profiles', 'privacy', 'channels', 'canned', 'tracesched', 'bot', 'retention', 'radiodiag',
+  'whatsnew', 'guest']

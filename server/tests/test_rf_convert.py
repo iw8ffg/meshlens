@@ -195,3 +195,13 @@ def test_packet_to_raw_and_meta():
                               "payload": b"ciao"}, hopStart=3, hopLimit=1), "r1", NOW)
     assert t.meta.raw == b"ciao" and t.meta.portnum == "TEXT_MESSAGE_APP"
     assert (t.meta.hop_start, t.meta.hop_limit) == (3, 1)
+
+
+def test_app_packets_from_radio():
+    from meshlens.events import AppData
+    ev = packet_to_event(_pkt({"portnum": "PAXCOUNTER_APP", "payload": b""}), "r1", NOW)
+    assert ev.kind == "paxcounter" and ev.payload == AppData(34, b"")
+    ev = packet_to_event(_pkt({"portnum": "DETECTION_SENSOR_APP", "payload": b"x", "text": "x"}),
+                         "r1", NOW)
+    assert ev.kind == "detection" and ev.payload.text == "x" and ev.payload.portnum == 10
+    assert packet_to_event(_pkt({"portnum": "ATAK_PLUGIN", "payload": None}), "r1", NOW) is None

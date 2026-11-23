@@ -175,3 +175,11 @@ test('clearFilter removes one', () => {
   expect(r).toEqual({ ...f, maxAgeH: null })
   expect(clearFilter(f, 'countries').countries).toEqual([])
 })
+
+test('i nodi ignorati non compaiono mai, nemmeno se miei', () => {
+  const f = { countries: [], maxAgeH: null, sources: [], text: '', links: false }
+  expect(matchNode({ ...n, is_ignored: true }, f, now)).toBe(false)
+  expect(matchNode({ ...n, is_ignored: true, is_mine: true }, f, now)).toBe(false)
+  expect(matchNode({ ...n, is_ignored: false }, f, now)).toBe(true)
+  expect(matchNode(n, f, now)).toBe(true)
+})

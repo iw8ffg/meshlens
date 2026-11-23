@@ -31,6 +31,8 @@ export interface Node {
   public_key?: string | null
   /** Secondi epoch dell'ultimo cambio di chiave pubblica. */
   key_changed?: number | null
+  /** Nodo ignorato: nascosto ovunque (mappa, elenco, messaggi, avvisi), mai cancellato. */
+  is_ignored?: boolean
 }
 
 /** 'heard': inviato via MQTT e sentito in radio da un gateway o da una radio locale. */
@@ -141,6 +143,8 @@ export interface AuthStatus {
   pin_short?: boolean | null
   /** Cifre minime per un PIN nuovo: 6 con l'accesso dalla rete, altrimenti 4. */
   pin_min?: number
+  /** Ruolo della sessione (1.6): admin oppure ospite in sola lettura. */
+  role?: Role
 }
 
 /** Una sessione aperta (dispositivo collegato). Tempi in secondi epoch. */
@@ -194,9 +198,13 @@ export interface Link {
   time: number
 }
 
+export type AlertKind = 'battery_low' | 'silent' | 'key_changed' | 'chutil_high' | 'back_online' | 'firmware_old'
+  | 'rule_keyword' | 'rule_snr' | 'rule_geofence' | 'rule_battery' | 'rule_silent' | 'sensor_detection' | 'autonomy_low'
+export type Role = 'admin' | 'guest'
+
 export interface Alert {
   key: string
-  kind: 'battery_low' | 'silent' | 'key_changed' | 'chutil_high' | 'back_online' | 'firmware_old'
+  kind: AlertKind
   node_id: string
   node_name: string
   /** Percentuale per battery_low, ore di silenzio per silent, media canale per chutil_high. */
@@ -204,6 +212,8 @@ export interface Alert {
   since: number
   /** Versione firmware letta, solo per firmware_old. */
   detail?: string
+  /** Regola che ha prodotto l'avviso (avvisi rule_*). */
+  rule_id?: number
 }
 
 export interface TelemetryPoint {
@@ -243,6 +253,10 @@ export interface Traceroute {
   error: string | null
   forward: TracerouteHop[]
   back: TracerouteHop[]
+  /** Lanciato dallo scheduler dei traceroute automatici. */
+  auto?: boolean
+  /** Firma del percorso di andata (id uniti da ">"), solo per status ok. */
+  route?: string | null
 }
 
 export type CoverageMode = 'rangetest' | 'position'
@@ -550,3 +564,52 @@ export interface PacketDetail extends PacketRow {
   summary: Record<string, unknown> | null
   raw_hex: string
 }
+
+// ---- 1.6: tipi condivisi (WP0) ----
+
+export type AlertRuleKind = 'keyword' | 'snr_low' | 'geofence' | 'battery' | 'silent' | 'detection'
+export interface AlertRule {
+  id: number; kind: AlertRuleKind; name: string; enabled: boolean
+  node_id: string | null; channel: string | null; threshold: number | null
+  params: Record<string, unknown>; cooldown_min: number
+  created: number; updated: number; last_fired: number | null
+}
+export interface SensorEvent {
+  id: number; node_id: string; time: number; kind: 'detection'
+  text: string | null; value: number | null; source: 'rf' | 'mqtt'
+}
+export interface TraceTarget {
+  node_id: string; enabled: boolean; interval_min: number; radio_id: string | null
+  created: number; last_run: number | null; last_status: string | null
+  last_traceroute_id: number | null; fail_count: number
+}
+export interface TakContact {
+  node_id: string; callsign: string | null; device_callsign: string | null
+  team: string | null; role: string | null; battery: number | null
+  lat: number | null; lon: number | null; altitude: number | null
+  speed: number | null; course: number | null; compressed: boolean
+  time: number; source: 'rf' | 'mqtt'
+}
+export interface ConfigProfile {
+  id: number; name: string; created: number; updated: number
+  source_node_id: string | null; source_hw: string | null; firmware: string | null
+  sections: string[]; notes: string | null
+}
+export interface ConfigProfileDetail extends ConfigProfile { data: { config: Record<string, unknown>; module_config: Record<string, unknown> } }
+export interface MessageSearchHit { message: Message; snippet: string | null; conv: string | null }
+export interface MessageSearchResult { hits: MessageSearchHit[]; next: string | null; engine: 'fts5' | 'like' }
+export interface BotStatus { enabled: boolean; queued: number; sent_last_hour: number; paused_until: number | null; last_error: string | null }
+/** Poligono di una zona: coppie [lon, lat], chiuso implicitamente, almeno 3 punti (ZoneEditor, geofence). */
+export type ZonePolygon = [number, number][]
+
+// ---- 1.6: WP1 ----
+
+// ---- 1.6: WP2 ----
+
+// ---- 1.6: WP3 ----
+
+// ---- 1.6: WP4 ----
+
+// ---- 1.6: WP5 ----
+
+// ---- 1.6: WP6 ----

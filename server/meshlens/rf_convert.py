@@ -5,7 +5,8 @@ from meshtastic.protobuf import mesh_pb2
 
 from .events import (
     MeshEvent, NeighborData, NodeInfoData, PacketMeta, PositionData, RAW_MAX, RangeTestData,
-    RawPacket, RouteData, TelemetryData, TextData, WaypointData, scale_snr,
+    RawPacket, RouteData, TelemetryData, TextData, WaypointData, scale_snr, APP_KINDS,
+    APP_PORT_NAMES, AppData,
 )
 from .storeforward import parse_sf
 from .telemetry_decode import parse_telemetry, telemetry_from_dict
@@ -213,6 +214,15 @@ def packet_to_event(packet: dict, radio_id: str, now: float) -> MeshEvent | None
         kind, payload = "rangetest", _rangetest(decoded)
     elif port == "STORE_FORWARD_APP":
         kind, payload = "storeforward", parse_sf(packet)
+    elif port in APP_PORT_NAMES:
+        # Detection Sensor, Paxcounter, ATAK: payload grezzo per le estensioni
+        num, raw = APP_PORT_NAMES[port], decoded.get("payload")
+        kind = APP_KINDS[num]
+        payload = None
+        if isinstance(raw, (bytes, bytearray)):
+            raw = bytes(raw)
+            text = raw.decode("utf-8", errors="replace") if kind == "detection" else None
+            payload = AppData(portnum=num, payload=raw, text=text)
     else:
         return None
     if payload is None:

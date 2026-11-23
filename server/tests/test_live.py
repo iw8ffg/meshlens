@@ -54,3 +54,22 @@ def test_enforce_cap_below_limit_does_nothing():
     live = LiveState(max_nodes=100)
     live.load([{"num": i, "last_heard": i} for i in range(100)])
     assert live.enforce_cap() == 0 and len(live.nodes) == 100
+
+
+def test_ignored_nodes_are_kept():
+    live = LiveState(max_nodes=10)
+    nodes = [{"num": i, "last_heard": 1000 + i} for i in range(20)]
+    nodes[0]["is_ignored"] = True
+    live.load(nodes)
+    live.enforce_cap()
+    assert 0 in live.nodes and 1 not in live.nodes
+    assert live.evict_older_than(5000) >= 1 and 0 in live.nodes
+
+
+
+def test_is_ignored_helper():
+    live = LiveState()
+    live.load([{"num": 1, "is_ignored": True}, {"num": 2}])
+    assert live.is_ignored(1) and not live.is_ignored(2) and not live.is_ignored(3)
+    assert live.is_ignored_id("!00000001") and not live.is_ignored_id("boh")
+    assert not live.is_ignored_id(None)

@@ -24,8 +24,9 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.websockets import WebSocketDisconnect
 
 from . import api_prediction, api_storeforward
+from . import api_automation, api_monitor, api_radioadmin, api_search, api_topology
 from .api_data import register_data_routes
-from .alerts import CHUTIL_MIN_SAMPLES, CHUTIL_WINDOW_S, compute_alerts
+from .alerts import CHUTIL_MIN_SAMPLES, CHUTIL_WINDOW_S, compute_alerts, sort_key
 from .auth import LOOPBACK, MIN_PIN, MIN_PIN_LAN, Auth, LockedError
 from .bus import Bus
 from .channel_link import parse_channel_url
@@ -60,6 +61,10 @@ COOKIE_HTTPS = "meshlens_session_s"
 COOKIE_MAX_AGE = 365 * 24 * 3600
 LOCAL_HOSTS = (*LOOPBACK, "localhost")
 INTERNAL_KEYS = ()
+# interruttori che si accendono solo dalle rotte dedicate (bot, webhook: WP5; ospite: WP6):
+# PUT /api/settings e l'importazione possono solo spegnerli
+DEDICATED_SWITCHES = ("bot_enabled", "webhook_enabled", "guest_enabled")
+DEDICATED_SWITCH_MSG = "Questa funzione si attiva dalla sua pagina in Impostazioni"
 
 
 WS_SEND_TIMEOUT_S = 10
@@ -73,6 +78,11 @@ async def send_with_timeout(ws, msg: dict, timeout: float = WS_SEND_TIMEOUT_S) -
         return True
     except asyncio.TimeoutError:
         return False
+
+
+def is_loopback_request(request: Request) -> bool:
+    """Richiesta da questo PC (127.0.0.1 / ::1): per le rotte "solo da questo PC"."""
+    return request.client is not None and request.client.host in LOOPBACK
 
 
 @dataclass
@@ -111,6 +121,11 @@ class AppContext:
     # notifiche di Windows: impostata dal lanciatore con l'icona (None senza icona)
     toast: Callable[[str, str], None] | None = None
     notifier: Notifier | None = None  # se manca se ne crea uno sulle impostazioni del database
+    # 1.6: servizi delle estensioni (ctx.ext["<nome>"]) e sorgenti di avvisi aggiuntive:
+    # (now, impostazioni, avvisi precedenti per chiave) -> avvisi nel formato di compute_alerts
+    ext: dict[str, object] = field(default_factory=dict)
+    alert_sources: list[Callable[[float, dict, dict[str, dict]], list[dict]]] = field(
+        default_factory=list)
     _alerts: list = field(default_factory=list)
     _alerts_ready: bool = False
 
@@ -133,6 +148,22 @@ class AppContext:
             t.daemon = True
             t.start()
 
+    def set_node_ignored(self, num: int, ignored: bool) -> dict | None:
+        """Ignora (o ripristina) un nodo: database, memoria, evento "nodes" e "resync" (i client
+        ricaricano messaggi e avvisi). None se il nodo non e' noto. Usata dalla rotta di WP4."""
+        node = self.live.nodes.get(num)
+        if node is None:
+            stored = self.store.get_node(num)
+            if stored is None:
+                return None
+            node = self.live.nodes[num] = revive_node(self.store, num)
+        self.store.set_ignored(num, ignored)
+        self.store.commit()
+        node["is_ignored"] = bool(ignored)
+        self.live.mark_changed(num)
+        self.bus.publish({"type": "resync"})
+        return node
+
     def alerts(self) -> list[dict]:
         """Ricalcola gli avvisi; pubblica sul WS solo se key o value cambiano."""
         old = self._alerts
@@ -141,8 +172,18 @@ class AppContext:
         stats = self.store.channel_util_stats([n["num"] for n in mine], now - CHUTIL_WINDOW_S)
         chutil = {n["id"]: stats[n["num"]][0] for n in mine
                   if n["num"] in stats and stats[n["num"]][1] >= CHUTIL_MIN_SAMPLES}
-        new = compute_alerts(self.live.nodes.values(), load_settings(self.conn), now,
-                             {a["key"]: a for a in old}, chutil)
+        settings = load_settings(self.conn)
+        prev = {a["key"]: a for a in old}
+        new = compute_alerts(self.live.nodes.values(), settings, now, prev, chutil)
+        for src in list(self.alert_sources):
+            try:
+                new.extend(src(now, settings, prev))
+            except Exception:  # noqa: BLE001 - una sorgente rotta non ferma gli altri avvisi
+                logging.getLogger(__name__).exception("Sorgente di avvisi %s fallita",
+                                                      getattr(src, "__qualname__", src))
+        # nodi ignorati: nessun avviso, nemmeno dalle sorgenti delle estensioni
+        new = [a for a in new if not self.live.is_ignored_id(a.get("node_id"))]
+        new.sort(key=sort_key)
         self._alerts = new
         if [(a["key"], a["value"]) for a in new] != [(a["key"], a["value"]) for a in old]:
             self.bus.publish({"type": "alerts", "alerts": new})
@@ -447,7 +488,7 @@ def create_app(ctx: AppContext) -> FastAPI:
                             secure=https and not is_loopback(request), path="/")
 
     def is_loopback(request: Request) -> bool:
-        return request.client is not None and request.client.host in LOOPBACK
+        return is_loopback_request(request)
 
     def is_local(request: Request) -> bool:
         return request.client is not None and request.client.host in LOCAL_HOSTS
@@ -647,6 +688,8 @@ def create_app(ctx: AppContext) -> FastAPI:
                 break
             if broker is not None and msg.get("broker") != broker:
                 continue
+            if msg.get("direction") != "out" and ctx.live.is_ignored_id(msg.get("from")):
+                continue  # mittente ignorato
             if _matches(msg.get("country"), wanted):
                 out.append(msg)
         return out
@@ -694,10 +737,16 @@ def create_app(ctx: AppContext) -> FastAPI:
             raise HTTPException(
                 400, "Per attivare l'accesso dalla rete serve un PIN di almeno 6 cifre: cambia prima il PIN")
 
+    def check_dedicated_switches(changes: dict) -> None:
+        """bot, webhook e accesso ospite non si accendono da qui (spegnerli resta possibile)."""
+        if any(changes.get(k) is True for k in DEDICATED_SWITCHES):
+            raise HTTPException(400, DEDICATED_SWITCH_MSG)
+
     @app.put("/api/settings", dependencies=[Depends(require_auth), Depends(require_json)])
     async def put_settings(changes: dict):
         changes = dict(changes)
         check_lan_pin(changes)
+        check_dedicated_switches(changes)
         if "mqtt_brokers" in changes:
             changes.pop("mqtt", None)  # vista di compatibilita': vale la lista dei broker
             try:
@@ -739,6 +788,7 @@ def create_app(ctx: AppContext) -> FastAPI:
         try:
             changes, skipped = prepare_import(body, load_settings(ctx.conn))
             check_lan_pin(changes)
+            check_dedicated_switches(changes)
             saved = save_settings(ctx.conn, changes)
         except ValueError as e:
             raise HTTPException(400, str(e))
@@ -1481,6 +1531,12 @@ def create_app(ctx: AppContext) -> FastAPI:
     api_storeforward.register(app, ctx, require_auth, require_json)
     api_prediction.register(app, ctx, require_auth, require_json)
     register_data_routes(app, ctx, require_auth)
+    # 1.6: moduli di rotte dei pacchetti di lavoro (contratto §5.1)
+    api_search.register(app, ctx, require_auth, require_json)       # WP1
+    api_monitor.register(app, ctx, require_auth, require_json)      # WP2
+    api_topology.register(app, ctx, require_auth, require_json)     # WP3
+    api_radioadmin.register(app, ctx, require_auth, require_json)   # WP4
+    api_automation.register(app, ctx, require_auth, require_json)   # WP5
 
     # ---- statici (ultimi: catch-all) ----
     if ctx.static_dir is not None and Path(ctx.static_dir).exists():

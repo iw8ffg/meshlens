@@ -122,3 +122,23 @@ def test_key_changed_for_mine_and_favorite():
              node(3, long_name="C")]
     out = compute_alerts(nodes, SET, NOW, {}, chutil={"!00000003": 50.0})
     assert [a["kind"] for a in out] == ["silent", "key_changed", "chutil_high"]
+
+
+def test_sort_key_unknown_kind_last():
+    from meshlens.alerts import KIND_ORDER, sort_key
+    assert sort_key({"kind": "zzz", "node_name": "a"}) > sort_key({"kind": "autonomy_low", "node_name": "a"})
+    assert set(KIND_ORDER) == {
+        "battery_low", "silent", "key_changed", "chutil_high", "firmware_old", "back_online",
+        "rule_keyword", "rule_snr", "rule_geofence", "rule_battery", "rule_silent",
+        "sensor_detection", "autonomy_low"}
+
+
+
+def test_ignored_nodes_have_no_alerts():
+    from meshlens.alerts import compute_alerts
+    now = 1_800_000_000.0
+    n = {"id": "!00000001", "num": 1, "long_name": "A", "is_mine": True, "last_heard": now - 86400,
+         "battery": 5}
+    settings = {"battery_alert_pct": 20, "silent_alert_hours": 6}
+    assert compute_alerts([n], settings, now, {})
+    assert compute_alerts([{**n, "is_ignored": True}], settings, now, {}) == []

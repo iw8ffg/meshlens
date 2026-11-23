@@ -7,7 +7,7 @@ import sys
 from typing import Protocol
 
 # chiavi di primo livello delle impostazioni salvate cifrate
-SECRET_KEYS = ("update_token", "telegram_token")
+SECRET_KEYS = ("update_token", "telegram_token", "webhook_url")
 
 DPAPI_PREFIX = "dpapi:v1:"
 PLAIN_PREFIX = "plain:"
