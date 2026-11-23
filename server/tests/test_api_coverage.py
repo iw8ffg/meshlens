@@ -129,16 +129,16 @@ async def test_stop_patch_delete(env):
         s = (await c.post("/api/coverage/sessions",
                           json={"radio_id": rid, "mobile_id": MOBILE_ID})).json()
         url = f"/api/coverage/sessions/{s['id']}"
-        assert (await c.delete(url)).status_code == 409
+        assert (await c.request("DELETE", url, json={})).status_code == 409
         r = await c.patch(url, json={"name": "Nuovo", "notes": "n", "base_lat": 44.0,
                                      "base_lon": 10.0})
         assert r.status_code == 200 and r.json()["name"] == "Nuovo" and r.json()["base_lat"] == 44.0
         assert (await c.patch(url, json={"base_lat": 44.0})).status_code == 400
         assert (await c.patch("/api/coverage/sessions/999", json={"name": "x"})).status_code == 404
-        r = await c.post(url + "/stop")
+        r = await c.post(url + "/stop", json={})
         assert r.status_code == 200 and r.json()["end_reason"] == "manual"
-        assert (await c.post(url + "/stop")).status_code == 409
-        assert (await c.delete(url)).status_code in (200, 204)
+        assert (await c.post(url + "/stop", json={})).status_code == 409
+        assert (await c.request("DELETE", url, json={})).status_code in (200, 204)
         assert (await c.get(url)).status_code == 404
         assert (await c.get("/api/coverage/sessions")).json() == []
 

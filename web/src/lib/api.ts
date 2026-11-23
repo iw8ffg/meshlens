@@ -55,9 +55,10 @@ export function emitAuthRequired(): void {
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const init: RequestInit = { method, credentials: 'same-origin' }
-  if (body !== undefined) {
+  // il server richiede application/json su ogni scrittura: senza dati si manda {}
+  if (body !== undefined || method !== 'GET') {
     init.headers = { 'Content-Type': 'application/json' }
-    init.body = JSON.stringify(body)
+    init.body = JSON.stringify(body ?? {})
   }
   const res = await fetch('/api' + path, init)
   if (!res.ok) {

@@ -34,7 +34,9 @@ def single_instance(port: int) -> str:
     except OSError:
         return "free"
     try:
-        with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/ping", timeout=2.0) as r:
+        # senza proxy: il loopback non deve mai passare dal proxy di sistema
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        with opener.open(f"http://127.0.0.1:{port}/api/ping", timeout=2.0) as r:
             data = json.loads(r.read(4096).decode("utf-8", "replace"))
         if isinstance(data, dict) and data.get("app") == "meshlens":
             return "meshlens"

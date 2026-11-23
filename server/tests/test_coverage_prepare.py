@@ -60,7 +60,7 @@ async def test_private_channel_same_psk_both_and_risky():
     psks = {n: protos["channels"][0].settings.psk
             for n, protos in ((REMOTE_NUM, conn.nodes[REMOTE_NUM]), (None, conn.nodes[None]))}
     assert len(psks[None]) == 32 and psks[None] == psks[REMOTE_NUM]
-    assert psks[None] != b"CHANPSK-SECRET-0001"
+    assert psks[None] != b"CHANPSK-SECRET-1"
     for n in (None, REMOTE_NUM):
         ch = conn.nodes[n]["channels"][0].settings
         assert ch.name == "MLprova" and ch.module_settings.position_precision == 32
@@ -150,7 +150,7 @@ async def test_restore_both_nodes_mobile_first():
         await settle(ctx, r.json()["jobs"])
         assert [w[0] for w in conn.writes[n:]] == [REMOTE_NUM, None]
         assert conn.nodes[None]["channels"][0].settings.name == "LongFast"
-        assert conn.nodes[None]["channels"][0].settings.psk == b"CHANPSK-SECRET-0001"
+        assert conn.nodes[None]["channels"][0].settings.psk == b"CHANPSK-SECRET-1"
         assert not conn.nodes[None]["module_config"].range_test.enabled
         # gia' ripristinato
         r = await c.post("/api/coverage/restore", json={"plan_id": plan["plan_id"]})

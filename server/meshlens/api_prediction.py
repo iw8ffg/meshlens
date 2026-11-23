@@ -45,7 +45,8 @@ def register(app, ctx, require_auth, require_json) -> None:
         except (PredictionError, ElevationError) as e:
             return error_response(e)
 
-    @app.post("/api/prediction/jobs/{job_id}/cancel", dependencies=[Depends(require_auth)])
+    @app.post("/api/prediction/jobs/{job_id}/cancel",
+              dependencies=[Depends(require_auth), Depends(require_json)])
     async def prediction_cancel(job_id: str):
         try:
             return await service().cancel(job_id)
@@ -63,7 +64,8 @@ def register(app, ctx, require_auth, require_json) -> None:
         except PredictionError as e:
             return error_response(e)
 
-    @app.delete("/api/predictions/{pid}", status_code=204, dependencies=[Depends(require_auth)])
+    @app.delete("/api/predictions/{pid}", status_code=204,
+                dependencies=[Depends(require_auth), Depends(require_json)])
     async def predictions_delete(pid: str):
         try:
             service().delete(pid)

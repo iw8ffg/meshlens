@@ -6,8 +6,8 @@ async def test_requires_auth():
     ctx = make_ctx()
     async with client(ctx) as c:
         assert (await c.get("/api/update/status")).status_code == 401
-        assert (await c.post("/api/update/check")).status_code == 401
-        assert (await c.post("/api/update/download")).status_code == 401
+        assert (await c.post("/api/update/check", json={})).status_code == 401
+        assert (await c.post("/api/update/download", json={})).status_code == 401
         assert (await c.post("/api/update/install", json={"confirm": True})).status_code == 401
 
 
@@ -17,9 +17,9 @@ async def test_flow(tmp_path):
     async with logged(ctx) as c:
         s = (await c.get("/api/update/status")).json()
         assert s["latest"] is None and s["job"] is None and s["can_install"] is False
-        s = (await c.post("/api/update/check")).json()
+        s = (await c.post("/api/update/check", json={})).json()
         assert s["available"] and s["latest"] == "1.0.1"
-        r = await c.post("/api/update/download")
+        r = await c.post("/api/update/download", json={})
         assert r.status_code == 202 and r.json()["status"] == "running"
         await ctx.updater._task
         assert (await c.get("/api/update/status")).json()["can_install"] is True
@@ -33,8 +33,8 @@ async def test_dev_install_409_and_download_without_update(tmp_path):
     ctx = make_ctx()
     ctx.updater = make(tmp_path, frozen=False)
     async with logged(ctx) as c:
-        assert (await c.post("/api/update/download")).status_code == 409
-        await c.post("/api/update/check")
+        assert (await c.post("/api/update/download", json={})).status_code == 409
+        await c.post("/api/update/check", json={})
         r = await c.post("/api/update/install", json={"confirm": True})
         assert r.status_code == 409
         assert r.json()["detail"] == "Disponibile solo nella versione installata"
@@ -44,7 +44,7 @@ async def test_check_error_in_status(tmp_path):
     ctx = make_ctx()
     ctx.updater = make(tmp_path, FakeHttp(status=404), token="")
     async with logged(ctx) as c:
-        r = await c.post("/api/update/check")
+        r = await c.post("/api/update/check", json={})
         assert r.status_code == 200 and "Repository privato" in r.json()["error"]
 
 

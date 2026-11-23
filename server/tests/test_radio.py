@@ -1084,3 +1084,21 @@ async def test_stop_during_blocked_connect_returns_and_closes_late():
     await asyncio.wait_for(h.conn.stop(), 2)  # non attende il thread bloccato
     release.set()
     await h.until(lambda: iface.closed == 1)
+
+
+async def test_send_fails_fast_when_radio_lock_is_held(monkeypatch):
+    import meshlens.radio as radio_mod
+    from meshlens.radio import RadioBusy
+    monkeypatch.setattr(radio_mod, "SEND_LOCK_TIMEOUT", 0.1)
+    iface = FakeIface()
+    h = Harness(lambda cfg, n: iface)
+    await connected(h)
+    await h.conn._send_lock.acquire()  # come un'operazione admin in corso
+    try:
+        for coro in (h.conn.send_text("ciao", 0, None), h.conn.send_traceroute(0x42)):
+            with pytest.raises(RadioBusy, match="occupata, riprova tra poco"):
+                await asyncio.wait_for(coro, 2)
+        assert iface.sent == [] and iface.sent_data == []
+    finally:
+        h.conn._send_lock.release()
+    await h.conn.stop()

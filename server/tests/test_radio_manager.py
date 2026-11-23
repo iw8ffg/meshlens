@@ -746,3 +746,20 @@ def test_tcp_interface_does_not_reconnect_by_itself():
         assert iface._readBytes(1) is None and iface._wantExit
     finally:
         srv.close()
+
+
+async def test_traceroute_radio_busy_is_not_a_value_error_and_keeps_the_slot_free():
+    from meshlens.radio import RadioBusy
+    e = Env()
+    r = await e.mgr.add("usb", "COM5", "A")
+    conn = FakeConnector.instances[0]
+    orig = conn.send_traceroute
+
+    async def busy(*a, **k):
+        raise RadioBusy()
+
+    conn.send_traceroute = busy
+    with pytest.raises(RadioBusy):
+        await e.mgr.traceroute(TARGET, r["id"])
+    conn.send_traceroute = orig
+    await e.mgr.traceroute(TARGET, r["id"])  # nessun TracerouteThrottled

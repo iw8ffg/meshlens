@@ -34,6 +34,8 @@ MSG_TCP_NO_REPLY = ("La radio risponde ma non parla Meshtastic su questa porta, 
 MSG_BLE_CONNECT = "Connessione Bluetooth non riuscita: avvicina la radio e riprova"
 CLOSE_TIMEOUT = 12.0
 SEND_TIMEOUT = 30.0
+SEND_LOCK_TIMEOUT = 5.0  # attesa massima del lock di invio (occupato da un'operazione admin)
+MSG_RADIO_BUSY = "Radio occupata, riprova tra poco"
 
 # operazioni admin: 60 s per richiesta (mai i 300 s di default della libreria)
 ADMIN_TIMEOUT = 60
@@ -51,6 +53,13 @@ TIMEOUT_REASONS = {"MAX_RETRANSMIT", "TIMEOUT", "NO_RESPONSE"}
 MODULE_SECTIONS = ("mqtt", "serial", "external_notification", "store_forward", "range_test",
                    "telemetry", "canned_message", "audio", "remote_hardware", "neighbor_info",
                    "detection_sensor", "ambient_lighting", "paxcounter", "traffic_management")
+
+
+class RadioBusy(RuntimeError):
+    """Il lock di invio e' occupato (es. da un'operazione admin): l'API risponde 409."""
+
+    def __init__(self):
+        super().__init__(MSG_RADIO_BUSY)
 
 
 class AdminError(Exception):
@@ -478,6 +487,18 @@ class RadioConnector:
             return
         self._emit(self._on_event, raw)
 
+    @contextlib.asynccontextmanager
+    async def _send_slot(self):
+        """Lock di invio con attesa limitata: se un'operazione admin lo tiene, RadioBusy."""
+        try:
+            await asyncio.wait_for(self._send_lock.acquire(), SEND_LOCK_TIMEOUT)
+        except asyncio.TimeoutError:
+            raise RadioBusy() from None
+        try:
+            yield
+        finally:
+            self._send_lock.release()
+
     # ---- invio e conferme -------------------------------------------
     async def send_text(self, text: str, channel_index: int, dest: str | None,
                         reply_id: int | None = None, emoji: bool = False) -> int:
@@ -502,7 +523,7 @@ class RadioConnector:
             iface._sendPacket(pkt, dest or BROADCAST, wantAck=True)
             return pkt
 
-        async with self._send_lock:  # un invio alla volta per radio
+        async with self._send_slot():  # un invio alla volta per radio
             try:
                 packet = await asyncio.wait_for(self._call(send), SEND_TIMEOUT)
             except asyncio.TimeoutError:
@@ -523,7 +544,7 @@ class RadioConnector:
         iface = self._iface
         if iface is None or self._state != "connected":
             raise RuntimeError("Radio non connessa")
-        async with self._send_lock:  # un invio alla volta per radio
+        async with self._send_slot():  # un invio alla volta per radio
             try:
                 packet = await asyncio.wait_for(self._call(
                     lambda: iface.sendData(
@@ -540,7 +561,7 @@ class RadioConnector:
         iface = self._iface
         if iface is None or self._state != "connected":
             raise RuntimeError("Radio non connessa")
-        async with self._send_lock:  # un invio alla volta per radio
+        async with self._send_slot():  # un invio alla volta per radio
             try:
                 packet = await asyncio.wait_for(self._call(
                     lambda: iface.sendData(
@@ -569,7 +590,7 @@ class RadioConnector:
         iface = self._iface
         if iface is None or self._state != "connected":
             raise RuntimeError("Radio non connessa")
-        async with self._send_lock:  # un invio alla volta per radio
+        async with self._send_slot():  # un invio alla volta per radio
             try:
                 packet = await asyncio.wait_for(self._call(
                     lambda: iface.sendData(
