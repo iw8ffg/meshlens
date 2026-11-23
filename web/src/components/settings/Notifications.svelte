@@ -279,6 +279,7 @@ import { safeStorage } from '../../lib/storage'
             <textarea id="notif-keywords" class="ui-input ui-mono" rows="2" aria-describedby={describedby} bind:value={keywordsText}></textarea>
           {/snippet}
         </Field>
+        <p class="ui-hint">{t('notify.rulesHint')}</p>
 
         <div class="row">
           <Button kind="primary" disabled={busy || !chatOk} onclick={saveExternal}>{t('notify.save')}</Button>

@@ -142,3 +142,22 @@ def test_ignored_nodes_have_no_alerts():
     settings = {"battery_alert_pct": 20, "silent_alert_hours": 6}
     assert compute_alerts([n], settings, now, {})
     assert compute_alerts([{**n, "is_ignored": True}], settings, now, {}) == []
+
+
+def test_rule_alert_kinds_are_ordered():
+    from meshlens.alerts import KIND_ORDER, RULE_ALERT_KIND, sort_key
+    assert all(v in KIND_ORDER for v in RULE_ALERT_KIND.values())
+    assert sort_key({"kind": "back_online", "node_name": "z"}) < sort_key(
+        {"kind": "rule_keyword", "node_name": "a"}) < sort_key(
+        {"kind": "sensor_detection", "node_name": "a"})
+
+
+def test_rule_alert_shape():
+    from meshlens.alerts import rule_alert
+    n = {"id": "!00000009", "long_name": "Mio"}
+    assert rule_alert("battery", 7, n, 100.0, 12) == {
+        "key": "rule:7:!00000009", "kind": "rule_battery", "node_id": "!00000009",
+        "node_name": "Mio", "value": 12, "since": 100.0, "rule_id": 7}
+    assert rule_alert("keyword", 7, n, 100.0, 0, "x")["detail"] == "x"
+    assert rule_alert("silent", 1, {"id": "!1", "short_name": "SN"}, 1.0, 1)["node_name"] == "SN"
+    assert rule_alert("silent", 1, {"id": "!1"}, 1.0, 1)["node_name"] == "!1"

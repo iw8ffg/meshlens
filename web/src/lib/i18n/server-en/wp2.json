@@ -1,4 +1,23 @@
 {
-  "exact": {},
+  "exact": {
+    "Tipo di avviso non valido": "Invalid alert type",
+    "Il nome può avere al massimo 60 caratteri": "The name can have at most 60 characters",
+    "La pausa deve essere tra 1 e 1440 minuti": "The pause must be between 1 and 1440 minutes",
+    "Scegli il nodo a cui si applica l'avviso": "Choose the node the alert applies to",
+    "Servono da 1 a 10 parole di almeno 2 e al massimo 32 caratteri": "Use 1 to 10 words of 2 to 32 characters each",
+    "La soglia dell'SNR deve essere tra -30 e 20 dB": "The SNR threshold must be between -30 and 20 dB",
+    "La finestra deve essere tra 15 e 1440 minuti": "The window must be between 15 and 1440 minutes",
+    "I campioni minimi devono essere tra 1 e 50": "The minimum samples must be between 1 and 50",
+    "La soglia della batteria deve essere un intero tra 1 e 99%": "The battery threshold must be a whole number between 1 and 99%",
+    "La soglia del silenzio deve essere tra 0,25 e 168 ore": "The silence threshold must be between 0.25 and 168 hours",
+    "La zona deve avere da 3 a 64 punti con coordinate valide": "The zone must have 3 to 64 points with valid coordinates",
+    "La zona non deve avere lati che si incrociano né area nulla": "The zone must not have crossing sides or zero area",
+    "Il tipo di scatto deve essere uscita, entrata o entrambi": "The trigger must be exit, enter or both",
+    "Il testo da cercare può avere al massimo 32 caratteri": "The text to match can have at most 32 characters",
+    "Parametri dell'avviso non validi": "Invalid alert parameters",
+    "Hai raggiunto il limite di 100 avvisi su misura": "You have reached the limit of 100 custom alerts",
+    "Avviso su misura non trovato": "Custom alert not found",
+    "Gli avvisi su misura non sono disponibili": "Custom alerts are not available"
+  },
   "patterns": []
 }

@@ -4,6 +4,7 @@
   import { t, type MsgKey } from '../lib/i18n/index.svelte'
   import { batterySeries, pctRange, voltageSeries, type Pt } from '../lib/chart'
   import { dupeRatio, formatMetric, metricInfo, orderMetrics } from '../lib/metrics'
+  import { hasPax, paxSeries } from '../lib/sensors'
   import type { AppSettings } from '../lib/settings'
   import type { MetricsResponse, SnrPoint, TelemetryPoint } from '../lib/types'
   import LineChart from './charts/LineChart.svelte'
@@ -89,14 +90,17 @@
   const dupe = $derived(dupeRatio(met.latest))
   const sensorCharts = $derived(
     orderMetrics(Object.keys(met.series))
-      .filter((k) => metricInfo(k).chart !== false && met.series[k].length > 0)
+      .filter((k) => !k.startsWith('paxcounter.') && metricInfo(k).chart !== false && met.series[k].length > 0)
       .slice(0, MAX_SENSOR_CHARTS)
       .map((k) => {
         const pts: Pt[] = met.series[k].map(([time, v]) => ({ t: time, v }))
         return { key: k, info: metricInfo(k), pts, ext: extent([pts]) }
       }),
   )
-  const hasSensors = $derived(latestKeys.length > 0 || sensorCharts.length > 0)
+  const pax = $derived(paxSeries(met.series))
+  const paxExt = $derived(extent([pax.wifi, pax.ble]))
+  const hasPaxChart = $derived(hasPax(met.series))
+  const hasSensors = $derived(latestKeys.length > 0 || sensorCharts.length > 0 || hasPaxChart)
   const empty = $derived(!hasBat && !hasChan && !hasSnr && !hasSensors)
 </script>
 
@@ -166,6 +170,18 @@
         {/each}
       </dl>
       {#if dupe !== null}<p class="sub">{t('nodes.charts.dupes', { pct: num(dupe * 100, 0) })}</p>{/if}
+    {/if}
+    {#if hasPaxChart}
+      <p class="sub">{t('sensors.pax.title')}</p>
+      <LineChart
+        label={t('sensors.pax.aria')}
+        x0={paxExt[0]}
+        x1={paxExt[1]}
+        series={[
+          { key: 'pax_wifi', label: t('sensors.pax.wifi'), unit: '', digits: 0, color: 'accent', points: pax.wifi },
+          { key: 'pax_ble', label: t('sensors.pax.ble'), unit: '', digits: 0, color: 'amber', dash: true, points: pax.ble },
+        ]}
+      />
     {/if}
     {#each sensorCharts as c (c.key)}
       <p class="sub">{c.info.label}</p>

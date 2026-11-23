@@ -52,15 +52,20 @@ export const METRIC_INFO: Record<string, MetricDef> = {
   'local_stats.uptime_seconds': { unit: 's', digits: 0, chart: false },
   'local_stats.heap_total_bytes': { unit: 'B', digits: 0, chart: false },
   'local_stats.heap_free_bytes': { unit: 'B', digits: 0, chart: false },
+  // 1.6: Paxcounter (conteggio di dispositivi Wi-Fi/Bluetooth); le etichette stanno in `sensors.metric.*`
+  'paxcounter.wifi': { unit: '', digits: 0 },
+  'paxcounter.ble': { unit: '', digits: 0 },
+  'paxcounter.uptime': { unit: 's', digits: 0, chart: false },
 }
 
-const VARIANTS = ['environment', 'air_quality', 'power', 'health', 'local_stats']
+const VARIANTS = ['environment', 'air_quality', 'power', 'health', 'local_stats', 'paxcounter']
 const CATALOG_KEYS = Object.keys(METRIC_INFO)
 
 export function metricInfo(key: string): MetricInfo {
   const def = Object.hasOwn(METRIC_INFO, key) ? METRIC_INFO[key] : undefined
   if (!def) return { label: key, unit: '', digits: 2, chart: true }
-  return { ...def, label: t(`nodes.metric.${key}` as MsgKey) }
+  const area = key.startsWith('paxcounter.') ? 'sensors.metric' : 'nodes.metric'
+  return { ...def, label: t(`${area}.${key}` as MsgKey) }
 }
 
 function variantRank(key: string): number {

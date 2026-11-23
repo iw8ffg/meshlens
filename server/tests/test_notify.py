@@ -286,3 +286,80 @@ def test_texts_exact():
     assert notify.TEXTS["keyword"] == ("«{word}» in chat", "{name}: {text}")
     assert notify.TEXTS["test"] == ("Prova di MeshLens", "Le notifiche funzionano")
     assert notify.QUIET_S == 300 and notify.DEDUP_S == 600 and notify.MAX_PER_HOUR == 30
+
+
+RULE_FMT = {
+    "rule_keyword": ({"word": "aiuto", "name": "Mio", "text": "serve aiuto"},
+                     ("Parola «aiuto» in chat", "Mio: serve aiuto")),
+    "rule_snr": ({"name": "Mio", "snr": -9.0, "thr": -5, "window": 60},
+                 ("Segnale debole: Mio", "SNR medio -9.0 dB (soglia -5 dB)")),
+    "rule_geofence_exit": ({"name": "Mio", "zone": "Casa", "lat": 45.1, "lon": 9.2},
+                           ("Mio è uscito da «Casa»", "Ultima posizione: 45.1, 9.2")),
+    "rule_geofence_enter": ({"name": "Mio", "zone": "Casa", "lat": 45.1, "lon": 9.2},
+                            ("Mio è entrato in «Casa»", "Posizione: 45.1, 9.2")),
+    "rule_battery": ({"name": "Mio", "pct": 15, "thr": 20},
+                     ("Batteria bassa: Mio", "Batteria al 15% (soglia 20%)")),
+    "rule_silent": ({"name": "Mio", "hours": 3.5, "thr": 2},
+                    ("Mio non risponde", "Nessun pacchetto da 3.5 h (soglia 2 h)")),
+    "sensor_detection": ({"name": "Mio", "text": "Porta detected"},
+                         ("Mio: rilevamento", "Porta detected")),
+}
+
+
+@pytest.mark.parametrize("kind", list(RULE_FMT))
+def test_rule_texts_format(kind):
+    n, _c, _s, toasts, sent, _r = make()
+    fmt, (title, body) = RULE_FMT[kind]
+    n.send(kind, "k", dedup=False, **fmt)
+    assert toasts == [(title, body)]
+    assert sent == [(TOKEN, "42", f"{title}\n{body}")]
+
+
+def test_rule_text_with_braces_is_safe():
+    n, _c, _s, toasts, _sent, _r = make()
+    n.send("rule_keyword", "k", dedup=False, word="a", name="X", text="{boom} {0}")
+    assert toasts == [("Parola «a» in chat", "X: {boom} {0}")]
+
+
+def test_rule_budget_is_20_per_hour_without_dedup():
+    n, clock, _s, toasts, _sent, _r = make()
+    for _ in range(25):
+        n.send("rule_battery", "same", dedup=False, name="A", pct=1, thr=20)
+    assert len(toasts) == notify.RULE_PER_HOUR == 20
+    clock.t += 3601
+    n.send("rule_battery", "same", dedup=False, name="A", pct=1, thr=20)
+    assert len(toasts) == 21
+    n.send("rule_battery", "same", dedup=False, name="A", pct=1, thr=20)
+    assert len(toasts) == 22
+    n2, _c, _s2, toasts2, _s3, _r2 = make()  # con il dedup (predefinito) la stessa chiave passa una volta
+    n2.send("new_node", "x", name="A")
+    n2.send("new_node", "x", name="A")
+    assert len(toasts2) == 1
+
+
+def test_rule_kinds_do_not_use_other_budgets():
+    n, _c, _s, toasts, _sent, _r = make()
+    for i in range(30):
+        n.send("rule_silent", str(i), dedup=False, name="A", hours=3, thr=2)
+    before = len(toasts)
+    n.send("new_node", "z", name="Nuovo")
+    assert len(toasts) == before + 1
+
+
+def test_rules_ready():
+    n, clock, _s, _t, _sent, radios = make()
+    assert n.rules_ready() is False  # silenzio iniziale
+    clock.t += 301
+    assert n.rules_ready() is False  # nessuna sorgente
+    radios.append({"id": "r1", "state": "connected"})
+    assert n.rules_ready() is False  # il cambio di radio riavvia il silenzio
+    clock.t += 301
+    assert n.rules_ready() is True
+    radios.clear()
+    clock.t += 301
+    assert n.rules_ready() is False
+    n.get_mqtt_connected = lambda: True
+    clock.t += 301
+    assert n.rules_ready() is True
+    radios.append({"id": "r2", "state": "connected"})
+    assert n.rules_ready(clock.t) is False

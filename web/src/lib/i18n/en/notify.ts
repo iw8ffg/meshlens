@@ -37,4 +37,5 @@ export const notify: Record<keyof typeof itArea, string> = {
   'notify.keywordsLabel': 'Keywords in chat (comma-separated)',
   'notify.keywordsHint': 'At least 2 characters each, at most 20.',
   'notify.save': 'Save notifications',
+  'notify.rulesHint': 'For per-node alerts, keywords in a channel and zones, see "Custom alerts".',
 }
