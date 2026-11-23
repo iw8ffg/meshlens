@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { DRAFTS_KEY, loadDraft, saveDraft } from './drafts'
+import { DRAFTS_KEY, draftSentUnchanged, loadDraft, saveDraft } from './drafts'
+
+describe('draftSentUnchanged', () => {
+  it('svuota solo se il testo e ancora quello inviato', () => {
+    expect(draftSentUnchanged('ciao ', 'ciao')).toBe(true)
+    expect(draftSentUnchanged('ciao e altro', 'ciao')).toBe(false)
+    expect(draftSentUnchanged('', 'ciao')).toBe(false)
+  })
+})
 
 function mem(init: Record<string, string> = {}) {
   const data = new Map(Object.entries(init))

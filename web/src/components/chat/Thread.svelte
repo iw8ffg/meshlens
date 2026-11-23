@@ -2,7 +2,7 @@
   import { onMount, tick } from 'svelte'
   import { getJSON } from '../../lib/api'
   import { ago, formatDate } from '../../lib/format'
-  import { isMqttConv, localNodeIds, mqttConvBroker, splitKey, statusIcon } from '../../lib/chat'
+  import { isMqttConv, localNodeIds, mqttConvBroker, olderPage, splitKey, statusIcon } from '../../lib/chat'
   import { convLabel } from '../../lib/conversations'
   import { mqttDelivery, mqttFailText, statusAria } from '../../lib/send'
   import { keyChangedRecently, routingErrorText, threadItems } from '../../lib/reactions'
@@ -53,6 +53,7 @@
   let nearBottom = true
   let loadingOlder = $state(false)
   let exhausted = $state(false)
+  let cursor: number | null = null
   let olderError = $state(false)
 
   const nodeName = (id: string) => app.nodes.get(id)?.long_name || app.nodes.get(id)?.short_name || id
@@ -69,12 +70,14 @@
   }
 
   async function loadOlder() {
-    const oldest = app.radioMessages.length ? app.radioMessages[0].time : Math.floor(Date.now() / 1000)
+    const before = cursor ?? (app.radioMessages.length ? app.radioMessages[0].time : Math.floor(Date.now() / 1000))
     loadingOlder = true
     olderError = false
     try {
-      const list = await getJSON<Message[]>(`/messages/radio?limit=${PAGE}&before=${oldest}`)
-      if (list.length < PAGE) exhausted = true
+      const list = await getJSON<Message[]>(`/messages/radio?limit=${PAGE}&before=${before}`)
+      const page = olderPage(list, new Set(app.radioMessages.map((m) => m.key)), PAGE)
+      if (page.exhausted) exhausted = true
+      if (page.oldest !== null) cursor = page.oldest
       addRadioHistory(list)
     } catch {
       olderError = true

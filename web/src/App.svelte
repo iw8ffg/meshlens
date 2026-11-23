@@ -42,7 +42,7 @@
   import { t } from './lib/i18n/index.svelte'
   import { markOnline, markOffline, resetConn } from './lib/connection.svelte'
   import { serialRunner } from './lib/serial'
-  import { app, upsertNodes, addMessage, addRadioHistory, setMessageStatus, setStatus, setRadios, setAlerts, setTraceroute, persistFilter, persistFeedFilter, coverage, setCoverageSessions, applyCoverage, configUi, setConfigJob, setMapJob, setUpdateStatus, setUpdateJob, openChat, carryOpenChat, setWaypoints, upsertWaypoint, removeWaypoint } from './lib/stores.svelte'
+  import { app, upsertNodes, addMessage, addRadioHistory, addMqttHistory,setMessageStatus, setStatus, setRadios, setAlerts, setTraceroute, persistFilter, persistFeedFilter, coverage, setCoverageSessions, applyCoverage, configUi, setConfigJob, setMapJob, setUpdateStatus, setUpdateJob, openChat, carryOpenChat, setWaypoints, upsertWaypoint, removeWaypoint } from './lib/stores.svelte'
   import type { AuthStatus, Message, Node, Radio } from './lib/types'
 
   let auth = $state<AuthStatus | null>(null)
@@ -201,6 +201,7 @@
           void resolvePending()
         }),
         getJSON<Message[]>('/messages/radio?limit=200').then(addRadioHistory),
+        getJSON<Message[]>('/messages?limit=200').then(addMqttHistory),
         getJSON<Radio[]>('/radios').then(setRadios),
         fetchAlerts().then(setAlerts),
         conversations().then(applySummaries),

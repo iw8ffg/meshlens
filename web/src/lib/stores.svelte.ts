@@ -1,7 +1,7 @@
 import { SvelteMap } from 'svelte/reactivity'
 import { loadFilter, saveFilter, loadFeedFilter, saveFeedFilter } from './filters'
 import type { NodeFilter, FeedFilter } from './filters'
-import { MAX_REPLACED, insertMessage, removeByKey, mergeRadioMessages, pruneSet } from './chat'
+import { MAX_RADIO_MESSAGES, MAX_REPLACED,insertMessage, removeByKey, mergeRadioMessages, pruneSet } from './chat'
 import { shouldStore } from './traceroute'
 import { appendTrackPoint, upsertPoint } from './coverage'
 import { updateStatus } from './api'
@@ -99,11 +99,12 @@ export function upsertNodes(list: Node[]): void {
 }
 
 const replaced = new Set<string>()
+let radioCap = MAX_RADIO_MESSAGES
 
 export function addMessage(m: Message): void {
   if (m.radio_id) {
     removeByKey(app.messages, m.key)
-    mergeRadioMessages(app.radioMessages, [m], replaced)
+    mergeRadioMessages(app.radioMessages, [m], replaced, radioCap)
     return
   }
   insertMessage(app.messages, m, replaced)
@@ -113,7 +114,15 @@ export function addMessage(m: Message): void {
 
 /** Storico radio (piu' recenti per primi o in qualunque ordine): unito alla lista senza duplicati. */
 export function addRadioHistory(list: Message[]): void {
-  mergeRadioMessages(app.radioMessages, list, replaced)
+  // lo storico caricato non va tagliato subito: il tetto sale fino a quanto caricato
+  mergeRadioMessages(app.radioMessages, list, replaced, Infinity)
+  radioCap = Math.max(radioCap, app.radioMessages.length)
+}
+
+/** Feed MQTT (piu' recenti per primi): unito ai messaggi senza radio; usato anche dopo una riconnessione. */
+export function addMqttHistory(list: Message[]): void {
+  // dal piu' vecchio al piu' recente: il limite dello store scarta i piu' vecchi
+  for (const m of [...list].reverse()) addMessage(m)
 }
 
 export function setMessageStatus(key: string, status: MessageStatus, error: string | null = null, heardBy: string[] | null = null): void {
