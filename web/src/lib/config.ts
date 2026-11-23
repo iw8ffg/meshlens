@@ -1,6 +1,17 @@
-import type { ConfigDict, ConfigSchema, ConfigValue, SchemaField } from './types'
+import type {
+  AdminCommandKind,
+  AdminStatus,
+  ChannelExport,
+  ConfigDict,
+  ConfigJob,
+  ConfigSchema,
+  ConfigValue,
+  SchemaField,
+} from './types'
 import { t, type MsgKey } from './i18n/index.svelte'
 import { translateServer } from './i18n/server'
+import { getJSON, send } from './api'
+import { generatePsk } from './psk'
 
 export const MASK = '••••'
 
@@ -195,12 +206,23 @@ export const SIMPLE_PATHS = new Set(SIMPLE_TABS.flatMap((t) => t.fields.map((f) 
 
 /** Nuova psk casuale: 32 byte in base64. */
 export function genPsk(): string {
-  const b = new Uint8Array(32)
-  crypto.getRandomValues(b)
-  let s = ''
-  for (const x of b) s += String.fromCharCode(x)
-  return btoa(s)
+  return generatePsk(32)
 }
+
+// ---- 1.6 (WP4): comandi admin ed esportazione dei canali ----
+export type AdminCommand = AdminCommandKind
+const cfgPath = (nodeId: string) => `/config/${encodeURIComponent(nodeId)}`
+const radioQuery = (radioId?: string | null) => (radioId ? `?radio_id=${encodeURIComponent(radioId)}` : '')
+
+export const getAdminStatus = (nodeId: string, radioId?: string | null) =>
+  getJSON<AdminStatus>(`${cfgPath(nodeId)}/admin${radioQuery(radioId)}`)
+
+export const runAdminCommand = (nodeId: string, command: AdminCommand, radioId?: string | null) =>
+  send<ConfigJob>('POST', `${cfgPath(nodeId)}/admin`, { command, confirm: true, radio_id: radioId ?? null })
+
+/** Link dei canali (contiene le chiavi): solo da questo PC, mai salvato. */
+export const exportChannels = (nodeId: string, channels: number[] | null, add: boolean) =>
+  send<ChannelExport>('POST', `${cfgPath(nodeId)}/channels/export`, { channels, add })
 
 export interface AdvField {
   path: string

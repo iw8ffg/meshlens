@@ -97,3 +97,11 @@ describe('helper', () => {
     expect(atob(genPsk()).length).toBe(32)
   })
 })
+
+describe('genPsk (WP4)', () => {
+  it('genPsk still 32 bytes, delegata a generatePsk', () => {
+    const a = genPsk()
+    expect(atob(a).length).toBe(32)
+    expect(genPsk()).not.toBe(a)
+  })
+})

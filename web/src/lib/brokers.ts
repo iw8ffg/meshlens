@@ -1,6 +1,7 @@
 import { maskedKeyLines, type Broker } from './settings'
 import type { BrokerStatus } from './types'
 import { t } from './i18n/index.svelte'
+import { isWeak, keyKind } from './psk'
 
 export const DEFAULT_BROKER_ID = 'default'
 export const MAX_CHANNEL_BYTES = 11
@@ -63,6 +64,11 @@ export function pskError(psk: string): string | null {
   const n = b64Bytes(psk.trim())
   if (n === 1 || n === 16 || n === 32) return null
   return t('settings.br.pskBad')
+}
+
+/** Chiave che chiunque puo' usare: pubblica (AQ== e varianti di 1 byte), AA== o vuota. */
+export function pskWeak(psk: string): boolean {
+  return isWeak(keyKind(psk.trim()))
 }
 
 /** Passando da/a TLS la porta standard segue; le porte personalizzate restano. */

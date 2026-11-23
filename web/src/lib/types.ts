@@ -609,6 +609,76 @@ export type ZonePolygon = [number, number][]
 // ---- 1.6: WP3 ----
 
 // ---- 1.6: WP4 ----
+/** Tipo di chiave di un canale letto (additivo, non rivela la chiave). */
+export type ChannelKeyKind = 'none' | 'default' | 'custom'
+export interface ConfigChannelKeyed extends ConfigChannel {
+  key_kind?: ChannelKeyKind
+}
+/** Preferito/ignorato nel NodeDB di una radio collegata. */
+export interface RadioFlags {
+  radio_id: string
+  radio_name: string | null
+  favorite: boolean
+  ignored: boolean
+  muted: boolean | null
+}
+export interface RadioFlagResult {
+  radio_id: string
+  ok: boolean
+  error: string | null
+}
+export type AdminCommandKind = 'reboot' | 'set_time' | 'nodedb_reset' | 'shutdown'
+export interface AdminStatus {
+  node_id: string
+  radio_id: string
+  local: boolean
+  authorized: boolean | null
+  radio_public_key: string | null
+  read_time: number | null
+  reason: string | null
+}
+export interface CannedMessages {
+  messages: string[]
+  bytes: number
+  max_bytes: number
+}
+export interface ChannelExport {
+  url: string
+  channels: { index: number; name: string }[]
+}
+export type PrivacyReason = 'no_key' | 'public_key' | 'mqtt_uplink' | 'mqtt_map'
+export interface PrivacyRisk {
+  kind: 'channel' | 'map_report'
+  channel_index?: number
+  channel_name?: string
+  precision_bits: number
+  precision_m: number | null
+  reasons: PrivacyReason[]
+  suggested_bits: number | null
+}
+export interface PrivacyRadio {
+  radio_id: string
+  node_id: string | null
+  name: string | null
+  risks: PrivacyRisk[]
+  error: string | null
+}
+export interface ProfileCompareRow {
+  path: string
+  a: unknown
+  b: unknown
+  excluded: boolean
+}
+export interface ProfileCompare {
+  a: { label: string; time: number }
+  b: { label: string; time: number }
+  sections: string[]
+  rows: ProfileCompareRow[]
+}
+export interface ProfilePreview {
+  preview: ConfigPreview
+  skipped: string[]
+}
 
 // ---- 1.6: WP5 ----
 
