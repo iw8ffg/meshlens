@@ -85,7 +85,7 @@ def test_parse_changes_validates():
         ("config.lora.modem_preset", "SHORT_FAST")]
     assert cm.parse_changes({"config.lora.hop_limit": 4, "owner.long_name": "x"}) == [
         ("config.lora.hop_limit", 4), ("owner.long_name", "x")]
-    assert cm.parse_changes({"channels.1.psk": "QUJD"})[0][1] == b"ABC"
+    assert cm.parse_changes({"channels.1.psk": "QQ=="})[0][1] == b"A"
     assert cm.parse_changes({"channels.1.psk": cm.MASK}) == [("channels.1.psk", cm.MASK)]
     with pytest.raises(ValueError):
         cm.parse_changes({"channels.1.psk": "###"})
@@ -111,9 +111,9 @@ def test_diff_marks_risky():
 
 
 def test_diff_hides_secret_values():
-    r = d({"channels.1.psk": "QUJD"})
+    r = d({"channels.1.psk": "QUFBQUFBQUFBQUFBQUFBQQ=="})
     assert r[0]["old"] == cm.MASK and r[0]["new"] == cm.MASK
-    assert "QUJD" not in repr(r)
+    assert "QUFB" not in repr(r)
 
 
 def test_apply_keeps_masked_secret():
@@ -166,3 +166,14 @@ def test_mask_unchanged_only_for_secrets():
     assert r and r[0]["new"] == cm.MASK
     out = cm.apply_to_protos(protos(), cm.parse_changes({"owner.long_name": cm.MASK}))
     assert out["owner"]["long_name"] == cm.MASK
+
+
+def test_channel_psk_length_validated():
+    import base64
+    for n in (0, 1, 16, 32):
+        raw = base64.b64encode(b"A" * n).decode()
+        assert cm.parse_changes({"channels.1.psk": raw})[0][1] == b"A" * n
+    for n in (2, 3, 15, 17, 31, 33):
+        raw = base64.b64encode(b"A" * n).decode()
+        with pytest.raises(ValueError):
+            cm.parse_changes({"channels.1.psk": raw})
