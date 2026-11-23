@@ -157,3 +157,13 @@ async def test_reboot_and_fixed_position_routes():
         assert conn.fixed == [(None, 45.0, 9.0, 10), (None, None)]
         r = await c.post(f"/api/config/{MY_ID}/fixed-position", json={"lat": 1, "lon": 1})
         assert r.status_code == 400
+
+
+async def test_reveal_psk_only_from_this_pc():
+    e, ctx, conn = await make_env()
+    ctx.auth.set_pin("1234")
+    async with client(ctx, host="192.168.1.20") as c:
+        assert (await c.post("/api/auth/login", json={"pin": "1234"})).status_code == 200
+        r = await c.post(f"/api/config/{MY_ID}/channels/0/reveal-psk", json={})
+        assert r.status_code == 403
+        assert r.json() == {"detail": "Le chiavi si mostrano solo da questo PC"}

@@ -1,5 +1,7 @@
 {
   "exact": {
+    "La radio risponde ma non parla Meshtastic su questa porta, oppure ha già un altro collegamento TCP aperto (il firmware ne ammette uno solo)": "The radio answers but does not speak Meshtastic on this port, or it already has another TCP connection open (the firmware allows only one)",
+    "Per attivare l'accesso dalla rete serve un PIN di almeno 6 cifre: cambia prima il PIN": "To enable network access you need a PIN of at least 6 digits: change the PIN first",
     "Accesso richiesto": "Access required",
     "Aggiornamenti non disponibili": "Updates not available",
     "Aggiornamento non scaricato": "Update not downloaded",
@@ -432,6 +434,10 @@
     [
       "^(.+): base64 non valido$",
       "$1: invalid base64"
+    ],
+    [
+      "^(.+): la chiave deve essere di 0, 1, 16 o 32 byte$",
+      "$1: the key must be 0, 1, 16 or 32 bytes long"
     ],
     [
       "^(.+): tipo non supportato$",

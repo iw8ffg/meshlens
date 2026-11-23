@@ -42,6 +42,11 @@ english.OptionsGroup=Options:
 [Tasks]
 Name: "autostart"; Description: "{cm:AutostartTask}"; GroupDescription: "{cm:OptionsGroup}"; Flags: unchecked
 
+[InstallDelete]
+; build precedente: via i file orfani (DLL e asset con hash nel nome) prima della copia.
+; I dati dell'utente stanno in %LOCALAPPDATA%\MeshLens, non in {app}.
+Type: filesandordirs; Name: "{app}\_internal"
+
 [Files]
 ; dist\MeshLens contiene anche licenses\ (testi completi delle licenze, generati dalla build)
 Source: "..\dist\MeshLens\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs

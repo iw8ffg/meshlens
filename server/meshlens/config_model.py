@@ -228,6 +228,8 @@ def parse_changes(changes: dict, sch: dict | None = None) -> list[tuple[str, obj
             val = [_coerce_one(path, x, spec["item"], spec) for x in raw]
         else:
             val = _coerce_one(path, raw, spec["type"], spec)
+            if kind == "channels" and field == "psk" and len(val) not in (0, 1, 16, 32):
+                raise ValueError(f"{path}: la chiave deve essere di 0, 1, 16 o 32 byte")
         out.append((path, val))
     return out
 
