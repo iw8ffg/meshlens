@@ -379,7 +379,7 @@ export interface ConfigJob {
   id: number
   node_id: string
   radio_id: string
-  kind: 'read' | 'apply' | 'reboot' | 'fixed_position'
+  kind: 'read' | 'apply' | 'reboot' | 'fixed_position' | 'set_time' | 'nodedb_reset' | 'shutdown'
   status: 'running' | 'done' | 'failed'
   step: string
   progress: [number, number] | null
