@@ -624,6 +624,11 @@ export interface AlertRuleBody {
 }
 
 // ---- 1.6: WP3 ----
+export interface TopologyNode { id: string; name: string; role: string | null; lat: number | null; lon: number | null; is_mine: boolean; last_heard: number | null; degree: number; component: number; cut: boolean; hub: boolean; impact: number }
+export interface TopologyEdge { a: string; b: string; sources: Link['source'][]; snr: number | null; time: number }
+export interface TopologyIsolated { id: string; name: string; role: string | null; last_heard: number | null; is_mine: boolean }
+export interface TopologyResult { since: number; hours: number; sources: Link['source'][]; nodes: TopologyNode[]; edges: TopologyEdge[]; isolated: TopologyIsolated[]; components: { id: number; size: number }[]; stats: { nodes: number; edges: number; components: number; isolated: number; cut: number; hubs: number; by_source: Record<Link['source'], number> }; truncated: boolean }
+export interface TakSummary { contacts: number; compressed: number; unsupported_v2: number }
 
 // ---- 1.6: WP4 ----
 
