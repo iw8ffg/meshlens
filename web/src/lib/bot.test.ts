@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { i18n } from './i18n/index.svelte'
 import {
-  canEnable, errorKey, isLoopbackHost, pausedLabel, sameTarget, targetKey, targetLabel, utf8Bytes,
-  validateLimit, validateReplyText, validateTrigger, webhookCodeLabel,
+  canEnable, confirmedBrokers, errorKey, isLoopbackHost, pausedLabel, sameTarget, targetKey, targetLabel,
+  toggleTarget, utf8Bytes, validChannelName, validateLimit, validateReplyText, validateTrigger, webhookCodeLabel,
 } from './bot'
 import type { BotTarget } from './settings'
 
@@ -94,6 +94,27 @@ describe('webhookCodeLabel', () => {
     expect(webhookCodeLabel('strano')).toBe('errore')
     i18n.lang = 'en'
     expect(webhookCodeLabel('redirect')).toBe('redirect not followed')
+  })
+})
+
+describe('confirmedBrokers, validChannelName, toggleTarget', () => {
+  it('conferme dei broker', () => {
+    expect(confirmedBrokers({ mqtt_send_confirmed_brokers: ['b1'] })).toEqual(['b1'])
+    expect(confirmedBrokers({ mqtt_send_confirmed: true })).toEqual(['default'])
+    expect(confirmedBrokers({})).toEqual([])
+  })
+  it('nomi di canale validi', () => {
+    expect(validChannelName('LongFast')).toBe(true)
+    expect(validChannelName('')).toBe(false)
+    expect(validChannelName('x'.repeat(12))).toBe(false)
+    expect(validChannelName('a/b')).toBe(false)
+  })
+  it('aggiunge, toglie, rispetta il massimo', () => {
+    expect(toggleTarget([], RF, true)).toEqual([RF])
+    expect(toggleTarget([RF, MQ], RF, false)).toEqual([MQ])
+    expect(toggleTarget([RF], { ...RF }, true)).toEqual([RF])
+    const full: BotTarget[] = Array.from({ length: 16 }, (_, i): BotTarget => ({ kind: 'mqtt', broker: 'b', channel: `c${i}` }))
+    expect(toggleTarget(full, RF, true)).toBe(full)
   })
 })
 

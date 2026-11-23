@@ -98,6 +98,27 @@ export function targetLabel(tg: BotTarget, radios: Pick<Radio, 'id' | 'name' | '
   return `${b?.name ?? tg.broker} · ${tg.channel}`
 }
 
+/** Broker con la conferma di pubblicazione gia' data (mqtt_send_confirmed vale per il predefinito). */
+export function confirmedBrokers(s: { mqtt_send_confirmed?: boolean; mqtt_send_confirmed_brokers?: string[] }): string[] {
+  const list = [...(s.mqtt_send_confirmed_brokers ?? [])]
+  if (s.mqtt_send_confirmed && !list.includes('default')) list.push('default')
+  return list
+}
+
+/** Nome di canale MQTT ammesso come bersaglio: 1..11 byte, senza / # +. */
+export function validChannelName(name: string): boolean {
+  const n = utf8Bytes(name)
+  return n >= 1 && n <= 11 && !/[/#+]/.test(name)
+}
+
+/** Aggiunge o toglie un bersaglio (al massimo MAX_BOT_TARGETS). */
+export function toggleTarget(list: BotTarget[], tg: BotTarget, on: boolean): BotTarget[] {
+  const rest = list.filter((x) => !sameTarget(x, tg))
+  if (!on) return rest
+  if (rest.length >= MAX_BOT_TARGETS) return list
+  return [...rest, tg]
+}
+
 export interface EnableState {
   targets: BotTarget[]
   confirmedBrokers: string[]
