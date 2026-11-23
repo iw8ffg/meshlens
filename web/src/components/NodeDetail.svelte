@@ -4,7 +4,8 @@
   import { formatDate, ago, num, countryName } from '../lib/format'
   import { downloadText } from '../lib/download'
   import { fileStamp, gpx, slug } from '../lib/export'
-  import { batteryView, contactMinutes, fmtOpt, hopsLabel, nodeName, sourceKind } from '../lib/nodes'
+  import { batteryView, contactMinutes, fmtOpt, hopsLabel, nodeName, setRadioFlags, sourceKind } from '../lib/nodes'
+  import type { AppSettings } from '../lib/settings'
   import Badge from '../lib/ui/Badge.svelte'
   import BatteryBadge from '../lib/ui/BatteryBadge.svelte'
   import Banner from '../lib/ui/Banner.svelte'
@@ -59,12 +60,33 @@
   async function toggleFavorite() {
     favBusy = true
     msg = ''
+    const value = !node.is_favorite
     try {
-      upsertNodes([await setFavorite(node.id, !node.is_favorite)])
+      upsertNodes([await setFavorite(node.id, value)])
     } catch {
       msg = 'nodes.detail.favoriteFailed'
+      favBusy = false
+      return
+    }
+    try {
+      await copyFavoriteToRadios(value)
     } finally {
       favBusy = false
+    }
+  }
+
+  // WP4: con «favorites_to_radio» la stella va anche nel NodeDB delle radio collegate;
+  // un errore radio e' solo un avviso (la stella in MeshLens resta)
+  async function copyFavoriteToRadios(value: boolean) {
+    const ownRadio = !!node.is_local_radio || app.radios.some((r) => r.my_node_id === node.id)
+    if (!firstRadio || ownRadio) return
+    try {
+      const s = await getJSON<AppSettings>('/settings')
+      if (!s.favorites_to_radio) return
+      const res = await setRadioFlags(node.id, { favorite: value })
+      if (res.radios.some((r) => !r.ok)) msg = 'nodeflags.radioFailed'
+    } catch {
+      msg = 'nodeflags.radioFailed'
     }
   }
 

@@ -1,2 +1,30 @@
 // Testi italiani: area «nodeflags» (WP4, nodi ignorati e flag delle radio). Chiavi `nodeflags.*`.
-export const nodeflags = {} as const
+export const nodeflags = {
+  'nodeflags.ignore': 'Ignora nodo',
+  'nodeflags.unignore': 'Non ignorare più',
+  'nodeflags.confirmTitle': 'Ignorare {name}?',
+  'nodeflags.unconfirmTitle': 'Non ignorare più {name}?',
+  'nodeflags.confirmText':
+    'Il nodo sarà nascosto da mappa, elenchi e statistiche di MeshLens, insieme ai suoi messaggi e avvisi. I dati non vengono cancellati: lo ripristini da Impostazioni → Nodi ignorati.',
+  'nodeflags.unconfirmText': 'Il nodo, i suoi messaggi e i suoi avvisi torneranno visibili in MeshLens.',
+  'nodeflags.alsoRadios': 'Ignora anche sulle radio collegate (la radio scarterà i suoi pacchetti)',
+  'nodeflags.alsoRadiosOff': 'Togli l’ignorato anche sulle radio collegate',
+  'nodeflags.onRadio': 'Sulla radio {name}',
+  'nodeflags.favoriteOnRadio': 'Preferito sulla radio',
+  'nodeflags.ignoredOnRadio': 'Ignorato sulla radio',
+  'nodeflags.help': 'Preferiti e ignorati della radio valgono solo per le radio collegate a questo PC.',
+  'nodeflags.radioFailed': 'La stella non è stata copiata sulla radio: in MeshLens resta',
+  'nodeflags.radiosFailed': 'Radio non aggiornate: {list}',
+  'nodeflags.failed': 'Operazione non riuscita',
+  'nodeflags.settings.title': 'Preferiti e nodi ignorati',
+  'nodeflags.settings.toRadio': 'Copia la stella anche sulle radio collegate',
+  'nodeflags.settings.toRadioHelp':
+    'Quando segni un nodo come preferito, viene segnato preferito anche nell’elenco nodi delle radio collegate a questo PC (la radio lo conserva anche dopo una pulizia del suo elenco).',
+  'nodeflags.settings.ignoredTitle': 'Nodi ignorati',
+  'nodeflags.settings.ignoredHelp': 'Nascosti da mappa, elenchi, messaggi e avvisi. Ripristinali per farli ricomparire: i dati sono ancora tutti qui.',
+  'nodeflags.settings.restore': 'Ripristina',
+  'nodeflags.settings.empty': 'Nessun nodo ignorato',
+  'nodeflags.settings.emptyHint': 'Usa «Ignora nodo» nella scheda di un nodo per nasconderlo.',
+  'nodeflags.settings.loadFailed': 'Impostazioni non disponibili',
+  'nodeflags.settings.saveFailed': 'Salvataggio non riuscito',
+} as const
