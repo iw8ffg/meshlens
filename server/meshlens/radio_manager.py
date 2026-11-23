@@ -633,6 +633,7 @@ class RadioManager:
             raise TracerouteThrottled(math.ceil(TRACEROUTE_INTERVAL - (now - last)))
         self._last_trace[radio_id] = now  # prenota subito: un solo invio alla volta
         self._tracing.add(radio_id)
+        sent = False
         try:
             try:
                 packet_id = await conn.send_traceroute(num)
@@ -640,10 +641,12 @@ class RadioManager:
                 raise
             except Exception as exc:
                 raise ValueError(str(exc)) from exc
+            sent = True  # il pacchetto e' partito: il limite di 30 s resta comunque
             tid = self.store.add_traceroute(radio_id, num, now, auto)
             self.store.commit()
         except BaseException:
-            self._last_trace.pop(radio_id, None)  # niente invio utile: libera il limite
+            if not sent:
+                self._last_trace.pop(radio_id, None)  # niente invio: libera il limite
             raise
         finally:
             self._tracing.discard(radio_id)

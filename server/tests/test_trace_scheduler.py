@@ -365,3 +365,62 @@ async def test_bus_task_forwards_events_and_skips_resync():
     bus.publish({"type": "traceroute", "result": {}})
     assert drain_bus(q, {"trace_scheduler": Broken(), "bot": a}) == 2
     assert a.got == [{"type": "traceroute", "result": {}}]
+
+
+async def test_db_failure_after_send_never_retransmits_every_tick():
+    """I1: un errore inatteso (es. DB pieno dopo l'invio) rinvia il nodo in memoria per
+    l'intero intervallo: niente traceroute ogni minuto verso lo stesso nodo."""
+    import sqlite3
+    e = Env()
+    e.target(0x10, interval_min=60, radio_id="r1")
+    e.mgr.raise_ = sqlite3.OperationalError("database or disk is full")
+    for _ in range(5):
+        await e.sched.tick()  # non deve propagare l'errore al task periodico
+        e.clock.t += 60
+    assert len(e.mgr.calls) == 1
+    e.mgr.raise_ = None
+    e.clock.t = T0 + 3599
+    assert await e.sched.tick() is None
+    e.clock.t = T0 + 3600
+    assert await e.sched.tick() == "sent"
+    assert len(e.mgr.calls) == 2
+
+
+async def test_db_failure_defer_holds_even_if_target_row_cannot_be_written():
+    import sqlite3
+    e = Env()
+    e.target(0x10, interval_min=60)
+    e.mgr.raise_ = sqlite3.OperationalError("database is locked")
+    real = e.sched.conn
+
+    class BrokenConn:  # anche le scritture best-effort falliscono
+        def __getattr__(self, name):
+            return getattr(real, name)
+
+        def execute(self, sql, *a):
+            if sql.lstrip().upper().startswith("UPDATE"):
+                raise sqlite3.OperationalError("database is locked")
+            return real.execute(sql, *a)
+
+        def commit(self):
+            raise sqlite3.OperationalError("database is locked")
+
+    e.sched.conn = BrokenConn()
+    assert await e.sched.tick() == "error"
+    e.clock.t += 60
+    await e.sched.tick()
+    assert len(e.mgr.calls) == 1
+
+
+async def test_remove_and_readd_keeps_interval():
+    """M3: rimuovere e riaggiungere un nodo non azzera i 60 minuti."""
+    e = Env()
+    e.target(0x10, interval_min=60)
+    assert await e.sched.tick() == "sent"
+    e.sched.remove("!00000010")
+    e.clock.t = T0 + 120
+    e.target(0x10, interval_min=60)
+    assert e.get(0x10)["last_run"] == T0
+    assert await e.sched.tick() is None
+    e.clock.t = T0 + 3600
+    assert await e.sched.tick() == "sent"
