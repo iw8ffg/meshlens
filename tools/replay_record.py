@@ -369,6 +369,172 @@ def session_from_db(db_path, *, since=None, until=None, limit=None, include_mqtt
     return Session(header=header, nodes=nodes, packets=packets), stats
 
 
+# ------------------------------------------------------------------ framing del flusso Meshtastic
+
+START1, START2, HEADER_LEN, MAX_TO_FROM_RADIO_SIZE = 0x94, 0xC3, 4, 512
+NODELESS_WANT_CONFIG_ID = 69420
+FORBIDDEN_PORTS = (8686,)  # porta del server MeshLens: mai usata da questi strumenti
+DEFAULT_RADIO_PORT = 4403
+
+
+def validate_port(port: int, *, allow_zero: bool = False) -> int:
+    if port in FORBIDDEN_PORTS:
+        raise ValueError(f"La porta {port} e' riservata al server MeshLens: scegline un'altra")
+    if not (0 if allow_zero else 1) <= port <= 65535:
+        raise ValueError(f"Porta non valida: {port}")
+    return port
+
+
+def encode_frame(msg) -> bytes:
+    body = msg.SerializeToString()
+    if len(body) > MAX_TO_FROM_RADIO_SIZE:
+        raise ValueError(f"Messaggio troppo grande per il flusso ({len(body)} > "
+                         f"{MAX_TO_FROM_RADIO_SIZE} byte)")
+    return bytes([START1, START2, len(body) >> 8, len(body) & 0xFF]) + body
+
+
+class FrameDecoder:
+    """Stesso comportamento del lettore della libreria: scarta i byte che non sono un frame."""
+
+    def __init__(self) -> None:
+        self._buf = bytearray()
+
+    def feed(self, data: bytes) -> list:
+        self._buf += data
+        out = []
+        buf = self._buf
+        while True:
+            i = buf.find(START1)
+            if i < 0:
+                buf.clear()
+                break
+            if i:
+                del buf[:i]
+            if len(buf) < 2:
+                break
+            if buf[1] != START2:
+                del buf[0]
+                continue
+            if len(buf) < HEADER_LEN:
+                break
+            length = (buf[2] << 8) | buf[3]
+            if length > MAX_TO_FROM_RADIO_SIZE:
+                del buf[0]
+                continue
+            if len(buf) < HEADER_LEN + length:
+                break
+            out.append(bytes(buf[HEADER_LEN:HEADER_LEN + length]))
+            del buf[:HEADER_LEN + length]
+        return out
+
+
+# ------------------------------------------------------------------ registratore live
+
+def record_live(host, port, seconds, *, out_path, wake=True, on_packet=None,
+                config_timeout=15.0, connect_timeout=5.0) -> dict:
+    """Si collega a una radio via TCP, scarica la configurazione e registra i pacchetti.
+
+    Client TCP grezzo (non TCPInterface) per catturare i FromRadio veri. La radio ha una sola
+    connessione TCP alla volta: chiudere prima MeshLens o le altre app."""
+    import random
+    import socket
+    import time
+    try:
+        validate_port(int(port))
+    except ValueError as exc:
+        raise SessionError(str(exc)) from exc
+    want = random.randint(1, 0xFFFFFFFF)
+    while want == NODELESS_WANT_CONFIG_ID:
+        want = random.randint(1, 0xFFFFFFFF)
+    try:
+        sock = socket.create_connection((host, int(port)), timeout=connect_timeout)
+    except OSError as exc:
+        raise SessionError(f"Impossibile collegarsi a {host}:{port}: {exc.strerror or exc}") from exc
+    nodes, config, packets = [], [], []
+    my_num = None
+    t_first = None
+    dec = FrameDecoder()
+    interrupted = False
+    try:
+        sock.settimeout(0.2)
+        if wake:
+            sock.sendall(bytes([START2]) * 32)
+            time.sleep(0.1)
+        req = mesh_pb2.ToRadio()
+        req.want_config_id = want
+        sock.sendall(encode_frame(req))
+        deadline = time.monotonic() + config_timeout
+        configured = False
+        end = None
+        try:
+            while True:
+                now = time.monotonic()
+                if not configured and now > deadline:
+                    raise SessionError(f"Nessuna risposta dalla radio entro {config_timeout:g} s")
+                if configured and now >= end:
+                    break
+                try:
+                    data = sock.recv(4096)
+                except socket.timeout:
+                    continue
+                except OSError:
+                    data = b""
+                if not data:
+                    if not configured:
+                        raise SessionError("La radio ha chiuso la connessione prima di finire "
+                                           "la configurazione")
+                    break
+                for body in dec.feed(data):
+                    fr = mesh_pb2.FromRadio()
+                    try:
+                        fr.ParseFromString(body)
+                    except Exception:
+                        continue
+                    which = fr.WhichOneof("payload_variant")
+                    if not configured:
+                        if which == "config_complete_id":
+                            if fr.config_complete_id == want:
+                                configured = True
+                                end = time.monotonic() + float(seconds)
+                            continue
+                        if which == "my_info":
+                            my_num = fr.my_info.my_node_num
+                        clean = sanitize_from_radio(fr)
+                        if clean is None:
+                            continue
+                        if which == "node_info":
+                            nodes.append(clean.node_info)
+                        elif which in ("my_info", "metadata", "channel", "config", "moduleConfig"):
+                            config.append(clean)
+                    elif which == "packet":
+                        pkt = fr.packet
+                        if pkt.HasField("decoded") and \
+                                pkt.decoded.portnum == portnums_pb2.PortNum.ADMIN_APP:
+                            continue  # le risposte di amministrazione possono portare segreti
+                        mono = time.monotonic()
+                        if t_first is None:
+                            t_first = mono
+                        packets.append((round(mono - t_first, 3), fr))
+                        if on_packet is not None:
+                            on_packet(fr)
+        except KeyboardInterrupt:
+            interrupted = True
+        try:
+            bye = mesh_pb2.ToRadio()
+            bye.disconnect = True
+            sock.sendall(encode_frame(bye))
+        except OSError:
+            pass
+    finally:
+        sock.close()
+    header = {"source": "radio", "note": "Registrata da una radio (PSK e chiavi rimosse)"}
+    if my_num is not None:
+        header["my_node_num"] = my_num
+    write_session(out_path, Session(header=header, nodes=nodes, config=config, packets=packets))
+    return {"nodes": len(nodes), "config": len(config), "packets": len(packets),
+            "seconds": float(seconds), "interrupted": interrupted}
+
+
 # ------------------------------------------------------------------ CLI
 
 def _utf8_streams():
@@ -386,6 +552,11 @@ def build_parser():
         description="Registra una sessione per la radio simulata (fake_radio.py).")
     src = ap.add_mutually_exclusive_group(required=True)
     src.add_argument("--db", metavar="FILE", help="database di MeshLens (registro pacchetti)")
+    src.add_argument("--radio", metavar="HOST[:PORTA]",
+                     help="radio vera via TCP (porta predefinita 4403); ha una sola connessione "
+                          "alla volta: chiudi prima MeshLens e le altre app")
+    ap.add_argument("--seconds", type=float, default=60.0, metavar="S",
+                    help="con --radio: durata della registrazione dopo la configurazione")
     ap.add_argument("--out", metavar="FILE", required=True, help="file di sessione da scrivere")
     ap.add_argument("--since", type=float, metavar="EPOCH", help="solo pacchetti dopo questo istante")
     ap.add_argument("--until", type=float, metavar="EPOCH", help="solo pacchetti prima di questo istante")
@@ -401,6 +572,28 @@ def main(argv=None) -> int:
     _utf8_streams()
     ap = build_parser()
     args = ap.parse_args(argv)
+    if args.radio:
+        host, _, p = args.radio.rpartition(":")
+        if not host:
+            host, p = args.radio, str(DEFAULT_RADIO_PORT)
+        try:
+            port = validate_port(int(p))
+        except ValueError as exc:
+            print(f"Errore: {exc}", file=sys.stderr)
+            return 2
+        print("Attenzione: la radio ha una sola connessione TCP alla volta: "
+              "chiudi MeshLens/app prima di registrare.")
+        try:
+            st = record_live(host, port, args.seconds, out_path=args.out)
+        except SessionError as exc:
+            print(f"Errore: {exc}", file=sys.stderr)
+            return 1
+        except OSError as exc:
+            print(f"Errore: {exc.strerror or exc}", file=sys.stderr)
+            return 1
+        print(f"Sessione scritta in {args.out}: {st['packets']} pacchetti registrati, "
+              f"{st['nodes']} nodi, {st['config']} blocchi di configurazione.")
+        return 0
     try:
         sess, stats = session_from_db(
             args.db, since=args.since, until=args.until, limit=args.limit,

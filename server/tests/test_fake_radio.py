@@ -266,4 +266,150 @@ def test_cli_rejects_missing_source():
     assert e.value.code == 2
 
 
+# ---------------------------------------------------------------- Task 4: framing e registratore live
+
+import socket  # noqa: E402
+import threading  # noqa: E402
+import time  # noqa: E402
+
+
+def test_frame_decoder_handles_split_and_garbage():
+    body = mesh_pb2.FromRadio(id=5, config_complete_id=9)
+    frame = rr.encode_frame(body)
+    dec = rr.FrameDecoder()
+    data = b"\xc3" * 32 + b"\x00\x11" + frame
+    out = []
+    out += dec.feed(data[:36])
+    out += dec.feed(data[36:41])
+    out += dec.feed(data[41:])
+    assert len(out) == 1
+    assert mesh_pb2.FromRadio.FromString(out[0]) == body
+
+
+def test_frame_decoder_resets_on_oversize_length():
+    good = rr.encode_frame(mesh_pb2.FromRadio(id=1, config_complete_id=2))
+    dec = rr.FrameDecoder()
+    out = dec.feed(b"\x94\xc3\x02\x58" + good)  # lunghezza 600 > 512
+    assert [mesh_pb2.FromRadio.FromString(b).config_complete_id for b in out] == [2]
+
+
+def test_encode_frame_header_and_limit():
+    msg = mesh_pb2.FromRadio(id=1, config_complete_id=2)
+    frame = rr.encode_frame(msg)
+    n = len(msg.SerializeToString())
+    assert frame[:4] == bytes([0x94, 0xC3, n >> 8, n & 0xFF])
+    big = mesh_pb2.FromRadio()
+    big.packet.decoded.payload = b"x" * 600
+    with pytest.raises(ValueError):
+        rr.encode_frame(big)
+
+
+class MiniRadio:
+    """Mini-server di prova (non e' fake_radio): risponde a want_config_id con uno script."""
+
+    def __init__(self, script=None, mute=False):
+        self.script, self.mute = script or (lambda want: []), mute
+        self.srv = socket.socket()
+        self.srv.bind(("127.0.0.1", 0))
+        self.srv.listen(1)
+        self.port = self.srv.getsockname()[1]
+        self.got = []
+        self.t = threading.Thread(target=self._run, daemon=True)
+        self.t.start()
+
+    def _run(self):
+        try:
+            conn, _ = self.srv.accept()
+        except OSError:
+            return
+        dec = rr.FrameDecoder()
+        conn.settimeout(0.2)
+        try:
+            for _ in range(100):
+                try:
+                    data = conn.recv(4096)
+                except socket.timeout:
+                    continue
+                if not data:
+                    return
+                for body in dec.feed(data):
+                    msg = mesh_pb2.ToRadio.FromString(body)
+                    self.got.append(msg)
+                    if msg.WhichOneof("payload_variant") == "want_config_id" and not self.mute:
+                        for item in self.script(msg.want_config_id):
+                            if isinstance(item, float):
+                                time.sleep(item)
+                            else:
+                                conn.sendall(rr.encode_frame(item))
+                        for _ in range(60):  # tiene aperta la connessione finche' il client chiude
+                            try:
+                                if not conn.recv(4096):
+                                    return
+                            except socket.timeout:
+                                continue
+                        return
+        except OSError:
+            pass
+        finally:
+            conn.close()
+
+    def close(self):
+        self.srv.close()
+
+
+def test_record_live_collects_config_and_packets_and_sanitizes(tmp_path):
+    def script(want):
+        a = mesh_pb2.FromRadio(id=1)
+        a.my_info.my_node_num = 0xA1B2C3D4
+        a.my_info.device_id = b"serial"
+        b = mesh_pb2.FromRadio(id=2)
+        b.channel.index = 0
+        b.channel.settings.psk = bytes(range(16))
+        n = mesh_pb2.FromRadio(id=3)
+        n.node_info.num = 0x42
+        n.node_info.user.id = "!00000042"
+        done = mesh_pb2.FromRadio(id=4, config_complete_id=want)
+        p1 = rr.packet_frame(text_packet(0x42, 0xFFFFFFFF, "uno", 11))
+        p2 = rr.packet_frame(text_packet(0x42, 0xFFFFFFFF, "due", 12))
+        return [a, b, n, done, 0.05, p1, 0.05, p2]
+
+    radio = MiniRadio(script)
+    out = tmp_path / "live.jsonl"
+    try:
+        st = rr.record_live("127.0.0.1", radio.port, 0.6, out_path=out)
+    finally:
+        radio.close()
+    s = rr.read_session(out)
+    assert s.header["source"] == "radio" and s.my_node_num == 0xA1B2C3D4
+    assert len(s.packets) == 2 and st["packets"] == 2
+    ts = [t for t, _ in s.packets]
+    assert ts[0] == 0.0 and ts[1] >= ts[0]
+    chans = [c for c in s.config if c.WhichOneof("payload_variant") == "channel"]
+    assert chans[0].channel.settings.psk == b"\x01"
+    myinfo = [c for c in s.config if c.WhichOneof("payload_variant") == "my_info"]
+    assert myinfo[0].my_info.device_id == b""
+    assert [n.num for n in s.nodes] == [0x42]
+    wants = [m for m in radio.got if m.WhichOneof("payload_variant") == "want_config_id"]
+    assert wants and wants[0].want_config_id not in (0, 69420)
+    # la connessione resta aperta lato server finche' il client non chiude: il disconnect e'
+    # best effort, quindi si verifica solo che il server abbia visto chiudere il client.
+    assert wait_until(lambda: not radio.t.is_alive(), 3.0)
+
+
+def test_record_live_times_out_without_config_complete(tmp_path):
+    radio = MiniRadio(mute=True)
+    try:
+        with pytest.raises(rr.SessionError, match="Nessuna risposta dalla radio"):
+            rr.record_live("127.0.0.1", radio.port, 1.0, out_path=tmp_path / "x.jsonl",
+                           config_timeout=0.3)
+    finally:
+        radio.close()
+    assert not (tmp_path / "x.jsonl").exists()
+
+
+def test_record_live_rejects_forbidden_port(tmp_path):
+    with pytest.raises(rr.SessionError, match="8686"):
+        rr.record_live("127.0.0.1", 8686, 1.0, out_path=tmp_path / "x.jsonl")
+
+
 # <<FIN>>
