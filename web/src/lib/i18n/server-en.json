@@ -247,6 +247,7 @@
     "webhook_events deve contenere solo eventi tra message, alert, sensor, traceroute, node_new, senza doppioni": "webhook_events must contain only events among message, alert, sensor, traceroute, node_new, without duplicates",
     "update_channel deve essere stable oppure beta": "update_channel must be stable or beta",
     "last_seen_version deve essere vuoto oppure un numero di versione": "last_seen_version must be empty or a version number",
+    "Questa funzione si attiva dalla sua pagina in Impostazioni": "This feature is turned on from its own page in Settings",
     "retention_broker_days deve associare a ogni id di broker un numero di giorni tra 1 e 3650": "retention_broker_days must map each broker id to a number of days between 1 and 3650"
   },
   "patterns": [

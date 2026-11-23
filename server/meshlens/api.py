@@ -60,6 +60,10 @@ COOKIE_HTTPS = "meshlens_session_s"
 COOKIE_MAX_AGE = 365 * 24 * 3600
 LOCAL_HOSTS = (*LOOPBACK, "localhost")
 INTERNAL_KEYS = ()
+# interruttori che si accendono solo dalle rotte dedicate (bot, webhook: WP5; ospite: WP6):
+# PUT /api/settings e l'importazione possono solo spegnerli
+DEDICATED_SWITCHES = ("bot_enabled", "webhook_enabled", "guest_enabled")
+DEDICATED_SWITCH_MSG = "Questa funzione si attiva dalla sua pagina in Impostazioni"
 
 
 WS_SEND_TIMEOUT_S = 10
@@ -694,10 +698,16 @@ def create_app(ctx: AppContext) -> FastAPI:
             raise HTTPException(
                 400, "Per attivare l'accesso dalla rete serve un PIN di almeno 6 cifre: cambia prima il PIN")
 
+    def check_dedicated_switches(changes: dict) -> None:
+        """bot, webhook e accesso ospite non si accendono da qui (spegnerli resta possibile)."""
+        if any(changes.get(k) is True for k in DEDICATED_SWITCHES):
+            raise HTTPException(400, DEDICATED_SWITCH_MSG)
+
     @app.put("/api/settings", dependencies=[Depends(require_auth), Depends(require_json)])
     async def put_settings(changes: dict):
         changes = dict(changes)
         check_lan_pin(changes)
+        check_dedicated_switches(changes)
         if "mqtt_brokers" in changes:
             changes.pop("mqtt", None)  # vista di compatibilita': vale la lista dei broker
             try:
@@ -739,6 +749,7 @@ def create_app(ctx: AppContext) -> FastAPI:
         try:
             changes, skipped = prepare_import(body, load_settings(ctx.conn))
             check_lan_pin(changes)
+            check_dedicated_switches(changes)
             saved = save_settings(ctx.conn, changes)
         except ValueError as e:
             raise HTTPException(400, str(e))

@@ -1536,3 +1536,19 @@ async def test_state_changing_routes_require_json(ctx):
                              ("POST", "/api/auth/logout")]:
             r = await c.request(method, path)
             assert r.status_code == 415, (method, path, r.status_code)
+
+
+async def test_settings_cannot_turn_on_dedicated_switches(ctx):
+    """bot, webhook e accesso ospite si accendono solo dalle loro rotte, mai da /api/settings."""
+    async with logged(ctx) as c:
+        for key in ("bot_enabled", "webhook_enabled", "guest_enabled"):
+            r = await c.put("/api/settings", json={key: True})
+            assert r.status_code == 400, key
+            assert r.json()["detail"] == "Questa funzione si attiva dalla sua pagina in Impostazioni"
+            r = await c.put("/api/settings", json={key: False})
+            assert r.status_code == 200, key
+            assert r.json()[key] is False
+        doc = {"format": 1, "settings": {"bot_enabled": True, "retention_messages_days": 30}}
+        r = await c.post("/api/settings/import", json=doc)
+        assert r.status_code == 200 and "bot_enabled" in r.json()["skipped"]
+        assert load_settings(ctx.conn)["bot_enabled"] is False
