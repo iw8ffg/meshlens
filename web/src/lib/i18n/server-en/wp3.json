@@ -1,4 +1,6 @@
 {
-  "exact": {},
+  "exact": {
+    "Periodo non valido: da 1 a 720 ore": "Invalid period: 1 to 720 hours"
+  },
   "patterns": []
 }
