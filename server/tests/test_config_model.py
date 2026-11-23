@@ -237,3 +237,13 @@ def test_split_canned():
     assert cm.split_canned("") == []
     assert cm.split_canned("a||b|") == ["a", "b"]
     assert cm.split_canned("Ciao|OK") == ["Ciao", "OK"]
+
+
+def test_diff_marks_link_cutting_fields_risky():
+    """I3: modificati a mano restano possibili, ma segnalati nell'anteprima."""
+    for changes in ({"config.power.is_power_saving": True},
+                    {"config.lora.ignore_incoming": [1234]},
+                    {"config.lora.serial_hal_only": True},
+                    {"module_config.serial.override_console_serial_port": True}):
+        r = d(changes)
+        assert r and r[0]["risky"] and r[0]["reason"], changes
