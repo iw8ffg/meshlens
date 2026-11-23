@@ -24,6 +24,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.websockets import WebSocketDisconnect
 
 from . import api_prediction, api_storeforward
+from . import api_automation, api_monitor, api_radioadmin, api_search, api_topology
 from .api_data import register_data_routes
 from .alerts import CHUTIL_MIN_SAMPLES, CHUTIL_WINDOW_S, compute_alerts, sort_key
 from .auth import LOOPBACK, MIN_PIN, MIN_PIN_LAN, Auth, LockedError
@@ -77,6 +78,11 @@ async def send_with_timeout(ws, msg: dict, timeout: float = WS_SEND_TIMEOUT_S) -
         return True
     except asyncio.TimeoutError:
         return False
+
+
+def is_loopback_request(request: Request) -> bool:
+    """Richiesta da questo PC (127.0.0.1 / ::1): per le rotte "solo da questo PC"."""
+    return request.client is not None and request.client.host in LOOPBACK
 
 
 @dataclass
@@ -464,7 +470,7 @@ def create_app(ctx: AppContext) -> FastAPI:
                             secure=https and not is_loopback(request), path="/")
 
     def is_loopback(request: Request) -> bool:
-        return request.client is not None and request.client.host in LOOPBACK
+        return is_loopback_request(request)
 
     def is_local(request: Request) -> bool:
         return request.client is not None and request.client.host in LOCAL_HOSTS
@@ -1505,6 +1511,12 @@ def create_app(ctx: AppContext) -> FastAPI:
     api_storeforward.register(app, ctx, require_auth, require_json)
     api_prediction.register(app, ctx, require_auth, require_json)
     register_data_routes(app, ctx, require_auth)
+    # 1.6: moduli di rotte dei pacchetti di lavoro (contratto §5.1)
+    api_search.register(app, ctx, require_auth, require_json)       # WP1
+    api_monitor.register(app, ctx, require_auth, require_json)      # WP2
+    api_topology.register(app, ctx, require_auth, require_json)     # WP3
+    api_radioadmin.register(app, ctx, require_auth, require_json)   # WP4
+    api_automation.register(app, ctx, require_auth, require_json)   # WP5
 
     # ---- statici (ultimi: catch-all) ----
     if ctx.static_dir is not None and Path(ctx.static_dir).exists():

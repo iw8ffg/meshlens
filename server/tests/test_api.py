@@ -1574,3 +1574,56 @@ def _alert_node(num, heard):
     return {"num": num, "id": f"!{num:08x}", "long_name": "A", "short_name": "A",
             "is_mine": True, "is_favorite": False, "last_heard": heard, "battery": None,
             "firmware": None, "key_changed": None}
+
+
+# ---- 1.6: moduli di rotte pre-registrati ----
+
+FEATURE_MODULES = ("api_search", "api_monitor", "api_topology", "api_radioadmin", "api_automation")
+RESERVED_PREFIXES = (
+    "/api/messages/search", "/api/search", "/api/alert-rules", "/api/health", "/api/topology",
+    "/api/tak", "/api/profiles", "/api/privacy", "/api/trace-targets", "/api/bot",
+    "/api/webhook", "/api/retention", "/api/radios/diagnose", "/api/update/notes",
+    "/api/update/seen", "/api/auth/guest")
+RESERVED_PATTERNS = (
+    "/export", "/sensor-events", "/ignored", "/radio-flags", "/channels/export", "/admin",
+    "/canned", "/diagnose")
+
+
+async def test_feature_route_modules_registered(tmp_path, monkeypatch):
+    import meshlens.api_monitor
+
+    def register(app, ctx, require_auth, require_json):
+        from fastapi import Depends
+
+        @app.get("/api/health/ping", dependencies=[Depends(require_auth)])
+        async def health_ping():
+            return {"ok": True}
+
+    monkeypatch.setattr(meshlens.api_monitor, "register", register)
+    (tmp_path / "index.html").write_text("<html>SPA</html>")
+    ctx = make_ctx(static_dir=tmp_path)
+    async with client(ctx) as c:
+        assert (await c.get("/api/health/ping")).status_code == 401
+    async with logged(ctx) as c:
+        r = await c.get("/api/health/ping")
+        assert r.status_code == 200 and r.json() == {"ok": True}
+
+
+def test_feature_modules_contract(ctx):
+    import importlib
+    for name in FEATURE_MODULES:
+        mod = importlib.import_module(f"meshlens.{name}")
+        assert isinstance(mod.GUEST_GET_PATHS, tuple) and callable(mod.register)
+    paths = [getattr(r, "path", "") for r in create_app(ctx).routes]
+    for p in paths:
+        assert not p.startswith(RESERVED_PREFIXES), p
+        if p.startswith(("/api/conversations/", "/api/nodes/", "/api/config/", "/api/radios/")):
+            assert not p.endswith(RESERVED_PATTERNS), p
+
+
+def test_is_loopback_request():
+    from types import SimpleNamespace
+    from meshlens.api import is_loopback_request
+    for host, ok in (("127.0.0.1", True), ("::1", True), ("192.168.1.5", False)):
+        assert is_loopback_request(SimpleNamespace(client=SimpleNamespace(host=host))) is ok
+    assert is_loopback_request(SimpleNamespace(client=None)) is False
