@@ -98,6 +98,20 @@ class Ingestor:
         for m in [m for m in buckets if m < minute - 61]:
             del buckets[m]
 
+    def prune(self, now: float | None = None) -> None:
+        """Pota le mappe interne: nodi usciti da live e canali non piu' visti nell'ultima ora."""
+        t = time.time() if now is None else now
+        nodes = self.live.nodes
+        for k in [k for k in list(self._telemetry_time) if k[0] not in nodes]:
+            self._telemetry_time.pop(k, None)
+        for n in [n for n, t0 in list(self._rf_hops_time.items())
+                  if n not in nodes or t - t0 >= _RF_HOPS_TTL]:
+            self._rf_hops_time.pop(n, None)
+        minute = int(t // 60)
+        for k in [k for k, b in list(self._channel_buckets.items())
+                  if all(m <= minute - 60 for m in b)]:
+            self._channel_buckets.pop(k, None)
+
     def _channel_totals(self, now: float | None) -> dict[tuple[str, str], int]:
         minute = int((time.time() if now is None else now) // 60)
         out: dict[tuple[str, str], int] = {}
@@ -153,8 +167,9 @@ class Ingestor:
         if ev.source not in node["sources"]:
             node["sources"].append(ev.source)
         is_dup = seen_mqtt = False
-        if ev.source == "mqtt" or (ev.source == "rf" and ev.packet_id):
-            # i pacchetti RF senza id (dal database nodi della radio) non si deduplicano;
+        if ev.packet_id:
+            # i pacchetti senza id (RF dal database nodi della radio, MQTT di bridge che
+            # omettono l'id) non si deduplicano;
             # seen_mqtt: copia gia' arrivata dal broker (serve a contare i gateway)
             is_new, seen_mqtt = self.dedup.observe(num, ev.packet_id, ev.rx_time, ev.source)
             is_dup = not is_new
@@ -186,7 +201,7 @@ class Ingestor:
                 node["mqtt_gateways"] = 1 if not seen_mqtt else (node["mqtt_gateways"] or 0) + 1
                 return
             node["mqtt_gateways"] = 1
-            if ev.gateway_id:
+            if ev.gateway_id and ev.packet_id:
                 self.dedup.note_gateway(num, ev.packet_id, ev.gateway_id)
         elif is_dup:
             self.store.upsert_node(node)  # copia RF: aggiorna solo "sentito da"
@@ -408,7 +423,12 @@ class Ingestor:
         """Esito del broker per un invio MQTT (PUBACK o timeout): "sent" o "failed".
         Un messaggio gia' sentito in radio non torna indietro."""
         message = self._live_message(key)
-        if message is not None and message.get("status") != "sending":
+        if message is not None:
+            status = message.get("status")
+        else:  # non piu' in memoria: lo stato corrente e' nel database
+            state = self.store.message_state(key)
+            status = state[0] if state is not None else None
+        if status != "sending":
             return
         if ok:
             self.set_status(key, "sent")
@@ -436,7 +456,11 @@ class Ingestor:
         else:
             return
         message = self._live_message(key)
-        heard = list((message or {}).get("heard_by") or [])
+        if message is not None:
+            heard = list(message.get("heard_by") or [])
+        else:  # non piu' in memoria: si parte da quanto e' gia' nel database
+            state = self.store.message_state(key)
+            heard = list(state[1]) if state is not None else []
         if who in heard or len(heard) >= MAX_HEARD_BY:
             return
         heard.append(who)

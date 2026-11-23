@@ -762,6 +762,50 @@ def test_rf_copy_via_mqtt_is_not_heard(env):
     assert st == []
 
 
+def test_heard_by_merges_from_db_when_message_not_in_live(env):
+    ing, live, store, conn, got = env
+    m = _sent(env)
+    ing.mqtt_publish_result(m["key"], True, None)
+    ing.handle(ev("text", TextData("ciao"), num=ME_NUM, pid=77, t=NOW + 2, gateway_id="!0badcafe"))
+    live.messages.clear()  # il messaggio non e' piu' in memoria
+    ing.handle(ev("text", TextData("ciao"), num=ME_NUM, pid=77, t=NOW + 3, gateway_id="!0000beef"))
+    assert store.messages(None, None, 10)[0]["heard_by"] == ["!0badcafe", "!0000beef"]
+
+
+def test_publish_result_does_not_regress_heard_when_not_in_live(env):
+    ing, live, store, conn, got = env
+    m = _sent(env)
+    ing.handle(ev("text", TextData("ciao"), num=ME_NUM, pid=77, t=NOW + 2, gateway_id="!0badcafe"))
+    live.messages.clear()
+    ing.mqtt_publish_result(m["key"], False, "timeout")
+    row = store.messages(None, None, 10)[0]
+    assert row["status"] == "heard" and row["heard_by"] == ["!0badcafe"]
+
+
+def test_prune_drops_maps_of_departed_nodes_and_old_channels(env):
+    ing, live, store, conn, got = env
+    ing._telemetry_time[(7, "device")] = NOW
+    ing._telemetry_time[(8, "device")] = NOW
+    ing._rf_hops_time[7] = NOW
+    ing._rf_hops_time[8] = NOW
+    live.nodes[8] = {"num": 8}
+    ing._note_mqtt_channel("Vecchio", NOW, "b")
+    ing._note_mqtt_channel("Nuovo", NOW + 7200, "b")
+    ing.prune(NOW + 7200)
+    assert list(ing._telemetry_time) == [(8, "device")]
+    assert list(ing._rf_hops_time) == []  # 8 presente ma l'hops RF e' scaduto
+    assert list(ing._channel_buckets) == [("b", "Nuovo")]
+
+
+def test_mqtt_packets_with_id_zero_are_not_deduplicated(env):
+    ing, live, store, conn, got = env
+    ing.handle(ev("text", TextData("uno"), pid=0))
+    assert ing.last_outcome == "new"
+    ing.handle(ev("text", TextData("due"), pid=0, t=NOW + 1))
+    assert ing.last_outcome == "new"
+    assert [m["text"] for m in live.messages] == ["uno", "due"]
+
+
 def test_heard_outside_window_ignored(env):
     ing, live, store, conn, got = env
     st = []

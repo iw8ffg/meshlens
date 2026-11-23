@@ -383,6 +383,7 @@ class Runtime:
         """Ogni minuto: dimentica i pacchetti fuori finestra e tiene i nodi in memoria sotto il limite."""
         self.dedup.prune(time.time())
         removed = self.live.enforce_cap()
+        self.ingestor.prune(time.time())  # dopo il limite: i nodi rimossi escono dalle mappe
         if removed:
             log.info("Nodi in memoria oltre il limite: rimossi %d sentiti meno di recente", removed)
 

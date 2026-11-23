@@ -80,6 +80,13 @@ class Store:
         self.conn.execute("UPDATE messages SET status='heard', error=NULL, heard_by=? WHERE key=?",
                           (json.dumps(heard_by), key))
 
+    def message_state(self, key: str) -> tuple[str | None, list[str]] | None:
+        """(stato, heard_by) di un messaggio archiviato; None se non esiste."""
+        r = self.conn.execute("SELECT status, heard_by FROM messages WHERE key=?", (key,)).fetchone()
+        if r is None:
+            return None
+        return r["status"], (json.loads(r["heard_by"]) if r["heard_by"] else [])
+
     def update_message_status(self, key: str, status: str, error: str | None = None) -> None:
         self.conn.execute("UPDATE messages SET status=?, error=? WHERE key=?",
                           (status, error, key))
