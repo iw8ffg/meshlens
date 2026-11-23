@@ -211,3 +211,368 @@ def test_error_messages_are_constants_and_listed():
     consts = [v for k, v in vars(ar).items() if k.startswith("MSG_")]
     assert set(ar.ERROR_MESSAGES) == set(consts)
     assert len(ar.ERROR_MESSAGES) == len(set(ar.ERROR_MESSAGES))
+
+
+# ---------------- RuleEngine ----------------
+import logging  # noqa: E402
+from types import SimpleNamespace  # noqa: E402
+
+from meshlens.events import PositionData  # noqa: E402
+
+LIVE = SimpleNamespace(live=True)
+NOT_LIVE = SimpleNamespace(live=False)
+
+
+def nd(num, **kw):
+    return {"num": num, "id": "!%08x" % num, "long_name": f"N{num}", "short_name": None,
+            "battery": None, "last_heard": NOW, **kw}
+
+
+class Harness:
+    def __init__(self, nodes=None, ready=True):
+        self.conn = connect(":memory:")
+        self.store = RuleStore(self.conn)
+        self.t = NOW
+        self.nodes = {n["num"]: n for n in (nodes or [nd(9)])}
+        self.local: set[str] = set()
+        self.ready = ready
+        self.sent: list = []
+        self.recalc = 0
+        self.published: list = []
+        self.engine = ar.RuleEngine(
+            self.store, get_nodes=lambda: self.nodes, get_local_ids=lambda: self.local,
+            notify=lambda k, key, **f: self.sent.append((k, key, f)),
+            notify_ready=lambda now: self.ready, clock=lambda: self.t,
+            request_recalc=self._recalc, publish=self.published.append)
+
+    def _recalc(self):
+        self.recalc += 1
+
+    def add(self, **data):
+        rule = self.store.create(validate_rule(data), self.t)
+        self.engine.reload()
+        return rule
+
+    def msg(self, text, **kw):
+        m = {"from": "!00000009", "from_name": "Mio", "direction": "in", "text": text,
+             "to": "!ffffffff", "radio_id": "r1", "channel_index": 0, "source": "rf"}
+        m.update(kw)
+        return m
+
+    def alerts(self, previous=None):
+        return self.engine.alert_source(self.t, {}, previous or {})
+
+    def pos(self, lat, lon, num=9, **kw):
+        ev = dict(from_node=num, source="rf", snr=None, replayed=False, kind="position",
+                  payload=PositionData(lat, lon, precision_bits=kw.pop("bits", 32)))
+        ev.update(kw)
+        return SimpleNamespace(**ev)
+
+
+def kwrule(h, **extra):
+    return h.add(kind="keyword", params={"words": ["aiuto"]}, **extra)
+
+
+def test_keyword_fires_alert_and_notification():
+    h = Harness()
+    rule = kwrule(h)
+    h.engine.on_message(h.msg("Serve AIUTO subito"), LIVE)
+    assert [(k, key) for k, key, _ in h.sent] == [("rule_keyword", f"rule:{rule.id}:!00000009")]
+    assert h.sent[0][2] == {"word": "aiuto", "name": "N9", "text": "Serve AIUTO subito"}
+    assert h.recalc == 1
+    a = h.alerts()
+    assert a == [{"key": f"rule:{rule.id}:!00000009", "kind": "rule_keyword",
+                  "node_id": "!00000009", "node_name": "N9", "value": 0, "since": NOW,
+                  "rule_id": rule.id, "detail": "aiuto"}]
+
+
+def test_keyword_filters():
+    h = Harness()
+    rule = kwrule(h, channel="ch:r1:0", node_num=9)
+    cases = [
+        (h.msg("aiuto"), NOT_LIVE),
+        (h.msg("aiuto", direction="out"), LIVE),
+        (h.msg("aiuto", emoji=True), LIVE),
+        (h.msg("aiuto", channel_index=3), LIVE),
+        (h.msg("aiuto", to="!00000001"), LIVE),
+        (h.msg("aiuto", **{"from": "!00000007"}), LIVE),
+        (h.msg("niente"), LIVE),
+        (h.msg(""), LIVE),
+    ]
+    for m, meta in cases:
+        h.engine.on_message(m, meta)
+    h.local = {"!00000009"}
+    h.engine.on_message(h.msg("aiuto"), LIVE)
+    assert h.sent == []
+    h.local = set()
+    h.nodes[9]["is_ignored"] = True  # nodo ignorato: nessuna reazione
+    h.engine.on_message(h.msg("aiuto"), LIVE)
+    assert h.sent == []
+    h.nodes[9]["is_ignored"] = False
+    h.store.update(rule.id, validate_rule({"enabled": False}, rule), h.t)
+    h.engine.reload()
+    h.engine.on_message(h.msg("aiuto"), LIVE)
+    assert h.sent == []
+
+
+def test_keyword_cooldown_per_rule_and_node():
+    h = Harness([nd(9), nd(8)])
+    rule = kwrule(h, cooldown_min=10)
+    h.engine.on_message(h.msg("aiuto"), LIVE)
+    h.t += 100
+    h.engine.on_message(h.msg("aiuto"), LIVE)
+    assert len(h.sent) == 1
+    h.engine.on_message(h.msg("aiuto", **{"from": "!00000008"}), LIVE)
+    assert len(h.sent) == 2
+    h.t += 601
+    h.engine.on_message(h.msg("aiuto"), LIVE)
+    assert len(h.sent) == 3
+    a = [x for x in h.alerts() if x["node_id"] == "!00000009"]
+    assert len(a) == 1 and a[0]["since"] == h.t
+    assert h.store.get(rule.id).last_fired == h.t
+
+
+def test_keyword_cooldown_updates_last_fired():
+    h = Harness()
+    rule = kwrule(h)
+    assert h.store.get(rule.id).last_fired is None
+    h.engine.on_message(h.msg("aiuto"), LIVE)
+    assert h.store.get(rule.id).last_fired == NOW
+    assert h.engine.rules()[0].last_fired == NOW
+
+
+def test_detection_rule_match():
+    h = Harness()
+    h.add(kind="detection", params={"match": "porta"}, node_num=9)
+    h.engine.on_detection(9, "Finestra detected", 1.0)
+    h.engine.on_detection(8, "Porta detected", 1.0)
+    assert h.sent == []
+    h.engine.on_detection(9, "Porta detected", 1.0)
+    assert [(k, f) for k, _, f in h.sent] == [
+        ("sensor_detection", {"name": "N9", "text": "Porta detected"})]
+    a = h.alerts()[0]
+    assert (a["kind"], a["value"], a["detail"]) == ("sensor_detection", 1.0, "Porta detected")
+    h2 = Harness()
+    h2.add(kind="detection")
+    h2.engine.on_detection(9, "boh", None)
+    assert len(h2.sent) == 1 and h2.alerts()[0]["value"] == 1.0
+
+
+GEO_RULE = dict(kind="geofence", node_num=9, name="Casa", params={"polygon": SQUARE})
+
+
+def test_geofence_first_observation_seeds_silently():
+    h = Harness([nd(9)])
+    h.add(**GEO_RULE)
+    h.engine.on_event(h.pos(40.5, 10.5), "new")
+    assert h.sent == [] and h.alerts() == []
+
+
+def test_geofence_exit_and_enter():
+    h = Harness()
+    h.add(**GEO_RULE)
+    h.engine.on_event(h.pos(40.5, 10.5), "new")  # seme: dentro
+    h.engine.on_event(h.pos(45, 12), "new")  # esce
+    assert [(k, f["zone"]) for k, _, f in h.sent] == [("rule_geofence_exit", "Casa")]
+    assert h.sent[0][2]["lat"] == "45.00000"
+    a = h.alerts()[0]
+    assert (a["kind"], a["value"], a["detail"]) == ("rule_geofence", 0, "Casa")
+    h.t += 4000
+    h.engine.on_event(h.pos(40.5, 10.5), "new")  # rientra con trigger exit: nessuna notifica
+    assert len(h.sent) == 1
+    h2 = Harness()
+    h2.add(**{**GEO_RULE, "params": {"polygon": SQUARE, "trigger": "both"}})
+    h2.engine.on_event(h2.pos(45, 12), "new")
+    h2.engine.on_event(h2.pos(40.5, 10.5), "new")
+    assert [k for k, *_ in h2.sent] == ["rule_geofence_enter"]
+    assert h2.alerts()[0]["value"] == 1
+
+
+def test_geofence_ignores_imprecise_and_replayed_and_dup():
+    h = Harness()
+    h.add(**GEO_RULE)
+    h.engine.on_event(h.pos(40.5, 10.5), "new")
+    h.engine.on_event(h.pos(45, 12, bits=13), "new")
+    h.engine.on_event(h.pos(45, 12, replayed=True), "new")
+    h.engine.on_event(h.pos(45, 12), "dup")
+    assert h.sent == []
+    h.engine.on_event(h.pos(45, 12), "new")  # lo stato era rimasto "dentro"
+    assert len(h.sent) == 1
+
+
+def test_geofence_reload_seeds_from_live_nodes():
+    h = Harness([nd(9, lat=40.5, lon=10.5, precision_bits=32)])
+    h.add(**GEO_RULE)
+    h.engine.on_event(h.pos(45, 12), "new")
+    assert [k for k, *_ in h.sent] == ["rule_geofence_exit"]
+    h2 = Harness([nd(9, lat=40.5, lon=10.5, precision_bits=10)])  # offuscata: niente seme
+    h2.add(**GEO_RULE)
+    h2.engine.on_event(h2.pos(45, 12), "new")
+    assert h2.sent == []
+
+
+def snr_ev(num=9, snr=-9.0, **kw):
+    ev = dict(from_node=num, source="rf", snr=snr, replayed=False, kind="text",
+              payload=None)
+    ev.update(kw)
+    return SimpleNamespace(**ev)
+
+
+def test_snr_samples_only_for_watched_rf_new():
+    h = Harness([nd(9), nd(8)])
+    h.add(kind="snr_low", node_num=9, threshold=-5)
+    for ev, out in [(snr_ev(num=8), "new"), (snr_ev(source="mqtt"), "new"), (snr_ev(), "dup"),
+                    (snr_ev(replayed=True), "new"), (snr_ev(snr=None), "new")]:
+        h.engine.on_event(ev, out)
+    assert not h.engine._snr
+    h.engine.on_event(snr_ev(), "new")
+    assert len(h.engine._snr[9]) == 1
+
+
+def test_snr_rule_state_and_notification():
+    h = Harness()
+    rule = h.add(kind="snr_low", node_num=9, threshold=-5)
+    h.alerts()  # primo calcolo: semina
+    for _ in range(3):
+        h.engine.on_event(snr_ev(snr=-9.0), "new")
+    a = h.alerts()
+    assert [(x["kind"], x["value"]) for x in a] == [("rule_snr", -9.0)]
+    assert [(k, f["snr"], f["thr"]) for k, _, f in h.sent] == [("rule_snr", -9.0, -5)]
+    assert a[0]["key"] == f"rule:{rule.id}:!00000009"
+
+
+def test_snr_clears_with_hysteresis():
+    h = Harness()
+    h.add(kind="snr_low", node_num=9, threshold=-5)
+    h.alerts()
+    for _ in range(3):
+        h.engine.on_event(snr_ev(snr=-9.0), "new")
+    prev = {a["key"]: a for a in h.alerts()}
+    h.engine._snr[9].clear()
+    for _ in range(3):
+        h.engine.on_event(snr_ev(snr=-4.5), "new")
+    assert h.alerts(prev)  # ancora attivo (soglia + 1)
+    h.engine._snr[9].clear()
+    for _ in range(3):
+        h.engine.on_event(snr_ev(snr=-3.0), "new")
+    assert h.alerts(prev) == []
+
+
+def test_state_rules_battery_and_silent():
+    h = Harness([nd(9, battery=10, last_heard=NOW - 5 * 3600), nd(8)])
+    h.add(kind="battery", node_num=9, threshold=20)
+    h.add(kind="silent", node_num=9, threshold=2)
+    a = {x["kind"]: x for x in h.alerts()}
+    assert a["rule_battery"]["value"] == 10 and a["rule_silent"]["value"] == 5.0
+
+
+def test_first_call_seeds_without_notifying():
+    h = Harness([nd(9, battery=10)])
+    h.add(kind="battery", node_num=9, threshold=20)
+    first = h.alerts()
+    assert first and h.sent == []
+    prev = {a["key"]: a for a in first}
+    h.t += 60
+    assert h.alerts(prev) and h.sent == []
+    h.nodes[8] = nd(8, battery=5)
+    h.add(kind="battery", node_num=8, threshold=20)  # regola nuova, subito vera
+    h.alerts(prev)
+    assert [(k, f["name"], f["pct"]) for k, _, f in h.sent] == [("rule_battery", "N8", 5)]
+
+
+def test_state_notification_requires_ready_and_cooldown():
+    h = Harness([nd(9, battery=50)], ready=False)
+    h.add(kind="battery", node_num=9, threshold=20, cooldown_min=30)
+    h.alerts()  # seme
+    h.nodes[9]["battery"] = 10
+    assert h.alerts() and h.sent == []  # non pronto: avviso visibile, nessuna notifica
+    h.ready = True
+    h.nodes[9]["battery"] = 50
+    prev: dict = {}
+    assert h.alerts(prev) == []
+    h.nodes[9]["battery"] = 10
+    assert h.alerts(prev) and len(h.sent) == 1
+    h.nodes[9]["battery"] = 50
+    h.alerts(prev)
+    h.t += 60
+    h.nodes[9]["battery"] = 10
+    assert h.alerts(prev) and len(h.sent) == 1  # pausa non trascorsa
+    h.nodes[9]["battery"] = 50
+    h.alerts(prev)
+    h.t += 1800
+    h.nodes[9]["battery"] = 10
+    h.alerts(prev)
+    assert len(h.sent) == 2
+
+
+def test_state_alert_since_preserved():
+    h = Harness([nd(9, battery=10)])
+    h.add(kind="battery", node_num=9, threshold=20)
+    first = h.alerts()
+    h.t += 500
+    second = h.alerts({a["key"]: a for a in first})
+    assert second[0]["since"] == first[0]["since"] == NOW
+
+
+def test_event_alerts_expire_after_keep_window():
+    h = Harness()
+    kwrule(h)
+    h.engine.on_message(h.msg("aiuto"), LIVE)
+    assert len(h.alerts()) == 1
+    h.t += ar.EVENT_KEEP_S + 1
+    assert h.alerts() == []
+
+
+def test_reload_drops_state_of_deleted_or_disabled_rules():
+    h = Harness()
+    rule = kwrule(h)
+    h.engine.on_message(h.msg("aiuto"), LIVE)
+    assert h.alerts()
+    h.store.delete(rule.id)
+    h.engine.reload()
+    assert h.alerts() == [] and h.engine.rules() == []
+    geo = h.add(**GEO_RULE)
+    h.engine.on_event(h.pos(40.5, 10.5), "new")
+    h.store.update(geo.id, validate_rule({"enabled": False}, geo), h.t + 1)
+    h.engine.reload()
+    assert h.engine._inside == {}
+
+
+def test_disabled_rule_never_fires():
+    h = Harness([nd(9, battery=1)])
+    r = h.add(kind="battery", node_num=9, threshold=20, enabled=False)
+    k = h.add(kind="keyword", params={"words": ["aiuto"]}, enabled=False)
+    h.engine.on_message(h.msg("aiuto"), LIVE)
+    assert h.alerts() == [] and h.sent == [] and r and k
+
+
+def test_ignored_node_has_no_state_alerts():
+    h = Harness([nd(9, battery=1, is_ignored=True)])
+    h.add(kind="battery", node_num=9, threshold=20)
+    assert h.alerts() == []
+
+
+def test_engine_exceptions_in_one_rule_do_not_break_others(caplog):
+    h = Harness([nd(9, battery=5)])
+    h.add(kind="geofence", node_num=9, params={"polygon": SQUARE})
+    h.add(kind="battery", node_num=9, threshold=20)
+    bad = h.add(kind="keyword", params={"words": ["aiuto"]})
+    h.engine._rules[bad.id] = replace_params(bad, {"words": 5})
+    good = h.add(kind="keyword", params={"words": ["aiuto"]})
+    h.engine._rules[bad.id] = replace_params(bad, {"words": 5})
+    h.engine._rules[next(i for i, r in h.engine._rules.items() if r.kind == "geofence")] = \
+        replace_params(h.engine.rules()[0], {})
+    with caplog.at_level(logging.ERROR):
+        h.engine.on_message(h.msg("aiuto segreto"), LIVE)
+        h.engine.on_event(h.pos(45, 12), "new")
+        out = h.alerts()
+    kinds = sorted(a["kind"] for a in out)
+    assert kinds == ["rule_battery", "rule_keyword"]
+    assert any(k == "rule_keyword" for k, *_ in h.sent) and good
+    assert str(bad.id) in caplog.text
+    assert "segreto" not in caplog.text and "45" not in caplog.text
+
+
+def replace_params(rule, params):
+    import dataclasses
+    return dataclasses.replace(rule, params=params)

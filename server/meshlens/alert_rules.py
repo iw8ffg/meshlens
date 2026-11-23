@@ -3,13 +3,18 @@
 Il motore (RuleEngine) sta in coda al file. Nessun invio in radio/MQTT: gli avvisi diventano
 voci della lista avvisi e notifiche (toast / Telegram) tramite Notifier."""
 import json
+import logging
 import math
 import re
+import time
 from collections import deque
-from dataclasses import dataclass
-from typing import Iterable
+from dataclasses import dataclass, replace
+from typing import Callable, Iterable
 
+from .alerts import rule_alert
 from .notify import fold
+
+log = logging.getLogger(__name__)
 
 RULE_KINDS = ("keyword", "snr_low", "geofence", "battery", "silent", "detection")
 MAX_RULES = 100
@@ -405,3 +410,270 @@ class RuleStore:
 
     def touch_fired(self, rule_id: int, when: float) -> None:
         self.conn.execute("UPDATE alert_rules SET last_fired = ? WHERE id = ?", (when, rule_id))
+
+
+# ---- motore ----
+def _node_name(n: dict) -> str:
+    return n.get("long_name") or n.get("short_name") or n.get("id") or ""
+
+
+def _num_from_id(node_id) -> int | None:
+    if not isinstance(node_id, str) or not node_id.startswith("!"):
+        return None
+    try:
+        return int(node_id[1:], 16)
+    except ValueError:
+        return None
+
+
+def _plain(x: float) -> float | int:
+    return int(x) if float(x).is_integer() else x
+
+
+class RuleEngine:
+    """Valuta le regole utente e produce avvisi + notifiche (D1-D4 del piano WP2).
+
+    Tutto sul loop, senza rete ne' file; lo stato (pausa, campioni SNR, zone) e' in memoria."""
+
+    def __init__(self, store: RuleStore, *, get_nodes: Callable[[], dict[int, dict]],
+                 get_local_ids: Callable[[], set[str]], notify: Callable[..., None],
+                 notify_ready: Callable[[float], bool], clock: Callable[[], float] = time.time,
+                 request_recalc: Callable[[], None] = lambda: None,
+                 publish: Callable[[dict], None] = lambda ev: None,
+                 is_ignored: Callable[[int], bool] | None = None) -> None:
+        self.store = store
+        self.get_nodes = get_nodes
+        self.get_local_ids = get_local_ids
+        self.notify = notify
+        self.notify_ready = notify_ready
+        self.clock = clock
+        self.request_recalc = request_recalc
+        self.publish = publish
+        self._is_ignored = is_ignored
+        self._rules: dict[int, Rule] = {}
+        self._snr: dict[int, deque] = {}
+        self._inside: dict[tuple[int, int], bool] = {}
+        self._events: dict[str, dict] = {}
+        self._last_fire: dict[tuple[int, int], float] = {}
+        self._seeded = False
+
+    # ---- gestione ----
+    def ignored(self, num: int | None) -> bool:
+        """Nodo ignorato (aiuto unico del contratto: live.is_ignored, passato da ext_monitor)."""
+        if num is None:
+            return False
+        if self._is_ignored is not None:
+            return bool(self._is_ignored(num))
+        return bool((self.get_nodes().get(num) or {}).get("is_ignored"))
+
+    def rules(self) -> list[Rule]:
+        return sorted(self._rules.values(), key=lambda r: r.id)
+
+    def _enabled(self, kind: str) -> list[Rule]:
+        return [r for r in self._rules.values() if r.enabled and r.kind == kind]
+
+    def reload(self) -> None:
+        """Rilegge le regole, ripulisce lo stato di quelle sparite/disabilitate/modificate."""
+        old = self._rules
+        new = {r.id: r for r in self.store.list()}
+        self._rules = new
+        live_ids = {i for i, r in new.items() if r.enabled}
+        changed = {i for i, r in new.items() if i in old and old[i].updated != r.updated}
+        self._events = {k: e for k, e in self._events.items()
+                        if e["rule"].id in live_ids and e["rule"].id not in changed}
+        self._last_fire = {k: v for k, v in self._last_fire.items()
+                           if k[0] in live_ids and k[0] not in changed}
+        self._inside = {k: v for k, v in self._inside.items()
+                        if k[0] in live_ids and k[0] not in changed}
+        watched = {r.node_num for r in self._enabled("snr_low")}
+        self._snr = {n: d for n, d in self._snr.items() if n in watched}
+        nodes = self.get_nodes()
+        for r in self._enabled("geofence"):
+            key = (r.id, r.node_num)
+            node = nodes.get(r.node_num)
+            if key in self._inside or not node:
+                continue
+            lat, lon, bits = node.get("lat"), node.get("lon"), node.get("precision_bits")
+            if lat is None or lon is None or (bits is not None and bits < GEOFENCE_MIN_PRECISION_BITS):
+                continue
+            try:
+                self._inside[key] = point_in_polygon(lon, lat, r.params["polygon"])
+            except Exception:  # noqa: BLE001 - parametri corrotti: la regola resta muta
+                log.exception("Regola %s non valutata", r.id)
+
+    # ---- pausa e avvisi a evento ----
+    def _may_fire(self, rule: Rule, num: int, now: float) -> bool:
+        last = self._last_fire.get((rule.id, num))
+        return last is None or now - last >= rule.cooldown_min * 60
+
+    def _mark_fired(self, rule: Rule, num: int, now: float) -> None:
+        self._last_fire[(rule.id, num)] = now
+        self.store.touch_fired(rule.id, now)
+        cached = self._rules.get(rule.id)
+        if cached is not None:
+            self._rules[rule.id] = replace(cached, last_fired=now)
+
+    def _node_snapshot(self, num: int, fallback_name: str = "") -> dict:
+        node = self.get_nodes().get(num)
+        if node:
+            return node
+        return {"id": "!%08x" % num, "long_name": fallback_name}
+
+    def _fire_event(self, rule: Rule, num: int, now: float, value: float, detail: str | None,
+                    text_kind: str, fmt: dict, fallback_name: str = "") -> None:
+        node = self._node_snapshot(num, fallback_name)
+        key = f"rule:{rule.id}:{node['id']}"
+        self._events[key] = {"rule": rule, "num": num, "since": now, "value": value,
+                             "detail": detail, "fallback": fallback_name}
+        self._mark_fired(rule, num, now)
+        self.notify(text_kind, key, name=_node_name(node) or fallback_name, **fmt)
+        self.request_recalc()
+
+    # ---- agganci ----
+    def on_message(self, msg: dict, meta) -> None:
+        try:
+            if not meta.live or msg.get("direction") != "in" or msg.get("emoji"):
+                return
+            text = msg.get("text")
+            sender = msg.get("from")
+            if not text or sender in self.get_local_ids():
+                return
+            num = _num_from_id(sender)
+            if num is None or self.ignored(num):
+                return
+            rules = self._enabled("keyword")
+            if not rules:
+                return
+            now = self.clock()
+            selector = channel_selector(msg)
+            for rule in rules:
+                try:
+                    if rule.node_num is not None and rule.node_num != num:
+                        continue
+                    if rule.channel is not None and rule.channel != selector:
+                        continue
+                    word = keyword_match(rule, text)
+                    if word is None or not self._may_fire(rule, num, now):
+                        continue
+                    name = msg.get("from_name") or sender
+                    self._fire_event(rule, num, now, 0, word, "rule_keyword",
+                                     {"word": word, "text": text[:120]}, str(name))
+                except Exception:  # noqa: BLE001
+                    log.exception("Regola %s non valutata", rule.id)
+        except Exception:  # noqa: BLE001
+            log.exception("Parole chiave non valutate")
+
+    def on_event(self, ev, outcome: str) -> None:
+        if outcome != "new" or getattr(ev, "replayed", False):
+            return
+        num = ev.from_node
+        try:
+            if (ev.source == "rf" and ev.snr is not None
+                    and any(r.node_num == num for r in self._enabled("snr_low"))):
+                self._snr.setdefault(num, deque(maxlen=SNR_MAX_SAMPLES)).append(
+                    (self.clock(), ev.snr))
+            if ev.kind == "position":
+                self._on_position(ev, num)
+        except Exception:  # noqa: BLE001
+            log.exception("Evento non valutato dalle regole")
+
+    def _on_position(self, ev, num: int) -> None:
+        p = ev.payload
+        bits = getattr(p, "precision_bits", None)
+        if bits is not None and bits < GEOFENCE_MIN_PRECISION_BITS:
+            return  # posizione offuscata: darebbe falsi scatti
+        if self.ignored(num):
+            return
+        now = self.clock()
+        for rule in self._enabled("geofence"):
+            if rule.node_num != num:
+                continue
+            try:
+                inside = point_in_polygon(p.lon, p.lat, rule.params["polygon"])
+                was = self._inside.get((rule.id, num))
+                self._inside[(rule.id, num)] = inside
+                tr = geofence_transition(rule.params.get("trigger", "exit"), was, inside)
+                if tr is None or not self._may_fire(rule, num, now):
+                    continue
+                self._fire_event(rule, num, now, 1 if tr == "enter" else 0, rule.name,
+                                 f"rule_geofence_{tr}",
+                                 {"zone": rule.name or "zona", "lat": f"{p.lat:.5f}",
+                                  "lon": f"{p.lon:.5f}"})
+            except Exception:  # noqa: BLE001
+                log.exception("Regola %s non valutata", rule.id)
+
+    def on_detection(self, num: int, text: str, value: float | None) -> None:
+        try:
+            if self.ignored(num):
+                return
+            now = self.clock()
+            folded = fold(text)
+            for rule in self._enabled("detection"):
+                try:
+                    if rule.node_num is not None and rule.node_num != num:
+                        continue
+                    match = rule.params.get("match") or ""
+                    if match and fold(match) not in folded:
+                        continue
+                    if not self._may_fire(rule, num, now):
+                        continue
+                    self._fire_event(rule, num, now, 1.0 if value is None else value,
+                                     text[:80], "sensor_detection", {"text": text[:80]})
+                except Exception:  # noqa: BLE001
+                    log.exception("Regola %s non valutata", rule.id)
+        except Exception:  # noqa: BLE001
+            log.exception("Sensore non valutato dalle regole")
+
+    # ---- sorgente di avvisi ----
+    def alert_source(self, now: float, settings: dict, previous: dict[str, dict]) -> list[dict]:
+        out: list[dict] = []
+        for key, e in list(self._events.items()):
+            if now - e["since"] > EVENT_KEEP_S:
+                del self._events[key]
+                continue
+            if self.ignored(e["num"]):
+                continue
+            rule = e["rule"]
+            node = self._node_snapshot(e["num"], e["fallback"])
+            out.append(rule_alert(rule.kind, rule.id, node, e["since"], e["value"], e["detail"]))
+        nodes = self.get_nodes()
+        ready = None  # calcolato solo se serve
+        for rule in list(self._rules.values()):
+            if not rule.enabled or rule.kind not in ("snr_low", "battery", "silent"):
+                continue
+            try:
+                node = nodes.get(rule.node_num)
+                if node is None or self.ignored(rule.node_num):
+                    continue
+                key = f"rule:{rule.id}:{node['id']}"
+                active = key in previous
+                if rule.kind == "snr_low":
+                    value = snr_state(self._snr.get(rule.node_num, ()), now, rule, active)
+                elif rule.kind == "battery":
+                    value = battery_state(node, rule, active)
+                else:
+                    value = silent_state(node, rule, now)
+                if value is None:
+                    continue
+                since = previous[key]["since"] if active else now
+                out.append(rule_alert(rule.kind, rule.id, node, since, value))
+                if active or not self._seeded or not self._may_fire(rule, rule.node_num, now):
+                    continue
+                if ready is None:
+                    ready = bool(self.notify_ready(now))
+                if not ready:
+                    continue
+                name = _node_name(node)
+                thr = _plain(rule.threshold)
+                if rule.kind == "snr_low":
+                    self.notify("rule_snr", key, name=name, snr=value, thr=thr,
+                                window=rule.params.get("window_min"))
+                elif rule.kind == "battery":
+                    self.notify("rule_battery", key, name=name, pct=value, thr=thr)
+                else:
+                    self.notify("rule_silent", key, name=name, hours=value, thr=thr)
+                self._mark_fired(rule, rule.node_num, now)
+            except Exception:  # noqa: BLE001
+                log.exception("Regola %s non valutata", rule.id)
+        self._seeded = True
+        return out
