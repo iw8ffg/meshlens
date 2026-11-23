@@ -7,7 +7,19 @@
     "Serve almeno un messaggio": "At least one message is required",
     "Il firmware di questa radio non include i messaggi predefiniti": "This radio's firmware does not include canned messages",
     "Messaggi predefiniti non validi": "Invalid canned messages",
-    "Non si può marcare il nodo della radio stessa": "The radio's own node cannot be marked"
+    "Non si può marcare il nodo della radio stessa": "The radio's own node cannot be marked",
+    "Esiste già un profilo con questo nome": "A profile with this name already exists",
+    "File non riconosciuto: non è un profilo di MeshLens": "Unrecognized file: not a MeshLens profile",
+    "Il nome del profilo non può contenere caratteri di controllo": "The profile name cannot contain control characters",
+    "Il nome del profilo è obbligatorio": "The profile name is required",
+    "Il profilo non contiene sezioni copiabili": "The profile contains no copyable sections",
+    "Le note non possono contenere caratteri di controllo": "Notes cannot contain control characters",
+    "Nome del profilo troppo lungo (massimo 60 caratteri)": "Profile name too long (maximum 60 characters)",
+    "Note non valide": "Invalid notes",
+    "Note troppo lunghe (massimo 500 caratteri)": "Notes too long (maximum 500 characters)",
+    "Profilo non trovato": "Profile not found",
+    "Profilo troppo grande": "Profile too large",
+    "Versione del profilo non supportata": "Unsupported profile version"
   },
   "patterns": [
     [
@@ -17,6 +29,10 @@
     [
       "^Flag sconosciuto: (.+)$",
       "Unknown flag: $1"
+    ],
+    [
+      "^Sezione non copiabile: (.+)$",
+      "Section cannot be copied: $1"
     ]
   ]
 }
