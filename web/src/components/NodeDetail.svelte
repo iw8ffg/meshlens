@@ -17,6 +17,7 @@
   import NodeCharts from './NodeCharts.svelte'
   import Traceroute from './Traceroute.svelte'
   import NodeFlags from './node/NodeFlags.svelte'
+  import PrivacyBanner from './PrivacyBanner.svelte'
   import SensorSection from './node/SensorSection.svelte'
   import TraceSchedule from './node/TraceSchedule.svelte'
   import TakInfo from './node/TakInfo.svelte'
@@ -49,6 +50,8 @@
   )
   const showMqtt = $derived(node.mqtt_gateways > 0 || node.sources.includes('mqtt'))
   const firstRadio = $derived(app.radios.find((r) => r.state === 'connected') ?? null)
+  // WP4: avviso privacy solo per il nodo di una propria radio collegata
+  const localRadio = $derived(app.radios.find((r) => r.state === 'connected' && r.my_node_id === node.id) ?? null)
 
   function directMessage() {
     if (!firstRadio) return
@@ -274,6 +277,10 @@
         {/snippet}
       </Banner>
     </div>
+  {/if}
+
+  {#if localRadio}
+    <div class="gap"><PrivacyBanner nodeId={node.id} compact /></div>
   {/if}
 
   {#if keyChangedRecently(node, now)}

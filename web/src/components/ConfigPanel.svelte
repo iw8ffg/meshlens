@@ -23,7 +23,6 @@
     cloneConfig,
     enumLabel,
     formChanges,
-    genPsk,
     getPath,
     jobText,
     schemaField,
@@ -33,9 +32,21 @@
   import { t } from '../lib/i18n/index.svelte'
   import { translateServer } from '../lib/i18n/server'
   import { app, configJobs, setConfigJob } from '../lib/stores.svelte'
-  import type { ConfigBackup, ConfigDict, ConfigPreview, ConfigSaved, ConfigSchema, ConfigValue } from '../lib/types'
+  import type {
+    ConfigBackup,
+    ConfigChannelKeyed,
+    ConfigDict,
+    ConfigPreview,
+    ConfigSaved,
+    ConfigSchema,
+    ConfigValue,
+  } from '../lib/types'
   import ConfigAdvanced from './ConfigAdvanced.svelte'
   import ConfigProfiles from './ConfigProfiles.svelte'
+  import ChannelShare from './ChannelShare.svelte'
+  import PrivacyBanner from './PrivacyBanner.svelte'
+  import Segmented from '../lib/ui/Segmented.svelte'
+  import { generatePsk, isWeak, keyKind, type KeyKind } from '../lib/psk'
   import ConfigDiff from './ConfigDiff.svelte'
   import ConfigField from './ConfigField.svelte'
   import Banner from '../lib/ui/Banner.svelte'
@@ -314,6 +325,18 @@
   }
 
   const set = (path: string, v: ConfigValue) => setPath(edited, path, v)
+
+  // WP4: chiavi deboli, lunghezza della chiave generata, condivisione dei canali
+  let pskBits = $state<'256' | '128'>('256')
+  let sharing = $state(false)
+  const SESSION_MAX_AGE = 240 // s: oltre, il server vuole una nuova lettura del nodo remoto
+  const canShare = $derived(!!radio && (local || (!!saved && now - saved.time < SESSION_MAX_AGE)))
+  function weakKind(c: ConfigChannelKeyed): KeyKind | null {
+    if (c.role === 'DISABLED') return null
+    const pending = typeof c.psk === 'string' && c.psk !== MASK
+    const kind: KeyKind | undefined = pending ? keyKind(c.psk as string) : c.key_kind
+    return isWeak(kind) ? (kind as KeyKind) : null
+  }
   const channels = $derived((edited.channels ?? []).slice().sort((a, b) => a.index - b.index))
   const dirty = $derived(saved ? Object.keys(formChanges(saved.config, edited)).length : 0)
   const outcome = $derived.by(() => {
@@ -430,7 +453,17 @@
     {:else if tab === 'advanced'}
       <ConfigAdvanced {schema} {edited} disabled={lock} />
     {:else if tab === 'channels'}
+      <PrivacyBanner {nodeId} onfix={(p) => showExternal(p)} />
+      <div class="row">
+        <Segmented
+          items={[{ value: '256', label: t('channels.bits256') }, { value: '128', label: t('channels.bits128') }]}
+          bind:value={pskBits}
+          label={t('channels.bitsLabel')}
+        />
+        <Button icon="copy" disabled={lock || !canShare} title={canShare ? '' : t('channels.share.needRead')} onclick={() => (sharing = true)}>{t('channels.share.open')}</Button>
+      </div>
       {#each channels as c (c.index)}
+        {@const weak = weakKind(c as ConfigChannelKeyed)}
         <details open={c.index === 0}>
           <summary>
             {c.name ? t('config.channelNamed', { n: c.index, name: c.name }) : t('config.channel', { n: c.index })} <small class="muted">{enumLabel('channel.role', String(c.role ?? ''))}</small>
@@ -452,11 +485,14 @@
             <span class="ui-lbl">{CHANNEL_LABELS.psk}</span>
             <code>{c.psk !== MASK && c.psk ? t('config.psk.pending') : (revealed[c.index] ?? MASK)}</code>
             <Button icon="eye" disabled={lock} onclick={() => reveal(c.index)}>{t('config.psk.show')}</Button>
-            <Button icon="refresh" disabled={lock} onclick={() => set(`channels.${c.index}.psk`, genPsk())}>{t('config.psk.generate')}</Button>
+            <Button icon="refresh" disabled={lock} onclick={() => set(`channels.${c.index}.psk`, generatePsk(pskBits === '128' ? 16 : 32))}>{t('config.psk.generate')}</Button>
             {#if c.psk !== MASK}
               <Button kind="ghost" disabled={lock} onclick={() => set(`channels.${c.index}.psk`, MASK)}>{t('common.cancel')}</Button>
             {/if}
           </div>
+          {#if weak}
+            <Banner kind="warn" title={weak === 'none' ? t('channels.weak.none') : t('channels.weak.default')}>{t('channels.weak.body')}</Banner>
+          {/if}
           {#if c.index === 0 && c.psk !== MASK}<Banner kind="warn" title={t('config.psk.newTitle')}>{t('config.psk.newBody')}</Banner>{/if}
         </details>
       {/each}
@@ -499,6 +535,8 @@
     {/if}
   </div>
 </div>
+
+<ChannelShare {nodeId} open={sharing} onclose={() => (sharing = false)} />
 
 <Modal
   open={pending === 'reboot'}
