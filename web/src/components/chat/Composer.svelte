@@ -21,7 +21,10 @@ import { safeStorage } from '../../lib/storage'
     type MqttSendBody,
   } from '../../lib/send'
   import { keepAboveKeyboard } from '../../lib/keyboard'
+  import { expandVariables, hasUnresolvedVariables, insertReply, ownNodeId, variablesIn } from '../../lib/quickreplies'
+  import { navigate } from '../../lib/shell/navigate'
   import { app, addMessage } from '../../lib/stores.svelte'
+  import QuickReplies from './QuickReplies.svelte'
   import { t } from '../../lib/i18n/index.svelte'
   import Banner from '../../lib/ui/Banner.svelte'
   import Button from '../../lib/ui/Button.svelte'
@@ -156,7 +159,21 @@ import { safeStorage } from '../../lib/storage'
   })
 
   const bc = $derived(byteCount(text))
-  const canSend = $derived(!sending && !bc.over && text.trim() !== '' && hasChoice && via !== '')
+  // Messaggi rapidi: una variabile non risolta ({batteria} senza dato...) non parte mai come testo
+  const unresolved = $derived(variablesIn(text).map((v) => `{${v}}`))
+  let quickMissing = $state(false)
+  let taEl: HTMLTextAreaElement | undefined = $state()
+  const canSend = $derived(!sending && !bc.over && text.trim() !== '' && hasChoice && via !== '' && !hasUnresolvedVariables(text))
+
+  /** Inserisce un messaggio rapido nel campo (variabili espanse); non invia nulla. */
+  function pickQuick(reply: string) {
+    const id = ownNodeId(via, app.radios, mqttNodeId)
+    const r = expandVariables(reply, { node: (id ? app.nodes.get(id) : null) ?? null, now: new Date() })
+    text = insertReply(text, r.text)
+    quickMissing = r.missing.length > 0
+    saveDraft(safeStorage(), conv, text)
+    taEl?.focus()
+  }
 
   /** Invio riuscito: svuota il testo (se la conversazione e' ancora quella) e la sua bozza. */
   function sent(m: Message, from: string, clear: boolean, sentText: string) {
@@ -337,12 +354,19 @@ import { safeStorage } from '../../lib/storage'
     aria-describedby="{uid}-cnt"
     {placeholder}
     bind:value={text}
+    bind:this={taEl}
     oninput={(e) => saveDraft(safeStorage(), conv, e.currentTarget.value)}
     onkeydown={onkey}
     disabled={!hasChoice}
   ></textarea>
+  {#if unresolved.length}
+    <p class="unres" role="status">{quickMissing ? t('chat.quick.missing', { names: unresolved.join(', ') }) : t('chat.quick.unresolved', { names: unresolved.join(', ') })}</p>
+  {/if}
   <div class="row">
-    <span class="count ui-mono" class:over={bc.over} id="{uid}-cnt">{bc.bytes}/{MAX_BYTES} {t('chat.bytes')}{bc.over ? ` — ${t('chat.tooLong')}` : ''}</span>
+    <div class="lf">
+      <QuickReplies disabled={!hasChoice} onpick={pickQuick} onmanage={() => navigate('settings')} />
+      <span class="count ui-mono" class:over={bc.over} id="{uid}-cnt">{bc.bytes}/{MAX_BYTES} {t('chat.bytes')}{bc.over ? ` — ${t('chat.tooLong')}` : ''}</span>
+    </div>
     <Button type="submit" kind="primary" icon="send" disabled={!canSend} title={t('chat.sendShortcut')}>{sending ? t('chat.sending') : t('chat.send')}</Button>
   </div>
   {#if error}<Banner kind="danger" title={error} />{/if}
@@ -429,6 +453,17 @@ import { safeStorage } from '../../lib/storage'
     gap: var(--space-3);
     align-items: center;
     justify-content: space-between;
+  }
+  .lf {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-width: 0;
+  }
+  .unres {
+    margin: 0;
+    font: 400 14px/20px var(--font-sans);
+    color: var(--warn);
   }
   .count {
     font-size: 13px;

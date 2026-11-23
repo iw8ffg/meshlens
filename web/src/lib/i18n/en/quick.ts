@@ -1,4 +1,33 @@
 // Testi inglesi: area «quick» (WP1, messaggi rapidi). Il tipo obbliga a tradurre ogni chiave italiana.
 import type { quick as itArea } from '../it/quick'
 
-export const quick: Record<keyof typeof itArea, string> = {}
+export const quick: Record<keyof typeof itArea, string> = {
+  'quick.title': 'Quick messages',
+  'quick.intro': 'Ready-made phrases to put in the message box with one tap. They are never sent on their own: you press “Send”.',
+  'quick.variables': 'In the text you can use {batteria} (your node\'s battery), {posizione} (your node\'s coordinates) and {ora} (this computer\'s time): they are replaced when you insert the phrase. The variable names stay in Italian.',
+  'quick.positionWarning': '{posizione} inserts your node\'s exact coordinates: you see them in the box before sending, but whoever receives the message will know where you are.',
+  'quick.loadError': 'Could not read the quick messages',
+  'quick.emptyList': 'No quick messages. Add one or insert some examples.',
+  'quick.bytes': '{n}/{max} bytes',
+  'quick.up': 'Move up',
+  'quick.down': 'Move down',
+  'quick.remove': 'Delete',
+  'quick.newLabel': 'New message',
+  'quick.placeholder': 'E.g. Arriving at {ora}',
+  'quick.variablesHint': 'Variables: {names}',
+  'quick.max': 'You reached the maximum of {max} messages',
+  'quick.add': 'Add',
+  'quick.addExamples': 'Insert examples',
+  'quick.count': '{n}/{max}',
+  'quick.save': 'Save',
+  'quick.saved': 'Quick messages saved',
+  'quick.saveError': 'Saving failed',
+  'quick.err.empty': 'Write a message',
+  'quick.err.edges': 'No spaces at the start or end',
+  'quick.err.tooLong': 'Too long: 200 bytes at most',
+  'quick.err.control': 'Cannot contain line breaks or control characters',
+  'quick.err.duplicate': 'It already exists',
+  'quick.example.1': 'I\'m fine',
+  'quick.example.2': 'Arriving at {ora}',
+  'quick.example.3': 'Battery {batteria}, position {posizione}',
+}

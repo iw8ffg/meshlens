@@ -131,4 +131,11 @@ export const chat = {
   'chat.export.truncated': 'Sono stati esportati gli ultimi {n} messaggi di {total}',
   'chat.export.reaction': '{name} ha reagito con {emoji}',
   'chat.export.you': 'Tu',
+  // 1.6 WP1: messaggi rapidi nel compositore
+  'chat.quick.open': 'Messaggi rapidi',
+  'chat.quick.menu': 'Elenco dei messaggi rapidi',
+  'chat.quick.empty': 'Non hai ancora messaggi rapidi.',
+  'chat.quick.add': 'Aggiungi messaggi rapidi',
+  'chat.quick.missing': 'Non conosco {names}: sostituisci il segnaposto prima di inviare',
+  'chat.quick.unresolved': 'Il messaggio contiene ancora {names}: sostituiscilo prima di inviare',
 } as const

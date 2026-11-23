@@ -132,4 +132,10 @@ export const chat: Record<keyof typeof itArea, string> = {
   'chat.export.truncated': 'The latest {n} of {total} messages were exported',
   'chat.export.reaction': '{name} reacted with {emoji}',
   'chat.export.you': 'You',
+  'chat.quick.open': 'Quick messages',
+  'chat.quick.menu': 'List of quick messages',
+  'chat.quick.empty': 'You have no quick messages yet.',
+  'chat.quick.add': 'Add quick messages',
+  'chat.quick.missing': 'I don\'t know {names}: replace the placeholder before sending',
+  'chat.quick.unresolved': 'The message still contains {names}: replace it before sending',
 }
