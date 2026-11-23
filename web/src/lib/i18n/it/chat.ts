@@ -132,6 +132,13 @@ export const chat = {
   'chat.export.reaction': '{name} ha reagito con {emoji}',
   'chat.export.you': 'Tu',
   // 1.6 WP1: messaggi rapidi nel compositore
+  'chat.search.open': 'Cerca nei messaggi',
+  'chat.export.open': 'Esporta la conversazione',
+  'chat.export.dialogTitle': 'Esporta la conversazione',
+  'chat.export.format': 'Formato',
+  'chat.export.period': 'Periodo',
+  'chat.export.download': 'Scarica',
+  'chat.export.error': 'Esportazione non riuscita',
   'chat.quick.open': 'Messaggi rapidi',
   'chat.quick.menu': 'Elenco dei messaggi rapidi',
   'chat.quick.empty': 'Non hai ancora messaggi rapidi.',

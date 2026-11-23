@@ -3,6 +3,10 @@
   import { MQTT_CONV, groupMessages, localNodeIds } from '../lib/chat'
   import { buildConversations, convLabel, previewText } from '../lib/conversations'
   import { app, attachChat, rememberConv, setOpenChat } from '../lib/stores.svelte'
+  import { hitConvKey, loadHitContext } from '../lib/msgsearch'
+  import { requestFocus } from '../lib/msgfocus'
+  import ConvTools from './chat/ConvTools.svelte'
+  import EmptyAction from '../lib/ui/EmptyAction.svelte'
   import { setActiveConv, unread } from '../lib/unread.svelte'
   import ConversationList from './chat/ConversationList.svelte'
   import Thread from './chat/Thread.svelte'
@@ -10,7 +14,7 @@
   import { t } from '../lib/i18n/index.svelte'
   import Button from '../lib/ui/Button.svelte'
   import Empty from '../lib/ui/Empty.svelte'
-  import type { Message } from '../lib/types'
+  import type { Message, MessageSearchHit } from '../lib/types'
 
   let {
     now,
@@ -34,7 +38,11 @@
   let replyTo = $state<Message | null>(null)
   let composer = $state<ReturnType<typeof Composer> | null>(null)
 
+  // cresce a ogni apertura: rilancia il salto al messaggio cercato anche nella conversazione gia' aperta
+  let focusTick = $state(0)
+
   function open(key: string) {
+    focusTick++
     if (key !== conv) replyTo = null
     conv = key
     view = 'thread'
@@ -76,6 +84,14 @@
     }),
   )
   const msgs = $derived(groups.get(conv) ?? [])
+  const convTitle = $derived(convLabel(conv, app.radios, nodeName, brokers))
+
+  /** Un messaggio trovato dalla ricerca: apre la sua conversazione, lo porta nello store e lo mette a fuoco. */
+  function openHit(hit: MessageSearchHit) {
+    requestFocus(hit.message.key)
+    open(hitConvKey(hit))
+    void loadHitContext(hit)
+  }
 </script>
 
 {#snippet expandButton()}
@@ -92,12 +108,21 @@
   {/if}
 {/snippet}
 
+{#snippet actionsWide()}
+  <ConvTools {conv} label={convTitle} onhit={openHit} />
+{/snippet}
+
+{#snippet actionsNarrow()}
+  <ConvTools {conv} label={convTitle} onhit={openHit} />
+  {@render expandButton()}
+{/snippet}
+
 {#snippet composerBox()}
   <Composer bind:this={composer} {conv} {replyTo} oncancelreply={() => (replyTo = null)} onsent={() => (replyTo = null)} />
 {/snippet}
 
 {#snippet threadView(wide: boolean)}
-  <Thread {conv} {msgs} {now} {onpick} {wide} onback={back} onreply={(m) => (replyTo = m)} onreact={(m, e) => composer?.react(m, e)} actions={wide ? undefined : expandButton} />
+  <Thread {conv} {msgs} {now} {onpick} {wide} onback={back} onreply={(m) => (replyTo = m)} onreact={(m, e) => composer?.react(m, e)} actions={wide ? actionsWide : actionsNarrow} {focusTick} />
 {/snippet}
 
 <div class="chat" class:wide={expanded}>
@@ -111,7 +136,9 @@
       {#if view === 'thread'}
         {@render threadView(true)}
       {:else}
-        <Empty icon="chat" title={t('chat.pickConversation')} />
+        <Empty icon="chat" title={t('chat.pickConversation')}>
+          {#snippet action()}<EmptyAction kind="chat" />{/snippet}
+        </Empty>
       {/if}
     </div>
   {:else if view === 'list'}
