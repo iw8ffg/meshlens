@@ -1617,9 +1617,12 @@ def test_feature_modules_contract(ctx):
         mod = importlib.import_module(f"meshlens.{name}")
         assert isinstance(mod.GUEST_GET_PATHS, tuple) and callable(mod.register)
     # i prefissi riservati sono dei moduli di funzione: il nucleo (api.py e simili) non li usa
-    feature = {f"meshlens.{n}" for n in FEATURE_MODULES}
+    # nucleo = moduli di rotte esistenti prima della 1.6; i moduli di funzione (e i loro
+    # sottomoduli, es. api_nodeflags di WP4) possono usare i prefissi riservati
+    core = {"meshlens.api", "meshlens.api_data", "meshlens.api_prediction",
+            "meshlens.api_storeforward"}
     paths = [getattr(r, "path", "") for r in create_app(ctx).routes
-             if getattr(getattr(r, "endpoint", None), "__module__", "") not in feature]
+             if getattr(getattr(r, "endpoint", None), "__module__", "") in core]
     assert paths
     for p in paths:
         assert not p.startswith(RESERVED_PREFIXES), p
