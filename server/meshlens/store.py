@@ -464,9 +464,9 @@ class Store:
             sql += " AND m.broker = ?"
             params.append(broker)
         if before is not None:
-            sql += " AND m.time < ?"
+            sql += " AND m.time <= ?"  # incluso: i messaggi dello stesso secondo non si saltano
             params.append(before)
-        sql += " ORDER BY m.time DESC LIMIT ?"
+        sql += " ORDER BY m.time DESC, m.rowid DESC LIMIT ?"
         params.append(limit)
         return [self._message_row(r) for r in self.conn.execute(sql, params)]
 

@@ -100,7 +100,14 @@
     loading = true
     error = ''
     try {
-      const list = await getJSON<Message[]>(`/messages/history?${qs(`&before=${oldest}`)}`)
+      // il server include `before` (nessun messaggio dello stesso secondo si salta): la pagina
+      // puo' ripetere i gia' noti (dedup per chiave in `all`); se non porta nulla di nuovo
+      // (pagina piena dello stesso secondo) si riparte da un secondo prima, cosi' si avanza sempre
+      const known = new Set(all.map((m) => m.key))
+      let list = await getJSON<Message[]>(`/messages/history?${qs(`&before=${oldest}`)}`)
+      if (list.length && list.every((m) => known.has(m.key))) {
+        list = await getJSON<Message[]>(`/messages/history?${qs(`&before=${oldest - 1}`)}`)
+      }
       if (list.length < LIMIT) exhausted = true
       older = [...older, ...list]
     } catch {

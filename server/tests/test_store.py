@@ -63,8 +63,17 @@ def test_messages_filter_and_shape(store):
                      "broker": None, "reply_id": None, "emoji": False, "pki": False,
                      "error": None, "heard_by": None}
     assert store.messages(["SE"], None, 50)[0]["from_name"] is None
-    assert [m["key"] for m in store.messages(None, NOW + 2, 50)] == ["1:2", "1:1"]
+    assert [m["key"] for m in store.messages(None, NOW + 1, 50)] == ["1:2", "1:1"]  # before incluso
     assert len(store.messages(None, None, 1)) == 1
+
+
+def test_messages_before_is_inclusive_and_stable_within_a_second(store):
+    for i in range(4):
+        store.add_message(msg(f"1:{i}", NOW, "IT"))
+    page1 = store.messages(None, None, 2)
+    page2 = store.messages(None, page1[-1]["time"], 4)
+    assert [m["key"] for m in page1] == ["1:3", "1:2"]
+    assert {m["key"] for m in page2} >= {"1:1", "1:0"}  # stesso secondo: non saltati
 
 
 def test_positions_and_telemetry_since(store):
