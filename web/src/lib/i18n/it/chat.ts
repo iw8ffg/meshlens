@@ -123,4 +123,12 @@ export const chat = {
   'chat.showOnMap': 'Mostra sulla mappa',
   'chat.nodeDrawer': 'Scheda del nodo',
   'chat.routing.SEND_FAILED': 'Invio alla radio non riuscito',
+  // 1.6 WP1: esportazione di una conversazione (file TXT/CSV/JSON)
+  'chat.export.header': 'data_ora_iso,mittente_id,mittente,destinatario_id,destinatario,testo,canale,origine,stato,reazione',
+  'chat.export.title': 'Messaggi di {label}',
+  'chat.export.exportedAt': 'Esportato il {date}',
+  'chat.export.count': 'Messaggi: {n}',
+  'chat.export.truncated': 'Sono stati esportati gli ultimi {n} messaggi di {total}',
+  'chat.export.reaction': '{name} ha reagito con {emoji}',
+  'chat.export.you': 'Tu',
 } as const

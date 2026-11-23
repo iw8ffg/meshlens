@@ -1,6 +1,6 @@
 import type { Feature, FeatureCollection, Geometry } from 'geojson'
 import { coverageGeoJSON } from './coverage'
-import type { CoverageDetail, Node } from './types'
+import type { CoverageDetail, Message, Node } from './types'
 import { i18n, t } from './i18n/index.svelte'
 
 export type SnrClass = 'good' | 'mid' | 'bad' | 'none'
@@ -145,6 +145,84 @@ export function slug(s: string): string {
     .slice(0, 40)
     .replace(/-+$/g, '')
   return out || t('export.unnamed')
+}
+
+// ---- esportazione di una conversazione (WP1: E4) ----
+
+export type ConvExportFormat = 'txt' | 'csv' | 'json'
+
+/** Risposta di `GET /api/conversations/{key}/export`: i file si costruiscono qui, nel browser. */
+export interface ConvExport {
+  key: string
+  messages: (Message & { to_name: string | null })[]
+  total: number
+  truncated: boolean
+}
+
+const two = (n: number) => String(n).padStart(2, '0')
+
+/** `AAAA-MM-GG HH:MM` in ora locale. */
+function localStamp(sec: number): string {
+  const d = new Date(sec * 1000)
+  return `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())} ${two(d.getHours())}:${two(d.getMinutes())}`
+}
+
+function senderName(m: Message): string {
+  return m.direction === 'out' ? t('chat.export.you') : (m.from_name ?? m.from)
+}
+
+/** Testo semplice: intestazione e una riga per messaggio `[AAAA-MM-GG HH:MM] Mittente: testo`; le righe successive di un testo a capo sono rientrate di 2 spazi. */
+export function conversationTxt(d: ConvExport, label: string, now: Date = new Date()): string {
+  const head = [
+    t('chat.export.title', { label }),
+    t('chat.export.exportedAt', { date: localStamp(now.getTime() / 1000) }),
+    t('chat.export.count', { n: d.messages.length }),
+  ]
+  if (d.truncated) head.push(t('chat.export.truncated', { n: d.messages.length, total: d.total }))
+  const lines = d.messages.map((m) => {
+    const stamp = `[${localStamp(m.time)}]`
+    if (m.emoji) return `${stamp} ${t('chat.export.reaction', { name: senderName(m), emoji: m.text })}`
+    const [first, ...rest] = m.text.replace(/\r\n?/g, '\n').split('\n')
+    return [`${stamp} ${senderName(m)}: ${first}`, ...rest.map((r) => `  ${r}`)].join('\n')
+  })
+  return head.join('\n') + '\n\n' + lines.join('\n') + (lines.length ? '\n' : '')
+}
+
+/** CSV per Excel (`;` in italiano, `,` in inglese; BOM, CRLF, formule disinnescate). */
+export function conversationCsv(d: ConvExport): string {
+  return csv(
+    t('chat.export.header').split(','),
+    d.messages.map((m) => [iso(m.time), m.from, m.from_name, m.to, m.to_name, m.emoji ? '' : m.text, m.channel, m.source, m.status ?? null, m.emoji ? m.text : null]),
+  )
+}
+
+/** JSON indentato; ogni messaggio ha anche `time_iso`. */
+export function conversationJson(d: ConvExport, now: Date = new Date()): string {
+  return JSON.stringify(
+    {
+      key: d.key,
+      exported: now.toISOString(),
+      total: d.total,
+      truncated: d.truncated,
+      messages: d.messages.map((m) => ({ ...m, time_iso: iso(m.time) })),
+    },
+    null,
+    2,
+  )
+}
+
+/** `messaggi-<slug>-<AAAAMMGG>.<ext>`. */
+export function conversationFileName(label: string, format: ConvExportFormat, now: Date): string {
+  return `messaggi-${slug(label)}-${fileStamp(now)}.${format}`
+}
+
+/** Percorso (senza `/api`) dell'esportazione; `:` e `!` della chiave sono codificati. */
+export function exportPath(key: string, since?: number | null, until?: number | null): string {
+  const q: string[] = []
+  if (since !== null && since !== undefined) q.push(`since=${since}`)
+  if (until !== null && until !== undefined) q.push(`until=${until}`)
+  const enc = encodeURIComponent(key).replace(/!/g, '%21')
+  return `/conversations/${enc}/export${q.length ? '?' + q.join('&') : ''}`
 }
 
 /** Colori `--snr-*` dai token CSS, per i file KML. */

@@ -125,4 +125,11 @@ export const chat: Record<keyof typeof itArea, string> = {
   'chat.showOnMap': 'Show on map',
   'chat.nodeDrawer': 'Node details',
   'chat.routing.SEND_FAILED': 'Sending to the radio failed',
+  'chat.export.header': 'iso_datetime,sender_id,sender,recipient_id,recipient,text,channel,origin,status,reaction',
+  'chat.export.title': 'Messages of {label}',
+  'chat.export.exportedAt': 'Exported on {date}',
+  'chat.export.count': 'Messages: {n}',
+  'chat.export.truncated': 'The latest {n} of {total} messages were exported',
+  'chat.export.reaction': '{name} reacted with {emoji}',
+  'chat.export.you': 'You',
 }

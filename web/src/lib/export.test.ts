@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { i18n } from './i18n/index.svelte'
-import { coverageCsv, coverageGeoJSONFile, coverageKml, cssToKml, csv, fileStamp, gpx, networkCsv, slug, snrClass } from './export'
-import type { CoverageDetail, Node } from './types'
+import { conversationCsv, conversationFileName, conversationJson, conversationTxt, coverageCsv, coverageGeoJSONFile, coverageKml, cssToKml, csv, exportPath, fileStamp, gpx, networkCsv, slug, snrClass } from './export'
+import type { ConvExport } from './export'
+import type { CoverageDetail, Message, Node } from './types'
 
 // Ambiente node, senza DOMParser: controllo minimo di buona formazione (tag bilanciati, nessun & non protetto)
 function wellFormed(out: string): boolean {
@@ -152,5 +153,59 @@ describe('utilità', () => {
     expect(slug('🚀')).toBe('senza-nome')
     expect(slug('x'.repeat(80)).length).toBe(40)
     expect(fileStamp(new Date(2026, 10, 21))).toBe('20261121')
+  })
+})
+
+// ---- esportazione di una conversazione (WP1) ----
+
+const cm = (over: Partial<Message> & { to_name?: string | null }): ConvExport['messages'][number] =>
+  ({ key: 'k', from: '!0000000a', from_name: 'Alice', to: '!ffffffff', to_name: null, channel: 'LongFast', text: 'ciao', time: new Date(2026, 10, 23, 9, 5).getTime() / 1000, country: null, source: 'rf', direction: 'in', status: null, emoji: false, ...over }) as ConvExport['messages'][number]
+
+const conv = (messages: ConvExport['messages'], truncated = false): ConvExport => ({ key: 'ch:r1:0', messages, total: truncated ? 50 : messages.length, truncated })
+
+describe('esportazione conversazione', () => {
+  afterEach(() => {
+    i18n.lang = 'it'
+  })
+
+  it('CSV: «;» e BOM in italiano, «,» in inglese', () => {
+    i18n.lang = 'it'
+    const it = conversationCsv(conv([cm({ text: 'a' })]))
+    expect(it.startsWith('﻿data_ora_iso;mittente_id;')).toBe(true)
+    expect(it).toContain('\r\n')
+    i18n.lang = 'en'
+    expect(conversationCsv(conv([cm({ text: 'a' })]))).toContain('iso_datetime,sender_id,')
+  })
+
+  it('CSV: formule disinnescate, testo con separatore quotato, reazione in colonna a parte', () => {
+    i18n.lang = 'it'
+    const out = conversationCsv(conv([cm({ text: '=SOMMA(1;2)' }), cm({ key: 'k2', text: 'a; "b"' }), cm({ key: 'k3', text: '👍', emoji: true })]))
+    expect(out).toContain("\"'=SOMMA(1;2)\"")
+    expect(out).toContain('"a; ""b"""')
+    expect(out).toMatch(/;;LongFast;rf;;👍\r\n/)
+  })
+
+  it('TXT: righe rientrate, riga di troncamento solo se serve, reazioni', () => {
+    const now = new Date(2026, 10, 23, 10, 0)
+    const txt = conversationTxt(conv([cm({ text: 'riga uno\nriga due' }), cm({ key: 'r', text: '👍', emoji: true })]), 'Canale', now)
+    expect(txt).toContain('Messaggi di Canale')
+    expect(txt).toContain('[2026-11-23 09:05] Alice: riga uno\n  riga due')
+    expect(txt).toContain('[2026-11-23 09:05] Alice ha reagito con 👍')
+    expect(txt).not.toContain('Sono stati esportati gli ultimi')
+    expect(conversationTxt(conv([cm({})], true), 'Canale', now)).toContain('Sono stati esportati gli ultimi 1 messaggi di 50')
+  })
+
+  it('JSON valido con time_iso', () => {
+    const j = JSON.parse(conversationJson(conv([cm({}), cm({ key: 'k2' })]), new Date(2026, 10, 23)))
+    expect(j.messages).toHaveLength(2)
+    expect(j.total).toBe(2)
+    expect(j.messages[0].time_iso).toMatch(/^2026-11-23T/)
+    expect(j.truncated).toBe(false)
+  })
+
+  it('nome file e percorso', () => {
+    expect(conversationFileName('Canale: LongFast / Radio', 'csv', new Date(2026, 10, 23))).toBe('messaggi-canale-longfast-radio-20261123.csv')
+    expect(exportPath('dm:r1a2b3c4:!000000aa', 10, null)).toBe('/conversations/dm%3Ar1a2b3c4%3A%21000000aa/export?since=10')
+    expect(exportPath('mqtt')).toBe('/conversations/mqtt/export')
   })
 })
