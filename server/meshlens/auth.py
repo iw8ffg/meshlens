@@ -27,9 +27,13 @@ SESSION_IDLE_S = 30 * 86400
 TOUCH_INTERVAL_S = 60
 MIN_PIN = 4
 MIN_PIN_LAN = 6
+MIN_PIN_GUEST = 6  # l'ospite implica l'accesso dalla rete
 MAX_PIN = 12
+ROLE_ADMIN = "admin"
+ROLE_GUEST = "guest"  # E19: sola lettura di mappa, nodi e statistiche
 VERIFY_CONCURRENCY = 2  # ogni verifica argon2 usa 64 MiB
 LOOPBACK = ("127.0.0.1", "::1")
+SAME_PIN_MSG = "Il PIN ospite deve essere diverso dal PIN principale"
 _SESSION_ID = re.compile(r"^[0-9a-f]{16}$")
 log = logging.getLogger(__name__)
 
@@ -76,17 +80,53 @@ class Auth:
 
     def set_pin(self, pin: str, min_len: int = MIN_PIN) -> None:
         self._validate_pin(pin, min_len)
+        # il PIN principale non puo' coincidere con quello ospite: il login darebbe l'admin
+        # a chi conosce il PIN ospite
+        if self._verify(self._get("guest_pin_hash"), pin):
+            raise ValueError(SAME_PIN_MSG)
         self._store_pin(self._ph.hash(pin), len(pin))
 
     async def aset_pin(self, pin: str, min_len: int = MIN_PIN) -> None:
         """Come `set_pin`, con l'hash argon2 fuori dal loop (per l'API)."""
         self._validate_pin(pin, min_len)
+        if await self._averify(self._get("guest_pin_hash"), pin):
+            raise ValueError(SAME_PIN_MSG)
         self._store_pin(await asyncio.to_thread(self._ph.hash, pin), len(pin))
 
     def _store_pin(self, pin_hash: str, length: int) -> None:
         self.conn.executemany("INSERT OR REPLACE INTO auth(key, value) VALUES(?, ?)",
                               (("pin_hash", pin_hash), ("pin_len", str(length))))
         self.conn.commit()
+
+    # ---- PIN ospite (E19) ----
+    def guest_pin_is_set(self) -> bool:
+        return self._get("guest_pin_hash") is not None
+
+    def set_guest_pin(self, pin: str) -> None:
+        self._validate_pin(pin, MIN_PIN_GUEST)
+        if self._verify(self._get("pin_hash"), pin):
+            raise ValueError(SAME_PIN_MSG)
+        self._store_guest_pin(self._ph.hash(pin))
+
+    async def aset_guest_pin(self, pin: str) -> None:
+        """PIN ospite (6-12 cifre, diverso dal principale); revoca le sessioni ospite aperte."""
+        self._validate_pin(pin, MIN_PIN_GUEST)
+        if await self._averify(self._get("pin_hash"), pin):
+            raise ValueError(SAME_PIN_MSG)
+        self._store_guest_pin(await asyncio.to_thread(self._ph.hash, pin))
+
+    def _store_guest_pin(self, pin_hash: str) -> None:
+        self.conn.execute("INSERT OR REPLACE INTO auth(key, value) VALUES('guest_pin_hash', ?)",
+                          (pin_hash,))
+        self.conn.commit()
+        self.revoke_role(ROLE_GUEST)
+        log.info("PIN ospite impostato: sessioni ospite revocate")
+
+    def clear_guest_pin(self) -> None:
+        self.conn.execute("DELETE FROM auth WHERE key='guest_pin_hash'")
+        self.conn.commit()
+        self.revoke_role(ROLE_GUEST)
+        log.info("PIN ospite tolto: sessioni ospite revocate")
 
     def _get(self, key: str) -> str | None:
         row = self.conn.execute("SELECT value FROM auth WHERE key=?", (key,)).fetchone()
@@ -146,37 +186,50 @@ class Auth:
         self.conn.commit()
 
     # ---- login ----
-    def _issue_token(self, ip: str, user_agent: str | None, now: float) -> str:
+    def _issue_token(self, ip: str, user_agent: str | None, now: float,
+                     role: str = ROLE_ADMIN) -> str:
         token = secrets.token_urlsafe(32)
         self.conn.execute("DELETE FROM auth_failures WHERE ip=?", (ip,))
         self.conn.execute(
-            "INSERT INTO sessions(token_hash, created, last_seen, user_agent, ip) "
-            "VALUES(?,?,?,?,?)", (_hash(token), now, now, user_agent, ip))
+            "INSERT INTO sessions(token_hash, created, last_seen, user_agent, ip, role) "
+            "VALUES(?,?,?,?,?,?)", (_hash(token), now, now, user_agent, ip, role))
         self.conn.commit()
-        log.info("Accesso riuscito da %s", ip)
+        if role == ROLE_GUEST:
+            log.info("Accesso ospite riuscito da %s", ip)
+        else:
+            log.info("Accesso riuscito da %s", ip)
         return token
 
-    def _finish(self, ok: bool, pin: str, ip: str, user_agent: str | None) -> str:
+    def _finish(self, role: str | None, pin: str, ip: str, user_agent: str | None) -> str:
         now = self.clock()
-        if not ok:
+        if role is None:
             self._record_failure(ip, now)
             raise PermissionError("PIN errato")
-        if self.pin_length() is None:  # PIN impostato da una versione precedente
+        if role == ROLE_ADMIN and self.pin_length() is None:  # PIN di una versione precedente
             self.conn.execute("INSERT OR REPLACE INTO auth(key, value) VALUES('pin_len', ?)",
                               (str(len(pin)),))
-        return self._issue_token(ip, user_agent, now)
+        return self._issue_token(ip, user_agent, now, role)
 
-    def login(self, pin: str, client_ip: str, user_agent: str | None = None) -> str:
-        """Versione sincrona (CLI e test): verifica argon2 sul thread chiamante."""
+    def login(self, pin: str, client_ip: str, user_agent: str | None = None,
+              guest_ok: bool = False) -> str:
+        """Versione sincrona (CLI e test): verifica argon2 sul thread chiamante.
+        guest_ok: anche il PIN ospite apre una sessione (accesso ospite attivo)."""
         self._precheck(client_ip, self.clock())
-        ok = self._verify(self._get("pin_hash"), pin)
-        return self._finish(ok, pin, client_ip, user_agent)
+        role = ROLE_ADMIN if self._verify(self._get("pin_hash"), pin) else None
+        if role is None and guest_ok and self._verify(self._get("guest_pin_hash"), pin):
+            role = ROLE_GUEST
+        return self._finish(role, pin, client_ip, user_agent)
 
-    async def alogin(self, pin: str, client_ip: str, user_agent: str | None = None) -> str:
+    async def alogin(self, pin: str, client_ip: str, user_agent: str | None = None,
+                     guest_ok: bool = False) -> str:
+        # stesso lucchetto per IP e stessi blocchi per il PIN principale e per quello ospite
         async with self._ip_lock(client_ip):
             self._precheck(client_ip, self.clock())
-            ok = await self._averify(self._get("pin_hash"), pin)
-            return self._finish(ok, pin, client_ip, user_agent)
+            role = ROLE_ADMIN if await self._averify(self._get("pin_hash"), pin) else None
+            if (role is None and guest_ok
+                    and await self._averify(self._get("guest_pin_hash"), pin)):
+                role = ROLE_GUEST
+            return self._finish(role, pin, client_ip, user_agent)
 
     async def _averify(self, stored: str | None, pin: str) -> bool:
         async with self._verify_sem():
@@ -209,7 +262,7 @@ class Auth:
         poi revoca le altre sessioni."""
         row = self.conn.execute("SELECT ip FROM sessions WHERE token_hash=?",
                                 (_hash(token or ""),)).fetchone()
-        if row is None or not self.check(token):
+        if row is None or self.check_role(token) != ROLE_ADMIN:
             raise PermissionError("sessione non valida")
         ip = client_ip or row[0] or "unknown"
         self._validate_pin(new, min_len)
@@ -219,6 +272,8 @@ class Auth:
             if not ok:
                 self._record_failure(ip, self.clock())
                 raise PermissionError("PIN attuale errato")
+            if await self._averify(self._get("guest_pin_hash"), new):
+                raise ValueError(SAME_PIN_MSG)
             new_hash = await asyncio.to_thread(self._ph.hash, new)
             self.conn.execute("DELETE FROM auth_failures WHERE ip=?", (ip,))
             self._store_pin(new_hash, len(new))
@@ -227,31 +282,49 @@ class Auth:
 
     # ---- sessioni ----
     def check(self, token: str | None) -> bool:
+        return self.check_role(token) is not None
+
+    def check_role(self, token: str | None) -> str | None:
+        """Ruolo della sessione valida ('admin' | 'guest'), None se assente o scaduta."""
         if not token:
-            return False
+            return None
         h = _hash(token)
-        row = self.conn.execute("SELECT last_seen FROM sessions WHERE token_hash=?", (h,)).fetchone()
+        row = self.conn.execute("SELECT last_seen, role FROM sessions WHERE token_hash=?",
+                                (h,)).fetchone()
         if row is None:
-            return False
+            return None
         now = self.clock()
         last_seen = row[0] or 0
         if now - last_seen > SESSION_IDLE_S:
             self._drop("token_hash=?", (h,))
-            return False
+            return None
         if now - last_seen >= TOUCH_INTERVAL_S:
             self.conn.execute("UPDATE sessions SET last_seen=? WHERE token_hash=?", (now, h))
             self.conn.commit()
-        return True
+        # qualunque valore diverso da 'admin' vale come ospite: mai privilegi per errore
+        return ROLE_ADMIN if row[1] == ROLE_ADMIN else ROLE_GUEST
 
     def sessions(self, current_token: str | None) -> list[dict]:
         self._drop("last_seen < ?", (self.clock() - SESSION_IDLE_S,))
         current = _hash(current_token) if current_token else None
         rows = self.conn.execute(
-            "SELECT token_hash, created, last_seen, user_agent, ip FROM sessions "
+            "SELECT token_hash, created, last_seen, user_agent, ip, role FROM sessions "
             "ORDER BY last_seen DESC").fetchall()
         return [{"id": h[:16], "created": created, "last_seen": last_seen,
-                 "user_agent": ua, "ip": ip, "current": h == current}
-                for h, created, last_seen, ua, ip in rows]
+                 "user_agent": ua, "ip": ip, "current": h == current,
+                 "role": ROLE_ADMIN if role == ROLE_ADMIN else ROLE_GUEST}
+                for h, created, last_seen, ua, ip, role in rows]
+
+    def count_guests(self) -> int:
+        self._drop("last_seen < ?", (self.clock() - SESSION_IDLE_S,))
+        return self.conn.execute(
+            "SELECT COUNT(*) FROM sessions WHERE role != 'admin'").fetchone()[0]
+
+    def revoke_role(self, role: str) -> int:
+        """Revoca tutte le sessioni di un ruolo (es. gli ospiti quando l'accesso si spegne)."""
+        if role == ROLE_ADMIN:
+            return self._drop("role = 'admin'", ())
+        return self._drop("role != 'admin'", ())
 
     def revoke(self, session_id: str) -> bool:
         if not isinstance(session_id, str) or not _SESSION_ID.match(session_id):
@@ -294,7 +367,8 @@ class Auth:
 
     def reset(self) -> None:
         """`meshlens reset-pin`: toglie PIN, sessioni e ogni blocco."""
-        self.conn.execute("DELETE FROM auth WHERE key IN ('pin_hash', 'pin_len')")
+        # anche il PIN ospite: un nuovo PIN principale potrebbe coincidere con lui
+        self.conn.execute("DELETE FROM auth WHERE key IN ('pin_hash', 'pin_len', 'guest_pin_hash')")
         self.forget_sessions_and_locks()
 
     def forget_sessions_and_locks(self) -> None:

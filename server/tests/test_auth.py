@@ -239,7 +239,8 @@ def test_sessions_list_and_revoke(auth, clock):
     assert [r["current"] for r in rows if r["ip"] == "1.1.1.1"] == [True]
     assert sum(r["current"] for r in rows) == 1
     assert {r["user_agent"] for r in rows} == {"ua-1", "ua-2"}
-    assert set(rows[0]) == {"id", "created", "last_seen", "user_agent", "ip", "current"}
+    assert set(rows[0]) == {"id", "created", "last_seen", "user_agent", "ip", "current", "role"}
+    assert {r["role"] for r in rows} == {"admin"}
     other = next(r for r in rows if not r["current"])
     assert len(other["id"]) == 16
     assert auth.revoke(other["id"])
