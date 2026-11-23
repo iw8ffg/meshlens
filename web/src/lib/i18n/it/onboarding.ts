@@ -1,2 +1,23 @@
 // Testi italiani: area «onboarding» (WP1, avvio guidato). Chiavi `onboarding.*`.
-export const onboarding = {} as const
+export const onboarding = {
+  'onboarding.title': 'Iniziamo con MeshLens',
+  'onboarding.intro': 'Tre passi per vedere la tua rete: una sorgente di dati, i tuoi nodi e le mappe offline. Puoi saltarli e riaprire questa guida quando vuoi da Ctrl+K.',
+  'onboarding.step.source.title': 'Una sorgente di dati',
+  'onboarding.step.source.body': 'Collega una radio Meshtastic al computer oppure attiva un broker MQTT per ricevere la rete senza radio.',
+  'onboarding.step.nodes.title': 'I tuoi nodi',
+  'onboarding.step.nodes.body': 'Apri l\'elenco dei nodi, tocca un nodo e segnalo come tuo: gli avvisi e le statistiche useranno quello.',
+  'onboarding.step.maps.title': 'Mappe offline',
+  'onboarding.step.maps.body': 'Scarica le mappe della tua zona: restano disponibili anche senza internet.',
+  'onboarding.done': 'Fatto',
+  'onboarding.todo': 'Da fare',
+  'onboarding.goRadio': 'Collega una radio',
+  'onboarding.goMqtt': 'Configura MQTT',
+  'onboarding.goNodes': 'Vedi i nodi',
+  'onboarding.goMaps': 'Mappe offline',
+  'onboarding.openGuide': 'Guida all\'avvio',
+  'onboarding.allDone': 'Tutto pronto',
+  'onboarding.finish': 'Fine',
+  'onboarding.close': 'Chiudi',
+  'onboarding.dismiss': 'Non mostrare più',
+  'onboarding.saveError': 'Impossibile salvare la scelta',
+} as const

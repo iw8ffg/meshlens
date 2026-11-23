@@ -14,6 +14,7 @@
   import { DESKTOP_TABS, type Tab } from './nav'
   import AlertsList from './AlertsList.svelte'
   import { alertTone } from '../alerts'
+  import { openGlobalSearch } from '../globalsearch.svelte'
 
   interface Props {
     visible: number
@@ -98,6 +99,7 @@
   </div>
 
   <div class="acts">
+    <button type="button" class="ib" aria-label={t('search.open')} title={t('search.open')} onclick={openGlobalSearch}><Icon name="search" size={18} /></button>
     {#if upd}
       <button type="button" class="upd" onclick={onupdate}>
         <Icon name="download" size={16} />{#if viewport.phone}{t('shell.updateShort')}{:else}{t('shell.updateAvailable', { version: upd })}{/if}

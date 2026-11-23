@@ -1,4 +1,35 @@
 // Testi inglesi: area «search» (WP1, ricerca nei messaggi). Il tipo obbliga a tradurre ogni chiave italiana.
 import type { search as itArea } from '../it/search'
 
-export const search: Record<keyof typeof itArea, string> = {}
+export const search: Record<keyof typeof itArea, string> = {
+  'search.title': 'Search',
+  'search.placeholder': 'Search nodes, conversations, messages, settings…',
+  'search.open': 'Search (Ctrl+K)',
+  'search.close': 'Close search',
+  'search.group.action': 'Actions',
+  'search.group.node': 'Nodes',
+  'search.group.conversation': 'Conversations',
+  'search.group.setting': 'Settings',
+  'search.group.message': 'Messages',
+  'search.noResults': 'No results',
+  'search.results': '{n} results',
+  'search.hint': '↑ ↓ to choose, Enter to open, Esc to close',
+  'search.messagesUnavailable': 'Message search is not available',
+  'search.engineLike': 'Substring search: accents matter',
+  'search.action.guide': 'Open the getting started guide',
+  'search.action.goto': 'Go to {tab}',
+  'search.messages.title': 'Search messages',
+  'search.messages.placeholder': 'Words to look for (at least 2 characters)',
+  'search.messages.thisConversation': 'Only in this conversation',
+  'search.messages.periodLabel': 'Period',
+  'search.messages.period.all': 'All time',
+  'search.messages.period.day': 'Last day',
+  'search.messages.period.week': 'Last week',
+  'search.messages.period.month': 'Last month',
+  'search.messages.sender': 'Sender',
+  'search.messages.anySender': 'Anyone',
+  'search.messages.loadMore': 'Load more',
+  'search.messages.none': 'No messages found',
+  'search.messages.error': 'Search failed',
+  'search.messages.engineLike': 'Substring search: accents matter',
+}

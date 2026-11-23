@@ -8,6 +8,7 @@
   import { keyChangedRecently, routingErrorText, threadItems } from '../../lib/reactions'
   import { app, addRadioHistory } from '../../lib/stores.svelte'
   import { markRead } from '../../lib/unread.svelte'
+  import { peekFocus, takeFocus } from '../../lib/msgfocus'
   import { t } from '../../lib/i18n/index.svelte'
   import Badge from '../../lib/ui/Badge.svelte'
   import BrokerBadge from '../../lib/ui/BrokerBadge.svelte'
@@ -33,6 +34,7 @@
     onreact,
     wide = false,
     actions,
+    focusTick = 0,
   }: {
     conv: string
     msgs: Message[]
@@ -45,6 +47,8 @@
     wide?: boolean
     /** Pulsanti a destra del titolo (es. Espandi) */
     actions?: Snippet
+    /** Cresce a ogni apertura di una conversazione da fuori: rilancia il salto al messaggio cercato */
+    focusTick?: number
   } = $props()
 
   const PAGE = 200
@@ -107,6 +111,39 @@
     })
   })
 
+  // Salto a un messaggio trovato dalla ricerca: se non e' ancora in elenco si ritenta (al piu' 3 volte), poi si scarta
+  let threadEl = $state<HTMLElement | null>(null)
+  let focusing: string | null = null
+  const FOCUS_DELAYS = [0, 300, 900]
+  function findMsg(key: string): HTMLElement | undefined {
+    return [...(threadEl?.querySelectorAll<HTMLElement>('[data-mkey]') ?? [])].find((e) => e.dataset.mkey === key)
+  }
+  function tryFocus(key: string, attempt: number) {
+    if (peekFocus() !== key) return
+    const el = findMsg(key)
+    if (el) {
+      takeFocus()
+      focusing = null
+      el.scrollIntoView({ block: 'center' })
+      el.classList.add('mk-hit')
+      setTimeout(() => el.classList.remove('mk-hit'), 2600)
+    } else if (attempt + 1 >= FOCUS_DELAYS.length) {
+      takeFocus()
+      focusing = null
+    } else {
+      setTimeout(() => tryFocus(key, attempt + 1), FOCUS_DELAYS[attempt + 1])
+    }
+  }
+  $effect(() => {
+    void conv
+    void msgs.length
+    void focusTick
+    const key = peekFocus()
+    if (!key || focusing === key) return
+    focusing = key
+    tick().then(() => tryFocus(key, 0))
+  })
+
   // Visibilita' della pagina (per segnare letto solo quando la conversazione si vede davvero)
   let visible = $state(typeof document === 'undefined' || document.visibilityState === 'visible')
   onMount(() => {
@@ -132,7 +169,7 @@
   })
 </script>
 
-<div class="thread">
+<div class="thread" bind:this={threadEl}>
   <header class="head">
     {#if !wide}
       <button type="button" class="back" onclick={onback}>
@@ -215,6 +252,20 @@
 </div>
 
 <style>
+  /* messaggio trovato dalla ricerca: evidenziato per qualche secondo (senza movimento con prefers-reduced-motion) */
+  :global(.mk-hit) {
+    animation: mk-hit 2.6s ease-out;
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: var(--radius-md);
+  }
+  @keyframes mk-hit {
+    0%, 60% { background: var(--accent-soft); }
+    100% { background: transparent; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    :global(.mk-hit) { animation: none; background: var(--accent-soft); }
+  }
   .thread {
     display: flex;
     flex-direction: column;
