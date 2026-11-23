@@ -61,7 +61,7 @@ def test_messages_filter_and_shape(store):
                      "source": "mqtt", "direction": "in", "radio_id": None,
                      "channel_index": None, "packet_id": None, "status": None,
                      "broker": None, "reply_id": None, "emoji": False, "pki": False,
-                     "error": None}
+                     "error": None, "heard_by": None}
     assert store.messages(["SE"], None, 50)[0]["from_name"] is None
     assert [m["key"] for m in store.messages(None, NOW + 2, 50)] == ["1:2", "1:1"]
     assert len(store.messages(None, None, 1)) == 1

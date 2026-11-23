@@ -676,3 +676,96 @@ def test_last_outcome_and_raw_guard(env):
         assert ing.last_outcome == "ignored"
     finally:
         SETTINGS = old
+
+
+# ---- invii MQTT: esito del broker e "sentito in radio" ----
+ME_NUM = 0xA1B2C3D4
+
+
+def _sent(env, statuses=None):
+    ing, live, store, conn, got = env
+    if statuses is not None:
+        ing.on_status = lambda key, status, error=None, heard_by=None: statuses.append(
+            (key, status, error, heard_by))
+    return ing.record_outgoing_mqtt(ME_NUM, 0xFFFFFFFF, 77, "ciao", "LongFast", now=NOW,
+                                    broker="default")
+
+
+def test_outgoing_mqtt_starts_sending_then_broker_accepts(env):
+    ing, live, store, conn, got = env
+    st = []
+    m = _sent(env, st)
+    assert m["status"] == "sending" and m["heard_by"] is None
+    ing.mqtt_publish_result(m["key"], True, None)
+    assert st == [(m["key"], "sent", None, None)]
+    assert conn.execute("SELECT status FROM messages WHERE key=?", (m["key"],)).fetchone()[0] == "sent"
+
+
+def test_outgoing_mqtt_broker_timeout_fails(env):
+    ing, live, store, conn, got = env
+    st = []
+    m = _sent(env, st)
+    ing.mqtt_publish_result(m["key"], False, "Il broker non ha confermato il messaggio")
+    assert st[-1][:3] == (m["key"], "failed", "Il broker non ha confermato il messaggio")
+    row = store.messages(None, None, 10)[0]
+    assert row["status"] == "failed" and row["error"] == "Il broker non ha confermato il messaggio"
+
+
+def test_own_echo_is_not_heard(env):
+    ing, live, store, conn, got = env
+    st = []
+    _sent(env, st)
+    ing.handle(ev("text", TextData("ciao"), num=ME_NUM, pid=77, t=NOW + 1,
+                  gateway_id=node_id(ME_NUM)))
+    assert st == [] and live.messages[-1]["status"] == "sending"
+
+
+def test_other_gateway_marks_heard(env):
+    ing, live, store, conn, got = env
+    st = []
+    m = _sent(env, st)
+    ing.mqtt_publish_result(m["key"], True, None)
+    ing.handle(ev("text", TextData("ciao"), num=ME_NUM, pid=77, t=NOW + 2,
+                  gateway_id="!0badcafe"))
+    assert st[-1] == (m["key"], "heard", None, ["!0badcafe"])
+    assert len(live.messages) == 1 and live.messages[0]["status"] == "heard"
+    assert live.messages[0]["heard_by"] == ["!0badcafe"]
+    row = store.messages(None, None, 10)[0]
+    assert row["status"] == "heard" and row["heard_by"] == ["!0badcafe"]
+    # il PUBACK in ritardo (o il timeout) non fa tornare indietro lo stato
+    ing.mqtt_publish_result(m["key"], False, "Il broker non ha confermato il messaggio")
+    assert live.messages[0]["status"] == "heard"
+    # un secondo gateway si aggiunge all'elenco
+    ing.handle(ev("text", TextData("ciao"), num=ME_NUM, pid=77, t=NOW + 3,
+                  gateway_id="!0000beef"))
+    assert store.messages(None, None, 10)[0]["heard_by"] == ["!0badcafe", "!0000beef"]
+
+
+def test_local_rf_copy_marks_heard(env):
+    ing, live, store, conn, got = env
+    st = []
+    ing.set_radio_node("rA", 0x11223344)
+    m = _sent(env, st)
+    ing.handle(ev("text", TextData("ciao"), num=ME_NUM, pid=77, t=NOW + 2, source="rf",
+                  radio_id="rA", gateway_id=None))
+    assert st[-1] == (m["key"], "heard", None, ["!11223344"])
+    # resta un messaggio MQTT in uscita: non diventa un messaggio della radio
+    assert live.messages[0]["source"] == "mqtt" and live.messages[0]["radio_id"] is None
+
+
+def test_rf_copy_via_mqtt_is_not_heard(env):
+    ing, live, store, conn, got = env
+    st = []
+    _sent(env, st)
+    ing.handle(ev("text", TextData("ciao"), num=ME_NUM, pid=77, t=NOW + 2, source="rf",
+                  radio_id="rA", gateway_id=None, via_mqtt=True))
+    assert st == []
+
+
+def test_heard_outside_window_ignored(env):
+    ing, live, store, conn, got = env
+    st = []
+    _sent(env, st)
+    ing.handle(ev("text", TextData("ciao"), num=ME_NUM, pid=77, t=NOW + 700,
+                  gateway_id="!0badcafe"))
+    assert all(s[1] != "heard" for s in st)

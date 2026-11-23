@@ -27,11 +27,13 @@ class FakeConnector:
     def __init__(self, ok=True):
         self.ok = ok
         self.published = []
+        self.callbacks = []
 
-    def publish(self, topic, payload):
+    def publish(self, topic, payload, on_result=None):
         if not self.ok:
             return False
         self.published.append((topic, payload))
+        self.callbacks.append(on_result)
         return True
 
 
@@ -226,7 +228,7 @@ def test_outgoing_mqtt_message_and_echo_not_duplicated():
     raw = build_envelope("Ciao", NUM, 0xFFFFFFFF, "LongFast", DEFAULT_KEY, 555, ME)
     m = ing.record_outgoing_mqtt(from_num=NUM, to_num=0xFFFFFFFF, packet_id=555, text="Ciao",
                                  channel="LongFast", now=100.0)
-    assert m["direction"] == "out" and m["via"] == "mqtt" and m["status"] == "sent"
+    assert m["direction"] == "out" and m["via"] == "mqtt" and m["status"] == "sending"
     assert m["source"] == "mqtt" and m["channel"] == "LongFast" and m["from"] == ME
     assert m["to"] == "!ffffffff"
     assert len(ing.live.messages) == 1 and len(out) == 1
@@ -282,7 +284,7 @@ def test_settings_validation():
         save_settings(db, {"mqtt_send_confirmed": "si"})
 
 
-async def test_connector_publish_qos0_and_false_when_disconnected():
+async def test_connector_publish_qos1_and_false_when_disconnected():
     import asyncio
 
     from meshlens.mqtt_client import MqttConnector
@@ -306,7 +308,7 @@ async def test_connector_publish_qos0_and_false_when_disconnected():
     assert c.publish("t", b"x") is False  # non connesso
     assert calls == []
     c._connected = True
-    assert c.publish("t", b"x") is True and calls == [("t", b"x", 0)]
+    assert c.publish("t", b"x") is True and calls == [("t", b"x", 1)]
 
 
 def test_learned_extra_key_used_for_sending():
@@ -583,3 +585,15 @@ async def test_route_forwards_reply_fields():
                                                  "emoji": True})
         assert r.status_code == 202
         assert rec[0]["reply_id"] == 9 and rec[0]["emoji"] is True
+
+
+def test_broker_result_is_routed_to_message_key():
+    conn, results = FakeConnector(), []
+    s = MqttSender(lambda bid: conn, lambda: {**DEFAULTS, "mqtt_send_confirmed": True,
+                                              "mqtt_node_id": ME,
+                                              "mqtt_brokers": [default_broker(DEFAULTS["mqtt"])]},
+                   lambda: [], Clock(), lambda **kw: {"key": f"{kw['from_num']}:{kw['packet_id']}"},
+                   on_result=lambda key, ok, err: results.append((key, ok, err)))
+    m = s.send("ciao", "LongFast", None, False)
+    conn.callbacks[0](False, "Il broker non ha confermato il messaggio")
+    assert results == [(m["key"], False, "Il broker non ha confermato il messaggio")]

@@ -21,7 +21,22 @@ from .settings import scrub_text
 RATE_WINDOW_S = 5.0
 DROP_KEYS = ("empty", "unsupported_port", "undecodable", "json_topic", "not_protobuf")
 AUTH_REFUSED = ("bad user name or password", "not authorized")
+PUBACK_TIMEOUT_S = 15.0
+PUB_TIMEOUT_TEXT = "Il broker non ha confermato il messaggio"
+PUB_REFUSED_TEXT = "Il broker ha rifiutato il messaggio"
+ALL_SUBS_REFUSED_TEXT = ("Il broker ha rifiutato tutte le sottoscrizioni: "
+                         "controlla i topic o i permessi dell'account")
 log = logging.getLogger(__name__)
+
+
+def _is_failure(code) -> bool:
+    """Reason code di paho v2 (ReasonCode) o, con paho v1, QoS concesso intero (128 = rifiuto)."""
+    if hasattr(code, "is_failure"):
+        return bool(code.is_failure)
+    try:
+        return int(code) >= 0x80
+    except (TypeError, ValueError):
+        return False
 
 
 def _default_factory(client_id: str):
@@ -47,6 +62,12 @@ class MqttConnector:
         self._last_msg: float | None = None
         self._last_error: str | None = None
         self._last_error_at: float | None = None
+        # sottoscrizioni della connessione corrente: mid -> topic, e topic rifiutati
+        self._sub_mids: dict[int, str] = {}
+        self._sub_answered = 0
+        self._refused: list[str] = []
+        # pubblicazioni QoS 1 in attesa di PUBACK (solo thread del loop): mid -> (esito, timer)
+        self._pending_pub: dict[int, tuple[Callable[[bool, str | None], None], asyncio.TimerHandle]] = {}
 
     def _scrub(self, text: str) -> str:
         """Toglie dai testi d'errore utente e password MQTT: non devono mai uscire."""
@@ -65,6 +86,8 @@ class MqttConnector:
         client.on_disconnect = self._on_disconnect
         client.on_message = self._on_message
         client.on_connect_fail = self._on_connect_fail
+        client.on_subscribe = self._on_subscribe
+        client.on_publish = self._on_publish
         try:
             if self.cfg.get("tls"):
                 client.tls_set_context(ssl.create_default_context())
@@ -86,16 +109,39 @@ class MqttConnector:
         except Exception:
             pass
 
-    def publish(self, topic: str, payload: bytes) -> bool:
-        """Pubblica con QoS 0; False se non connesso o se il client rifiuta."""
+    def publish(self, topic: str, payload: bytes,
+                on_result: Callable[[bool, str | None], None] | None = None) -> bool:
+        """Pubblica con QoS 1; False se non connesso o se il client rifiuta.
+        on_result(ok, errore) arriva sul loop asyncio una sola volta: al PUBACK del broker
+        oppure, se manca, dopo PUBACK_TIMEOUT_S. Va chiamata dal thread del loop."""
         client = self._client
         if client is None or not self._connected:
             return False
         try:
-            info = client.publish(topic, payload, qos=0)
+            info = client.publish(topic, payload, qos=1)
         except Exception:
             return False
-        return getattr(info, "rc", 0) == 0
+        if getattr(info, "rc", 0) != 0:
+            return False
+        mid = getattr(info, "mid", None)
+        if on_result is not None and mid is not None:
+            # l'esito del PUBACK passa per call_soon_threadsafe: arriva sempre dopo questa riga
+            timer = self.loop.call_later(PUBACK_TIMEOUT_S, self._publish_done, mid, False,
+                                         PUB_TIMEOUT_TEXT)
+            self._pending_pub[mid] = (on_result, timer)
+        return True
+
+    def _publish_done(self, mid: int, ok: bool, error: str | None) -> None:
+        """Thread del loop: primo esito per quel mid (PUBACK o timeout); gli altri si ignorano."""
+        entry = self._pending_pub.pop(mid, None)
+        if entry is None:
+            return
+        on_result, timer = entry
+        timer.cancel()
+        try:
+            on_result(ok, error)
+        except Exception:
+            log.exception("MQTT %s: esito della pubblicazione", self.label)
 
     def status(self) -> dict:
         now = time.time()
@@ -104,6 +150,7 @@ class MqttConnector:
                 self._stamps.popleft()
             n = len(self._stamps)
             last_msg = self._last_msg
+            refused = list(self._refused)
         stats = self.decoder.stats
         return {"connected": self._connected, "msgs_per_s": n / RATE_WINDOW_S,
                 "undecodable": stats["undecodable"],
@@ -111,7 +158,7 @@ class MqttConnector:
                 "last_msg_age_s": None if last_msg is None else max(0.0, now - last_msg),
                 "reconnects": max(0, self._connects - 1),
                 "last_error": self._last_error, "last_error_at": self._last_error_at,
-                "decoded": stats["ok"],
+                "decoded": stats["ok"], "refused_topics": refused,
                 "drops": {k: stats[k] for k in DROP_KEYS},
                 "queue_dropped": self.inbox.dropped, "raw_dropped": self.inbox.raw_dropped, "queue_size": self.inbox.size()}
 
@@ -132,8 +179,48 @@ class MqttConnector:
         self._connected_since = time.time()
         self._connects += 1
         log.info("MQTT %s: connesso a %s:%s", self.label, self.cfg.get("host"), self.cfg.get("port"))
+        with self._lock:
+            self._sub_mids.clear()
+            self._sub_answered = 0
+            self._refused = []
         for topic in self.cfg["topics"]:
-            client.subscribe(topic, 0)
+            res = client.subscribe(topic, 0)
+            mid = res[1] if isinstance(res, tuple) and len(res) > 1 else None
+            if mid is not None:
+                with self._lock:
+                    self._sub_mids[mid] = topic
+
+    def _on_subscribe(self, client, userdata, mid, reason_codes, *args):
+        """SUBACK: un codice per topic; >= 0x80 vuol dire sottoscrizione rifiutata."""
+        with self._lock:
+            topic = self._sub_mids.pop(mid, None)
+            if topic is None:
+                return  # risposta di una connessione precedente
+            self._sub_answered += 1
+            codes = reason_codes if isinstance(reason_codes, (list, tuple)) else [reason_codes]
+            refused = any(_is_failure(c) for c in codes)
+            if refused and topic not in self._refused:
+                self._refused.append(topic)
+            total = len(self.cfg["topics"])
+            all_refused = (not self._sub_mids and self._sub_answered >= total
+                           and len(self._refused) >= total)
+        if refused:
+            log.warning("MQTT %s: sottoscrizione rifiutata dal broker: %s",
+                        self.label, self._scrub(topic))
+        if all_refused:
+            self.set_error(ALL_SUBS_REFUSED_TEXT)
+
+    def _on_publish(self, client, userdata, mid, *args):
+        """PUBACK (thread paho). Con MQTT 3.1.1 il PUBACK non ha codice: paho riporta successo."""
+        rc = args[0] if args else None
+        failed = rc is not None and _is_failure(rc)
+        if failed:
+            log.info("MQTT %s: pubblicazione rifiutata dal broker (motivo: %s)", self.label, rc)
+        try:
+            self.loop.call_soon_threadsafe(self._publish_done, mid, not failed,
+                                           PUB_REFUSED_TEXT if failed else None)
+        except RuntimeError:
+            pass  # loop chiuso: nessuno aspetta piu' l'esito
 
     def _on_connect_fail(self, client, userdata):
         self._connected = False

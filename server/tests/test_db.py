@@ -29,7 +29,7 @@ def _cols(conn, table):
 def test_new_db_has_current_version_and_incremental_vacuum(tmp_path):
     calls = []
     conn = connect(tmp_path / "n.db", lambda *a: calls.append(a))
-    assert schema_version(conn) == SCHEMA_VERSION == 5
+    assert schema_version(conn) == SCHEMA_VERSION == 6
     assert conn.execute("PRAGMA auto_vacuum").fetchone()[0] == 2
     assert calls == []
     assert "ip" in _cols(conn, "sessions")
@@ -44,10 +44,10 @@ def test_legacy_db_is_migrated_after_hook(tmp_path):
         calls.append((old, new, "radio_id" in _cols(conn, "messages")))
 
     conn = connect(path, hook)
-    assert calls == [(0, 5, False)]
+    assert calls == [(0, 6, False)]
     assert "radio_id" in _cols(conn, "messages")
     assert conn.execute("SELECT text FROM messages WHERE key='k'").fetchone()[0] == "ciao"
-    assert schema_version(conn) == 5
+    assert schema_version(conn) == 6
 
 
 def test_reopen_does_not_migrate_again(tmp_path):
@@ -95,8 +95,8 @@ def test_migration_3_adds_broker_column(tmp_path):
     assert "broker" not in _cols(sqlite3.connect(path), "messages")
     calls = []
     conn = connect(path, lambda *a: calls.append(a))
-    assert [c[1:] for c in calls] == [(2, 5)]
-    assert schema_version(conn) == 5
+    assert [c[1:] for c in calls] == [(2, 6)]
+    assert schema_version(conn) == 6
     assert "broker" in _cols(conn, "messages")
     row = conn.execute("SELECT text, broker FROM messages WHERE key='k'").fetchone()
     assert (row[0], row[1]) == ("ciao", None)
@@ -116,8 +116,8 @@ def test_migration_4_columns_and_tables(tmp_path):
     conn.close()
     calls = []
     conn = connect(path, lambda *a: calls.append(a))
-    assert [c[1:] for c in calls] == [(3, 5)]
-    assert schema_version(conn) == 5
+    assert [c[1:] for c in calls] == [(3, 6)]
+    assert schema_version(conn) == 6
     assert {"reply_id", "emoji", "pki", "error"} <= _cols(conn, "messages")
     assert {"public_key", "key_changed"} <= _cols(conn, "nodes")
     assert {"id", "from_num", "locked_to", "deleted"} <= _cols(conn, "waypoints")
@@ -131,13 +131,13 @@ def test_migration_4_columns_and_tables(tmp_path):
 
 def test_new_db_runs_migration_4():
     conn = connect(":memory:")
-    assert schema_version(conn) == 5
+    assert schema_version(conn) == 6
     assert _cols(conn, "waypoints") and _cols(conn, "conversation_reads")
 
 
 def test_new_db_is_v5_with_new_tables():
     conn = connect(":memory:")
-    assert schema_version(conn) == 5
+    assert schema_version(conn) == 6
     names = {r[0] for r in conn.execute("SELECT name FROM sqlite_master")}
     assert {"metrics", "packets", "stats_hourly", "node_hourly"} <= names
     assert {"idx_metrics_node", "idx_metrics_time", "idx_packets_time", "idx_packets_from_time",
@@ -156,11 +156,26 @@ def test_v4_db_migrates_to_5_without_touching_telemetry(tmp_path):
     conn.close()
     calls = []
     conn = connect(path, lambda c, old, new: calls.append((old, new)))
-    assert calls == [(4, 5)]
+    assert calls == [(4, 6)]
     assert conn.execute("SELECT COUNT(*) FROM telemetry").fetchone()[0] == 3
-    assert schema_version(conn) == 5
+    assert schema_version(conn) == 6
     assert _cols(conn, "metrics") == {"node_num", "time", "variant", "metric", "value"}
     conn.close()
     calls.clear()
     connect(path, lambda *a: calls.append(a)).close()
     assert calls == []
+
+
+def test_v5_db_migrates_to_6_with_heard_by(tmp_path):
+    path = tmp_path / "v5.db"
+    conn = connect(path)
+    conn.execute("ALTER TABLE messages DROP COLUMN heard_by")
+    conn.execute("INSERT INTO messages(key, text, time, status) VALUES('k', 'ciao', 1.0, 'sent')")
+    conn.execute("PRAGMA user_version=5")
+    conn.commit()
+    conn.close()
+    calls = []
+    conn = connect(path, lambda c, old, new: calls.append((old, new)))
+    assert calls == [(5, 6)] and schema_version(conn) == 6
+    assert "heard_by" in _cols(conn, "messages")
+    assert conn.execute("SELECT status, heard_by FROM messages WHERE key='k'").fetchone()[:] == ("sent", None)

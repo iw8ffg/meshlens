@@ -65,14 +65,20 @@ class Store:
         self.conn.execute(
             "INSERT OR IGNORE INTO messages"
             "(key, from_num, to_num, channel, text, time, country, source, direction, radio_id, "
-            "channel_index, packet_id, status, broker, reply_id, emoji, pki, error) "
-            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "channel_index, packet_id, status, broker, reply_id, emoji, pki, error, heard_by) "
+            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (msg["key"], _id_to_num(msg["from"]), _id_to_num(to) if to else None,
              msg.get("channel"), msg.get("text"), msg["time"], msg.get("country"),
              msg.get("source"), msg.get("direction") or "in", msg.get("radio_id"),
              msg.get("channel_index"), msg.get("packet_id"), msg.get("status"),
              msg.get("broker"), msg.get("reply_id"), 1 if msg.get("emoji") else 0,
-             1 if msg.get("pki") else 0, msg.get("error")))
+             1 if msg.get("pki") else 0, msg.get("error"),
+             json.dumps(msg["heard_by"]) if msg.get("heard_by") else None))
+
+    def update_message_heard(self, key: str, heard_by: list[str]) -> None:
+        """Messaggio inviato via MQTT sentito in radio: stato "heard" e chi l'ha sentito."""
+        self.conn.execute("UPDATE messages SET status='heard', error=NULL, heard_by=? WHERE key=?",
+                          (json.dumps(heard_by), key))
 
     def update_message_status(self, key: str, status: str, error: str | None = None) -> None:
         self.conn.execute("UPDATE messages SET status=?, error=? WHERE key=?",
@@ -467,6 +473,7 @@ class Store:
                 "status": r["status"], "broker": r["broker"],
                 "reply_id": r["reply_id"], "emoji": bool(r["emoji"]), "pki": bool(r["pki"]),
                 "error": r["error"],
+                "heard_by": json.loads(r["heard_by"]) if r["heard_by"] else None,
                 # "via" non e' una colonna: si ricava (uscita su MQTT = inviato via MQTT)
                 **({"via": "mqtt"} if r["direction"] == "out" and r["source"] == "mqtt" else {})}
 
