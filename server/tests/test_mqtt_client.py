@@ -11,11 +11,18 @@ CFG = {"host": "h", "port": 1883, "username": "u", "password": "p",
        "topics": ["msh/EU_868/#"], "extra_keys": []}
 
 
+class FakeInfo:
+    def __init__(self, mid, rc=0):
+        self.mid, self.rc = mid, rc
+
+
 class FakeClient:
     def __init__(self, client_id=None, fail=False):
         self.client_id = client_id
         self.fail = fail
         self.subscribed = []
+        self.published = []
+        self._mid = 0
 
     def username_pw_set(self, *a): pass
     def reconnect_delay_set(self, *a): pass
@@ -29,9 +36,13 @@ class FakeClient:
 
     def subscribe(self, topic, qos=0):
         self.subscribed.append((topic, qos))
+        self._mid += 1
+        return 0, self._mid
 
-    def publish(self, *a, **k):
-        raise AssertionError("MeshLens non deve mai pubblicare")
+    def publish(self, topic, payload, qos=0):
+        self.published.append((topic, payload, qos))
+        self._mid += 1
+        return FakeInfo(self._mid)
 
 
 async def test_subscribes_on_connect():
@@ -249,3 +260,114 @@ async def test_raw_packet_goes_to_inbox():
 
     await asyncio.get_running_loop().run_in_executor(None, c._on_message, None, None, Msg)
     assert isinstance(await asyncio.wait_for(got.get(), 2), RawPacket)
+
+
+# ---- sottoscrizioni rifiutate (SUBACK con codice >= 0x80) ----
+CFG2 = {**CFG, "topics": ["msh/EU_868/#", "msh/IT/#"]}
+
+
+def _suback(code):
+    from paho.mqtt.packettypes import PacketTypes
+    from paho.mqtt.reasoncodes import ReasonCode
+    return ReasonCode(PacketTypes.SUBACK, identifier=code)
+
+
+async def test_refused_subscription_is_reported_and_logged(caplog):
+    caplog.set_level("WARNING")
+    c = _connector({**CFG2, "password": "segreta", "username": "mario"})
+    c._on_connect(c._client, None, None, 0, None)
+    assert c.status()["refused_topics"] == []
+    c._on_subscribe(c._client, None, 1, [_suback(0)], None)
+    c._on_subscribe(c._client, None, 2, [_suback(0x80)], None)
+    st = c.status()
+    assert st["refused_topics"] == ["msh/IT/#"]
+    assert st["last_error"] is None  # una sola rifiutata: non e' un errore del broker
+    assert any("sottoscrizione rifiutata dal broker: msh/IT/#" in r.getMessage()
+               and r.levelname == "WARNING" for r in caplog.records)
+    assert not any("segreta" in r.getMessage() for r in caplog.records)
+
+
+async def test_all_subscriptions_refused_sets_last_error():
+    c = _connector(CFG2)
+    c._on_connect(c._client, None, None, 0, None)
+    c._on_subscribe(c._client, None, 1, [_suback(0x80)], None)
+    assert c.status()["last_error"] is None  # manca ancora la seconda risposta
+    c._on_subscribe(c._client, None, 2, [_suback(0x87)], None)
+    st = c.status()
+    assert st["refused_topics"] == ["msh/EU_868/#", "msh/IT/#"]
+    assert st["last_error"] == ("Il broker ha rifiutato tutte le sottoscrizioni: "
+                                "controlla i topic o i permessi dell'account")
+    assert st["connected"] is True
+
+
+async def test_refused_topics_reset_on_reconnect():
+    c = _connector(CFG2)
+    c._on_connect(c._client, None, None, 0, None)
+    c._on_subscribe(c._client, None, 1, [_suback(0x80)], None)
+    c._on_connect(c._client, None, None, 0, None)  # nuova connessione: nuovi mid 3 e 4
+    assert c.status()["refused_topics"] == []
+    c._on_subscribe(c._client, None, 1, [_suback(0x80)], None)  # mid vecchio: ignorato
+    assert c.status()["refused_topics"] == []
+    c._on_subscribe(c._client, None, 4, [_suback(0x80)], None)
+    assert c.status()["refused_topics"] == ["msh/IT/#"]
+
+
+async def test_suback_v1_granted_qos_128_is_refused():
+    c = _connector()
+    c._on_connect(c._client, None, None, 0, None)
+    c._on_subscribe(c._client, None, 1, [128])
+    assert c.status()["refused_topics"] == ["msh/EU_868/#"]
+
+
+# ---- pubblicazione con QoS 1 e PUBACK ----
+def _puback(code=0):
+    from paho.mqtt.packettypes import PacketTypes
+    from paho.mqtt.reasoncodes import ReasonCode
+    return ReasonCode(PacketTypes.PUBACK, identifier=code)
+
+
+async def test_publish_uses_qos1_and_reports_puback():
+    c = _connector()
+    c._on_connect(c._client, None, None, 0, None)
+    got = []
+    assert c.publish("t/x", b"p", on_result=lambda ok, err: got.append((ok, err))) is True
+    topic, payload, qos = c._client.published[0]
+    assert (topic, payload, qos) == ("t/x", b"p", 1)
+    mid = c._client._mid
+    await asyncio.get_running_loop().run_in_executor(
+        None, c._on_publish, c._client, None, mid, _puback(0), None)
+    await asyncio.sleep(0.05)
+    assert got == [(True, None)]
+    # un secondo PUBACK (o il timeout) non produce altri esiti
+    c._on_publish(c._client, None, mid, _puback(0), None)
+    await asyncio.sleep(0.05)
+    assert got == [(True, None)]
+
+
+async def test_publish_refused_reason_code_fails():
+    c = _connector()
+    c._on_connect(c._client, None, None, 0, None)
+    got = []
+    c.publish("t/x", b"p", on_result=lambda ok, err: got.append((ok, err)))
+    c._on_publish(c._client, None, c._client._mid, _puback(0x87), None)
+    await asyncio.sleep(0.05)
+    assert got == [(False, "Il broker ha rifiutato il messaggio")]
+
+
+async def test_publish_without_puback_times_out(monkeypatch):
+    from meshlens import mqtt_client
+    monkeypatch.setattr(mqtt_client, "PUBACK_TIMEOUT_S", 0.05)
+    c = _connector()
+    c._on_connect(c._client, None, None, 0, None)
+    got = []
+    c.publish("t/x", b"p", on_result=lambda ok, err: got.append((ok, err)))
+    await asyncio.sleep(0.2)
+    assert got == [(False, "Il broker non ha confermato il messaggio")]
+    c._on_publish(c._client, None, c._client._mid, _puback(0), None)  # PUBACK in ritardo
+    await asyncio.sleep(0.05)
+    assert got == [(False, "Il broker non ha confermato il messaggio")]
+
+
+async def test_publish_when_disconnected_returns_false():
+    c = _connector()
+    assert c.publish("t/x", b"p") is False and c._client.published == []

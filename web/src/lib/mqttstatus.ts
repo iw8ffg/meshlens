@@ -24,6 +24,19 @@ function mins(seconds: number): string {
   return t('shell.mqttMin', { n: Math.max(1, Math.round(seconds / 60)) })
 }
 
+/**
+ * Topic rifiutati dai broker attivi e connessi; con piu' broker ogni topic porta il nome del broker.
+ * Senza elenco dei broker vale `refused_topics` dello stato complessivo.
+ */
+export function refusedTopics(s: MqttStatus | null): string[] {
+  if (!s) return []
+  const list = s.brokers
+  if (!list) return s.refused_topics ?? []
+  const active = list.filter((b) => b.enabled && b.connected && b.refused_topics?.length)
+  const many = list.filter((b) => b.enabled).length > 1
+  return active.flatMap((b) => (b.refused_topics ?? []).map((topic) => (many ? `${b.name}: ${topic}` : topic)))
+}
+
 /** `now` in secondi epoch, come i tempi del server. */
 export function mqttSummary(s: MqttStatus | null, now: number): MqttSummary {
   if (!s) return { tone: 'wait', title: t('shell.mqttWaiting'), rows: [] }
@@ -45,6 +58,11 @@ export function mqttSummary(s: MqttStatus | null, now: number): MqttSummary {
     tone = 'ok'
     title = t('shell.mqttConnected')
   }
+  const refused = refusedTopics(s)
+  if (refused.length && tone === 'ok') {
+    tone = 'warn'
+    title = t('shell.mqttRefused')
+  }
   const rows: { label: string; value: string }[] = []
   const since = (t: number) => ago(Math.max(0, (now - t) / 60))
   if (s.connected && s.connected_since != null) rows.push({ label: t('shell.mqttConnectedSince'), value: since(s.connected_since) })
@@ -53,6 +71,7 @@ export function mqttSummary(s: MqttStatus | null, now: number): MqttSummary {
   if (s.decoded) rows.push({ label: t('shell.mqttDecoded'), value: num(s.decoded) })
   if (s.reconnects) rows.push({ label: t('shell.mqttReconnects'), value: num(s.reconnects) })
   if (s.watchdog_restarts) rows.push({ label: t('shell.mqttWatchdog'), value: num(s.watchdog_restarts) })
+  if (refused.length) rows.push({ label: t('shell.mqttRefusedTopics'), value: refused.join(', ') })
   if (s.last_error && tone !== 'ok') {
     rows.push({ label: t('shell.mqttLastError'), value: s.last_error })
     if (s.last_error_at != null) rows.push({ label: t('shell.mqttErrorAt'), value: since(s.last_error_at) })
@@ -80,8 +99,12 @@ export function brokerRows(s: MqttStatus | null, _now: number): BrokerRow[] {
     .map((b) => ({
       id: b.id,
       name: b.name,
-      tone: b.connected ? 'ok' : 'ko',
-      detail: b.connected ? `${num(b.msgs_per_s, 1)} msg/s` : (b.last_error || t('shell.mqttNotConnected')),
+      tone: !b.connected ? 'ko' : b.refused_topics?.length ? 'warn' : 'ok',
+      detail: !b.connected
+        ? b.last_error || t('shell.mqttNotConnected')
+        : b.refused_topics?.length
+          ? t('shell.brokerRefused', { topics: b.refused_topics.join(', ') })
+          : `${num(b.msgs_per_s, 1)} msg/s`,
     }))
   const off: BrokerRow[] = list
     .filter((b) => !b.enabled)

@@ -5,7 +5,7 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS nodes(
@@ -194,7 +194,13 @@ def _migration_5(conn: sqlite3.Connection) -> None:
             conn.execute(stmt)
 
 
-_STEPS = {1: _migration_1, 2: _migration_2, 3: _migration_3, 4: _migration_4, 5: _migration_5}
+def _migration_6(conn: sqlite3.Connection) -> None:
+    """messages.heard_by: chi ha sentito in radio un messaggio inviato via MQTT (lista JSON)."""
+    _add_missing_columns(conn, (("messages", "heard_by", "TEXT"),))
+
+
+_STEPS = {1: _migration_1, 2: _migration_2, 3: _migration_3, 4: _migration_4, 5: _migration_5,
+          6: _migration_6}
 
 
 log = logging.getLogger(__name__)

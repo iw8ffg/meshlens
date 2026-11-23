@@ -11,7 +11,8 @@ from .store import Store
 
 _DAY = 86400
 _RF_BITS = 32
-_RF_HOPS_TTL = 3600  # s: per quanto un hops RF non viene scavalcato da uno MQTT
+_RF_HOPS_TTL = 3600
+MAX_HEARD_BY = 20  # gateway/radio ricordati per un messaggio inviato via MQTT  # s: per quanto un hops RF non viene scavalcato da uno MQTT
 
 
 def _bits(precision_bits: int | None) -> int:
@@ -86,6 +87,9 @@ class Ingestor:
         self._channel_buckets: dict[tuple[str, str], dict[int, int]] = {}
         self.filtered_channel = 0  # eventi MQTT scartati dal filtro mqtt_channels
         self.last_outcome = "ignored"  # esito dell'ultimo handle: ignored | dup | new
+        # testi inviati via MQTT di recente: (from, id) -> (chiave, istante dell'invio);
+        # una copia sentita da un altro gateway o da una radio locale li segna "heard"
+        self._outgoing_mqtt: dict[tuple[int, int], tuple[str, float]] = {}
 
     def _note_mqtt_channel(self, name: str, t: float, broker: str | None = None) -> None:
         buckets = self._channel_buckets.setdefault((broker or "", name), {})
@@ -154,6 +158,8 @@ class Ingestor:
             # seen_mqtt: copia gia' arrivata dal broker (serve a contare i gateway)
             is_new, seen_mqtt = self.dedup.observe(num, ev.packet_id, ev.rx_time, ev.source)
             is_dup = not is_new
+            if is_dup:
+                self._note_heard(ev)
         self.last_outcome = "dup" if is_dup else "new"
         # rigioco S&F: non e' una ricezione radio, niente statistiche RF ne' collegamenti
         if ev.source == "rf" and ev.radio_id and not no_time and not ev.replayed:
@@ -318,7 +324,9 @@ class Ingestor:
         """Copia RF di un testo gia' creato da MQTT: il messaggio passa alla radio che l'ha sentito."""
         key = f"{ev.from_node}:{ev.packet_id}"
         for message in self.live.messages:
-            if message["key"] == key and message.get("radio_id") is None:
+            # un nostro invio MQTT resta tale: la copia RF lo segna solo come "sentito"
+            if (message["key"] == key and message.get("radio_id") is None
+                    and message.get("direction") != "out"):
                 message.update(radio_id=ev.radio_id, channel_index=_channel_index(ev.channel),
                                source="rf")
                 self.store.add_message(message)  # no-op se gia' presente
@@ -363,24 +371,80 @@ class Ingestor:
     def record_outgoing_mqtt(self, from_num: int, to_num: int, packet_id: int, text: str,
                              channel: str, now: float | None = None,
                              broker: str | None = None, reply_id: int | None = None,
-                             emoji: bool = False) -> dict:
-        """Registra un testo pubblicato via MQTT dal proprio nodo.
+                             emoji: bool = False, status: str = "sending") -> dict:
+        """Registra un testo pubblicato via MQTT dal proprio nodo ("sending" fino al PUBACK).
         (from, id) entra subito nel dedup: l'eco che il broker ci rimanda viene scartato
         e non genera un secondo messaggio."""
         t = time.time() if now is None else now
         self.dedup.is_new(from_num, packet_id, t)
+        self._track_outgoing_mqtt((from_num, packet_id), f"{from_num}:{packet_id}", t)
         mine = self.live.nodes.get(from_num)
         message = {"key": f"{from_num}:{packet_id}", "from": node_id(from_num),
                    "from_name": mine["long_name"] if mine else None, "to": node_id(to_num),
                    "channel": channel, "text": text, "time": int(t),
                    "country": mine["country"] if mine else None, "source": "mqtt",
                    "direction": "out", "via": "mqtt", "radio_id": None, "channel_index": None,
-                   "packet_id": packet_id, "status": "sent", "broker": broker,
-                   "reply_id": reply_id, "emoji": emoji, "pki": False, "error": None}
+                   "packet_id": packet_id, "status": status, "broker": broker,
+                   "reply_id": reply_id, "emoji": emoji, "pki": False, "error": None,
+                   "heard_by": None}
         self.live.messages.append(message)
         self.store.add_message(message)
         self.on_message(message)
         return message
+
+    def _track_outgoing_mqtt(self, key: tuple[int, int], msg_key: str, t: float) -> None:
+        window = self.dedup.window_s
+        for k in [k for k, (_, t0) in self._outgoing_mqtt.items() if t - t0 >= window]:
+            del self._outgoing_mqtt[k]
+        self._outgoing_mqtt[key] = (msg_key, t)
+
+    def _live_message(self, key: str) -> dict | None:
+        for message in reversed(self.live.messages):
+            if message["key"] == key:
+                return message
+        return None
+
+    def mqtt_publish_result(self, key: str, ok: bool, error: str | None) -> None:
+        """Esito del broker per un invio MQTT (PUBACK o timeout): "sent" o "failed".
+        Un messaggio gia' sentito in radio non torna indietro."""
+        message = self._live_message(key)
+        if message is not None and message.get("status") != "sending":
+            return
+        if ok:
+            self.set_status(key, "sent")
+        else:
+            self.set_status(key, "failed", error)
+
+    def _note_heard(self, ev: MeshEvent) -> None:
+        """Copia di un nostro invio MQTT: se l'ha sentita un gateway diverso dal nostro nodo
+        (non l'eco del nostro publish) o una radio locale, il messaggio e' andato in onda."""
+        entry = self._outgoing_mqtt.get((ev.from_node, ev.packet_id))
+        if entry is None:
+            return
+        key, t0 = entry
+        if ev.rx_time - t0 >= self.dedup.window_s:
+            del self._outgoing_mqtt[(ev.from_node, ev.packet_id)]
+            return
+        if ev.source == "mqtt":
+            gw = (ev.gateway_id or "").lower()
+            if not gw or gw == node_id(ev.from_node):
+                return  # eco del nostro publish
+            who = gw
+        elif ev.source == "rf" and ev.radio_id and not ev.via_mqtt and not ev.replayed:
+            radio_num = self._radio_nodes.get(ev.radio_id)
+            who = node_id(radio_num) if radio_num is not None else f"radio:{ev.radio_id}"
+        else:
+            return
+        message = self._live_message(key)
+        heard = list((message or {}).get("heard_by") or [])
+        if who in heard or len(heard) >= MAX_HEARD_BY:
+            return
+        heard.append(who)
+        self.store.update_message_heard(key, heard)
+        if message is not None:
+            message.update(status="heard", error=None, heard_by=heard)
+        if self.on_status is not None:
+            self.on_status(key, "heard", None, heard_by=heard)
 
     def set_status(self, key: str, status: str, error: str | None = None) -> None:
         self.store.update_message_status(key, status, error)

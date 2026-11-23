@@ -60,6 +60,8 @@ export function statusIcon(status: MessageStatus | null | undefined): string {
       return '✓'
     case 'acked':
       return '✓✓'
+    case 'heard':
+      return '📡'
     case 'failed':
       return '⚠'
     default:
@@ -75,6 +77,8 @@ export function statusLabel(status: MessageStatus | null | undefined): string {
       return t('chat.status.sent')
     case 'acked':
       return t('chat.status.acked')
+    case 'heard':
+      return t('chat.status.heard')
     case 'failed':
       return t('chat.status.failed')
     default:

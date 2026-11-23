@@ -11,7 +11,7 @@ export interface WSHandlers {
   alerts(a: Alert[]): void
   traceroute(t: Traceroute): void
   coverage(session: CoverageSession, point: CoveragePoint | null, trackPoint?: CoverageTrackPoint | null): void
-  messageStatus(key: string, status: MessageStatus, error?: string | null): void
+  messageStatus(key: string, status: MessageStatus, error?: string | null, heardBy?: string[] | null): void
   waypoint?(w: Waypoint): void
   waypointDeleted?(id: number): void
   /** Conversazione letta da un altro dispositivo. */
@@ -51,7 +51,10 @@ export function dispatch(msg: unknown, h: WSHandlers): void {
   else if (m.type === 'alerts') h.alerts(m.alerts)
   else if (m.type === 'traceroute') h.traceroute(m.result)
   else if (m.type === 'coverage') h.coverage(m.session, m.point ?? null, m.track_point ?? null)
-  else if (m.type === 'message_status') h.messageStatus(m.key, m.status, m.error ?? null)
+  else if (m.type === 'message_status') {
+    if (m.heard_by) h.messageStatus(m.key, m.status, m.error ?? null, m.heard_by)
+    else h.messageStatus(m.key, m.status, m.error ?? null)
+  }
   else if (m.type === 'waypoint') h.waypoint?.(m.waypoint)
   else if (m.type === 'waypoint_deleted') h.waypointDeleted?.(m.id)
   else if (m.type === 'conv_read') h.convRead?.(m.key, m.time)

@@ -116,9 +116,12 @@ class MqttSender:
                  get_settings: Callable[[], dict],
                  get_radios: Callable[[], list], clock: Callable[[], float],
                  record: Callable[..., dict],
-                 key_for: Callable[[str, str], bytes | None] = lambda broker, channel: None):
+                 key_for: Callable[[str, str], bytes | None] = lambda broker, channel: None,
+                 on_result: Callable[[str, bool, str | None], None] | None = None):
+        """on_result(chiave del messaggio, ok, errore): esito del broker (PUBACK o timeout)."""
         self.get_connector, self.settings, self.radios = get_connector, get_settings, get_radios
         self.clock, self.record, self.key_for = clock, record, key_for
+        self.on_result = on_result
         self._sent: dict[str, deque[float]] = {}  # id broker -> istanti degli invii
 
     def _own_node(self, settings: dict) -> str:
@@ -195,8 +198,17 @@ class MqttSender:
         payload = build_envelope(text, from_num, to_num, channel, key, packet_id, own,
                                  encrypted=b.get("encryption", True),
                                  reply_id=reply_id, emoji=emoji)
-        if not connector.publish(topic, payload):
+        recorded: dict = {}
+
+        def on_result(ok: bool, error: str | None) -> None:
+            # arriva sul loop dopo questa funzione: il messaggio e' gia' registrato
+            if self.on_result is not None and recorded.get("key"):
+                self.on_result(recorded["key"], ok, error)
+
+        if not connector.publish(topic, payload, on_result=on_result):
             raise MqttSendError(503, "mqtt_disconnected", "MQTT non connesso")
         self._sent[bid].append(self.clock())
-        return self.record(from_num=from_num, to_num=to_num, packet_id=packet_id, text=text,
-                           channel=channel, broker=bid, reply_id=reply_id, emoji=emoji)
+        message = self.record(from_num=from_num, to_num=to_num, packet_id=packet_id, text=text,
+                              channel=channel, broker=bid, reply_id=reply_id, emoji=emoji)
+        recorded["key"] = message.get("key")
+        return message

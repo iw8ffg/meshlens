@@ -86,7 +86,8 @@ def _idle_status() -> dict:
     return {"connected": False, "msgs_per_s": 0.0, "undecodable": 0,
             "connected_since": None, "last_msg_age_s": None, "reconnects": 0,
             "last_error": None, "last_error_at": None, "decoded": 0,
-            "drops": {k: 0 for k in _IDLE_DROPS}, "queue_dropped": 0, "raw_dropped": 0, "queue_size": 0}
+            "drops": {k: 0 for k in _IDLE_DROPS}, "queue_dropped": 0, "raw_dropped": 0, "queue_size": 0,
+            "refused_topics": []}
 
 
 _SUMMED = ("msgs_per_s", "undecodable", "decoded", "reconnects", "queue_size",
@@ -582,9 +583,10 @@ def build(data_dir: Path, connector_factory=MqttConnector,
             log.exception("Notifica del messaggio non riuscita")
 
     ingestor = Ingestor(live, store, dedup, locator, lambda: rt.settings, on_message,
-                        lambda key, status, error=None: bus.publish(
+                        lambda key, status, error=None, heard_by=None: bus.publish(
                             {"type": "message_status", "key": key, "status": status,
-                             "error": error}),
+                             "error": error,
+                             **({"heard_by": heard_by} if heard_by is not None else {})}),
                         lambda wp: bus.publish(
                             {"type": "waypoint_deleted", "id": wp["deleted"]} if "deleted" in wp
                             else {"type": "waypoint", "waypoint": wp}))
@@ -664,7 +666,7 @@ def build(data_dir: Path, connector_factory=MqttConnector,
 
     ctx.mqtt_sender = MqttSender(
         lambda bid: rt.connectors.get(bid), lambda: rt.settings, rt.radios.radios, time.time,
-        ingestor.record_outgoing_mqtt, key_for)
+        ingestor.record_outgoing_mqtt, key_for, on_result=ingestor.mqtt_publish_result)
     app = create_app(ctx)
 
     @contextlib.asynccontextmanager

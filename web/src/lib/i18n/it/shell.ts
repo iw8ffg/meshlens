@@ -64,5 +64,8 @@ export const shell = {
   'shell.mqttDropChannel': 'Scartati: canale non ascoltato',
   'shell.mqttOverload': 'Persi per sovraccarico',
   'shell.brokerOff': 'Disattivato',
+  'shell.brokerRefused': 'Sottoscrizioni rifiutate: {topics}',
+  'shell.mqttRefused': 'Connesso, ma il broker ha rifiutato delle sottoscrizioni',
+  'shell.mqttRefusedTopics': 'Topic rifiutati',
   'shell.language': 'Lingua / Language',
 } as const
