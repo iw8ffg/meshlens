@@ -19,7 +19,9 @@
     "Note troppo lunghe (massimo 500 caratteri)": "Notes too long (maximum 500 characters)",
     "Profilo non trovato": "Profile not found",
     "Profilo troppo grande": "Profile too large",
-    "Versione del profilo non supportata": "Unsupported profile version"
+    "Versione del profilo non supportata": "Unsupported profile version",
+    "Nessun canale da correggere": "No channel to fix",
+    "Precisione non ammessa": "Precision not allowed"
   },
   "patterns": [
     [
