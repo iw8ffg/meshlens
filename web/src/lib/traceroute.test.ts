@@ -1,5 +1,5 @@
 import { test, expect } from 'vitest'
-import { markChangedRoutes, mergeHistory, shouldStore } from './traceroute'
+import { localRouteChanges, markChangedRoutes, mergeHistory, shouldStore } from './traceroute'
 import type { Traceroute } from './types'
 
 const tr = (o: Partial<Traceroute>): Traceroute => ({
@@ -35,4 +35,10 @@ test('markChangedRoutes: cambio rispetto all ok precedente (piu vecchio)', () =>
   const list = [ok(5, ''), tr({ id: 4, status: 'failed', route: null }), ok(3, '!aa'), tr({ id: 2, status: 'timeout' })]
   expect(markChangedRoutes(list)).toEqual([true, false, false, false])
   expect(markChangedRoutes([])).toEqual([])
+})
+
+test('localRouteChanges riporta anche il percorso precedente', () => {
+  const ok = (id: number, route: string) => tr({ id, status: 'ok', route })
+  expect(localRouteChanges([ok(2, '!bb'), ok(1, '!aa')])).toEqual([
+    { changed: true, prev: '!aa' }, { changed: false, prev: null }])
 })

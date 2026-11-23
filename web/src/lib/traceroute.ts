@@ -9,12 +9,17 @@ export function shouldStore(stored: Traceroute | undefined, incoming: Traceroute
  * `route`): vero se il percorso di una riga `ok` differisce dall'`ok` precedente (piu' vecchio).
  * Le righe non `ok` e il primo `ok` non sono mai "cambiati". */
 export function markChangedRoutes(items: Traceroute[]): boolean[] {
-  const out = items.map(() => false)
+  return localRouteChanges(items).map((c) => c.changed)
+}
+
+/** Come markChangedRoutes, con anche il percorso precedente (null se non c'e' nella lista). */
+export function localRouteChanges(items: Traceroute[]): { changed: boolean; prev: string | null }[] {
+  const out = items.map(() => ({ changed: false, prev: null as string | null }))
   let newer = -1 // indice dell'ultimo ok piu' recente visto, in attesa del predecessore
   for (let i = 0; i < items.length; i++) {
     const it = items[i]
     if (it.status !== 'ok' || it.route == null) continue
-    if (newer >= 0) out[newer] = items[newer].route !== it.route
+    if (newer >= 0) out[newer] = { changed: items[newer].route !== it.route, prev: it.route }
     newer = i
   }
   return out
