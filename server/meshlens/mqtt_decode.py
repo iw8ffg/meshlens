@@ -202,7 +202,7 @@ class _KeyView(collections.abc.MutableMapping):
 
 class EnvelopeDecoder:
     def __init__(self, keys: list[bytes], channel_keys: dict[str, bytes] | None = None,
-                 broker: str | None = None):
+                 broker: str | None = None, learned: dict[str, bytes] | None = None):
         self.keys = list(keys)
         self.broker = broker
         self.stats: collections.Counter = collections.Counter()
@@ -212,7 +212,12 @@ class EnvelopeDecoder:
         # nome canale -> chiave: quelle date (canali personalizzati) piu' l'ultima che ha
         # decifrato un pacchetto (serve all'invio)
         self._custom: dict[str, bytes] = dict(channel_keys or {})
-        self._learned: dict[str, bytes] = {}
+        self._learned: dict[str, bytes] = dict(learned or {})
+
+    @property
+    def learned_keys(self) -> dict[str, bytes]:
+        """Solo le chiavi imparate (senza le personalizzate)."""
+        return dict(self._learned)
 
     @property
     def channel_keys(self) -> _KeyView:

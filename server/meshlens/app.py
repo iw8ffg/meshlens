@@ -144,7 +144,7 @@ class Runtime:
         self._last_start_attempt[bid] = self.monotonic()
         keys, custom = broker_keys(broker)
         # le chiavi imparate sopravvivono al riavvio; le personalizzate vincono
-        decoder = EnvelopeDecoder(keys, {**self.learned_keys.get(bid, {}), **custom}, broker=bid)
+        decoder = EnvelopeDecoder(keys, custom, broker=bid, learned=self.learned_keys.get(bid))
         decoder.raw_filter = self.raw_filter
         connector = self.connector_factory(
             broker, decoder, self.loop, self.on_event or self.ingestor.handle)
@@ -219,8 +219,8 @@ class Runtime:
         old = self.connectors.pop(broker_id, None)
         if old is None:
             return
-        learned = getattr(getattr(old, "decoder", None), "channel_keys", None)
-        if learned:
+        learned = getattr(getattr(old, "decoder", None), "learned_keys", None)
+        if learned:  # solo le imparate: le personalizzate vengono dalle impostazioni
             self.learned_keys[broker_id] = dict(learned)
         await asyncio.to_thread(old.stop)
         self.queue_dropped_retired += getattr(getattr(old, "inbox", None), "dropped", 0)
@@ -383,6 +383,7 @@ class Runtime:
         """Ogni minuto: dimentica i pacchetti fuori finestra e tiene i nodi in memoria sotto il limite."""
         self.dedup.prune(time.time())
         removed = self.live.enforce_cap()
+        self.ingestor.prune(time.time())  # dopo il limite: i nodi rimossi escono dalle mappe
         if removed:
             log.info("Nodi in memoria oltre il limite: rimossi %d sentiti meno di recente", removed)
 
@@ -535,6 +536,13 @@ class Runtime:
             for (bid, _), r in zip(items, results):
                 if isinstance(r, BaseException):
                     log.error("Arresto del connettore MQTT %s fallito", bid, exc_info=r)
+            # connettori fermi: gli eventi ancora in coda si elaborano ora, a database aperto
+            # (altrimenti andrebbero persi o girerebbero a connessione chiusa)
+            for _, c in items:
+                inbox = getattr(c, "inbox", None)
+                if inbox is not None:
+                    with contextlib.suppress(Exception):
+                        inbox.close()
             self.connectors.clear()
         # connettori fermi: niente piu' eventi, si scrive cio' che resta in memoria
         if self.packet_log is not None:

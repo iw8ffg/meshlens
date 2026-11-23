@@ -74,8 +74,14 @@
     loadingOlder = true
     olderError = false
     try {
-      const list = await getJSON<Message[]>(`/messages/radio?limit=${PAGE}&before=${before}`)
-      const page = olderPage(list, new Set(app.radioMessages.map((m) => m.key)), PAGE)
+      // il server include `before`: una pagina piena tutta gia' nota (stesso secondo) si ripete
+      // da un secondo prima, cosi' la paginazione avanza sempre
+      const known = new Set(app.radioMessages.map((m) => m.key))
+      let list = await getJSON<Message[]>(`/messages/radio?limit=${PAGE}&before=${before}`)
+      if (list.length >= PAGE && list.every((m) => known.has(m.key))) {
+        list = await getJSON<Message[]>(`/messages/radio?limit=${PAGE}&before=${before - 1}`)
+      }
+      const page = olderPage(list, known, PAGE)
       if (page.exhausted) exhausted = true
       if (page.oldest !== null) cursor = page.oldest
       addRadioHistory(list)

@@ -300,6 +300,18 @@ async def test_all_subscriptions_refused_sets_last_error():
     assert st["connected"] is True
 
 
+async def test_last_error_cleared_after_reconnect_with_accepted_subscription():
+    c = _connector(CFG2)
+    c._on_connect(c._client, None, None, 0, None)
+    c._on_disconnect(c._client, None, None, 7, None)
+    assert c.status()["last_error"] == "Connessione persa: 7"
+    c._on_connect(c._client, None, None, 0, None)
+    assert c.status()["last_error"] is not None  # connessa ma non ancora sottoscritta
+    c._on_subscribe(c._client, None, 3, [_suback(0)], None)
+    st = c.status()
+    assert st["last_error"] is None and st["last_error_at"] is None
+
+
 async def test_refused_topics_reset_on_reconnect():
     c = _connector(CFG2)
     c._on_connect(c._client, None, None, 0, None)

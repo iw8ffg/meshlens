@@ -56,3 +56,23 @@ def test_flush_resets():
     ns.observe(ev(pid=9), "new", True)
     ns.flush()
     assert conn.execute("SELECT packets FROM stats_hourly").fetchone()[0] == 2
+
+
+def test_failed_flush_keeps_counters_without_double_counting():
+    ns, conn = _env()
+    ns.observe(ev(), "new", True)
+    real = ns.store.upsert_node_hourly
+    calls = []
+
+    def boom(rows):
+        calls.append(1)
+        raise RuntimeError("disco pieno")
+    ns.store.upsert_node_hourly = boom
+    try:
+        ns.flush()
+    except RuntimeError:
+        pass
+    ns.store.upsert_node_hourly = real
+    assert ns.flush() == 1  # restano solo i contatori per nodo, non ancora scritti
+    assert conn.execute("SELECT packets FROM stats_hourly").fetchone()[0] == 1
+    assert conn.execute("SELECT packets FROM node_hourly").fetchone()[0] == 1

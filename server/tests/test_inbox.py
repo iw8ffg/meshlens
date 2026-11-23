@@ -183,3 +183,24 @@ def test_inbox_drops_raw_packets_before_events():
     loop.run_all()
     assert [x for x in got if not isinstance(x, RawPacket)] == list(range(8))
     assert inbox.size() == 0
+
+
+def test_close_delivers_pending_and_ignores_later_drain_and_puts():
+    loop, got = FakeLoop(), []
+    inbox = EventInbox(loop, got.append)
+    inbox.put(1)
+    inbox.put(2)  # drain schedulato ma non ancora girato
+    inbox.close()
+    assert got == [1, 2] and inbox.size() == 0
+    loop.run_all()  # il drain gia' schedulato non fa nulla
+    inbox.put(3)  # dopo la chiusura gli eventi si scartano
+    loop.run_all()
+    assert got == [1, 2] and inbox.size() == 0
+
+
+def test_close_without_delivery_discards():
+    loop, got = FakeLoop(), []
+    inbox = EventInbox(loop, got.append)
+    inbox.put(1)
+    inbox.close(deliver=False)
+    assert got == [] and inbox.size() == 0

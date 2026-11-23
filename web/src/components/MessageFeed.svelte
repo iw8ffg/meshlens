@@ -99,8 +99,14 @@
     loading = true
     error = ''
     try {
-      const list = await getJSON<Message[]>(`/messages/history?${qs(`&before=${before}`)}`)
-      const page = olderPage(list, new Set(all.map((m) => m.key)), LIMIT)
+      // il server include `before`: una pagina piena tutta gia' nota (stesso secondo) si ripete
+      // da un secondo prima, cosi' la paginazione avanza sempre
+      const known = new Set(all.map((m) => m.key))
+      let list = await getJSON<Message[]>(`/messages/history?${qs(`&before=${before}`)}`)
+      if (list.length >= LIMIT && list.every((m) => known.has(m.key))) {
+        list = await getJSON<Message[]>(`/messages/history?${qs(`&before=${before - 1}`)}`)
+      }
+      const page = olderPage(list, known, LIMIT)
       if (page.exhausted) exhausted = true
       if (page.oldest !== null) cursor = page.oldest
       older = [...older, ...list]
