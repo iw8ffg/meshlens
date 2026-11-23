@@ -10,13 +10,25 @@ export function snrColor(snr: number | null): string {
 }
 
 /**
+ * Etichetta di un collegamento: SNR formattato da `fmt`; la ricezione diretta (0 salti) aggiunge
+ * `direct`. Senza SNR e senza salti noti la stringa e' vuota (nessuna etichetta).
+ */
+export function linkLabel(snr: number | null, source: Link['source'], fmt: (snr: number) => string, direct: string): string {
+  const isDirect = source === 'rf_direct'
+  if (snr === null) return isDirect ? direct : ''
+  return isDirect ? `${fmt(snr)} · ${direct}` : fmt(snr)
+}
+
+/**
  * Linee della mappa: A->B e B->A diventano una sola linea (SNR migliore, tempo piu' recente).
- * I link con un estremo assente, senza posizione o ignorato sono saltati.
+ * I link con un estremo assente, senza posizione o ignorato sono saltati. Con `label` ogni linea
+ * porta anche la proprieta' `label` (stringa, anche vuota).
  */
 export function linksToGeoJSON(
   links: Link[],
   nodes: Map<string, Node>,
   now: number = Date.now() / 1000,
+  label?: (snr: number | null, source: Link['source']) => string,
 ): FeatureCollection<LineString> {
   const merged = new Map<string, { a: string; b: string; snr: number | null; time: number; source: Link['source'] }>()
   for (const l of links) {
@@ -55,6 +67,7 @@ export function linksToGeoJSON(
         age_h: Math.max(0, (now - m.time) / 3600),
         from_id: m.a,
         to_id: m.b,
+        ...(label ? { label: label(m.snr, m.source) } : {}),
       },
     })
   }

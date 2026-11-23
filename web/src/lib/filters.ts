@@ -21,6 +21,10 @@ export function visibleNodes<T extends Pick<Node, 'is_ignored'>>(nodes: Iterable
   return out
 }
 
+/** "Solo infrastruttura" (filtro della sola mappa, non di NodeFilter): ruoli router e ripetitori. */
+export const INFRA_ROLES: readonly string[] = ['ROUTER', 'ROUTER_CLIENT', 'ROUTER_LATE', 'REPEATER']
+export const isInfrastructure = (n: Pick<Node, 'role'>): boolean => INFRA_ROLES.includes((n.role ?? '').toUpperCase())
+
 export function matchNode(n: Node, f: NodeFilter, now: number): boolean {
   // Un nodo ignorato non compare mai (nemmeno se mio): lo si ripristina dalle impostazioni.
   if (isIgnored(n)) return false

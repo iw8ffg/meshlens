@@ -1,2 +1,22 @@
 // Testi italiani: area «layers» (WP3, livelli della mappa). Chiavi `layers.*`.
-export const layers = {} as const
+export const layers = {
+  'layers.title': 'Strati',
+  'layers.aria': 'Strati della mappa',
+  'layers.precision': 'Cerchi di precisione',
+  'layers.precision.hint': 'Un cerchio attorno ai nodi che nascondono la posizione esatta: più è grande, meno è precisa.',
+  'layers.heat': 'Densità dei nodi',
+  'layers.heat.hint': 'Una mappa di calore che mostra dove i nodi sono più numerosi.',
+  'layers.infra': 'Solo infrastruttura',
+  'layers.infra.hint': 'Mostra solo i nodi con ruolo router e ripetitore (vale solo per la mappa).',
+  'layers.infra.none': 'Nessun nodo con ruolo router o ripetitore: la mappa è vuota.',
+  'layers.linkLabels': 'Etichette sui collegamenti',
+  'layers.linkLabels.hint': 'SNR su ogni collegamento e «diretto» per la ricezione diretta. Si vedono ingrandendo e con i collegamenti accesi nei filtri.',
+  'layers.linkLabels.noGlyphs': 'Non disponibili con questa mappa di base (mancano i caratteri).',
+  'layers.label.direct': 'diretto',
+  'layers.tak': 'ATAK',
+  'layers.tak.hint': 'Posizioni dei contatti ATAK ricevute dalla rete (portnum 72).',
+  'layers.legend.heat': 'Densità dei nodi',
+  'layers.legend.heatLow': 'Pochi',
+  'layers.legend.heatHigh': 'Molti',
+  'layers.legend.tak': 'Contatto ATAK',
+} as const
