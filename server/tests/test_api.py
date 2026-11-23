@@ -1616,7 +1616,11 @@ def test_feature_modules_contract(ctx):
     for name in FEATURE_MODULES:
         mod = importlib.import_module(f"meshlens.{name}")
         assert isinstance(mod.GUEST_GET_PATHS, tuple) and callable(mod.register)
-    paths = [getattr(r, "path", "") for r in create_app(ctx).routes]
+    # i prefissi riservati sono dei moduli di funzione: il nucleo (api.py e simili) non li usa
+    feature = {f"meshlens.{n}" for n in FEATURE_MODULES}
+    paths = [getattr(r, "path", "") for r in create_app(ctx).routes
+             if getattr(getattr(r, "endpoint", None), "__module__", "") not in feature]
+    assert paths
     for p in paths:
         assert not p.startswith(RESERVED_PREFIXES), p
         if p.startswith(("/api/conversations/", "/api/nodes/", "/api/config/", "/api/radios/")):

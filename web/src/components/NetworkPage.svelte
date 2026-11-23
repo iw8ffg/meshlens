@@ -42,8 +42,7 @@ import { safeStorage } from '../lib/storage'
   {:else if view === 'packets'}
     <PacketInspector {nodes} onpick={pickId} />
   {:else if view === 'health'}
-    <!-- onpick: prop facoltativa di HealthView (decisione R2.3); spread non tipizzato finche' il segnaposto di WP0 non e' sostituito da WP2 -->
-    <HealthView {...({ onpick: pickId } as any)} />
+    <HealthView onpick={pickId} />
   {:else if view === 'topology'}
     <TopologyView onpick={pickId} />
   {:else}
