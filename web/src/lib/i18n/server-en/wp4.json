@@ -31,7 +31,11 @@
     "Leggi la sezione Sicurezza del nodo per verificare che abbia la chiave admin di questa radio": "Read the node's Security section to check that it has this radio's admin key",
     "Configurazione radio non disponibile": "Radio configuration not available",
     "Nessun flag indicato": "No flag given",
-    "Non puoi ignorare il nodo di una tua radio": "You cannot ignore the node of one of your radios"
+    "Non puoi ignorare il nodo di una tua radio": "You cannot ignore the node of one of your radios",
+    "Il link dei canali si mostra solo da questo PC": "The channel link is shown only on this PC",
+    "Il profilo non cambia nulla su questa radio": "The profile changes nothing on this radio",
+    "Indica un nodo o un profilo per il lato A e un nodo per il lato B": "Give a node or a profile for side A and a node for side B",
+    "Profili non disponibili": "Profiles not available"
   },
   "patterns": [
     [

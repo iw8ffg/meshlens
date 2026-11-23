@@ -103,7 +103,7 @@ def _scalar(v) -> bool:
     return isinstance(v, list) and all(isinstance(x, (bool, int, float, str)) for x in v)
 
 
-def _check_sections(sections) -> list[str]:
+def check_sections(sections) -> list[str]:
     if not isinstance(sections, list) or not all(isinstance(s, str) for s in sections):
         raise ValueError(MSG_NO_SECTIONS)
     out = []
@@ -140,7 +140,7 @@ def _clean(data: dict, sections: list[str]) -> tuple[dict, list[str]]:
 
 def extract_profile(read_data: dict, sections: list[str] | None) -> tuple[dict, list[str]]:
     """Dati del profilo da una lettura (dict di node_to_dict): (dati, sezioni effettive)."""
-    wanted = allowed_sections() if sections is None else _check_sections(sections)
+    wanted = allowed_sections() if sections is None else check_sections(sections)
     data, present = _clean(read_data, wanted)
     if not present:
         raise ValueError(MSG_NO_SECTIONS)
