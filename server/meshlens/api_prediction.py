@@ -10,6 +10,7 @@ from .elevation import ElevationError
 from .prediction import PredictionError
 
 MSG_UNAVAILABLE = "Previsione di copertura non disponibile"
+GUEST_GET_PATHS: tuple[str, ...] = ()  # E19: niente per l'ospite
 MSG_NO_SESSION = "Sessione non trovata"
 
 

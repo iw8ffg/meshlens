@@ -10,6 +10,11 @@ from . import queries
 
 T = TypeVar("T")
 STATS_TTL_S = 60
+# percorsi GET leggibili dall'ospite (E19): serie dei nodi e statistiche; il registro dei
+# pacchetti no (contiene i testi dei messaggi)
+GUEST_GET_PATHS: tuple[str, ...] = (
+    "/api/nodes/{node_id}/positions", "/api/nodes/{node_id}/telemetry",
+    "/api/nodes/{node_id}/metrics", "/api/nodes/{node_id}/snr", "/api/stats")
 
 
 async def run_read(ctx, fn: Callable[[sqlite3.Connection], T]) -> T:

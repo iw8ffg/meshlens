@@ -10,6 +10,7 @@ from .storeforward import SfError
 _NODE_ID = re.compile(r"![0-9a-fA-F]{8}")
 MSG_BAD_ID = "Identificativo del nodo non valido"
 MSG_UNAVAILABLE = "Store & Forward non disponibile"
+GUEST_GET_PATHS: tuple[str, ...] = ()  # E19: niente per l'ospite (messaggi conservati)
 
 
 class RequestBody(BaseModel):
