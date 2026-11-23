@@ -1,5 +1,7 @@
 import asyncio
+import sys
 import threading
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -623,6 +625,14 @@ class FakeNode:
         self.request_hook = None  # funzione(configType) chiamata da requestConfig
         self.write_hook = None  # funzione() chiamata da writeConfig
         self.channel_error = None
+        # messaggi predefiniti (come la libreria: cache, attesa attiva, sys.exit oltre 200)
+        self.canned_available = True
+        self.cannedPluginMessage = None
+        self.gotResponse = None
+        self.canned_reply = None
+        self.canned_event = None
+        self.canned_seen = "non chiamato"
+        self.canned_thread_done = threading.Event()
 
     def _rec(self, *a):
         self.calls.append(a)
@@ -665,6 +675,50 @@ class FakeNode:
 
     def removeFixedPosition(self):
         self._rec("removeFixedPosition")
+
+    def setFavorite(self, num):
+        self._rec("setFavorite", num)
+
+    def removeFavorite(self, num):
+        self._rec("removeFavorite", num)
+
+    def setIgnored(self, num):
+        self._rec("setIgnored", num)
+
+    def removeIgnored(self, num):
+        self._rec("removeIgnored", num)
+
+    def setTime(self, t=0):
+        self._rec("setTime", t)
+
+    def resetNodeDb(self):
+        self._rec("resetNodeDb")
+
+    def shutdown(self, secs=10):
+        self._rec("shutdown", secs)
+
+    def module_available(self, bit):
+        return self.canned_available
+
+    def get_canned_message(self):
+        self.canned_seen = self.cannedPluginMessage
+        self.calls.append(("get_canned_message",))
+        try:
+            if self.canned_event is not None:
+                self.canned_event.wait(5)
+            if self.canned_reply is None:
+                self.gotResponse = False  # come la libreria, prima dell'attesa attiva
+                while self.gotResponse is False:
+                    time.sleep(0.01)
+                return ""
+            return self.canned_reply
+        finally:
+            self.canned_thread_done.set()
+
+    def set_canned_message(self, message):
+        if len(message) > 200:
+            sys.exit(1)  # come our_exit della libreria
+        self._rec("set_canned_message", message)
 
 
 class AdminIface(FakeIface):
@@ -1101,4 +1155,141 @@ async def test_send_fails_fast_when_radio_lock_is_held(monkeypatch):
         assert iface.sent == [] and iface.sent_data == []
     finally:
         h.conn._send_lock.release()
+    await h.conn.stop()
+
+
+# ---- WP4: preferiti/ignorati, ora, reset NodeDB, spegnimento, canned -------------
+
+async def test_admin_op_wait_raises_radio_busy(monkeypatch):
+    import meshlens.radio as radio_mod
+    from meshlens.radio import RadioBusy
+    monkeypatch.setattr(radio_mod, "SEND_LOCK_TIMEOUT", 0.1)
+    h, iface = await admin_connected()
+    await h.conn._send_lock.acquire()
+    try:
+        with pytest.raises(RadioBusy):
+            await asyncio.wait_for(h.conn.set_node_flag(0x42, "favorite", True, wait=0.1), 2)
+        assert not any(c[0] == "setFavorite" for c in iface.calls)
+    finally:
+        h.conn._send_lock.release()
+    await h.conn.stop()
+
+
+async def test_set_node_flag_local_calls_library_and_updates_memory():
+    h, iface = await admin_connected()
+    iface.nodesByNum[0x42] = {"num": 0x42}
+    await h.conn.set_node_flag(0x42, "favorite", True)
+    assert ("setFavorite", 0x42) in iface.calls
+    assert h.conn.node_flags(0x42) == {"favorite": True, "ignored": False, "muted": None}
+    await h.conn.set_node_flag(0x42, "ignored", True)
+    assert ("setIgnored", 0x42) in iface.calls
+    await h.conn.set_node_flag(0x42, "favorite", False)
+    assert ("removeFavorite", 0x42) in iface.calls
+    assert h.conn.node_flags(0x42) == {"favorite": False, "ignored": True, "muted": None}
+    await h.conn.set_node_flag(0x42, "ignored", False)
+    assert ("removeIgnored", 0x42) in iface.calls
+    await h.conn.stop()
+
+
+async def test_set_node_flag_rejects_bad_flag_and_own_node():
+    h, iface = await admin_connected()
+    with pytest.raises(ValueError):
+        await h.conn.set_node_flag(0x42, "muted", True)
+    with pytest.raises(ValueError):
+        await h.conn.set_node_flag(MY_NUM, "favorite", True)
+    assert iface.calls == []
+    await h.conn.stop()
+
+
+async def test_node_flags_reads_camelcase_and_unknown():
+    h, iface = await admin_connected()
+    iface.nodesByNum[0x77] = {"num": 0x77, "isFavorite": True, "isIgnored": True,
+                              "isMuted": False}
+    assert h.conn.node_flags(0x77) == {"favorite": True, "ignored": True, "muted": False}
+    assert h.conn.node_flags(0x99) is None
+    await h.conn.stop()
+    assert h.conn.node_flags(0x77) is None
+
+
+async def test_set_time_reset_shutdown_local():
+    h, iface = await admin_connected()
+    await h.conn.set_time(None, 1_700_000_000)
+    await h.conn.reset_nodedb(None)
+    assert h.conn._reboot_mark is not None
+    h.conn._reboot_mark = None
+    await h.conn.shutdown(None, 5)
+    assert h.conn._reboot_mark is None
+    assert ("setTime", 1700000000) in iface.calls
+    assert ("resetNodeDb",) in iface.calls
+    assert ("shutdown", 5) in iface.calls
+    await h.conn.stop()
+
+
+async def test_remote_shutdown_does_not_wait_ack_and_set_time_does():
+    h, iface = await admin_connected()
+    iface.ack_mode = "none"
+    await asyncio.wait_for(h.conn.shutdown(REMOTE_NUM, 5), 5)
+    assert ("shutdown", 5) in iface.calls
+    iface.ack_mode = "ack"
+    iface.calls.clear()
+    await h.conn.set_time(REMOTE_NUM, 1)
+    i = iface.calls.index(("setTime", 1))
+    assert ("ack_reset",) in iface.calls[i + 1:]  # waitForAckNak ha consumato l'ACK
+    await h.conn.stop()
+
+
+async def test_get_canned_resets_cache_and_returns_text():
+    h, iface = await admin_connected()
+    iface.local.cannedPluginMessage = "vecchio"
+    iface.local.canned_reply = "Ciao|Arrivo|OK"
+    assert await h.conn.get_canned(None) == "Ciao|Arrivo|OK"
+    assert iface.local.canned_seen is None  # cache azzerata prima della chiamata
+    await h.conn.stop()
+
+
+async def test_get_canned_timeout_releases_busy_wait(monkeypatch):
+    import meshlens.radio as radio_mod
+    monkeypatch.setattr(radio_mod, "CANNED_TIMEOUT", 0.2)
+    h, iface = await admin_connected()
+    iface.local.canned_reply = None  # nessuna risposta: attesa attiva della libreria
+    with pytest.raises(AdminError) as ei:
+        await h.conn.get_canned(None)
+    assert ei.value.code == "timeout"
+    await h.until(lambda: iface.local.canned_thread_done.is_set(), 1.0)
+    await h.until(lambda: h.conn._admin_task.done(), 1.0)
+    iface.nodesByNum[0x42] = {"num": 0x42}
+    await h.conn.set_node_flag(0x42, "favorite", True)  # nessun MSG_ADMIN_BUSY
+    assert ("setFavorite", 0x42) in iface.calls
+    await h.conn.stop()
+
+
+async def test_canned_module_missing():
+    from meshlens.radio import MSG_NO_CANNED
+    h, iface = await admin_connected()
+    iface.local.canned_available = False
+    with pytest.raises(AdminError, match=MSG_NO_CANNED):
+        await h.conn.get_canned(None)
+    with pytest.raises(AdminError, match=MSG_NO_CANNED):
+        await h.conn.set_canned(None, "a")
+    assert not any(c[0] in ("get_canned_message", "set_canned_message") for c in iface.calls)
+    await h.conn.stop()
+
+
+async def test_set_canned_validates_before_library():
+    h, iface = await admin_connected()
+    with pytest.raises(ValueError):
+        await h.conn.set_canned(None, "è" * 101)  # 202 byte
+    with pytest.raises(ValueError):
+        await h.conn.set_canned(None, "")
+    assert not any(c[0] == "set_canned_message" for c in iface.calls)
+    await h.conn.set_canned(None, "Ciao|OK")
+    assert ("set_canned_message", "Ciao|OK") in iface.calls
+    await h.conn.stop()
+
+
+async def test_library_system_exit_becomes_admin_error():
+    h, iface = await admin_connected()
+    with pytest.raises(AdminError) as ei:
+        await h.conn._simple_admin(None, lambda n: sys.exit(1))
+    assert ei.value.message == "Operazione fallita: SystemExit"
     await h.conn.stop()
