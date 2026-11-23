@@ -51,6 +51,27 @@ def parse_version(s) -> tuple | None:
     return tuple(int(x) for x in m.groups()) if m else None
 
 
+_VER_FULL = re.compile(r"v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?"
+                       r"(?:\+[0-9A-Za-z.-]+)?")
+
+
+def parse_version_full(s) -> tuple | None:
+    """Chiave semver confrontabile anche con le pre-release: una versione finale e' maggiore
+    delle sue pre-release; identificatori separati da '.', numerici (come interi) minori di
+    quelli alfanumerici. None se non e' una versione."""
+    if not isinstance(s, str):
+        return None
+    m = _VER_FULL.fullmatch(s.strip())
+    if not m:
+        return None
+    core = tuple(int(x) for x in m.groups()[:3])
+    pre = m.group(4)
+    if pre is None:
+        return (*core, 1, ())
+    ids = tuple((0, int(p), "") if p.isdigit() else (1, 0, p) for p in pre.split("."))
+    return (*core, 0, ids)
+
+
 def is_newer(latest, current) -> bool:
     a, b = parse_version(latest), parse_version(current)
     return a is not None and b is not None and a > b
