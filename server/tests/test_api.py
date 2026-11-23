@@ -14,7 +14,7 @@ from meshlens.db import connect
 from meshlens.events import TelemetryData
 from meshlens.geo import CountryLocator
 from meshlens.live import LiveState
-from meshlens.settings import load_settings, save_settings
+from meshlens.settings import LOCAL_ONLY_KEYS, load_settings, save_settings
 from meshlens.store import Store
 
 
@@ -880,7 +880,7 @@ async def test_settings_import_skips_masked(ctx):
         body = r.json()
         # i segreti mascherati dei broker si risolvono con quelli salvati (stesso id)
         assert set(body["skipped"]) == {"update_token", "mqtt_send_confirmed",
-                                        "mqtt_send_confirmed_brokers"}
+                                        "mqtt_send_confirmed_brokers", *LOCAL_ONLY_KEYS}
         assert "hunter2pw" not in r.text and "AQ==" not in r.text
         assert body["settings"]["retention_messages_days"] == 30
         from meshlens.settings import load_settings
