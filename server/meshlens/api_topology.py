@@ -5,12 +5,17 @@ Prefissi riservati (contratto §5.3):
 Le rotte leggono direttamente il database (letture in thread con run_read): non dipendono da
 ctx.ext["tak"] e funzionano anche senza l'estensione installata.
 """
+import re
 import time
 
 from fastapi import Depends, HTTPException, Query
 
 from .api_data import run_read
 from .tak import _COLS, contact_dict
+from .topology import DEFAULT_LIMIT, SOURCES, build_topology
+
+_COUNTRY = re.compile(r"^[A-Za-z]{2}$")
+MSG_LIMIT = "Limite di nodi non valido: da 10 a 1000"
 
 # percorsi GET (esattamente come registrati) leggibili dall'ospite: solo mappa, nodi, statistiche
 GUEST_GET_PATHS: tuple[str, ...] = ("/api/tak/contacts", "/api/tak/summary", "/api/topology")
@@ -32,7 +37,37 @@ def _parse_hours(value: str, default: int = 24) -> int:
     return h
 
 
-_VISIBLE = "LEFT JOIN nodes n ON n.num = c.node_num WHERE c.time >= ? AND COALESCE(n.is_ignored, 0) = 0"
+def _parse_sources(value: str | None) -> tuple[str, ...]:
+    if value is None:
+        return SOURCES
+    parts = value.split(",")
+    if not value or len(set(parts)) != len(parts) or any(p not in SOURCES for p in parts):
+        raise HTTPException(400, "Sorgenti dei collegamenti non valide")
+    return tuple(parts)
+
+
+def _parse_countries(value: str | None) -> tuple[str, ...]:
+    if not value:
+        return ()
+    parts = value.split(",")
+    if len(parts) > 30 or any(not (p == "none" or _COUNTRY.match(p)) for p in parts):
+        raise HTTPException(400, "Filtro nazioni non valido")
+    return tuple(parts)
+
+
+def _parse_limit(value: str | None) -> int:
+    if value is None or value == "":
+        return DEFAULT_LIMIT
+    try:
+        n = int(value)
+    except (TypeError, ValueError):
+        raise HTTPException(400, MSG_LIMIT) from None
+    if not 10 <= n <= 1000:
+        raise HTTPException(400, MSG_LIMIT)
+    return n
+
+
+_VISIBLE ="LEFT JOIN nodes n ON n.num = c.node_num WHERE c.time >= ? AND COALESCE(n.is_ignored, 0) = 0"
 
 
 def tak_contacts_query(conn, since: float) -> list[dict]:
@@ -68,3 +103,13 @@ def register(app, ctx, require_auth, require_json) -> None:
     async def tak_summary(hours: str = Query("24")):
         since = time.time() - _parse_hours(hours) * 3600
         return await run_read(ctx, lambda c: tak_summary_query(c, since))
+
+    @app.get("/api/topology", dependencies=[Depends(require_auth)])
+    async def topology(hours: str = Query("168"), sources: str | None = Query(None),
+                       countries: str | None = Query(None), limit: str | None = Query(None)):
+        h = _parse_hours(hours, 168)
+        srcs = _parse_sources(sources)
+        cts = _parse_countries(countries)
+        lim = _parse_limit(limit)
+        now = time.time()
+        return await run_read(ctx, lambda c: build_topology(c, now, h, srcs, cts, lim))

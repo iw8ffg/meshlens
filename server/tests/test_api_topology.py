@@ -5,6 +5,7 @@ from pathlib import Path
 from test_api import client, logged, make_ctx  # noqa: F401
 
 from meshlens import api_topology
+from meshlens.topology import SOURCES
 
 NOW = time.time()
 KEYS = {"node_id", "callsign", "device_callsign", "team", "role", "battery", "lat", "lon",
@@ -81,10 +82,93 @@ async def test_guest_paths_declared():
     assert set(api_topology.GUEST_GET_PATHS) == {"/api/tak/contacts", "/api/tak/summary",
                                                  "/api/topology"}
     for p in api_topology.GUEST_GET_PATHS:
-        if p != "/api/topology":  # la rotta del grafo arriva col Task 5
-            assert p in routes
+        assert p in routes
 
 
 def test_wp3_catalog_has_message():
     f = Path(__file__).parents[2] / "web" / "src" / "lib" / "i18n" / "server-en" / "wp3.json"
-    assert "Periodo non valido: da 1 a 720 ore" in json.loads(f.read_text("utf-8"))["exact"]
+    exact = json.loads(f.read_text("utf-8"))["exact"]
+    for k in ("Periodo non valido: da 1 a 720 ore", "Sorgenti dei collegamenti non valide",
+              "Filtro nazioni non valido", "Limite di nodi non valido: da 10 a 1000"):
+        assert k in exact
+
+
+# ---- /api/topology ----
+def seed_graph(ctx):
+    for n, country in ((1, "IT"), (2, "IT"), (3, "DE")):
+        ctx.conn.execute("INSERT OR REPLACE INTO nodes(num, id, long_name, last_heard, country) "
+                         "VALUES(?,?,?,?,?)", (n, "!%08x" % n, f"N{n}", NOW - 5, country))
+    for a, b, s, t in ((1, 2, "traceroute", NOW - 5), (2, 3, "neighborinfo", NOW - 5),
+                       (1, 3, "rf_direct", NOW - 2 * 3600)):
+        ctx.conn.execute("INSERT INTO links(from_num, to_num, source, snr, time) VALUES(?,?,?,?,?)",
+                         (a, b, s, 1.0, t))
+    ctx.conn.commit()
+
+
+async def test_topology_requires_auth():
+    async with client(make_ctx()) as c:
+        assert (await c.get("/api/topology")).status_code == 401
+
+
+async def test_topology_default_shape():
+    ctx = make_ctx()
+    seed_graph(ctx)
+    async with logged(ctx) as c:
+        j = (await c.get("/api/topology")).json()
+    assert set(j) == {"since", "hours", "nodes", "edges", "isolated", "components", "stats",
+                      "truncated", "sources"}
+    assert j["hours"] == 168 and j["sources"] == list(SOURCES)
+
+
+async def test_topology_params_applied():
+    ctx = make_ctx()
+    seed_graph(ctx)
+    async with logged(ctx) as c:
+        assert len((await c.get("/api/topology?hours=1")).json()["edges"]) == 2
+        j = (await c.get("/api/topology?sources=traceroute")).json()
+        assert [e["sources"] for e in j["edges"]] == [["traceroute"]]
+        j = (await c.get("/api/topology?countries=IT")).json()
+        assert {n["id"] for n in j["nodes"]} == {"!00000001", "!00000002"}
+        assert (await c.get("/api/topology?limit=10")).status_code == 200
+
+
+async def test_topology_validation_errors():
+    ctx = make_ctx()
+    hours = "Periodo non valido: da 1 a 720 ore"
+    srcs = "Sorgenti dei collegamenti non valide"
+    lim = "Limite di nodi non valido: da 10 a 1000"
+    cases = {"hours=0": hours, "hours=721": hours, "hours=x": hours,
+             "sources=boh": srcs, "sources=": srcs, "sources=traceroute,traceroute": srcs,
+             "countries=ITA": "Filtro nazioni non valido",
+             "countries=it,": "Filtro nazioni non valido",
+             "limit=9": lim, "limit=1001": lim, "limit=x": lim}
+    async with logged(ctx) as c:
+        for q, msg in cases.items():
+            r = await c.get(f"/api/topology?{q}")
+            assert r.status_code == 400, q
+            assert r.json()["detail"] == msg, q
+
+
+async def test_topology_works_without_ext():
+    ctx = make_ctx()
+    assert ctx.ext == {}
+    async with logged(ctx) as c:
+        assert (await c.get("/api/topology")).status_code == 200
+
+
+def _keys(o):
+    if isinstance(o, dict):
+        for k, v in o.items():
+            yield k
+            yield from _keys(v)
+    elif isinstance(o, list):
+        for v in o:
+            yield from _keys(v)
+
+
+async def test_topology_no_secrets_or_addresses():
+    ctx = make_ctx()
+    seed_graph(ctx)
+    async with logged(ctx) as c:
+        keys = set(_keys((await c.get("/api/topology")).json()))
+    assert not keys & {"public_key", "ip", "address", "psk"}

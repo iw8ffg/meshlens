@@ -1,6 +1,9 @@
 {
   "exact": {
-    "Periodo non valido: da 1 a 720 ore": "Invalid period: 1 to 720 hours"
+    "Periodo non valido: da 1 a 720 ore": "Invalid period: 1 to 720 hours",
+    "Sorgenti dei collegamenti non valide": "Invalid link sources",
+    "Filtro nazioni non valido": "Invalid country filter",
+    "Limite di nodi non valido: da 10 a 1000": "Invalid node limit: 10 to 1000"
   },
   "patterns": []
 }
