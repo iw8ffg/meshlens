@@ -3,6 +3,28 @@
 Il formato segue [Keep a Changelog](https://keepachangelog.com/it-IT/1.1.0/) e il progetto usa il [versionamento semantico](https://semver.org/lang/it/).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [1.5.0] - 2026-11-23
+
+### Italiano
+
+#### Aggiunto
+- **Radio via rete (IP):** in Radio → Aggiungi radio c'è la scheda «Rete (IP)» per collegare una radio con WiFi o Ethernet attivo, indicando indirizzo e porta (di solito 4403).
+- **Esito degli invii MQTT:** ogni messaggio inviato via MQTT mostra «Invio…», poi «Accettato dal broker» quando il broker lo conferma e «Sentito in radio da …» quando un altro gateway o una tua radio lo ricevono: è la prova che è andato davvero in onda. Se il broker non conferma entro 15 secondi compare «Non confermato».
+- **Sottoscrizioni rifiutate:** se un broker accetta la connessione ma rifiuta l'ascolto di qualche topic, Impostazioni → MQTT e lo stato in alto lo segnalano con l'elenco dei topic rifiutati.
+
+#### Modificato
+- **Id nodo per MQTT:** il campo non mostra più un id di esempio, che si poteva scambiare per un valore vero; il suggerimento spiega che deve essere l'id di una tua radio.
+
+### English
+
+#### Added
+- **Radio over the network (IP):** Radio → Add radio has a "Network (IP)" tab to connect a radio with WiFi or Ethernet enabled, by address and port (usually 4403).
+- **MQTT send outcome:** every message sent over MQTT shows "Sending…", then "Accepted by the broker" once the broker confirms it and "Heard on radio by …" when another gateway or one of your radios receives it: proof it really went on air. If the broker does not confirm within 15 seconds it shows "Not confirmed".
+- **Refused subscriptions:** if a broker accepts the connection but refuses some topics, Settings → MQTT and the top status show it with the list of refused topics.
+
+#### Changed
+- **MQTT node ID:** the field no longer shows an example ID that could be mistaken for a real value; the hint explains it must be the ID of one of your radios.
+
 ## [1.4.5] - 2026-11-23
 
 ### Italiano
@@ -337,6 +359,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 [1.2.3]: https://github.com/iw8ffg/meshlens/releases/tag/v1.2.3
 [1.3.0]: https://github.com/iw8ffg/meshlens/releases/tag/v1.3.0
 [1.4.0]: https://github.com/iw8ffg/meshlens/releases/tag/v1.4.0
+[1.5.0]: https://github.com/iw8ffg/meshlens/releases/tag/v1.5.0
 [1.4.5]: https://github.com/iw8ffg/meshlens/releases/tag/v1.4.5
 [1.4.4]: https://github.com/iw8ffg/meshlens/releases/tag/v1.4.4
 [1.4.3]: https://github.com/iw8ffg/meshlens/releases/tag/v1.4.3

@@ -296,7 +296,7 @@
             hint={t('settings.mqtt.nodeIdHint')}
           >
             {#snippet children({ describedby, invalid })}
-              <input id="set-nodeid" class="ui-input ui-mono" class:err={invalid} type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="!a1b2c3d4" aria-describedby={describedby} aria-invalid={invalid} bind:value={nodeId} />
+              <input id="set-nodeid" class="ui-input ui-mono" class:err={invalid} type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder={t('settings.mqtt.nodeIdPh')} aria-describedby={describedby} aria-invalid={invalid} bind:value={nodeId} />
             {/snippet}
           </Field>
         </section>
