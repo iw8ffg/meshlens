@@ -596,4 +596,156 @@ class FakeRadioServer:
             self._bump("replayed")
 
 
-# <<FIN>>
+# ------------------------------------------------------------------ CLI
+
+def _hex_num(text: str) -> int:
+    t = text.strip().lstrip("!")
+    value = int(t, 16)
+    if not 0 < value <= 0xFFFFFFFF:
+        raise ValueError(text)
+    return value
+
+
+def build_parser() -> argparse.ArgumentParser:
+    ap = argparse.ArgumentParser(
+        prog="fake_radio.py",
+        description="Radio simulata per MeshLens: server TCP locale con handshake sintetico "
+                    "e riproduzione di una sessione registrata (replay_record.py).")
+    ap.add_argument("--session", metavar="FILE", help="file di sessione da riprodurre")
+    ap.add_argument("--port", type=int, default=DEFAULT_PORT,
+                    help=f"porta TCP (predefinita {DEFAULT_PORT}; 8686 e' vietata)")
+    ap.add_argument("--host", default="127.0.0.1",
+                    help="indirizzo di ascolto (predefinito 127.0.0.1)")
+    ap.add_argument("--speed", type=float, default=1.0, metavar="X",
+                    help="fattore di velocita' della riproduzione (0 = senza attese)")
+    ap.add_argument("--loop", action="store_true", help="ripete la sessione all'infinito")
+    ap.add_argument("--nodes", type=int, default=3, metavar="N",
+                    help="nodi finti senza sessione (predefinito 3)")
+    ap.add_argument("--ack", action="store_true",
+                    help="conferma di consegna finta ai messaggi con richiesta di conferma")
+    ap.add_argument("--nak", metavar="MOTIVO",
+                    help="con --ack: rifiuto al posto della conferma (es. NO_RESPONSE)")
+    ap.add_argument("--ack-delay", type=float, default=0.05, metavar="S",
+                    help="ritardo della conferma finta (predefinito 0,05 s)")
+    ap.add_argument("--max-gap", type=float, default=5.0, metavar="S",
+                    help="attesa massima tra due pacchetti (predefinita 5 s)")
+    ap.add_argument("--no-restamp", action="store_true",
+                    help="non riscrivere rx_time con l'ora corrente")
+    ap.add_argument("--restart-on-connect", action="store_true",
+                    help="ricomincia la sessione a ogni nuova connessione")
+    ap.add_argument("--sent-log", metavar="FILE",
+                    help="accoda a FILE (JSON lines) i pacchetti ricevuti da MeshLens")
+    ap.add_argument("--name", metavar="NOME", help="nome lungo del nodo finto")
+    ap.add_argument("--my-num", metavar="HEX", help="numero del nodo finto (esadecimale)")
+    ap.add_argument("--channel-name", metavar="NOME", help="nome del canale secondario")
+    ap.add_argument("-v", "--verbose", action="store_true",
+                    help="stampa i messaggi ricevuti da MeshLens")
+    return ap
+
+
+def _utf8_streams() -> None:
+    for s in (sys.stdout, sys.stderr):
+        try:
+            s.reconfigure(encoding="utf-8")
+        except Exception:
+            pass
+
+
+def _err(msg: str) -> None:
+    print(f"Errore: {msg}", file=sys.stderr)
+
+
+def main(argv=None, stop_event: threading.Event | None = None) -> int:
+    _utf8_streams()
+    args = build_parser().parse_args(argv)
+    try:
+        validate_port(args.port, allow_zero=True)
+    except ValueError as exc:
+        _err(str(exc))
+        return 2
+    if args.speed < 0 or args.speed != args.speed:
+        _err("La velocita' deve essere 0 (senza attese) o un numero positivo")
+        return 2
+    if args.nodes < 0 or args.nodes > 200:
+        _err("Il numero di nodi finti deve essere tra 0 e 200")
+        return 2
+    cfg = FakeRadioConfig(host=args.host, port=args.port, node_count=args.nodes, ack=args.ack,
+                          ack_delay=args.ack_delay, nak=args.nak, speed=args.speed,
+                          loop=args.loop, max_gap=args.max_gap, restamp=not args.no_restamp,
+                          restart_on_connect=args.restart_on_connect, sent_log=args.sent_log)
+    if args.name:
+        cfg.long_name = args.name
+        cfg.short_name = "".join(ch for ch in args.name if ch.isalnum())[:4].upper() or "FAKE"
+    if args.channel_name:
+        cfg.channel_name = args.channel_name
+    if args.my_num:
+        try:
+            cfg.my_node_num = _hex_num(args.my_num)
+        except ValueError:
+            _err(f"Numero di nodo non valido: {args.my_num} (esadecimale, es. a1b2c3d4)")
+            return 2
+    if args.nak and not args.ack:
+        _err("--nak richiede --ack")
+        return 2
+    session = None
+    if args.session:
+        try:
+            session = read_session(args.session)
+        except SessionError as exc:
+            _err(str(exc))
+            return 1
+    if args.host not in ("127.0.0.1", "localhost", "::1"):
+        print("Attenzione: la radio finta non ha autenticazione e ascolta su "
+              f"{args.host}: usala solo su reti fidate.", file=sys.stderr)
+    try:
+        server = FakeRadioServer(cfg, session)
+        server.start()
+    except ValueError as exc:
+        _err(str(exc))
+        return 2
+    except OSError as exc:
+        if args.port:
+            _err(f"Porta {args.port} gia' in uso" if getattr(exc, "errno", 0) in (98, 10048, 48)
+                 else f"Impossibile ascoltare su {args.host}:{args.port}: {exc.strerror or exc}")
+        else:
+            _err(f"Impossibile ascoltare: {exc.strerror or exc}")
+        return 1
+    if args.verbose:
+        server.on_received = _print_received
+    addr = f"{args.host}:{server.port}"
+    print(f"Radio finta in ascolto su {addr} — in MeshLens: Radio → Aggiungi → Rete (IP) → {addr}")
+    if session is not None:
+        dur = session.packets[-1][0] if session.packets else 0.0
+        speed = "massima" if cfg.speed == 0 else f"{cfg.speed:g}×"
+        print(f"Sessione: {len(session.packets)} pacchetti, durata {dur:.1f} s, velocità {speed}")
+    sys.stdout.flush()
+    stop = stop_event or threading.Event()
+    try:
+        while not stop.wait(0.2):
+            pass
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.stop()
+    print("Radio finta fermata.")
+    return 0
+
+
+def _print_received(rec: ReceivedPacket) -> None:
+    p = rec.packet
+    dest = "tutti" if p.to == BROADCAST else f"!{p.to:08x}"
+    if rec.text is not None:
+        print(f'[ricevuto] testo "{rec.text}" verso {dest} canale {p.channel}', flush=True)
+    else:
+        name = ""
+        if p.HasField("decoded"):
+            try:
+                name = portnums_pb2.PortNum.Name(p.decoded.portnum)
+            except ValueError:
+                name = str(p.decoded.portnum)
+        print(f"[ricevuto] pacchetto {name or 'cifrato'} verso {dest} canale {p.channel}",
+              flush=True)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -926,4 +926,210 @@ def test_sent_log_file_appends_jsonl(tmp_path):
         "time", "to", "channel", "id", "portnum", "text"}
 
 
+# ---------------------------------------------------------------- Task 7: CLI e libreria vera
+
+from meshtastic.tcp_interface import TCPInterface  # noqa: E402
+from pubsub import pub  # noqa: E402
+
+
+def test_cli_rejects_port_8686(capsys):
+    assert fr.main(["--port", "8686"]) == 2
+    assert "8686" in capsys.readouterr().err
+
+
+def test_cli_default_port_is_4404():
+    assert fr.build_parser().parse_args([]).port == 4404
+
+
+def test_cli_bad_session_file_exits_1(tmp_path, capsys):
+    assert fr.main(["--session", str(tmp_path / "manca.jsonl"), "--port", "0"]) == 1
+    assert "non trovato" in capsys.readouterr().err
+    broken = tmp_path / "rotto.jsonl"
+    broken.write_text("{non json\n", encoding="utf-8")
+    assert fr.main(["--session", str(broken), "--port", "0"]) == 1
+    assert "Sessione non valida" in capsys.readouterr().err
+
+
+def test_cli_invalid_speed_rejected(capsys):
+    assert fr.main(["--speed", "-1", "--port", "0"]) == 2
+    assert "velocita" in capsys.readouterr().err.lower()
+
+
+def test_cli_speed_zero_is_allowed():
+    ev = threading.Event()
+    ev.set()
+    assert fr.main(["--speed", "0", "--port", "0"], stop_event=ev) == 0
+
+
+def test_cli_runs_until_interrupted(capsys, tmp_path):
+    ev = threading.Event()
+    rc = []
+    sess = tmp_path / "s.jsonl"
+    rr.write_session(sess, _pkt_session([0.0, 2.0]))
+    t = threading.Thread(target=lambda: rc.append(fr.main(
+        ["--port", "0", "--session", str(sess), "--speed", "10", "--nodes", "2"],
+        stop_event=ev)), daemon=True)
+    t.start()
+    out = ""
+
+    def listening():
+        nonlocal out
+        out += capsys.readouterr().out
+        return "in ascolto" in out
+    assert wait_until(listening, 3.0)
+    assert "Sessione: 2 pacchetti" in out
+    ev.set()
+    t.join(3.0)
+    assert not t.is_alive() and rc == [0]
+
+
+@contextmanager
+def _iface(server, **kw):
+    iface = TCPInterface("127.0.0.1", portNumber=server.port, timeout=10, **kw)
+    try:
+        yield iface
+    finally:
+        iface.close()
+
+
+def _collector(topic):
+    """Ascoltatore pubsub con la stessa firma di PubSubHub (pubsub deduce gli argomenti del
+    topic dal primo ascoltatore: devono combaciare con quelli della libreria)."""
+    got = []
+    if topic.startswith("meshtastic.connection."):
+        def cb(interface):
+            got.append(interface)
+    else:
+        def cb(packet, interface):
+            got.append(packet)
+    pub.subscribe(cb, topic)
+    return got, cb
+
+
+def test_real_tcp_interface_completes_handshake():
+    cfg = dict(my_node_num=0x0A0B0C0D, long_name="Prova lunga", node_count=3)
+    with _radio(**cfg) as s:
+        with _iface(s) as iface:
+            my = 0x0A0B0C0D
+            assert iface.myInfo.my_node_num == my
+            assert iface.nodes[f"!{my:08x}"]["user"]["longName"] == "Prova lunga"
+            assert len(iface.nodes) == 1 + 3
+            lora = iface.localNode.localConfig.lora
+            assert lora.region == config_pb2.Config.LoRaConfig.RegionCode.EU_868
+            active = [c for c in iface.localNode.channels
+                      if c.role != channel_pb2.Channel.Role.DISABLED]
+            assert len(active) == 2
+
+
+def test_real_interface_receives_replayed_text():
+    pkt = text_packet(0x42, 0xFFFFFFFF, "Ciao dalla sessione", 4242, snr=7.25, hop_start=3,
+                      hop_limit=1)
+    sess = rr.Session(header={"format": rr.SESSION_FORMAT, "version": 1},
+                      nodes=[mesh_pb2.NodeInfo(num=0x42)], packets=[(0.0, rr.packet_frame(pkt))])
+    sess.nodes[0].user.id = "!00000042"
+    got, keep = _collector("meshtastic.receive.text")
+    try:
+        with _radio(sess, speed=0) as s:
+            with _iface(s):
+                assert wait_until(lambda: got, 5.0)
+    finally:
+        pub.unsubscribe(keep, "meshtastic.receive.text")
+    p = got[0]
+    assert p["decoded"]["text"] == "Ciao dalla sessione"
+    assert p["from"] == 0x42 and p["rxSnr"] == 7.25 and p["hopLimit"] == 1
+
+
+def test_real_interface_send_text_is_received_by_fake_radio():
+    with _radio() as s:
+        with _iface(s) as iface:
+            iface.sendText("ciao radio", channelIndex=1, wantAck=True)
+            assert wait_until(lambda: s.received_snapshot(), 5.0)
+            r = s.received_snapshot()[0]
+            assert r.text == "ciao radio" and r.packet.channel == 1
+            assert r.packet.to == 0xFFFFFFFF and r.packet.want_ack
+
+
+def test_two_sends_are_not_duplicated():
+    with _radio() as s:
+        with _iface(s) as iface:
+            iface.sendText("uno")
+            assert wait_until(lambda: len(s.received_snapshot()) == 1, 5.0)
+            time.sleep(0.2)
+            iface.sendText("due")
+            assert wait_until(lambda: len(s.received_snapshot()) >= 2, 5.0)
+            time.sleep(0.2)
+            assert [r.text for r in s.received_snapshot()] == ["uno", "due"]
+            # la libreria registra il queueStatus della radio finta (come farebbe un firmware)
+            # NB: in 2.7.11 senza queueStatus i pacchetti NON si duplicano (verificato a mano):
+            # la risposta resta per fedelta' al firmware, non per evitare duplicati.
+            assert wait_until(lambda: iface.queueStatus is not None
+                              and iface.queueStatus.res == 0 and iface.queueStatus.free == 15, 3.0)
+
+
+def test_real_interface_unicast_ack_resolves():
+    got, keep = _collector("meshtastic.receive")
+    try:
+        with _radio(ack=True, ack_delay=0.01) as s:
+            with _iface(s) as iface:
+                iface.sendText("x", destinationId="!00000042", wantAck=True)
+                assert wait_until(lambda: s.received_snapshot(), 5.0)
+                pid = s.received_snapshot()[0].packet.id
+                assert wait_until(lambda: any(
+                    p.get("decoded", {}).get("portnum") == "ROUTING_APP" for p in got), 5.0)
+    finally:
+        pub.unsubscribe(keep, "meshtastic.receive")
+    ack = [p for p in got if p.get("decoded", {}).get("portnum") == "ROUTING_APP"][0]
+    assert ack["decoded"]["requestId"] == pid and ack["from"] == 0x42
+
+
+def test_real_interface_nodeless_config():
+    with _radio() as s:
+        with _iface(s, noNodes=True) as iface:
+            assert list(iface.nodes) == [f"!{s.cfg.my_node_num:08x}"]
+
+
+def test_real_interface_close_then_reconnect_continues_replay():
+    sess = _pkt_session([0.0, 0.0])
+    got, keep = _collector("meshtastic.receive.text")
+    try:
+        with _radio(sess, speed=0) as s:
+            with _iface(s):
+                assert wait_until(lambda: len(got) == 2, 5.0)
+            with _iface(s):
+                assert wait_until(lambda: s.stats["handshakes"] == 2, 5.0)
+                time.sleep(0.2)
+            assert len(got) == 2
+    finally:
+        pub.unsubscribe(keep, "meshtastic.receive.text")
+
+
+def test_server_drop_makes_interface_lose_connection():
+    got, keep = _collector("meshtastic.connection.lost")
+    try:
+        with _radio() as s:
+            with _iface(s):
+                s.disconnect_clients()
+                assert wait_until(lambda: got, 3.0)
+    finally:
+        pub.unsubscribe(keep, "meshtastic.connection.lost")
+
+
+def test_record_live_from_fake_radio_then_replay_again(tmp_path):
+    src = _pkt_session([0.0, 1.0, 2.0])
+    out = tmp_path / "registrata.jsonl"
+    with _radio(src, speed=20) as a:
+        rr.record_live("127.0.0.1", a.port, 1.0, out_path=out)
+    s = rr.read_session(out)
+    assert s.header["source"] == "radio" and len(s.packets) == 3
+    chans = [c for c in s.config if c.WhichOneof("payload_variant") == "channel"]
+    assert chans and all(c.channel.settings.psk in (b"", b"\x01") for c in chans)
+    with _radio(s, speed=0) as b:
+        c = _client(b)
+        c.handshake()
+        c.pump(0.4)
+        pk = _packets(c.frames)
+        assert [f.packet.id for f in pk] == [500, 501, 502]
+        assert [f.packet.decoded.payload for f in pk] == [b"p0", b"p1", b"p2"]
+
+
 # <<FIN>>
