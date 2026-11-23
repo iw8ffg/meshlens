@@ -33,7 +33,8 @@ export interface Node {
   key_changed?: number | null
 }
 
-export type MessageStatus = 'sending' | 'sent' | 'acked' | 'failed'
+/** 'heard': inviato via MQTT e sentito in radio da un gateway o da una radio locale. */
+export type MessageStatus = 'sending' | 'sent' | 'acked' | 'heard' | 'failed'
 
 export interface Message {
   key: string
@@ -50,6 +51,8 @@ export interface Message {
   channel_index?: number | null
   packet_id?: number | null
   status?: MessageStatus | null
+  /** Invii MQTT: chi l'ha sentito in radio (`!id` del gateway o del nodo della radio, oppure `radio:<id>`). */
+  heard_by?: string[] | null
   replaces?: string | null
   /** Canale di invio dei messaggi in uscita. */
   via?: 'radio' | 'mqtt'
@@ -111,6 +114,8 @@ export interface MqttStatus {
   filtered_channel?: number
   queue_dropped?: number
   queue_size?: number
+  /** Topic la cui sottoscrizione e' stata rifiutata dal broker (connessione corrente). */
+  refused_topics?: string[]
   brokers?: BrokerStatus[]
 }
 

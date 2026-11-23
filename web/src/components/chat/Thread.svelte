@@ -4,7 +4,7 @@
   import { ago, formatDate } from '../../lib/format'
   import { isMqttConv, localNodeIds, mqttConvBroker, splitKey, statusIcon } from '../../lib/chat'
   import { convLabel } from '../../lib/conversations'
-  import { statusAria } from '../../lib/send'
+  import { mqttDelivery, mqttFailText, statusAria } from '../../lib/send'
   import { keyChangedRecently, routingErrorText, threadItems } from '../../lib/reactions'
   import { app, addRadioHistory } from '../../lib/stores.svelte'
   import { markRead } from '../../lib/unread.svelte'
@@ -185,7 +185,10 @@
                 <span>{ago((now - m.time) / 60)}</span>
                 {#if m.via === 'mqtt'}<Badge kind="info">{t('chat.status.viaMqtt')}</Badge>{/if}
                 <BrokerBadge id={m.broker} />
-                {#if out && m.status}
+                {#if out && m.via === 'mqtt'}
+                  {@const d = mqttDelivery(m, nodeName, app.radios)}
+                  {#if d}<span class="mq {d.tone}" title={d.title}>{d.text}</span>{/if}
+                {:else if out && m.status}
                   <span class="st" class:bad={m.status === 'failed'} role="img" title={statusAria(m.status, m.via)} aria-label={statusAria(m.status, m.via)}>
                     {statusIcon(m.status)}
                   </span>
@@ -194,7 +197,7 @@
               </div>
             </div>
             <ReactionChips reactions={it.reactions} />
-            {#if m.status === 'failed'}<p class="fail" role="status">{routingErrorText(m.error)}</p>{/if}
+            {#if m.status === 'failed'}<p class="fail" role="status">{m.via === 'mqtt' ? mqttFailText(m.error) : routingErrorText(m.error)}</p>{/if}
           </li>
         {/if}
       {/each}
@@ -338,6 +341,17 @@
     text-align: right;
   }
   .st.bad {
+    font-weight: 700;
+  }
+  .mq {
+    white-space: nowrap;
+    cursor: help;
+  }
+  .mq.wait {
+    font-style: italic;
+  }
+  .mq.good,
+  .mq.bad {
     font-weight: 700;
   }
   .older {

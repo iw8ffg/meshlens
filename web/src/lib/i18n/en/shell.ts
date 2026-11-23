@@ -66,5 +66,8 @@ export const shell: Record<keyof typeof itArea, string> = {
   'shell.mqttDropChannel': 'Dropped: channel not listened to',
   'shell.mqttOverload': 'Lost to overload',
   'shell.brokerOff': 'Disabled',
+  'shell.brokerRefused': 'Subscriptions rejected: {topics}',
+  'shell.mqttRefused': 'Connected, but the broker rejected some subscriptions',
+  'shell.mqttRefusedTopics': 'Rejected topics',
   'shell.language': 'Lingua / Language',
 }

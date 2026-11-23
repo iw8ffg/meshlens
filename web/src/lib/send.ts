@@ -2,6 +2,7 @@
 import { MAX_BYTES, byteLength, isMqttConv, splitKey, statusLabel } from './chat'
 import type { Message, MessageStatus, Radio } from './types'
 import { t } from './i18n/index.svelte'
+import { translateServer } from './i18n/server'
 
 export const DEFAULT_MQTT_CHANNEL = 'LongFast'
 export const MQTT_VIA = 'mqtt'
@@ -158,4 +159,53 @@ export function statusAria(status: MessageStatus | null | undefined, via: Messag
   const s = statusLabel(status)
   if (!s) return via === 'mqtt' ? t('chat.status.viaMqtt') : ''
   return via === 'mqtt' ? `${s} · ${t('chat.status.viaMqtt')}` : s
+}
+
+export type MqttDeliveryTone = 'wait' | 'ok' | 'good' | 'bad'
+export interface MqttDelivery {
+  text: string
+  /** Spiegazione (title/tooltip). */
+  title: string
+  tone: MqttDeliveryTone
+}
+
+/** Nome di chi ha sentito un invio MQTT: `radio:<id>` e' una radio locale, `!id` un nodo. */
+export function heardName(who: string, nodeName: (id: string) => string, radios: Pick<Radio, 'id' | 'name'>[]): string {
+  if (who.startsWith('radio:')) {
+    const id = who.slice(6)
+    return radios.find((r) => r.id === id)?.name || id
+  }
+  return nodeName(who)
+}
+
+/**
+ * Stato di un messaggio inviato via MQTT: «Invio…», «Accettato dal broker», «Sentito in radio da …»
+ * o «Non confermato». Null se lo stato manca.
+ */
+export function mqttDelivery(
+  m: Pick<Message, 'status' | 'error' | 'heard_by'>,
+  nodeName: (id: string) => string,
+  radios: Pick<Radio, 'id' | 'name'>[] = [],
+): MqttDelivery | null {
+  switch (m.status) {
+    case 'sending':
+      return { text: t('chat.mqtt.sending'), title: t('chat.mqtt.sendingHint'), tone: 'wait' }
+    case 'sent':
+      return { text: t('chat.mqtt.sent'), title: t('chat.mqtt.sentHint'), tone: 'ok' }
+    case 'heard': {
+      const names = (m.heard_by ?? []).map((w) => heardName(w, nodeName, radios))
+      if (!names.length) return { text: t('chat.mqtt.heardAnon'), title: t('chat.mqtt.heardHint'), tone: 'good' }
+      const text = names.length > 1 ? t('chat.mqtt.heardMore', { name: names[0], n: names.length - 1 }) : t('chat.mqtt.heard', { name: names[0] })
+      return { text, title: `${t('chat.mqtt.heardHint')}\n${t('chat.mqtt.heardList', { names: names.join(', ') })}`, tone: 'good' }
+    }
+    case 'failed':
+      return { text: t('chat.mqtt.failed'), title: mqttFailText(m.error), tone: 'bad' }
+    default:
+      return null
+  }
+}
+
+/** Motivo di un invio MQTT non confermato (testo del server, tradotto). */
+export function mqttFailText(error: string | null | undefined): string {
+  return error ? translateServer(error) : t('chat.mqtt.failedUnknown')
 }

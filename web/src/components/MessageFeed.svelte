@@ -3,7 +3,7 @@
   import { getJSON, getCountries } from '../lib/api'
   import { ago, countryName } from '../lib/format'
   import { statusIcon } from '../lib/chat'
-  import { statusAria } from '../lib/send'
+  import { mqttDelivery, mqttFailText, statusAria } from '../lib/send'
   import { routingErrorText, threadItems } from '../lib/reactions'
   import { t, tn, type MsgKey } from '../lib/i18n/index.svelte'
   import Badge from '../lib/ui/Badge.svelte'
@@ -166,7 +166,10 @@
           {#if out}<Badge kind="info">{t('chat.status.viaMqtt')}</Badge>{/if}
           <BrokerBadge id={m.broker} />
           <span class="t">{ago((now - m.time) / 60)}</span>
-          {#if out && m.status}
+          {#if out && m.via === 'mqtt'}
+            {@const d = mqttDelivery(m, nodeName, app.radios)}
+            {#if d}<span class="mq {d.tone}" title={d.title}>{d.text}</span>{/if}
+          {:else if out && m.status}
             <span class="st" role="img" title={statusAria(m.status, m.via)} aria-label={statusAria(m.status, m.via)}>{statusIcon(m.status)}</span>
           {/if}
           {#if m.pki}<Icon name="lock" size={14} label={t('chat.pkiAria')} />{/if}
@@ -175,7 +178,7 @@
         <MessageQuote replyTo={it.replyTo} missing={it.replyMissing} {nodeName} onjump={jumpTo} />
         <p class="text">{m.text}</p>
         <ReactionChips reactions={it.reactions} />
-        {#if m.status === 'failed'}<p class="fail" role="status">{routingErrorText(m.error)}</p>{/if}
+        {#if m.status === 'failed'}<p class="fail" role="status">{m.via === 'mqtt' ? mqttFailText(m.error) : routingErrorText(m.error)}</p>{/if}
       </li>
       {/if}
     {/each}
@@ -262,6 +265,20 @@
   .st {
     min-width: 20px;
     text-align: right;
+  }
+  .mq {
+    white-space: nowrap;
+    cursor: help;
+  }
+  .mq.wait {
+    font-style: italic;
+  }
+  .mq.good {
+    color: var(--ok);
+  }
+  .mq.bad {
+    color: var(--danger);
+    font-weight: 700;
   }
   .text {
     margin: var(--space-1) 0 0;

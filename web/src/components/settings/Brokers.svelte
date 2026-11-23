@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Banner from '../../lib/ui/Banner.svelte'
   import Button from '../../lib/ui/Button.svelte'
   import Card from '../../lib/ui/Card.svelte'
   import Field from '../../lib/ui/Field.svelte'
@@ -40,6 +41,13 @@
 
   function statusOf(b: Broker) {
     return app.status?.mqtt?.brokers?.find((s) => s.id === b.id)
+  }
+
+  /** Topic rifiutati dal broker nella connessione corrente (solo se attivo e connesso). */
+  function refusedOf(b: Broker): string[] {
+    if (!b.enabled || !b.id) return []
+    const s = statusOf(b)
+    return s?.connected ? (s.refused_topics ?? []) : []
   }
 
   function tone(b: Broker): 'ok' | 'ko' | 'off' {
@@ -179,6 +187,11 @@
           <strong class="nm">{b.name || t('settings.br.unnamed')}</strong>
           <span class="st">{statusText(b)}</span>
         </div>
+        {#if refusedOf(b).length}
+          <Banner kind="warn" title={refusedOf(b).length >= b.topics.length ? t('settings.br.refusedAllTitle') : t('settings.br.refusedTitle')}>
+            {t('settings.br.refusedBody', { topics: refusedOf(b).join(', ') })}
+          </Banner>
+        {/if}
         <div class="grid">
           <Field label={t('settings.br.name')} for="br-name-{bi}">{#snippet children()}<input id="br-name-{bi}" class="ui-input" type="text" maxlength="40" bind:value={b.name} />{/snippet}</Field>
           <div class="sw"><Switch bind:checked={b.enabled} label={t('settings.br.enabled')} /></div>

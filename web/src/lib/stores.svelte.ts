@@ -116,11 +116,12 @@ export function addRadioHistory(list: Message[]): void {
   mergeRadioMessages(app.radioMessages, list, replaced)
 }
 
-export function setMessageStatus(key: string, status: MessageStatus, error: string | null = null): void {
-  const m = app.radioMessages.find((x) => x.key === key) ?? app.messages.find((x) => x.key === key)
-  if (m) {
+export function setMessageStatus(key: string, status: MessageStatus, error: string | null = null, heardBy: string[] | null = null): void {
+  for (const m of [app.radioMessages.find((x) => x.key === key), app.messages.find((x) => x.key === key)]) {
+    if (!m) continue
     m.status = status
     m.error = status === 'failed' ? error : null
+    if (heardBy) m.heard_by = heardBy
   }
 }
 
