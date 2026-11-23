@@ -87,3 +87,15 @@ export function zoneBounds(z: ZonePoint[]): [[number, number], [number, number]]
   }
   return [[a, b], [c, d]]
 }
+
+/**
+ * Sfondo dell'editor: con mappe "offline" si usa lo stile offline (o lo sfondo a tinta unita se non
+ * ci sono mappe), senza chiamate di rete; altrimenti si prova lo stile online, con ripiego sull'offline
+ * (se esiste) quando non risponde o il browser e' senza rete.
+ */
+export type ZoneBasemap = 'online' | 'offline' | 'fallback'
+export function zoneBasemap(mode: 'auto' | 'online' | 'offline', hasOffline: boolean, browserOnline: boolean): ZoneBasemap {
+  if (mode === 'offline') return hasOffline ? 'offline' : 'fallback'
+  if (mode === 'auto' && !browserOnline) return hasOffline ? 'offline' : 'fallback'
+  return 'online'
+}

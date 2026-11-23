@@ -209,4 +209,7 @@ export const config = {
   'config.cmd.nodedb_reset.body': "La radio dimentica i nodi che conosce, tranne i preferiti. MeshLens conserva tutti i suoi dati. La radio può riavviarsi.",
   'config.cmd.shutdown.body': "La radio si spegne e non si riaccende da sola: serve il tasto di accensione o togliere e ridare l'alimentazione.",
   'config.cmd.shutdown.remote': "Da remoto il nodo resterà irraggiungibile finché qualcuno non lo riaccende.",
+  'config.cmd.shutdown.riskLocal': "Ho capito: la radio non si riaccenderà da sola.",
+  'config.cmd.shutdown.riskRemote': "Ho capito: il nodo non si riaccenderà da solo finché qualcuno non lo avvia a mano.",
+  'config.cmd.nodedb_reset.risk': "Ho capito: la radio dimentica i nodi che conosce, tranne i preferiti.",
 } as const

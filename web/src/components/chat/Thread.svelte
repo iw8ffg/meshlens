@@ -308,8 +308,12 @@
   .actions {
     margin-left: auto;
     flex: none;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
   }
   .title {
+    flex: 1 1 0;
     margin: 0;
     font: 600 15px/20px var(--font-sans);
     overflow: hidden;
@@ -425,5 +429,26 @@
   }
   :global(.vp-phone) .title {
     font-size: 16px;
+  }
+  /* telefoni stretti (360 px): il pulsante indietro resta la sola freccia (l'etichetta resta per i lettori di schermo)
+     e il titolo si tronca invece di spingere i pulsanti fuori dalla riga */
+  @media (max-width: 420px) {
+    .back span:not([aria-hidden]) {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+    }
+    .back {
+      position: relative;
+      min-width: var(--touch-min);
+      justify-content: center;
+    }
+    .head {
+      gap: var(--space-1);
+      padding-inline: var(--space-2);
+    }
   }
 </style>

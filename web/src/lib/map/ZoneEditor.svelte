@@ -10,13 +10,18 @@
   import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url'
   import 'maplibre-gl/dist/maplibre-gl.css'
   import { app } from '../stores.svelte'
+  import { getJSON } from '../api'
+  import { getTheme } from '../theme'
+  import { offlineStyle } from '../mapstyle'
+  import type { StyleInfo } from '../mapstyle'
+  import type { AppSettings } from '../settings'
   import { t, tn } from '../i18n/index.svelte'
   import { visibleNodes } from '../filters'
   import { EMPTY } from './NodeLayer'
   import { recolorLiberty } from './basemap'
   import { readDocumentTokens } from './tokens'
   import type { MapTokens } from './tokens'
-  import { ZONE_MIN, addVertex, moveVertex, zoneBounds, zoneError, zoneGeoJSON } from './zone'
+  import { ZONE_MAX, ZONE_MIN, addVertex, moveVertex, removeVertex, zoneBasemap, zoneBounds, zoneError, zoneGeoJSON } from './zone'
   import type { ZonePoint } from './zone'
   import Banner from '../ui/Banner.svelte'
   import Button from '../ui/Button.svelte'
@@ -114,6 +119,13 @@
     map.fitBounds(bb, { padding: 40, maxZoom: 12, duration: 0 })
   }
 
+  /** Aggiunge un vertice al centro della mappa (muovendo la mappa con la tastiera si sceglie il punto). */
+  function addAtCenter() {
+    if (!map) return
+    const c = map.getCenter()
+    commit(addVertex(pts, [round(c.lng), round(c.lat)]))
+  }
+
   $effect(() => {
     void pts
     push()
@@ -127,28 +139,66 @@
     maplibregl.setWorkerUrl(workerUrl)
     let disposed = false
     const ctl = new AbortController()
-    const to = setTimeout(() => ctl.abort(), ONLINE_TIMEOUT_MS)
     const tk = readDocumentTokens()
+    const themeCtl = getTheme()
+    let theme = themeCtl.theme()
+    let styleJson: maplibregl.StyleSpecification | null = null
+    let info: StyleInfo = { has_offline: false, maxzoom: 14, bounds: null }
+    let kind: 'online' | 'offline' | 'fallback' = 'fallback'
     map = new maplibregl.Map({ container: el, style: fallbackStyle(tk), center: [12.5, 42.5], zoom: 5, attributionControl: { compact: true }, fadeDuration: 0 })
     const m = map
     m.on('style.load', setupLayers)
     m.on('load', fit)
 
-    // stile online ricolorato se risponde in tempo; altrimenti resta lo sfondo a tinta unita
-    fetch(STYLE, { signal: ctl.signal, cache: 'no-cache' })
-      .then((r) => {
+    const styleOf = (k: typeof kind): maplibregl.StyleSpecification => {
+      const tokens = readDocumentTokens()
+      if (k === 'online' && styleJson) return recolorLiberty(styleJson, tokens)
+      if (k === 'offline') return offlineStyle(info, theme, tokens)
+      return fallbackStyle(tokens)
+    }
+    const apply = (k: typeof kind) => {
+      kind = k
+      ready = false
+      m.setStyle(styleOf(k), { diff: false }) // style.load ricrea i livelli della zona
+    }
+
+    // Stesso criterio di MapView: map_mode "offline" non usa mai la rete; online ricolorato se
+    // risponde in tempo, altrimenti offline (se ci sono mappe) o sfondo a tinta unita
+    const loadBasemap = async () => {
+      const [st, inf] = await Promise.all([
+        getJSON<AppSettings>('/settings').catch(() => null),
+        getJSON<StyleInfo>('/maps/style-info').catch(() => null),
+      ])
+      if (disposed) return
+      if (inf && typeof inf.has_offline === 'boolean') info = { has_offline: inf.has_offline, maxzoom: inf.maxzoom ?? 14, bounds: inf.bounds ?? null }
+      const mode = st?.map_mode === 'online' || st?.map_mode === 'offline' || st?.map_mode === 'auto' ? st.map_mode : 'auto'
+      const first = zoneBasemap(mode, info.has_offline, navigator.onLine)
+      if (first !== 'online') {
+        if (first === 'fallback') noBasemap = true
+        apply(first)
+        return
+      }
+      const to = setTimeout(() => ctl.abort(), ONLINE_TIMEOUT_MS)
+      try {
+        const r = await fetch(STYLE, { signal: ctl.signal, cache: 'no-cache' })
         if (!r.ok) throw new Error(String(r.status))
-        return r.json() as Promise<maplibregl.StyleSpecification>
-      })
-      .then((style) => {
+        styleJson = (await r.json()) as maplibregl.StyleSpecification
+        if (!disposed) apply('online')
+      } catch {
         if (disposed) return
-        ready = false
-        m.setStyle(recolorLiberty(style, readDocumentTokens()), { diff: false })
-      })
-      .catch(() => {
-        if (!disposed) noBasemap = true
-      })
-      .finally(() => clearTimeout(to))
+        if (mode !== 'online' && info.has_offline) apply('offline')
+        else noBasemap = true
+      } finally {
+        clearTimeout(to)
+      }
+    }
+    void loadBasemap()
+    // cambio di tema: lo stile e i colori dei livelli si rileggono dai token
+    const offTheme = themeCtl.subscribe((th) => {
+      if (th === theme) return
+      theme = th
+      apply(kind)
+    })
 
     // vertici: clic aggiunge, trascinamento sposta
     let dragIdx: number | null = null
@@ -192,7 +242,7 @@
 
     return () => {
       disposed = true
-      clearTimeout(to)
+      offTheme()
       ctl.abort()
       m.remove()
       map = null
@@ -212,7 +262,19 @@
     <Button onclick={() => commit(pts.slice(0, -1))} disabled={pts.length === 0}>{t('layers.zone.undo')}</Button>
     <Button onclick={() => commit([])} disabled={pts.length === 0}>{t('layers.zone.clear')}</Button>
     <Button onclick={fit}>{t('layers.zone.fit')}</Button>
+    <Button onclick={addAtCenter} disabled={pts.length >= ZONE_MAX}>{t('layers.zone.addCenter')}</Button>
   </div>
+  {#if pts.length > 0}
+    <!-- alternativa da tastiera alla mappa: elenco dei vertici, ognuno rimovibile -->
+    <ol class="verts" aria-label={t('layers.zone.list')}>
+      {#each pts as p, i (i)}
+        <li>
+          <span class="ui-mono">{p[1].toFixed(5)}, {p[0].toFixed(5)}</span>
+          <Button kind="ghost" iconOnly icon="trash" label={t('layers.zone.remove', { n: i + 1 })} onclick={() => commit(removeVertex(pts, i))} />
+        </li>
+      {/each}
+    </ol>
+  {/if}
   {#if err}
     <p class="err" role="status">{t(`layers.zone.err.${err}` as 'layers.zone.err.tooFew')}</p>
   {/if}
@@ -246,6 +308,18 @@
     display: flex;
     flex-wrap: wrap;
     align-items: center;
+    gap: var(--space-2);
+  }
+  .verts {
+    margin: 0;
+    padding: 0 0 0 var(--space-5, 20px);
+    max-height: 168px;
+    overflow: auto;
+  }
+  .verts li {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
     gap: var(--space-2);
   }
   .count {

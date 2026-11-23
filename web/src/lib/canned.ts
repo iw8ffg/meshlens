@@ -1,6 +1,7 @@
 // Messaggi predefiniti (canned) delle radio con tastiera/rotella: regole e chiamate HTTP.
 // Stesse regole di config_model.join_canned (il server rivalida prima di toccare la radio).
 import { getJSON, send } from './api'
+import { hasUnresolvedVariables } from './quickreplies'
 import type { MsgKey } from './i18n/index.svelte'
 import type { CannedMessages } from './types'
 
@@ -33,3 +34,27 @@ export const getCanned = (nodeId: string, radioId?: string) =>
 
 export const putCanned = (nodeId: string, messages: string[], radioId?: string) =>
   send<CannedMessages>('PUT', cannedPath(nodeId), { messages, radio_id: radioId ?? null })
+
+/** Risposte rapide -> (le radio non espandono {batteria}, {posizione}, {ora}) -> messaggi predefiniti: salta quelle con "|" o variabili, si ferma al limite di byte. */
+export function quickToCanned(quick: string[]): { out: string[]; skippedVars: number; skippedPipe: number; truncated: boolean } {
+  const out: string[] = []
+  let skippedVars = 0
+  let skippedPipe = 0
+  let truncated = false
+  for (const q of quick) {
+    if (q.includes(CANNED_SEP)) {
+      skippedPipe++
+      continue
+    }
+    if (hasUnresolvedVariables(q)) {
+      skippedVars++
+      continue
+    }
+    if (cannedBytes([...out, q]) > CANNED_MAX_BYTES) {
+      truncated = true
+      break
+    }
+    out.push(q)
+  }
+  return { out, skippedVars, skippedPipe, truncated }
+}

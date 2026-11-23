@@ -1,7 +1,9 @@
 // Tiene un elemento (il compositore della chat) sopra la tastiera su telefono, con visualViewport.
 
 /** Ctrl+K (Cmd+K su Mac), senza Alt né Maiusc: apre la ricerca globale, anche con il focus in un campo. */
-export function isSearchShortcut(e: Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'metaKey' | 'altKey' | 'shiftKey'>): boolean {
+export function isSearchShortcut(e: Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'metaKey' | 'altKey' | 'shiftKey'> & Partial<Pick<KeyboardEvent, 'isComposing' | 'repeat' | 'defaultPrevented'>>): boolean {
+  // composizione IME, tasto tenuto premuto o evento gia' gestito: niente
+  if (e.isComposing || e.repeat || e.defaultPrevented) return false
   return (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'k'
 }
 

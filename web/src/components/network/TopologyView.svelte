@@ -4,16 +4,16 @@
 </script>
 
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onMount, untrack } from 'svelte'
   import { app, openConfig } from '../../lib/stores.svelte'
   import { t, tn } from '../../lib/i18n/index.svelte'
   import type { MsgKey } from '../../lib/i18n/index.svelte'
   import { onWsResync } from '../../lib/wsext'
   import {
-    DEFAULT_PERIOD, PERIODS, fitViewBox, layout, listCuts, listHubs, needsNeighborInfoHelp, neighborsOf, nodeClass, panBy,
-    snrClass, topologyData, zoomAt,
+    DEFAULT_PERIOD, PERIODS, fitViewBox, layoutAsync, listCuts, listHubs, needsNeighborInfoHelp, neighborsOf, nodeClass, panBy,
+    snrClass, topologyData, topologySignature, zoomAt,
   } from '../../lib/topology'
-  import type { ViewBox } from '../../lib/topology'
+  import type { Pt, ViewBox } from '../../lib/topology'
   import type { Link, TopologyEdge, TopologyResult } from '../../lib/types'
   import Banner from '../../lib/ui/Banner.svelte'
   import Button from '../../lib/ui/Button.svelte'
@@ -41,6 +41,7 @@
   let userVb = $state<ViewBox | null>(null)
   let svgW = $state(800)
   let svgEl: SVGSVGElement | undefined = $state()
+  let lastParamKey = ''
 
   const chosen = $derived(SOURCES.filter((s) => active[s]))
   const periodItems = $derived(PERIODS.map((h) => ({ value: String(h), label: t(PERIOD_KEYS[h]) })))
@@ -49,6 +50,7 @@
     const h = hours
     const srcs = chosen
     const countries = [...app.filter.countries]
+    const paramKey = `${h}|${srcs.join(',')}|${countries.join(',')}`
     void tick
     if (srcs.length === 0) {
       data = null
@@ -62,8 +64,10 @@
     topologyData({ hours: h, sources: srcs, countries })
       .then((r) => {
         if (stale) return
+        // pan/zoom dell'utente azzerati solo se cambiano i parametri, non a un semplice refresh
+        if (paramKey !== lastParamKey) userVb = null
+        lastParamKey = paramKey
         data = r
-        userVb = null
       })
       .catch(() => {
         if (!stale) error = true
@@ -85,7 +89,31 @@
     }
   })
 
-  const pos = $derived(data ? layout(data.nodes, data.edges) : new Map())
+  // Layout a blocchi (rAF) senza bloccare il thread; riparte solo se nodi/archi sono cambiati,
+  // e usa come seme le posizioni precedenti. Intanto resta valido il disegno attuale.
+  let pos = $state<Map<string, Pt>>(new Map())
+  let layoutSig = ''
+  const sig = $derived(data ? topologySignature(data) : '')
+  $effect(() => {
+    const d = data
+    const sg = sig
+    if (!d) {
+      pos = new Map()
+      layoutSig = ''
+      return
+    }
+    if (sg === layoutSig) return
+    let stale = false
+    const seeds = untrack(() => pos)
+    layoutAsync(d.nodes, d.edges, { seeds }, () => stale).then((r) => {
+      if (stale || !r) return
+      layoutSig = sg
+      pos = r
+    })
+    return () => {
+      stale = true
+    }
+  })
   const fitted = $derived(fitViewBox([...pos.values()], 40, 1000 / 700))
   const vb = $derived(userVb ?? fitted)
   /** Unita' del grafo per pixel: dimensioni (cerchi, testo, tratti) costanti sullo schermo a ogni zoom. */

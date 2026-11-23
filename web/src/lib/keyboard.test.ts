@@ -15,4 +15,9 @@ describe('isSearchShortcut', () => {
     expect(isSearchShortcut(ev({ ctrlKey: true, shiftKey: true }))).toBe(false)
     expect(isSearchShortcut(ev({ ctrlKey: true, key: 'j' }))).toBe(false)
   })
+  it('ignora composizione IME, ripetizione ed eventi gia gestiti', () => {
+    expect(isSearchShortcut(ev({ ctrlKey: true, isComposing: true }))).toBe(false)
+    expect(isSearchShortcut(ev({ ctrlKey: true, repeat: true }))).toBe(false)
+    expect(isSearchShortcut(ev({ ctrlKey: true, defaultPrevented: true }))).toBe(false)
+  })
 })

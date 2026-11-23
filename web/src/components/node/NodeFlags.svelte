@@ -1,7 +1,7 @@
 <script lang="ts">
   // WP4 (E3): preferito/ignorato nel NodeDB delle radio collegate e azione «Ignora nodo».
   // Props fissate dal contratto §10.2.
-  import { onDestroy } from 'svelte'
+  import { onDestroy, untrack } from 'svelte'
   import { ApiError } from '../../lib/api'
   import { getRadioFlags, nodeName, setIgnored, setRadioFlags } from '../../lib/nodes'
   import { app, upsertNodes } from '../../lib/stores.svelte'
@@ -51,7 +51,8 @@
     void nodeId
     void nConnected
     error = ''
-    void load()
+    // load() legge app.radios: senza untrack l'effetto riscatterebbe a ogni evento `radios`
+    untrack(() => void load())
   })
   const offResync = onWsResync(() => void load())
   onDestroy(offResync)

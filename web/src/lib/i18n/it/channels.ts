@@ -17,6 +17,7 @@ export const channels = {
   'channels.share.add': "Aggiungi canali",
   'channels.share.channel': "Canale {n}: {name}",
   'channels.share.primaryRequired': "Per sostituire i canali serve anche il canale primario (0)",
+  'channels.share.stale': "Selezione modificata: premi Aggiorna per rigenerare link e QR.",
   'channels.share.update': "Aggiorna il QR",
   'channels.share.qrAria': "Codice QR dei canali",
   'channels.share.copy': "Copia il link",

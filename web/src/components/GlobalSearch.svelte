@@ -145,6 +145,8 @@
 
   function winKey(e: KeyboardEvent) {
     if (isSearchShortcut(e)) {
+      // non si apre sopra un altro dialogo modale (conferme, esportazioni, onboarding)
+      if (!searchUi.open && document.querySelector('[aria-modal="true"]')) return
       e.preventDefault()
       toggleGlobalSearch()
     }

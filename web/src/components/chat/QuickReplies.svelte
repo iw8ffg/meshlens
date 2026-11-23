@@ -26,11 +26,37 @@
     onpick(text)
   }
 
+  const items = () => [...(root?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])]
+
+  // all'apertura il focus passa alla prima voce (o al pulsante "aggiungi" se l'elenco e' vuoto)
+  $effect(() => {
+    if (!open) return
+    queueMicrotask(() => (items()[0] ?? root?.querySelector<HTMLElement>('.menu button'))?.focus())
+  })
+
   function onkey(e: KeyboardEvent) {
-    if (open && e.key === 'Escape') {
+    if (!open) return
+    if (e.key === 'Escape') {
       e.preventDefault()
       e.stopPropagation()
       close(true)
+      return
+    }
+    if (e.key === 'Tab') {
+      open = false // il menu non intrappola il focus: Tab lo chiude e prosegue
+      return
+    }
+    const list = items()
+    if (!list.length) return
+    const cur = list.indexOf(document.activeElement as HTMLElement)
+    let next = -1
+    if (e.key === 'ArrowDown') next = (cur + 1) % list.length
+    else if (e.key === 'ArrowUp') next = cur <= 0 ? list.length - 1 : cur - 1
+    else if (e.key === 'Home') next = 0
+    else if (e.key === 'End') next = list.length - 1
+    if (next >= 0) {
+      e.preventDefault()
+      list[next].focus()
     }
   }
 </script>

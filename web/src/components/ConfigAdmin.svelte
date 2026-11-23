@@ -131,6 +131,8 @@
   open={pending !== null}
   title={pending ? t('config.cmd.confirmTitle', { cmd: label(pending) }) : ''}
   danger={pending === 'shutdown' || pending === 'nodedb_reset'}
+  risk={pending === 'shutdown' || pending === 'nodedb_reset'}
+  riskLabel={pending === 'shutdown' ? (local ? t('config.cmd.shutdown.riskLocal') : t('config.cmd.shutdown.riskRemote')) : t('config.cmd.nodedb_reset.risk')}
   confirmLabel={pending ? label(pending) : ''}
   onconfirm={run}
   oncancel={() => (pending = null)}
