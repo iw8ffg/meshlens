@@ -1,4 +1,5 @@
 """Statistiche e compattazione del database."""
+from .db import rebuild_search_index
 import sqlite3
 from pathlib import Path
 
@@ -32,4 +33,8 @@ def compact(conn: sqlite3.Connection) -> tuple[int, int]:
     before = _size(conn)
     conn.execute("PRAGMA auto_vacuum=INCREMENTAL")
     conn.execute("VACUUM")
+    # VACUUM puo' rinumerare i rowid impliciti di messages: l'indice di ricerca si ricostruisce
+    if rebuild_search_index(conn):
+        conn.commit()
+        conn.execute("PRAGMA incremental_vacuum").fetchall()  # pagine liberate dalla ricostruzione
     return before, _size(conn)

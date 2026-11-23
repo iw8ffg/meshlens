@@ -856,3 +856,18 @@ def test_new_node_has_is_ignored_false(env):
     ing.handle(ev("position", pos(MILAN), num=3))
     assert live.nodes[3]["is_ignored"] is False
     assert _new_node(4)["is_ignored"] is False
+
+
+
+def test_persists_ignored_node(env):
+    ing = env[0]
+    assert ing.persists({**_new_node(5), "country": "DE", "is_ignored": True}, "mqtt")
+
+
+def test_garbage_app_payloads_do_not_crash(env):
+    from meshlens.events import AppData
+    ing, live, *_ = env
+    for i, (port, kind) in enumerate(((10, "detection"), (34, "paxcounter"), (72, "tak"))):
+        ing.handle(ev(kind, AppData(port, b"\xff\x00\xfe garbage", "\ufffd"), num=20 + i,
+                      pid=100 + i, source="rf", radio_id="r1"))
+        assert live.nodes[20 + i]["last_heard"] == NOW

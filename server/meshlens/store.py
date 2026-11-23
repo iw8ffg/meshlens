@@ -1,5 +1,6 @@
 """Accesso ai dati: nodi, posizioni, messaggi, telemetria."""
 import json
+import re
 import sqlite3
 import time
 from collections.abc import Callable
@@ -123,8 +124,20 @@ def register_retention_rule(rule: RetentionRule) -> None:
 
 
 # Nodi ignorati: i loro messaggi restano nel database ma non si mostrano (reversibile).
-# Condizione SQL da aggiungere alle query su messages (alias della tabella: "m" o nessuno).
+# Condizione SQL da aggiungere con AND alle query su messages senza alias e senza join;
+# con un alias o un join usare not_ignored_sender_sql("m").
 NOT_IGNORED_SENDER_SQL = "from_num NOT IN (SELECT num FROM nodes WHERE is_ignored = 1)"
+_ALIAS_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+
+
+def not_ignored_sender_sql(alias: str = "") -> str:
+    """Condizione "mittente non ignorato" su messages; alias = nome o alias della tabella
+    messages nella query (es. "m"), "" = colonna non qualificata."""
+    if not alias:
+        return NOT_IGNORED_SENDER_SQL
+    if not _ALIAS_RE.fullmatch(alias):
+        raise ValueError(f"Alias SQL non valido: {alias!r}")
+    return f"{alias}.from_num NOT IN (SELECT n_ign.num FROM nodes n_ign WHERE n_ign.is_ignored = 1)"
 
 
 def ignored_nums(conn: sqlite3.Connection) -> set[int]:

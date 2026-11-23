@@ -4,7 +4,8 @@ from meshlens.db import connect
 from meshlens.events import TelemetryData
 from meshlens.settings import DEFAULTS
 from meshlens import store as store_mod
-from meshlens.store import (BUILTIN_RETENTION_RULES, RetentionRule, Store, ignored_nums,
+from meshlens.store import (BUILTIN_RETENTION_RULES, NOT_IGNORED_SENDER_SQL, RetentionRule, Store,
+                            ignored_nums,
                             register_retention_rule,
                             retention_rules, route_signature, time_rule)
 
@@ -609,3 +610,20 @@ def test_messages_of_ignored_senders_kept_but_hidden(store):
     store.set_ignored(0xA1B2C3D4, False)  # reversibile: tutto torna
     assert len(store.messages(None, None, 10)) == 2
     assert ignored_nums(store.conn) == set()
+
+
+
+def test_not_ignored_sender_sql_with_alias(store):
+    from meshlens.store import not_ignored_sender_sql
+    assert not_ignored_sender_sql() == NOT_IGNORED_SENDER_SQL
+    assert not_ignored_sender_sql("m").startswith("m.from_num NOT IN")
+    with pytest.raises(ValueError):
+        not_ignored_sender_sql("m; DROP")
+    store.upsert_node(node(num=0xA1B2C3D4), is_ignored=True)
+    store.add_message(msg("1:1", NOW))
+    store.add_message(msg("1:2", NOW, frm="!00000009"))
+    store.insert_packets([{"time": NOW, "from_num": 9, "status": "ok"}])
+    rows = store.conn.execute(
+        "SELECT m.key FROM messages m JOIN packets p ON p.from_num = m.from_num WHERE "
+        + not_ignored_sender_sql("m")).fetchall()
+    assert [r[0] for r in rows] == ["1:2"]

@@ -48,7 +48,7 @@ from .radio import RadioBusy
 from .radio_manager import NoRadioConnected, TracerouteThrottled
 from .backup import NAME_RE, BackupUnusable, PendingRestore
 from .secretbox import SECRET_KEYS
-from .settings import (DEFAULT_BROKER_ID, MASK, export_settings, find_broker, load_settings,
+from .settings import (AUTOMATIC_SWITCHES, DEFAULT_BROKER_ID, MASK, export_settings, find_broker, load_settings,
                        mask_secrets, merge_channels, prepare_import, resolve_broker_secrets,
                        resolve_extra_keys, save_settings)
 from .serving import tls_status
@@ -63,7 +63,7 @@ LOCAL_HOSTS = (*LOOPBACK, "localhost")
 INTERNAL_KEYS = ()
 # interruttori che si accendono solo dalle rotte dedicate (bot, webhook: WP5; ospite: WP6):
 # PUT /api/settings e l'importazione possono solo spegnerli
-DEDICATED_SWITCHES = ("bot_enabled", "webhook_enabled", "guest_enabled")
+DEDICATED_SWITCHES = AUTOMATIC_SWITCHES  # bot, webhook, ospite, traceroute automatici
 DEDICATED_SWITCH_MSG = "Questa funzione si attiva dalla sua pagina in Impostazioni"
 
 
@@ -157,15 +157,20 @@ class AppContext:
             if stored is None:
                 return None
             node = self.live.nodes[num] = revive_node(self.store, num)
-        self.store.set_ignored(num, ignored)
-        self.store.commit()
         node["is_ignored"] = bool(ignored)
+        # upsert, non UPDATE: un nodo solo MQTT di una nazione non salvata non ha ancora la riga
+        self.store.upsert_node(node, is_ignored=bool(ignored))
+        self.store.commit()
         self.live.mark_changed(num)
+        # avvisi ricalcolati subito; ripristinare un nodo non e' una notizia (niente notifiche
+        # per i suoi avvisi che ricompaiono)
+        self.alerts(mute_node=None if ignored else node.get("id"))
         self.bus.publish({"type": "resync"})
         return node
 
-    def alerts(self) -> list[dict]:
-        """Ricalcola gli avvisi; pubblica sul WS solo se key o value cambiano."""
+    def alerts(self, mute_node: str | None = None) -> list[dict]:
+        """Ricalcola gli avvisi; pubblica sul WS solo se key o value cambiano. mute_node: gli
+        avvisi nuovi di quel nodo non si notificano (nodo appena ripristinato)."""
         old = self._alerts
         now = time.time()
         mine = [n for n in self.live.nodes.values() if n.get("is_mine")]
@@ -189,7 +194,12 @@ class AppContext:
             self.bus.publish({"type": "alerts", "alerts": new})
         if self._alerts_ready:
             try:
-                self.notifier.on_alerts(old, new)
+                seen = old
+                if mute_node is not None:
+                    keys = {a["key"] for a in old}
+                    seen = old + [a for a in new
+                                  if a.get("node_id") == mute_node and a["key"] not in keys]
+                self.notifier.on_alerts(seen, new)
             except Exception:  # noqa: BLE001 - le notifiche non fermano gli avvisi
                 logging.getLogger(__name__).exception("Notifiche degli avvisi non riuscite")
         # il primo calcolo (avvio) non notifica: un nodo muto da giorni non avvisa a ogni avvio
@@ -738,8 +748,13 @@ def create_app(ctx: AppContext) -> FastAPI:
                 400, "Per attivare l'accesso dalla rete serve un PIN di almeno 6 cifre: cambia prima il PIN")
 
     def check_dedicated_switches(changes: dict) -> None:
-        """bot, webhook e accesso ospite non si accendono da qui (spegnerli resta possibile)."""
-        if any(changes.get(k) is True for k in DEDICATED_SWITCHES):
+        """bot, webhook, ospite e traceroute automatici non si accendono da qui: si rifiuta
+        solo il passaggio da spento ad acceso (un true gia' salvato ripetuto va bene)."""
+        wanted = [k for k in DEDICATED_SWITCHES if changes.get(k) is True]
+        if not wanted:
+            return
+        current = load_settings(ctx.conn)
+        if any(current.get(k) is not True for k in wanted):
             raise HTTPException(400, DEDICATED_SWITCH_MSG)
 
     @app.put("/api/settings", dependencies=[Depends(require_auth), Depends(require_json)])
@@ -788,6 +803,7 @@ def create_app(ctx: AppContext) -> FastAPI:
         try:
             changes, skipped = prepare_import(body, load_settings(ctx.conn))
             check_lan_pin(changes)
+            # prepare_import li porta tutti a False: il controllo resta come difesa in profondita'
             check_dedicated_switches(changes)
             saved = save_settings(ctx.conn, changes)
         except ValueError as e:

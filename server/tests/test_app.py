@@ -1082,3 +1082,82 @@ def test_ignored_sender_messages_stored_not_published(tmp_path):
     assert calls[-1][1].ignored is True and calls[-1][1].live is False
     rt.store.commit()
     assert rt.conn.execute("SELECT COUNT(*) FROM messages WHERE text='nascosto'").fetchone()[0] == 1
+
+
+
+# ---- correzioni della revisione di WP0 ----
+
+def test_outgoing_sent_inside_hook_is_local(tmp_path):
+    rt, calls = _hooked(tmp_path)
+
+    def reply(msg, meta):
+        if msg["direction"] == "in":
+            rt.ingestor.record_outgoing_mqtt(0x0C, 0xFFFFFFFF, 77, "risposta", "LongFast")
+
+    rt.message_hooks.insert(0, reply)
+    rt.on_event(_text_ev())
+    out = [meta for msg, meta in calls if msg["direction"] == "out"]
+    assert len(out) == 1 and out[0].event is None and out[0].outcome == "local"
+    assert out[0].live is False
+
+
+async def test_periodic_partial_and_lambda_coroutines_run(tmp_path):
+    import asyncio
+    import functools
+    app, rt = build(tmp_path, connector_factory=FakeConnector, static_dir=None)
+    runs = {"p": 0, "l": 0}
+
+    async def bump(key):
+        runs[key] += 1
+
+    rt.add_periodic("p", 0.05, functools.partial(bump, "p"), first_delay_s=0)
+    rt.add_periodic("l", 0.05, lambda: bump("l"), first_delay_s=0)
+    await rt.start()
+    try:
+        await asyncio.sleep(0.2)
+        assert runs["p"] >= 1 and runs["l"] >= 1
+    finally:
+        await rt.stop()
+
+
+async def test_shutdown_hooks_and_no_hooks_after_stop(tmp_path):
+    app, rt = build(tmp_path, connector_factory=FakeConnector, static_dir=None)
+    done = []
+
+    async def closing():
+        done.append("async")
+
+    seen = []
+    rt.add_event_hook(lambda ev, outcome: seen.append(ev))
+    rt.add_shutdown(lambda: done.append("sync"))
+    rt.add_shutdown(closing)
+    rt.add_shutdown(lambda: 1 / 0)  # un errore non ferma gli altri
+    # un evento che arriva durante la chiusura (database ancora aperto): niente agganci
+    rt.add_shutdown(lambda: rt.on_event(_text_ev(pid=55)))
+    await rt.start()
+    await rt.stop()
+    assert sorted(done) == ["async", "sync"]
+    assert seen == []
+
+
+def test_restore_forces_automatic_switches_off(tmp_path, monkeypatch):
+    from meshlens import app as app_mod
+    from meshlens.settings import AUTOMATIC_SWITCHES, load_settings, save_settings
+    conn = connect(tmp_path / "meshlens.db")
+    save_settings(conn, {k: True for k in AUTOMATIC_SWITCHES})
+    conn.close()
+    monkeypatch.setattr(app_mod, "apply_pending_restore", lambda d: "backup.db")
+    app, rt = build(tmp_path, connector_factory=FakeConnector, static_dir=None)
+    s = load_settings(rt.conn)
+    assert all(s[k] is False for k in AUTOMATIC_SWITCHES)
+
+
+def test_garbage_app_events_through_runtime(tmp_path):
+    from meshlens.events import AppData, MeshEvent
+    app, rt = build(tmp_path, connector_factory=FakeConnector, static_dir=None)
+    for i, (port, kind) in enumerate(((10, "detection"), (34, "paxcounter"), (72, "tak"))):
+        rt.on_event(MeshEvent(source="mqtt", from_node=0x30 + i, to_node=0xFFFFFFFF,
+                              packet_id=200 + i, channel="LongFast", rx_time=time.time(),
+                              snr=None, rssi=None, hops=1, gateway_id="!00000001", radio_id=None,
+                              kind=kind, payload=AppData(port, b"\xff\x00garbage")))
+        assert 0x30 + i in rt.live.nodes

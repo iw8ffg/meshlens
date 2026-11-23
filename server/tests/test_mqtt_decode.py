@@ -366,3 +366,13 @@ def test_atak_v2_still_unsupported():
     d.raw_filter = lambda n: True
     raw = d.decode_any(T, make_envelope(78, b"x"), now=1.0)
     assert raw.status == "unsupported"
+
+
+
+def test_garbage_app_payloads_decode_without_errors():
+    for port in (10, 34, 72):
+        ev = EnvelopeDecoder([DEFAULT_KEY]).decode(T, make_envelope(port, b"\xff\xfe\x00\x80"),
+                                                   now=1.0)
+        assert ev is not None and ev.payload.payload == b"\xff\xfe\x00\x80"
+        if port == 10:
+            assert "\ufffd" in ev.payload.text

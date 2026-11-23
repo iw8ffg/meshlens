@@ -245,10 +245,13 @@ _SCHEMA_V7: tuple[str, ...] = (
 
 SEARCH_TRIGGERS: tuple[str, ...] = ("messages_fts_ai", "messages_fts_ad", "messages_fts_au")
 
+# opzioni del tokenizer: la prova di fts5_available usa le stesse (remove_diacritics 2 vuole
+# SQLite >= 3.27: con uno piu' vecchio si ripiega su LIKE)
+FTS_TOKENIZE = "unicode61 remove_diacritics 2"
 _SEARCH_TABLE = (
     "CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5("
     "text, content='messages', content_rowid='rowid', "
-    "tokenize='unicode61 remove_diacritics 2')"
+    f"tokenize='{FTS_TOKENIZE}')"
 )
 _SEARCH_TRIGGER_SQL: dict[str, str] = {
     "messages_fts_ai":
@@ -267,14 +270,20 @@ _SEARCH_TRIGGER_SQL: dict[str, str] = {
 
 
 def fts5_available(conn: sqlite3.Connection) -> bool:
-    """True se il SQLite in uso ha il modulo FTS5 (prova su una tabella temporanea)."""
+    """True se il SQLite in uso ha FTS5 con il tokenizer dell'indice (prova su una tabella
+    temporanea con le stesse opzioni)."""
     name = f"fts5_probe_{secrets.token_hex(4)}"
     try:
-        conn.execute(f"CREATE VIRTUAL TABLE temp.{name} USING fts5(x)")
-    except sqlite3.OperationalError:
+        conn.execute(f"CREATE VIRTUAL TABLE temp.{name} USING fts5(x, tokenize='{FTS_TOKENIZE}')")
+    except sqlite3.DatabaseError:
         return False
     conn.execute(f"DROP TABLE temp.{name}")
     return True
+
+
+def _drop_search_triggers(conn: sqlite3.Connection) -> None:
+    for trig in SEARCH_TRIGGERS:
+        conn.execute(f"DROP TRIGGER IF EXISTS {trig}")
 
 
 def _master_names(conn: sqlite3.Connection, kind: str) -> set[str]:
@@ -284,22 +293,42 @@ def _master_names(conn: sqlite3.Connection, kind: str) -> set[str]:
 def ensure_search_index(conn: sqlite3.Connection) -> str:
     """Indice di ricerca dei messaggi: "fts5" se il modulo c'e' (crea tabella e trigger
     mancanti e, se ha creato qualcosa, ricostruisce l'indice), altrimenti "like" (toglie i
-    trigger, che farebbero fallire ogni INSERT su messages). Non fa commit."""
+    trigger, che farebbero fallire ogni INSERT su messages). Un errore dell'indice non solleva:
+    i trigger si tolgono e si ripiega su "like" (i messaggi si salvano sempre). Non fa commit."""
     if not fts5_available(conn):
-        for trig in SEARCH_TRIGGERS:
-            conn.execute(f"DROP TRIGGER IF EXISTS {trig}")
+        _drop_search_triggers(conn)
         return "like"
-    created = "messages_fts" not in _master_names(conn, "table")
-    if created:
-        conn.execute(_SEARCH_TABLE)
-    triggers = _master_names(conn, "trigger")
-    for trig in SEARCH_TRIGGERS:
-        if trig not in triggers:
-            conn.execute(_SEARCH_TRIGGER_SQL[trig])
-            created = True
-    if created:
-        conn.execute("INSERT INTO messages_fts(messages_fts) VALUES('rebuild')")
+    try:
+        created = "messages_fts" not in _master_names(conn, "table")
+        if created:
+            conn.execute(_SEARCH_TABLE)
+        triggers = _master_names(conn, "trigger")
+        for trig in SEARCH_TRIGGERS:
+            if trig not in triggers:
+                conn.execute(_SEARCH_TRIGGER_SQL[trig])
+                created = True
+        if created:
+            conn.execute("INSERT INTO messages_fts(messages_fts) VALUES('rebuild')")
+    except sqlite3.DatabaseError as e:
+        log.warning("Indice di ricerca dei messaggi non creato (%s): si usa LIKE", e)
+        _drop_search_triggers(conn)
+        return "like"
     return "fts5"
+
+
+def rebuild_search_index(conn: sqlite3.Connection) -> bool:
+    """Ricostruisce l'indice dai messaggi (dopo VACUUM o ripristino: i rowid impliciti di
+    messages possono cambiare). False se l'indice non c'e' o non si puo' ricostruire (in quel
+    caso i trigger si tolgono: la ricerca ripiega su LIKE). Non fa commit."""
+    if search_engine(conn) != "fts5":
+        return False
+    try:
+        conn.execute("INSERT INTO messages_fts(messages_fts) VALUES('rebuild')")
+    except sqlite3.DatabaseError as e:
+        log.warning("Indice di ricerca dei messaggi non ricostruito (%s): si usa LIKE", e)
+        _drop_search_triggers(conn)
+        return False
+    return True
 
 
 def search_engine(conn: sqlite3.Connection) -> str:
@@ -387,9 +416,16 @@ def _refresh_search_index(conn: sqlite3.Connection) -> None:
     try:
         engine = ensure_search_index(conn)
         conn.commit()
-    except BaseException:
+    except Exception as e:  # noqa: BLE001 - l'indice non deve mai impedire l'avvio
         conn.rollback()
-        raise
+        log.warning("Indice di ricerca dei messaggi non utilizzabile (%s): si usa LIKE", e)
+        engine = "like"
+        try:
+            _drop_search_triggers(conn)
+            conn.commit()
+        except sqlite3.DatabaseError:
+            conn.rollback()
+            log.exception("Indice di ricerca: impossibile togliere i trigger")
     global _like_logged
     if engine == "like" and not _like_logged:
         _like_logged = True

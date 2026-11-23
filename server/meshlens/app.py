@@ -1,6 +1,7 @@
 """Assemblaggio dell'applicazione: componenti, connettore MQTT e task periodici."""
 import asyncio
 import contextlib
+import inspect
 import logging
 import sqlite3
 import sys
@@ -40,8 +41,8 @@ from .packet_log import PacketLog
 from .pubsub_hub import PubSubHub
 from .radio import RadioConnector
 from .radio_manager import RadioManager
-from .settings import (CONNECT_KEYS, enabled_brokers, find_broker, load_settings,
-                       migrate_brokers, migrate_secrets, scrub_text)
+from .settings import (CONNECT_KEYS, disable_automatic_switches, enabled_brokers, find_broker,
+                       load_settings, migrate_brokers, migrate_secrets, scrub_text)
 from .store import PURGE_CHUNK, Store
 from .storeforward import StoreForwardService
 from .updater import Updater
@@ -179,6 +180,7 @@ class Runtime:
     message_hooks: list = field(default_factory=list)
     event_hooks: list = field(default_factory=list)
     periodic: list = field(default_factory=list)
+    shutdown_hooks: list = field(default_factory=list)
     _started: bool = False
 
     def add_message_hook(self, fn: MessageHook) -> None:
@@ -195,14 +197,33 @@ class Runtime:
         self.periodic.append(PeriodicTask(name, interval_s, fn,
                                           interval_s if first_delay_s is None else first_delay_s))
 
-    def _periodic_task(self, p: PeriodicTask):
-        if asyncio.iscoroutinefunction(p.fn):
-            return self._every_async(p.interval_s, p.fn, p.first_delay_s)
+    def add_shutdown(self, fn) -> None:
+        """Funzione (sincrona o async) chiamata da stop() prima di chiudere il database: le
+        estensioni fermano qui i propri task e scrivono cio' che resta."""
+        self.shutdown_hooks.append(fn)
 
-        async def run() -> None:
-            await asyncio.sleep(p.first_delay_s)
-            await self._every(p.interval_s, p.fn, first_now=True)
-        return run()
+    async def _periodic_task(self, p: PeriodicTask) -> None:
+        """Ogni giro chiama fn e, se restituisce un awaitable (funzione async, partial, lambda
+        che restituisce una coroutine), lo attende. L'errore di un giro non ferma il task."""
+        await asyncio.sleep(p.first_delay_s)
+        while True:
+            try:
+                res = p.fn()
+                if inspect.isawaitable(res):
+                    await res
+            except Exception:
+                log.exception("Task periodico %s fallito", p.name)
+            await asyncio.sleep(p.interval_s)
+
+    async def _run_shutdown_hooks(self) -> None:
+        for fn in list(self.shutdown_hooks):
+            try:
+                res = fn()
+                if inspect.isawaitable(res):
+                    await res
+            except Exception:
+                log.exception("Chiusura dell'estensione %s fallita",
+                              getattr(fn, "__qualname__", fn))
 
     def start_connector(self, broker: dict) -> None:
         bid = broker["id"]
@@ -596,6 +617,7 @@ class Runtime:
         for t in self.tasks:
             with contextlib.suppress(asyncio.CancelledError):
                 await t
+        await self._run_shutdown_hooks()
         async with self._connector_lock:
             # tutti insieme e fuori dal loop: un broker lento non ritarda gli altri
             items = list(self.connectors.items())
@@ -639,6 +661,10 @@ def build(data_dir: Path, connector_factory=MqttConnector,
         log.info("Segreti salvati in chiaro riscritti cifrati: %d", migrated)
     if migrate_brokers(conn):
         log.info("Impostazioni MQTT migrate a più broker")
+    if restored:
+        # il backup puo' riportare accesi bot, webhook, ospite o traceroute automatici:
+        # si riaccendono solo dalle loro pagine
+        disable_automatic_switches(conn)
     store = Store(conn)
     live = LiveState()
     live.load(store.load_nodes())
@@ -656,14 +682,19 @@ def build(data_dir: Path, connector_factory=MqttConnector,
 
     def on_message(msg: dict) -> None:
         # mittente ignorato: salvato (l'ingestione l'ha gia' scritto) ma non pubblicato ne' notificato
-        ignored = msg.get("direction") != "out" and live.is_ignored_id(msg.get("from"))
+        outgoing = msg.get("direction") == "out"
+        ignored = not outgoing and live.is_ignored_id(msg.get("from"))
         if not ignored:
             bus.publish({"type": "message", "message": msg})
             try:
                 notifier.on_message(msg)
             except Exception:  # noqa: BLE001 - una notifica fallita non ferma l'ingestione
                 log.exception("Notifica del messaggio non riuscita")
-        ev = current[0]
+        if rt._stopping:
+            return  # in chiusura: niente agganci
+        # un invio proprio e' sempre "local", anche se registrato dentro un aggancio mentre
+        # si elabora un evento ricevuto
+        ev = None if outgoing else current[0]
         meta = MessageMeta(ev, ingestor.last_outcome if ev is not None else "local", ignored)
         _call_hooks(rt.message_hooks, msg, meta)
 
@@ -722,7 +753,7 @@ def build(data_dir: Path, connector_factory=MqttConnector,
             packet_log.observe(ev, outcome, archived)
         except Exception:
             log.exception("Registro dei pacchetti")
-        if isinstance(ev, MeshEvent):
+        if isinstance(ev, MeshEvent) and not rt._stopping:
             _call_hooks(rt.event_hooks, ev, outcome)
 
     rt.coverage, rt.on_event, rt.storeforward = coverage, on_event, sf

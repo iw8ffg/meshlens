@@ -7,7 +7,7 @@ from httpx import ASGITransport
 from starlette.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
-from meshlens.api import AppContext, create_app
+from meshlens.api import DEDICATED_SWITCHES, AppContext, create_app
 from meshlens.auth import Auth
 from meshlens.bus import Bus
 from meshlens.db import connect
@@ -879,8 +879,10 @@ async def test_settings_import_skips_masked(ctx):
         assert r.status_code == 200, r.text
         body = r.json()
         # i segreti mascherati dei broker si risolvono con quelli salvati (stesso id)
+        # le chiavi locali non sono nell'esportazione: non compaiono tra le saltate
         assert set(body["skipped"]) == {"update_token", "mqtt_send_confirmed",
-                                        "mqtt_send_confirmed_brokers", *LOCAL_ONLY_KEYS}
+                                        "mqtt_send_confirmed_brokers"}
+        assert not set(LOCAL_ONLY_KEYS) & set(doc["settings"])
         assert "hunter2pw" not in r.text and "AQ==" not in r.text
         assert body["settings"]["retention_messages_days"] == 30
         from meshlens.settings import load_settings
@@ -1541,7 +1543,7 @@ async def test_state_changing_routes_require_json(ctx):
 async def test_settings_cannot_turn_on_dedicated_switches(ctx):
     """bot, webhook e accesso ospite si accendono solo dalle loro rotte, mai da /api/settings."""
     async with logged(ctx) as c:
-        for key in ("bot_enabled", "webhook_enabled", "guest_enabled"):
+        for key in ("bot_enabled", "webhook_enabled", "guest_enabled", "traceroute_auto_enabled"):
             r = await c.put("/api/settings", json={key: True})
             assert r.status_code == 400, key
             assert r.json()["detail"] == "Questa funzione si attiva dalla sua pagina in Impostazioni"
@@ -1645,7 +1647,10 @@ async def test_ignored_node_hides_messages_and_alerts_reversibly(ctx):
     q = ctx.bus.subscribe()
     node = ctx.set_node_ignored(1, True)
     assert node["is_ignored"] is True and ctx.store.get_node(1)["is_ignored"] is True
-    assert q.get_nowait() == {"type": "resync"}
+    published = []
+    while not q.empty():
+        published.append(q.get_nowait())
+    assert {"type": "resync"} in published
     assert not any(a.get("node_id") == "!00000001" for a in ctx.alerts())
     async with logged(ctx) as c:
         assert all(m["key"] != "1:9" for m in (await c.get("/api/messages")).json())
@@ -1655,3 +1660,50 @@ async def test_ignored_node_hides_messages_and_alerts_reversibly(ctx):
         assert len((await c.get("/api/messages/radio")).json()) == 1
     assert any(a["node_id"] == "!00000001" for a in ctx.alerts())
     assert ctx.set_node_ignored(999, True) is None
+
+
+
+# ---- correzioni della revisione di WP0 ----
+
+def test_set_node_ignored_persists_mqtt_only_node(ctx):
+    """Nodo solo MQTT di una nazione non salvata (non nel database): il flag sopravvive al riavvio."""
+    assert ctx.store.get_node(3) is None
+    ctx.set_node_ignored(3, True)
+    assert Store(ctx.conn).get_node(3)["is_ignored"] is True
+    ctx.set_node_ignored(3, False)
+    assert Store(ctx.conn).get_node(3)["is_ignored"] is False
+
+
+async def test_dedicated_switch_unchanged_true_is_accepted(ctx):
+    save_settings(ctx.conn, {"bot_enabled": True})
+    async with logged(ctx) as c:
+        r = await c.put("/api/settings", json={"bot_enabled": True, "retention_messages_days": 30})
+        assert r.status_code == 200, r.text
+        r = await c.put("/api/settings", json={"webhook_enabled": True})
+        assert r.status_code == 400
+
+
+async def test_import_forces_automatic_switches_off(ctx):
+    save_settings(ctx.conn, {k: True for k in DEDICATED_SWITCHES})
+    async with logged(ctx) as c:
+        doc = {"format": 1, "settings": {"retention_messages_days": 30, "bot_enabled": True}}
+        r = await c.post("/api/settings/import", json=doc)
+        assert r.status_code == 200, r.text
+        assert r.json()["skipped"] == ["bot_enabled"]
+    s = load_settings(ctx.conn)
+    assert all(s[k] is False for k in DEDICATED_SWITCHES)
+    assert s["retention_messages_days"] == 30
+
+
+def test_unignore_mine_node_does_not_notify_again(ctx):
+    now = time.time()
+    ctx.live.nodes[1]["last_heard"] = now - 10 * 3600  # nodo mio muto: avviso "silent"
+    ctx.alerts()
+    seen = []
+    ctx.notifier.on_alerts = lambda old, new: seen.append(({a["key"] for a in old},
+                                                           {a["key"] for a in new}))
+    ctx.set_node_ignored(1, True)
+    assert seen and "silent:!00000001" not in seen[-1][1]  # avvisi ricalcolati subito
+    ctx.set_node_ignored(1, False)
+    old, new = seen[-1]
+    assert "silent:!00000001" in new and "silent:!00000001" in old  # nessuna notizia nuova

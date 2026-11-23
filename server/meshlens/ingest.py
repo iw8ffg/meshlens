@@ -269,10 +269,10 @@ class Ingestor:
 
     def persists(self, node: dict, source: str) -> bool:
         """Il nodo (e cio' che porta) si archivia: in una nazione salvata, arrivato in radio,
-        "mio" o preferito."""
+        "mio", preferito o ignorato (il flag deve sopravvivere al riavvio)."""
         return (node["country"] in self.get_settings()["saved_countries"]
                 or source == "rf" or bool(node.get("is_mine"))
-                or bool(node.get("is_favorite")))
+                or bool(node.get("is_favorite")) or bool(node.get("is_ignored")))
 
     def _revive_node(self, num: int) -> dict:
         return revive_node(self.store, num)

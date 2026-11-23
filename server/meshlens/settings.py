@@ -86,9 +86,12 @@ MAX_QUICK_REPLIES = 20
 QUICK_REPLY_MAX_BYTES = 200
 MAX_BOT_TARGETS = 16
 MAX_BOT_REPLIES = 20
-# scelte di questo PC: un file di impostazioni importato non le cambia mai
+# scelte di questo PC: non si esportano e un file di impostazioni importato non le cambia mai
 LOCAL_ONLY_KEYS = ("onboarding_done", "last_seen_version", "guest_enabled", "bot_enabled",
-                   "webhook_enabled")
+                   "webhook_enabled", "traceroute_auto_enabled")
+# invii automatici e accesso ospite: si accendono solo dalle loro rotte; l'importazione e il
+# ripristino di un backup li spengono sempre
+AUTOMATIC_SWITCHES = ("bot_enabled", "webhook_enabled", "guest_enabled", "traceroute_auto_enabled")
 
 DEFAULT_BROKER_ID = "default"
 DEFAULT_BROKER_NAME = "mqtt.meshtastic.org (predefinito)"
@@ -668,6 +671,11 @@ def save_settings(conn: sqlite3.Connection, changes: dict) -> dict:
     return load_settings(conn)
 
 
+def disable_automatic_switches(conn: sqlite3.Connection) -> None:
+    """Spegne invii automatici e accesso ospite (dopo il ripristino di un backup)."""
+    save_settings(conn, {k: False for k in AUTOMATIC_SWITCHES})
+
+
 def migrate_brokers(conn: sqlite3.Connection) -> bool:
     """Database di una versione con un solo broker: scrive mqtt_brokers dal vecchio mqtt
     (il broker predefinito, con Crittografia accesa) e toglie la vecchia riga."""
@@ -752,7 +760,9 @@ def export_settings(s: dict, include_secrets: bool) -> dict:
         "format": EXPORT_FORMAT,
         "version": __version__,
         "exported_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "settings": copy.deepcopy(s) if include_secrets else mask_secrets(s),
+        "settings": {k: v for k, v in (copy.deepcopy(s) if include_secrets
+                                       else mask_secrets(s)).items()
+                     if k not in LOCAL_ONLY_KEYS},
     }
 
 
@@ -772,10 +782,12 @@ def prepare_import(data: dict, current: dict | None = None) -> tuple[dict, list[
     if "mqtt_send_confirmed_brokers" in changes:
         del changes["mqtt_send_confirmed_brokers"]
         skipped.append("mqtt_send_confirmed_brokers")
-    for key in LOCAL_ONLY_KEYS:  # mai invii automatici o accesso ospite da un file importato
+    for key in LOCAL_ONLY_KEYS:  # scelte di questo PC: saltate solo se il file le contiene
         if key in changes:
             del changes[key]
             skipped.append(key)
+    for key in AUTOMATIC_SWITCHES:  # un'importazione spegne sempre invii automatici e ospite
+        changes[key] = False
     for key in SECRET_KEYS:
         if changes.get(key) == MASK:
             del changes[key]

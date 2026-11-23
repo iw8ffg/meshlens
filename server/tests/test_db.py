@@ -318,3 +318,53 @@ def test_new_db_without_fts5_migrates(tmp_path, monkeypatch):
     assert "messages_fts" not in _names(conn, "table")
     conn.execute("INSERT INTO messages(key, text, time) VALUES('k', 'x', 1)")
     assert search_engine(conn) == "like"
+
+
+
+# ---- correzioni della revisione di WP0 ----
+
+def test_probe_uses_the_real_tokenizer(tmp_path, monkeypatch):
+    conn = connect(tmp_path / "p.db")
+    assert db.fts5_available(conn)
+    monkeypatch.setattr(db, "FTS_TOKENIZE", "inesistente")
+    assert db.fts5_available(conn) is False
+
+
+def test_index_creation_error_falls_back_to_like(tmp_path, monkeypatch):
+    path = tmp_path / "e.db"
+    monkeypatch.setattr(db, "fts5_available", lambda conn: True)
+    monkeypatch.setattr(db, "_SEARCH_TABLE", "CREATE VIRTUAL TABLE messages_fts USING nessuno(x)")
+    conn = connect(path)
+    assert schema_version(conn) == 7
+    assert not set(db.SEARCH_TRIGGERS) & _names(conn, "trigger")
+    conn.execute("INSERT INTO messages(key, text, time) VALUES('k', 'x', 1)")
+    assert search_engine(conn) == "like"
+
+
+def test_broken_index_never_blocks_startup(tmp_path, monkeypatch, caplog):
+    path = tmp_path / "b.db"
+    connect(path).close()
+
+    def boom(conn):
+        raise sqlite3.DatabaseError("database disk image is malformed")
+
+    monkeypatch.setattr(db, "ensure_search_index", boom)
+    conn = connect(path)  # si apre lo stesso
+    assert not set(db.SEARCH_TRIGGERS) & _names(conn, "trigger")
+    conn.execute("INSERT INTO messages(key, text, time) VALUES('k', 'x', 1)")
+    assert "Indice di ricerca" in caplog.text
+
+
+def test_rebuild_after_compact_keeps_search_consistent(tmp_path):
+    from meshlens.maintenance import compact
+    conn = connect(tmp_path / "c.db")
+    for i in range(50):
+        conn.execute("INSERT INTO messages(key, text, time) VALUES(?, ?, ?)",
+                     (f"k{i}", f"parola{i} comune", i))
+    conn.execute("DELETE FROM messages WHERE time < 25")
+    conn.commit()
+    compact(conn)
+    rows = conn.execute("SELECT m.key FROM messages_fts f JOIN messages m ON m.rowid = f.rowid "
+                        "WHERE messages_fts MATCH 'parola30'").fetchall()
+    assert [r[0] for r in rows] == ["k30"]
+    assert db.rebuild_search_index(conn) is True

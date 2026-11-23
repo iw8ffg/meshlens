@@ -151,7 +151,8 @@ def test_backup_retention_days_setting(conn):
     save_settings(conn, {"backup_retention_days": 0})
     assert export_settings(load_settings(conn), False)["settings"]["backup_retention_days"] == 0
     changes, _ = prepare_import({"format": 1, "settings": {"backup_retention_days": 14}})
-    assert changes == {"backup_retention_days": 14}
+    from meshlens.settings import AUTOMATIC_SWITCHES
+    assert changes == {"backup_retention_days": 14, **{k: False for k in AUTOMATIC_SWITCHES}}
 
 
 # ---- 1.6 ----
@@ -264,6 +265,20 @@ def test_import_skips_local_only_keys():
     changes, skipped = prepare_import({"format": 1, "settings": {
         "bot_enabled": True, "webhook_enabled": True, "guest_enabled": True,
         "onboarding_done": True, "last_seen_version": "1.6.0", "quick_replies": ["ok"]}})
-    assert changes == {"quick_replies": ["ok"]}
-    assert {"bot_enabled", "webhook_enabled", "guest_enabled", "onboarding_done",
-            "last_seen_version"} <= set(skipped)
+    # gli interruttori degli invii automatici e dell'ospite si spengono sempre all'importazione
+    assert changes == {"quick_replies": ["ok"], "bot_enabled": False, "webhook_enabled": False,
+                       "guest_enabled": False, "traceroute_auto_enabled": False}
+    assert set(skipped) == {"bot_enabled", "webhook_enabled", "guest_enabled", "onboarding_done",
+                            "last_seen_version"}
+
+
+def test_import_skips_only_local_keys_present():
+    changes, skipped = prepare_import({"format": 1, "settings": {"quick_replies": ["ok"]}})
+    assert skipped == []
+
+
+def test_export_has_no_local_only_keys(conn):
+    from meshlens.settings import LOCAL_ONLY_KEYS
+    doc = export_settings(load_settings(conn), include_secrets=True)
+    assert not set(LOCAL_ONLY_KEYS) & set(doc["settings"])
+    assert "traceroute_auto_enabled" in LOCAL_ONLY_KEYS
