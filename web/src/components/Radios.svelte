@@ -16,6 +16,7 @@
   import Modal from '../lib/ui/Modal.svelte'
   import Icon from '../lib/ui/Icon.svelte'
   import StoreForward from './StoreForward.svelte'
+  import RadioDiagnosis from './RadioDiagnosis.svelte'
   import Toast from '../lib/ui/Toast.svelte'
   import { clearSfNotice, sf } from '../lib/storeforward.svelte'
   import type { BleDevice, Port, Radio, RadioKind } from '../lib/types'
@@ -35,6 +36,9 @@
   let error = $state('')
   let confirmId = $state<string | null>(null)
   let sfRadioId = $state<string | null>(null) // radio per cui e' aperto «Recupera messaggi persi»
+  // diagnosi del collegamento: radio salvata oppure indirizzo del modulo «Aggiungi radio»
+  let diag = $state<{ radioId?: string; kind?: RadioKind; address?: string } | null>(null)
+  const draftAddress = $derived(kind === 'tcp' ? (host.trim() ? tcpAddress(host, tcpPort) : '') : address)
 
   const sortedPorts = $derived(sortPorts(ports))
 
@@ -173,6 +177,9 @@
           {#if r.state === 'connected'}
             <Button icon="refresh" onclick={() => (sfRadioId = r.id)}>{t('radios.sf')}</Button>
           {/if}
+          {#if r.error || r.state === 'error' || r.state === 'reconnecting'}
+            <Button icon="info" onclick={() => (diag = { radioId: r.id })}>{t('radios.why')}</Button>
+          {/if}
           <Button kind="ghost" icon="trash" disabled={acting} onclick={() => (confirmId = r.id)}>{t('radios.remove')}</Button>
         </div>
       </div>
@@ -267,6 +274,9 @@
         <div class="btns">
           <Button type="submit" kind="primary" disabled={busy || (kind === 'tcp' ? !host.trim() : !address || !name.trim())}>{t('radios.addBtn')}</Button>
           <Button onclick={() => (adding = false)}>{t('common.cancel')}</Button>
+          {#if draftAddress}
+            <Button kind="ghost" icon="info" onclick={() => (diag = { kind, address: draftAddress })}>{t('radios.why')}</Button>
+          {/if}
         </div>
       </form>
     </Card>
@@ -275,6 +285,10 @@
 
 {#if sfRadio}
   <StoreForward radio={sfRadio} onclose={() => (sfRadioId = null)} />
+{/if}
+
+{#if diag}
+  <RadioDiagnosis radioId={diag.radioId ?? null} kind={diag.kind ?? null} address={diag.address ?? null} onclose={() => (diag = null)} />
 {/if}
 
 {#if sf.notice}

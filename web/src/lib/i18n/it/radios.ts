@@ -18,6 +18,7 @@ export const radios = {
   'radios.configure': 'Configura',
   'radios.adminKey': 'Chiave admin',
   'radios.sf': 'Recupera messaggi persi',
+  'radios.why': 'Perché non si collega?',
   'radios.remove': 'Rimuovi',
   'radios.empty.title': 'Nessuna radio configurata',
   'radios.empty.body': 'Collega una radio via USB, Bluetooth o rete per vedere la rete locale.',

@@ -3,7 +3,10 @@
   import { onMount } from 'svelte'
   import { ApiError, getJSON, send } from '../../lib/api'
   import type { AppSettings } from '../../lib/settings'
-  import { bytes, exportUrl, integrityDamaged, reasonLabel, TABLE_LABELS, type BackupInfo, type DbInfo, type ImportResult } from '../../lib/maintenance'
+  import {
+    buildBrokerRetention, bytes, effectiveBrokerDays, exportUrl, integrityDamaged, reasonLabel, sortedTableBytes,
+    tableLabel, validateBrokerDays, type BackupInfo, type DbInfo, type ImportResult, type RetentionPreview,
+  } from '../../lib/maintenance'
   import Banner from '../../lib/ui/Banner.svelte'
   import Button from '../../lib/ui/Button.svelte'
   import Card from '../../lib/ui/Card.svelte'
@@ -32,6 +35,54 @@
 
   const errMsg = (e: unknown, fallback: string) => (e instanceof ApiError ? e.message : fallback)
 
+  // ---- spazio per tabella e conservazione per broker (1.6) ----
+  const space = $derived(info ? sortedTableBytes(info) : [])
+  let brokers = $state<{ id: string; name: string }[]>([])
+  let brokerDays = $state<Record<string, number | null>>({})
+  let generalDays = $state(90)
+  let trDays = $state<number | null>(365)
+  let preview = $state<RetentionPreview | null>(null)
+  let retLoadError = $state('')
+  const retentionValid = $derived(
+    validateBrokerDays(trDays) === null
+      && Object.values(brokerDays).every((d) => d == null || validateBrokerDays(d) === null),
+  )
+
+  function adoptRetention(s: AppSettings) {
+    brokers = (s.mqtt_brokers ?? []).filter((b) => b.id).map((b) => ({ id: b.id as string, name: b.name || (b.id as string) }))
+    const saved = s.retention_broker_days ?? {}
+    brokerDays = Object.fromEntries(brokers.map((b) => [b.id, saved[b.id] ?? null]))
+    generalDays = s.retention_messages_days ?? 90
+    trDays = s.retention_traceroutes_days ?? 365
+  }
+
+  async function loadPreview() {
+    try {
+      preview = await getJSON<RetentionPreview>('/retention')
+      retLoadError = ''
+    } catch (e) {
+      retLoadError = errMsg(e, t('retention.loadFailed'))
+    }
+  }
+
+  async function saveRetentionRules() {
+    if (!retentionValid) return
+    error = ok = ''
+    try {
+      // input numerici svuotati: Svelte li porta a null (= regola generale)
+      const map = Object.fromEntries(Object.entries(brokerDays).map(([k, v]) => [k, typeof v === 'number' ? v : null]))
+      const s = await send<AppSettings>('PUT', '/settings', {
+        retention_broker_days: buildBrokerRetention(map),
+        retention_traceroutes_days: trDays,
+      })
+      adoptRetention(s)
+      ok = t('retention.saved')
+      await loadPreview()
+    } catch (e) {
+      error = errMsg(e, t('retention.saveFailed'))
+    }
+  }
+
   async function load() {
     try {
       info = await getJSON<DbInfo>('/db')
@@ -53,8 +104,12 @@
     void load()
     void loadBackups()
     getJSON<AppSettings>('/settings')
-      .then((s) => (retDays = savedDays = s.backup_retention_days ?? 0))
+      .then((s) => {
+        retDays = savedDays = s.backup_retention_days ?? 0
+        adoptRetention(s)
+      })
       .catch(() => {})
+    void loadPreview()
     getJSON<{ is_local?: boolean }>('/auth/status')
       .then((a) => (isLocal = !!a.is_local))
       .catch(() => {})
@@ -176,7 +231,7 @@
         <div><dt>{t('settings.db.size')}</dt><dd class="ui-mono">{bytes(info.size_bytes)}</dd></div>
         <div><dt>{t('settings.db.free')}</dt><dd class="ui-mono">{bytes(info.free_bytes)}</dd></div>
         {#each Object.entries(info.rows) as [table, n] (table)}
-          <div><dt>{TABLE_LABELS[table] ?? table}</dt><dd class="ui-mono">{n.toLocaleString(locale())}</dd></div>
+          <div><dt>{tableLabel(table)}</dt><dd class="ui-mono">{n.toLocaleString(locale())}</dd></div>
         {/each}
       </dl>
       <p class="line">
@@ -188,10 +243,63 @@
         {/if}
       </p>
     {/if}
+    {#if info && space.length > 0}
+      <h3>{t('retention.space.title')}</h3>
+      {#if info.table_bytes_method === 'estimate'}<p class="muted">{t('retention.space.estimate')}</p>{/if}
+      <ul class="space">
+        {#each space as s (s.name)}
+          <li>
+            <span class="sname">{tableLabel(s.name)}</span>
+            <span class="bar" role="img" aria-label={t('retention.space.aria', { pct: Math.round(s.share * 100) })}><span style:width="{Math.max(1, s.share * 100)}%"></span></span>
+            <span class="ui-mono">{bytes(s.bytes)}</span>
+            {#if s.rows !== null}<span class="muted">{t('retention.space.rows', { n: s.rows.toLocaleString(locale()) })}</span>{/if}
+          </li>
+        {/each}
+      </ul>
+    {/if}
     <div class="row">
       <Button disabled={busy} onclick={() => (confirming = true)}>{t('settings.db.compact')}</Button>
     </div>
     <p class="muted">{t('settings.db.compactNote')}</p>
+    <h3>{t('retention.broker.title')}</h3>
+    <p class="muted">{t('retention.broker.intro')}</p>
+    {#if retLoadError}<Banner kind="warn" title={retLoadError} />{/if}
+    {#if brokers.length === 0}
+      <p class="muted">{t('retention.broker.none')}</p>
+    {:else}
+      <ul class="brokers">
+        {#each brokers as b (b.id)}
+          {@const pv = preview?.brokers.find((x) => x.id === b.id)}
+          {@const days = brokerDays[b.id]}
+          <li>
+            <Field label={t('retention.broker.days', { name: b.name })} for="ret-b-{b.id}"
+              error={days != null && validateBrokerDays(days) ? t('retention.err.days') : undefined}>
+              {#snippet children()}
+                <input id="ret-b-{b.id}" class="ui-input ui-mono" type="number" min="1" max="3650" step="1"
+                  placeholder={t('retention.broker.placeholder')} bind:value={brokerDays[b.id]} />
+              {/snippet}
+            </Field>
+            <p class="muted">{t('retention.broker.effective', { n: effectiveBrokerDays(days ?? null, generalDays), g: generalDays })}</p>
+            {#if pv}
+              <p class="muted">{t('retention.broker.count', { n: pv.messages.toLocaleString(locale()) })} · {t('retention.broker.preview', { n: pv.would_delete.toLocaleString(locale()) })}</p>
+            {/if}
+          </li>
+        {/each}
+      </ul>
+    {/if}
+    <p class="muted">{t('retention.broker.note')}</p>
+    <div class="row auto">
+      <Field label={t('retention.traceroutes')} for="ret-tr-days" error={validateBrokerDays(trDays) ? t('retention.err.days') : undefined}>
+        {#snippet children()}<input id="ret-tr-days" class="ui-input ui-mono" type="number" min="1" max="3650" step="1" bind:value={trDays} />{/snippet}
+      </Field>
+    </div>
+    {#if preview}
+      <p class="muted">{t('retention.traceroutesPreview', { n: preview.traceroutes.would_delete.toLocaleString(locale()), total: preview.traceroutes.rows.toLocaleString(locale()) })}</p>
+    {/if}
+    <p class="muted">{t('retention.auto')}</p>
+    <div class="row">
+      <Button disabled={busy || !retentionValid} onclick={saveRetentionRules}>{t('retention.save')}</Button>
+    </div>
     <h3>{t('settings.db.backups')}</h3>
     {#if restoreScheduled}
       <Banner kind="warn" title={t('settings.db.restoreScheduled')} />
@@ -304,5 +412,13 @@
   a.ui-btn { text-decoration: none; }
   .file input { display: none; }
   .muted { color: var(--ink-muted); font: 400 13px/18px var(--font-sans); }
+  .space, .brokers { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-2); }
+  .space li { display: grid; grid-template-columns: minmax(120px, 1fr) minmax(80px, 2fr) auto auto; gap: var(--space-2); align-items: center; font: 400 14px/20px var(--font-sans); }
+  .bar { display: block; height: 8px; border-radius: 4px; background: var(--surface-sunken); overflow: hidden; }
+  .bar span { display: block; height: 100%; background: var(--accent); }
+  .brokers li { display: flex; flex-direction: column; gap: var(--space-1); }
+  .brokers :global(.ui-field) { max-width: 360px; }
+  :global(.vp-phone) .space li { grid-template-columns: 1fr auto; }
+  :global(.vp-phone) .space .bar { grid-column: 1 / -1; }
   :global(.vp-phone) .muted { font-size: 14px; line-height: 20px; }
 </style>

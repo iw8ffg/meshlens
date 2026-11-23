@@ -8,6 +8,24 @@ export type DbInfo = {
   integrity: string
   rows: Record<string, number>
   last_purge: { time: number; deleted: Record<string, number> } | null
+  /** Byte per tabella (indici compresi): misura esatta con dbstat, altrimenti stima. */
+  table_bytes?: Record<string, number>
+  table_bytes_method?: 'dbstat' | 'estimate'
+}
+
+export interface RetentionBroker {
+  id: string
+  name: string
+  messages: number
+  oldest: number | null
+  days: number | null
+  would_delete: number
+}
+
+export interface RetentionPreview {
+  brokers: RetentionBroker[]
+  messages_days: number
+  traceroutes: { rows: number; would_delete: number; days: number }
 }
 
 /** Esito del controllo d'integrità che indica un database danneggiato
@@ -35,7 +53,53 @@ export const TABLE_LABELS: Record<string, string> = {
   get packets() { return t('settings.table.packets') },
 }
 
-export type BackupInfo = { name: string; time: number; reason: string; size_bytes: number }
+/** Nome leggibile di una tabella: etichette storiche (area settings), poi quelle della 1.6
+ * (`retention.table.*`), altrimenti il nome grezzo. */
+export function tableLabel(name: string): string {
+  if (Object.hasOwn(TABLE_LABELS, name)) return TABLE_LABELS[name]
+  const key = `retention.table.${name}`
+  const text = t(key as MsgKey)
+  return text === key ? name : text
+}
+
+export interface TableSpace {
+  name: string
+  bytes: number
+  rows: number | null
+  share: number
+}
+
+/** Tabelle in ordine di spazio decrescente con la quota sul totale (0..1). */
+export function sortedTableBytes(info: Pick<DbInfo, 'table_bytes' | 'rows'>): TableSpace[] {
+  const entries = Object.entries(info.table_bytes ?? {})
+  const total = entries.reduce((a, [, b]) => a + Math.max(0, b), 0)
+  return entries
+    .map(([name, bytes]) => ({
+      name,
+      bytes,
+      rows: Object.hasOwn(info.rows ?? {}, name) ? info.rows[name] : null,
+      share: total > 0 ? Math.max(0, bytes) / total : 0,
+    }))
+    .sort((a, b) => b.bytes - a.bytes || a.name.localeCompare(b.name))
+}
+
+/** Giorni effettivi per un broker: vale il minore fra il suo valore e la regola generale. */
+export function effectiveBrokerDays(brokerDays: number | null | undefined, generalDays: number): number {
+  return brokerDays == null ? generalDays : Math.min(brokerDays, generalDays)
+}
+
+export function validateBrokerDays(n: number | null | undefined): MsgKey | null {
+  return typeof n === 'number' && Number.isInteger(n) && n >= 1 && n <= 3650 ? null : 'retention.err.days'
+}
+
+/** Mappa da salvare: toglie le voci vuote (= regola generale). */
+export function buildBrokerRetention(map: Record<string, number | null | undefined>): Record<string, number> {
+  const out: Record<string, number> = {}
+  for (const [id, v] of Object.entries(map)) if (typeof v === 'number' && Number.isFinite(v)) out[id] = v
+  return out
+}
+
+export type BackupInfo ={ name: string; time: number; reason: string; size_bytes: number }
 
 const REASON_KEYS: Record<string, MsgKey> = {
   'pre-migrazione': 'settings.reason.preMigration',

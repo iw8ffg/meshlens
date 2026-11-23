@@ -20,6 +20,7 @@ export const radios: Record<keyof typeof itArea, string> = {
   'radios.configure': 'Configure',
   'radios.adminKey': 'Admin key',
   'radios.sf': 'Recover missed messages',
+  'radios.why': 'Why does it not connect?',
   'radios.remove': 'Remove',
   'radios.empty.title': 'No radio configured',
   'radios.empty.body': 'Connect a radio over USB, Bluetooth or network to see the local network.',

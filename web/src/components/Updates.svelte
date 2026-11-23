@@ -6,6 +6,7 @@
   import { formatBytes, jobPercent } from '../lib/maps'
   import { setUpdateJob, setUpdateStatus, updates } from '../lib/stores.svelte'
   import { canInstall, updateLabel } from '../lib/update'
+  import { requestWhatsNew, whatsNew } from '../lib/whatsnew.svelte'
   import type { AppSettings } from '../lib/settings'
   import Banner from '../lib/ui/Banner.svelte'
   import Button from '../lib/ui/Button.svelte'
@@ -35,6 +36,16 @@
   const installable = $derived(canInstall(status, job))
 
   const errMsg = (e: unknown, fallback: string) => (e instanceof ApiError ? e.message : fallback)
+
+  async function openNotes() {
+    error = ''
+    try {
+      await requestWhatsNew()
+      if (!whatsNew.open) error = t('whatsnew.failed')
+    } catch (e) {
+      error = errMsg(e, t('whatsnew.failed'))
+    }
+  }
 
   async function loadStatus() {
     try {
@@ -157,6 +168,9 @@
       <Banner kind="danger" title={t('updates.loadFailed')} />
     {/if}
     <p class="line">{t('updates.version')} <b class="ui-mono">{status?.current ?? (version || '—')}</b></p>
+    <div class="row">
+      <Button kind="ghost" onclick={openNotes}>{t('whatsnew.open')}</Button>
+    </div>
     <p class="line" class:err={!!status?.error} role="status">{updateLabel(status)}</p>
     {#if status?.checked_at}<p class="muted">{t('updates.lastCheck', { when: when(status.checked_at) })}</p>{/if}
 

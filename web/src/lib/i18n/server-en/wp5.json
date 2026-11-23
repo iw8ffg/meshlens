@@ -1,4 +1,23 @@
 {
-  "exact": {},
-  "patterns": []
+  "exact": {
+    "Automazioni non disponibili": "Automations not available",
+    "Intervallo non valido: da 60 minuti a 7 giorni": "Invalid interval: from 60 minutes to 7 days",
+    "Non si può programmare un traceroute verso un tuo nodo": "You cannot schedule a traceroute to one of your own nodes",
+    "Radio non valida": "Invalid radio",
+    "Numero di risultati non valido: da 1 a 100": "Invalid number of results: from 1 to 100",
+    "Troppi nodi con traceroute periodico: massimo 20": "Too many nodes with periodic traceroute: maximum 20",
+    "Per attivare il bot apri MeshLens da questo PC": "To turn on the bot open MeshLens on this PC",
+    "Per attivare il bot scegli almeno un canale": "To turn on the bot choose at least one channel",
+    "Per attivare il webhook apri MeshLens da questo PC": "To turn on the webhook open MeshLens on this PC",
+    "Webhook non configurato": "Webhook not configured",
+    "Attendi qualche secondo prima di un'altra prova": "Wait a few seconds before another test",
+    "Diagnosi già in corso": "A diagnosis is already running",
+    "Radio non disponibili": "Radios not available"
+  },
+  "patterns": [
+    [
+      "^Il broker (.+) non ha ancora la conferma di pubblicazione: invia prima un messaggio dalla Chat su quel broker$",
+      "Broker $1 has no publishing confirmation yet: first send a message from Chat on that broker"
+    ]
+  ]
 }

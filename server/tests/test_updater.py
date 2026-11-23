@@ -404,3 +404,12 @@ async def test_install_aborts_if_backup_fails(tmp_path):
     assert e.value.status == 409 and "Backup del database non riuscito: disco pieno" in str(e.value)
     assert u.launched == [] and u.exits == []
     assert u._installing is False
+
+
+def test_parse_version_full_orders_prereleases_and_leaves_stable_rules_alone():
+    k = up.parse_version_full
+    assert k("1.7.0") > k("1.7.0-beta.9") > k("1.7.0-beta.2") > k("1.6.0")
+    assert k("not a version") is None and k(None) is None
+    # il controllo degli aggiornamenti resta solo sulle versioni finali (canale beta escluso)
+    assert parse_version("1.7.0-beta.1") is None
+    assert not is_newer("1.7.0-beta.1", "1.6.0")

@@ -28,6 +28,13 @@ SolidCompression=yes
 WizardStyle=modern
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
+; Firma facoltativa (certificato mai nel repository). Uso, dalla radice del repository:
+;   iscc /DAppVersion=X /DSignedBuild "/Smeshlens=signtool.exe sign /sha1 <THUMBPRINT> /fd sha256 /tr <URL> /td sha256 $f" packaging\meshlens.iss
+; Senza /DSignedBuild l'installer si compila come sempre, senza firma.
+#ifdef SignedBuild
+SignTool=meshlens
+SignedUninstaller=yes
+#endif
 
 [Languages]
 Name: "italian"; MessagesFile: "compiler:Languages\Italian.isl"
