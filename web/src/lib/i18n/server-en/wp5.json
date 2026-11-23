@@ -1,4 +1,6 @@
 {
-  "exact": {},
+  "exact": {
+    "Automazioni non disponibili": "Automations not available"
+  },
   "patterns": []
 }
