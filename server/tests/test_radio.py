@@ -1039,3 +1039,48 @@ def test_describe_error_tcp():
     assert "non raggiungibile" in describe_error(TimeoutError(), "tcp")
     assert "non raggiungibile" in describe_error(OSError(10065, "x"), "tcp")
     assert describe_error(TimeoutError()).startswith("Connessione Bluetooth")
+
+
+def test_describe_error_tcp_not_meshtastic():
+    from meshlens.radio import MSG_TCP_NO_REPLY, describe_error
+
+    class MeshInterfaceError(Exception):
+        pass
+    msg = describe_error(MeshInterfaceError("Timed out waiting for connection completion"), "tcp")
+    assert msg == MSG_TCP_NO_REPLY
+    assert "Meshtastic" in msg and "un altro collegamento" in msg
+    # un timeout di rete resta "non raggiungibile"
+    assert "non raggiungibile" in describe_error(TimeoutError(), "tcp")
+    # per le altre radio il testo non cambia
+    assert describe_error(MeshInterfaceError("x"), "usb") == "Errore di connessione: MeshInterfaceError"
+
+
+async def test_factory_runs_in_daemon_thread_not_pool():
+    seen = {}
+
+    def factory(cfg, n):
+        import threading
+        t = threading.current_thread()
+        seen.update(daemon=t.daemon, name=t.name)
+        return FakeIface()
+    h = Harness(factory)
+    await connected(h)
+    assert seen["daemon"] is True and not seen["name"].startswith("asyncio_")
+    await h.conn.stop()
+
+
+async def test_stop_during_blocked_connect_returns_and_closes_late():
+    import threading
+    release, entered = threading.Event(), threading.Event()
+    iface = FakeIface()
+
+    def factory(cfg, n):
+        entered.set()
+        release.wait(5)
+        return iface
+    h = Harness(factory)
+    await h.conn.start()
+    await h.until(entered.is_set)
+    await asyncio.wait_for(h.conn.stop(), 2)  # non attende il thread bloccato
+    release.set()
+    await h.until(lambda: iface.closed == 1)

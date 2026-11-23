@@ -29,6 +29,8 @@ MSG_BLE_PAIR = ("Radio Bluetooth non abbinata: abbinala da Impostazioni Windows 
 MSG_TCP_NOT_FOUND = "Indirizzo non trovato: controlla il nome o l'IP della radio"
 MSG_TCP_REFUSED = "Connessione rifiutata: la radio ha il WiFi o l'Ethernet attivo?"
 MSG_TCP_UNREACHABLE = "Radio non raggiungibile in rete: è accesa e sulla stessa rete?"
+MSG_TCP_NO_REPLY = ("La radio risponde ma non parla Meshtastic su questa porta, oppure ha già un "
+                    "altro collegamento TCP aperto (il firmware ne ammette uno solo)")
 MSG_BLE_CONNECT = "Connessione Bluetooth non riuscita: avvicina la radio e riprova"
 CLOSE_TIMEOUT = 12.0
 SEND_TIMEOUT = 30.0
@@ -106,6 +108,8 @@ def _describe_tcp_error(exc: BaseException) -> str | None:
         return MSG_TCP_REFUSED
     if isinstance(exc, OSError):  # timeout, rete irraggiungibile, connessione azzerata...
         return MSG_TCP_UNREACHABLE
+    if type(exc).__name__ == "MeshInterfaceError":  # nessuna configurazione ricevuta in tempo
+        return MSG_TCP_NO_REPLY
     return None
 
 
@@ -286,6 +290,39 @@ class RadioConnector:
         except BaseException as exc:
             raise _LibraryError(exc) from exc
 
+    async def _call_daemon(self, fn, *args):
+        """Come _call ma in un thread daemon dedicato: un connect bloccato (host muto, radio
+        che non risponde) non tiene vivo il processo all'uscita, a differenza del pool di
+        asyncio.to_thread."""
+        loop = asyncio.get_running_loop()
+        fut: asyncio.Future = loop.create_future()
+
+        def deliver(result, exc):
+            if fut.done():
+                return
+            if exc is not None:
+                fut.set_exception(exc)
+            else:
+                fut.set_result(result)
+
+        def run():
+            result = exc = None
+            try:
+                result = fn(*args)
+            except BaseException as e:  # la libreria puo' fare sys.exit
+                exc = e
+            try:
+                loop.call_soon_threadsafe(deliver, result, exc)
+            except RuntimeError:
+                pass  # loop gia' chiuso
+        threading.Thread(target=run, name="RadioConnect", daemon=True).start()
+        try:
+            return await fut
+        except asyncio.CancelledError:
+            raise
+        except BaseException as exc:
+            raise _LibraryError(exc) from exc
+
     async def _run(self) -> None:
         attempt = 0
         while True:
@@ -313,7 +350,7 @@ class RadioConnector:
 
     async def _connect(self) -> bool:
         self._lost.clear()
-        fut = asyncio.ensure_future(self._call(self._factory, self._cfg))
+        fut = asyncio.ensure_future(self._call_daemon(self._factory, self._cfg))
         try:
             iface = await asyncio.shield(fut)
         except asyncio.CancelledError:

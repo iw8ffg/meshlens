@@ -66,14 +66,73 @@ class TracerouteThrottled(Exception):
         self.wait_s = wait_s
 
 
+TCP_CONNECT_TIMEOUT = 5.0   # connessione al socket: un host muto fallisce in fretta
+TCP_CONFIG_TIMEOUT = 45     # attesa della configurazione (default della libreria: 300 s)
+# keepalive: ~10 s di inattivita' poi sonde ogni 3 s; una radio sparita senza FIN si scopre in <1 min
+TCP_KEEPIDLE_S, TCP_KEEPINTVL_S, TCP_KEEPCNT = 10, 3, 4
+
+
+def enable_keepalive(sock) -> None:
+    """SO_KEEPALIVE con tempi brevi; ogni parametro opzionale e' protetto (dipende dal sistema)."""
+    import socket
+    try:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+    except OSError:
+        return
+    try:
+        if hasattr(socket, "SIO_KEEPALIVE_VALS"):  # Windows: millisecondi
+            sock.ioctl(socket.SIO_KEEPALIVE_VALS,
+                       (1, TCP_KEEPIDLE_S * 1000, TCP_KEEPINTVL_S * 1000))
+            return
+        for name, value in (("TCP_KEEPIDLE", TCP_KEEPIDLE_S), ("TCP_KEEPINTVL", TCP_KEEPINTVL_S),
+                            ("TCP_KEEPCNT", TCP_KEEPCNT)):
+            if hasattr(socket, name):
+                sock.setsockopt(socket.IPPROTO_TCP, getattr(socket, name), value)
+    except (OSError, ValueError, AttributeError):
+        pass  # il keepalive di sistema (lento) resta comunque attivo
+
+
+_TCP_CLASS = None
+
+
+def _tcp_interface_class():
+    """TCPInterface con connect a tempo, keepalive e senza riconnessione interna."""
+    global _TCP_CLASS
+    if _TCP_CLASS is None:
+        import socket
+        from meshtastic.tcp_interface import TCPInterface
+
+        class MeshLensTCPInterface(TCPInterface):
+            def myConnect(self) -> None:
+                sock = socket.create_connection((self.hostname, self.portNumber),
+                                                timeout=TCP_CONNECT_TIMEOUT)
+                sock.settimeout(None)  # dopo la connessione le letture sono bloccanti
+                enable_keepalive(sock)
+                self.socket = sock
+
+            def _reconnect(self) -> None:
+                # La libreria ricollegherebbe da sola senza avvisare nessuno (invii persi in
+                # silenzio, stato "connected" falso). Si chiude il socket: il reader esce,
+                # pubblica `lost` e il connettore ricrea l'interfaccia con il suo backoff.
+                with self.reconnectLock:
+                    sock, self.socket = self.socket, None
+                if sock is not None:
+                    with contextlib.suppress(Exception):
+                        sock.shutdown(socket.SHUT_RDWR)
+                    with contextlib.suppress(Exception):
+                        sock.close()
+
+        _TCP_CLASS = MeshLensTCPInterface
+    return _TCP_CLASS
+
+
 def default_iface_factory(cfg: dict):
     if cfg["kind"] == "usb":
         from meshtastic.serial_interface import SerialInterface
         return SerialInterface(devPath=cfg["address"])
     if cfg["kind"] == "tcp":
-        from meshtastic.tcp_interface import TCPInterface
         host, port = parse_tcp_address(cfg["address"])
-        return TCPInterface(hostname=host, portNumber=port)
+        return _tcp_interface_class()(hostname=host, portNumber=port, timeout=TCP_CONFIG_TIMEOUT)
     from .ble_safe import SafeBLEInterface
     return SafeBLEInterface(cfg["address"])
 

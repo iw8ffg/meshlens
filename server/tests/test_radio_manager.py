@@ -675,17 +675,74 @@ async def test_add_tcp_normalizes_and_rejects_duplicates():
     assert len(e.mgr.radios()) == 3
 
 
-def test_default_factory_builds_tcp_interface(monkeypatch):
-    import meshtastic.tcp_interface as ti
-    from meshlens.radio_manager import default_iface_factory
+def test_default_factory_builds_tcp_interface_with_short_timeout(monkeypatch):
+    from meshlens import radio_manager as rm
     seen = {}
 
     class Fake:
-        def __init__(self, hostname, portNumber):
-            seen.update(hostname=hostname, portNumber=portNumber)
+        def __init__(self, hostname, portNumber, timeout):
+            seen.update(hostname=hostname, portNumber=portNumber, timeout=timeout)
 
-    monkeypatch.setattr(ti, "TCPInterface", Fake)
-    default_iface_factory({"kind": "tcp", "address": "[::1]:5000"})
-    assert seen == {"hostname": "::1", "portNumber": 5000}
-    default_iface_factory({"kind": "tcp", "address": "radio.lan"})
-    assert seen == {"hostname": "radio.lan", "portNumber": 4403}
+    monkeypatch.setattr(rm, "_tcp_interface_class", lambda: Fake)
+    rm.default_iface_factory({"kind": "tcp", "address": "[::1]:5000"})
+    assert seen["hostname"] == "::1" and seen["portNumber"] == 5000
+    assert 0 < seen["timeout"] <= 60
+    rm.default_iface_factory({"kind": "tcp", "address": "radio.lan"})
+    assert (seen["hostname"], seen["portNumber"]) == ("radio.lan", 4403)
+
+
+def _listener():
+    import socket
+    srv = socket.socket()
+    srv.bind(("127.0.0.1", 0))
+    srv.listen(1)
+    return srv
+
+
+def test_tcp_interface_connect_has_timeout_and_keepalive():
+    import socket
+    from meshlens import radio_manager as rm
+    srv = _listener()
+    try:
+        iface = rm._tcp_interface_class()(
+            "127.0.0.1", portNumber=srv.getsockname()[1], connectNow=False, noProto=True)
+        iface.myConnect()
+        try:
+            assert iface.socket.gettimeout() is None  # connect con timeout, poi blocking
+            assert iface.socket.getsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE) != 0
+        finally:
+            iface.socket.close()
+    finally:
+        srv.close()
+
+
+def test_tcp_interface_connect_fails_fast_when_unreachable(monkeypatch):
+    import socket
+    from meshlens import radio_manager as rm
+    seen = {}
+
+    def fake_create(addr, timeout=None, **kw):
+        seen["timeout"] = timeout
+        raise TimeoutError("timed out")
+    monkeypatch.setattr(socket, "create_connection", fake_create)
+    iface = rm._tcp_interface_class()("10.255.255.1", connectNow=False, noProto=True)
+    with pytest.raises(TimeoutError):
+        iface.myConnect()
+    assert seen["timeout"] is not None and seen["timeout"] <= 10
+
+
+def test_tcp_interface_does_not_reconnect_by_itself():
+    """Se la connessione cade la libreria non ricollega da sola: chiude il socket, il reader esce
+    e il connettore (che vede `lost`) ricrea l'interfaccia."""
+    from meshlens import radio_manager as rm
+    srv = _listener()
+    try:
+        iface = rm._tcp_interface_class()(
+            "127.0.0.1", portNumber=srv.getsockname()[1], connectNow=False, noProto=True)
+        iface.myConnect()
+        first = iface.socket
+        iface._reconnect()
+        assert iface.socket is None and first.fileno() == -1
+        assert iface._readBytes(1) is None and iface._wantExit
+    finally:
+        srv.close()
