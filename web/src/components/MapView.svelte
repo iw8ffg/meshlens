@@ -1,4 +1,5 @@
 <script lang="ts">
+import { safeStorage } from '../lib/storage'
   import { mount, onMount, unmount, untrack } from 'svelte'
   import type { ComponentProps } from 'svelte'
   import * as maplibregl from 'maplibre-gl'
@@ -426,7 +427,7 @@
       if (!map) return
       const c = map.getCenter().wrap()
       const round = (x: number, d: number) => Number(x.toFixed(d))
-      saveView(localStorage, { map: { lon: round(c.lng, 5), lat: round(c.lat, 5), zoom: round(map.getZoom(), 2) } })
+      saveView(safeStorage(), { map: { lon: round(c.lng, 5), lat: round(c.lat, 5), zoom: round(map.getZoom(), 2) } })
     }
     let boundsTimer: ReturnType<typeof setTimeout> | null = null
     const onMoveEnd = () => {
@@ -457,7 +458,7 @@
       boot = needsStyle
       notice = noticeFor(needsStyle ? wanted : current)
       offlineBadge = current === 'offline'
-      const cam = loadView(localStorage).map ?? { lon: 12.5, lat: 42.5, zoom: 5 }
+      const cam = loadView(safeStorage()).map ?? { lon: 12.5, lat: 42.5, zoom: 5 }
       map = new maplibregl.Map({ container: el, style: styleFor(current), center: [cam.lon, cam.lat], zoom: cam.zoom, attributionControl: { compact: true }, fadeDuration: 0 })
       map.on('style.load', () => setup(current !== 'fallback'))
       jumpFocus = focus !== null // link diretto: si apre sul nodo, non sulla vista salvata
@@ -567,7 +568,7 @@
   }
 
   // Waypoint: popup, menu contestuale, modulo di invio ed eliminazione
-  let wpVisible = $state(loadView(localStorage).waypoints)
+  let wpVisible = $state(loadView(safeStorage()).waypoints)
   let wpForm = $state<{ lat: number; lon: number } | null>(null)
   let wpDelete = $state<Waypoint | null>(null)
   let wpError = $state('')
@@ -621,7 +622,7 @@
 
   function toggleWaypoints() {
     wpVisible = !wpVisible
-    saveView(localStorage, { waypoints: wpVisible })
+    saveView(safeStorage(), { waypoints: wpVisible })
   }
 
   function showLinkPopup(at: maplibregl.LngLat, p: Record<string, unknown>) {
@@ -686,7 +687,7 @@
   // Strumenti: righello a due punti (i clic su nodi, collegamenti e copertura restano disattivati)
   let tool = $state<'none' | 'ruler'>('none')
   let rulerPts = $state<RulerPoint[]>([])
-  let cluster = $state(loadView(localStorage).cluster)
+  let cluster = $state(loadView(safeStorage()).cluster)
   let rulerHandler: ((e: maplibregl.MapMouseEvent) => void) | null = null
 
   const restCursor = () => (picking || tool === 'ruler' ? 'crosshair' : '')
@@ -774,7 +775,7 @@
   function toggleCluster() {
     cluster = !cluster
     void src('nodes')?.setClusterOptions({ cluster, ...CLUSTER_OPTS })
-    saveView(localStorage, { cluster })
+    saveView(safeStorage(), { cluster })
   }
 
   // Escape chiude il righello (listener attivo solo mentre il righello e' acceso)

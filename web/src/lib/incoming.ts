@@ -1,3 +1,4 @@
+import { safeStorage } from './storage'
 import { localNodeIds } from './chat'
 import { loadNotifyPrefs, shouldNotify } from './notify'
 import { navigate } from './shell/navigate'
@@ -12,7 +13,7 @@ export function onIncoming(m: Message): void {
   const key = noteIncoming(m, localNodeIds(app.radios), getActiveConv(), visible)
   if (key === null) return
   const permission = typeof Notification === 'undefined' ? 'denied' : Notification.permission
-  if (!shouldNotify(m, key, loadNotifyPrefs(localStorage), permission, !visible)) return
+  if (!shouldNotify(m, key, loadNotifyPrefs(safeStorage()), permission, !visible)) return
   try {
     const n = new Notification(t('chat.dmNotifyTitle', { name: m.from_name || m.from }), { body: m.text, tag: key })
     n.onclick = () => {

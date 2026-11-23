@@ -1,3 +1,4 @@
+import { safeStorage } from './storage'
 // Tema: Auto / Scuro / Chiaro. `data-theme` su <html>, preferenza in localStorage,
 // `<meta name="color-scheme">` per barre di scorrimento e campi nativi.
 
@@ -103,7 +104,7 @@ export function initTheme(): ThemeController {
   if (current) return current
   let storage: Storage | null = null
   try {
-    storage = window.localStorage
+    storage = safeStorage()
   } catch {
     storage = null
   }

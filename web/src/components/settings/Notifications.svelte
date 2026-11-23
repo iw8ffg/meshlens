@@ -1,4 +1,5 @@
 <script lang="ts">
+import { safeStorage } from '../../lib/storage'
   import { onMount } from 'svelte'
   import { ApiError, getJSON, notifyStatus, notifyTest, send, telegramFindChat, type NotifyStatus } from '../../lib/api'
   import { loadNotifyPrefs, notifySupported, saveNotifyPrefs } from '../../lib/notify'
@@ -15,7 +16,7 @@
 
   const errMsg = (e: unknown, fallback: string) => (e instanceof ApiError ? e.message : fallback)
 
-  // Su questo dispositivo: preferenza del browser (localStorage), non salvata sul server
+  // Su questo dispositivo: preferenza del browser (safeStorage()), non salvata sul server
   const supported = notifySupported(window as unknown as { isSecureContext?: boolean; [k: string]: unknown })
   let dmOn = $state(false)
   let dmDenied = $state(false)
@@ -53,7 +54,7 @@
   }
 
   onMount(async () => {
-    dmOn = loadNotifyPrefs(localStorage).dm
+    dmOn = loadNotifyPrefs(safeStorage()).dm
     try {
       const s = await getJSON<AppSettings>('/settings')
       toast = s.notify_toast ?? true
@@ -74,7 +75,7 @@
     dmDenied = false
     if (!v) {
       dmOn = false
-      saveNotifyPrefs(localStorage, { dm: false })
+      saveNotifyPrefs(safeStorage(), { dm: false })
       return
     }
     let permission: NotificationPermission = Notification.permission
@@ -87,11 +88,11 @@
     }
     if (permission === 'granted') {
       dmOn = true
-      saveNotifyPrefs(localStorage, { dm: true })
+      saveNotifyPrefs(safeStorage(), { dm: true })
     } else {
       dmOn = false
       dmDenied = true
-      saveNotifyPrefs(localStorage, { dm: false })
+      saveNotifyPrefs(safeStorage(), { dm: false })
     }
   }
 

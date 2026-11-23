@@ -1,3 +1,4 @@
+import { safeStorage } from './storage'
 import { SvelteMap } from 'svelte/reactivity'
 import { loadFilter, saveFilter, loadFeedFilter, saveFeedFilter } from './filters'
 import type { NodeFilter, FeedFilter } from './filters'
@@ -17,8 +18,8 @@ export const app = $state({
   radioMessages: [] as Message[],
   status: null as Status | null,
   radios: [] as Radio[],
-  filter: loadFilter(localStorage) as NodeFilter,
-  feedFilter: loadFeedFilter(localStorage) as FeedFilter,
+  filter: loadFilter(safeStorage()) as NodeFilter,
+  feedFilter: loadFeedFilter(safeStorage()) as FeedFilter,
   selectedId: null as string | null,
   alerts: [] as Alert[],
   traceroutes: new SvelteMap<string, Traceroute>(),
@@ -153,12 +154,12 @@ export function setStatus(s: Status): void {
 
 export function persistFilter(): void {
   const { countries, maxAgeH, sources, text, links, favorites } = app.filter
-  saveFilter(localStorage, { countries: [...countries], maxAgeH, sources: [...sources], text, links, favorites })
+  saveFilter(safeStorage(), { countries: [...countries], maxAgeH, sources: [...sources], text, links, favorites })
 }
 
 export function persistFeedFilter(): void {
   const { countries, includeUnknown } = app.feedFilter
-  saveFeedFilter(localStorage, { countries: [...countries], includeUnknown })
+  saveFeedFilter(safeStorage(), { countries: [...countries], includeUnknown })
 }
 
 /** Lavori di configurazione, aggiornati dal WebSocket. */
@@ -220,7 +221,7 @@ export function setUpdateJob(j: UpdateJob): void {
 
 /** Ultima conversazione aperta in Messaggi: si riapre al prossimo avvio. */
 export function rememberConv(key: string): void {
-  saveView(localStorage, { conv: key })
+  saveView(safeStorage(), { conv: key })
 }
 
 export function setWaypoints(list: Waypoint[]): void {

@@ -1,4 +1,5 @@
 <script lang="ts">
+import { safeStorage } from './lib/storage'
   import { onMount, untrack } from 'svelte'
   import Login from './components/Login.svelte'
   import MapView from './components/MapView.svelte'
@@ -49,19 +50,19 @@
   let error = $state(false)
   // Vista iniziale: prima l'hash (link diretto), poi la vista ricordata, poi il predefinito
   const initialRoute = parseHash(location.hash)
-  const initialView = loadView(localStorage)
+  const initialView = loadView(safeStorage())
   let tab = $state<Tab>(initialRoute.tab ?? initialView.tab ?? (viewport.phone ? 'map' : 'nodes'))
   let snap = $state<SheetSnap>(1)
   let now = $state(Math.floor(Date.now() / 1000))
   let track = $state<[number, number][] | null>(null)
   let focus = $state<{ lat: number; lon: number; seq: number } | null>(null)
   // Messaggi a pagina intera su desktop (pulsante Espandi), scelta ricordata
-  let chatExpanded = $state(loadChatExpanded(typeof localStorage === 'undefined' ? null : localStorage))
+  let chatExpanded = $state(loadChatExpanded(safeStorage()))
   const chatWide = $derived(chatExpanded && !viewport.phone)
   function setChatExpanded(v: boolean) {
     carryOpenChat() // la chat viene ricreata nell'altra vista: la conversazione resta aperta
     chatExpanded = v
-    saveChatExpanded(typeof localStorage === 'undefined' ? null : localStorage, v)
+    saveChatExpanded(safeStorage(), v)
   }
 
   const visible = $derived(
@@ -179,7 +180,7 @@
   $effect(() => {
     const t = activeTab === 'more' ? null : activeTab
     history.replaceState(null, '', formatHash({ tab: t, nodeId: app.selectedId ?? pendingNode }) || location.pathname)
-    if (t) saveView(localStorage, { tab: t })
+    if (t) saveView(safeStorage(), { tab: t })
   })
 
   // legge lo stato, scrive solo il DOM
@@ -267,7 +268,7 @@
       hasOrigin={origin !== null}
       onchange={(k) => {
         nodeSort = k
-        saveView(localStorage, { nodeSort: k })
+        saveView(safeStorage(), { nodeSort: k })
       }}
     />
     <NodeList nodes={visible} {now} sort={nodeSort} {origin} onpick={pick} />

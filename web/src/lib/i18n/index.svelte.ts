@@ -1,3 +1,4 @@
+import { safeStorage } from '../storage'
 // Lingua dell'interfaccia: italiano (predefinito) o inglese, scelta in Impostazioni e salvata in
 // localStorage. `t()` legge `i18n.lang` (stato reattivo): nei template e nei `$derived` i testi si
 // aggiornano al cambio lingua senza ricaricare la pagina.
@@ -55,7 +56,7 @@ export function tn(base: string, n: number, params?: Record<string, string | num
 
 function store(): Storage | null {
   try {
-    return typeof localStorage === 'undefined' ? null : localStorage
+    return safeStorage()
   } catch {
     return null
   }

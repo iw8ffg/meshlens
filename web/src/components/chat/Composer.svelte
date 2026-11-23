@@ -1,4 +1,5 @@
 <script lang="ts">
+import { safeStorage } from '../../lib/storage'
   import { onMount, untrack } from 'svelte'
   import { ApiError, getJSON, mqttChannels, mqttSend, send } from '../../lib/api'
   import { brokerLabel, pickBroker } from '../../lib/brokers'
@@ -82,7 +83,7 @@
     const c = conv
     if (c === draftConv) return
     draftConv = c
-    text = loadDraft(localStorage, c)
+    text = loadDraft(safeStorage(), c)
   })
 
   const dmTo = $derived(conv.startsWith('dm:') ? splitKey(conv)[2] : '')
@@ -162,10 +163,10 @@
     addMessage(m)
     if (clear) {
       // se nel frattempo si e' scritto altro, il testo (e la bozza) restano
-      const current = conv === from ? text : loadDraft(localStorage, from)
+      const current = conv === from ? text : loadDraft(safeStorage(), from)
       if (draftSentUnchanged(current, sentText)) {
         if (conv === from) text = ''
-        saveDraft(localStorage, from, '')
+        saveDraft(safeStorage(), from, '')
       }
       onsent(m)
     }
@@ -336,7 +337,7 @@
     aria-describedby="{uid}-cnt"
     {placeholder}
     bind:value={text}
-    oninput={(e) => saveDraft(localStorage, conv, e.currentTarget.value)}
+    oninput={(e) => saveDraft(safeStorage(), conv, e.currentTarget.value)}
     onkeydown={onkey}
     disabled={!hasChoice}
   ></textarea>
