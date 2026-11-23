@@ -267,6 +267,11 @@ class RadioConnector:
             "my_node_name": self._my_node_name, "channels": list(self._channels),
         }
 
+    @property
+    def running(self) -> bool:
+        """Ciclo di collegamento attivo (collegata, in collegamento o tra due tentativi)."""
+        return self._task is not None and not self._task.done()
+
     def _set_state(self, state: str, error: str | None = None) -> None:
         self._state, self._error = state, error
         if state == "connected":

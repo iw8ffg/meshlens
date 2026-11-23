@@ -8,6 +8,12 @@ Regole (contratto §0.7, §6.5 e decisione R5.2):
   nomi di nodi o testo altrui;
 - invio solo attraverso RadioManager.send / MqttSender.send (conferma pubblica mai data in
   automatico), mai override del duty cycle; coda con limiti e pausa sui rifiuti del firmware.
+- scelta voluta (fail-safe, review M6): il bot considera solo la PRIMA copia di un messaggio
+  (meta.live). Se lo stesso messaggio arriva prima da una sorgente che non e' un bersaglio
+  (es. MQTT con broker non scelto) e poi via RF su una radio bersaglio, la copia RF e' un
+  doppione e il bot non risponde. Meglio una risposta mancata che due risposte o una risposta
+  a un messaggio gia' visto; con MQTT collegato alla stessa mesh conviene scegliere come
+  bersagli entrambe le sorgenti.
 """
 import json
 import logging

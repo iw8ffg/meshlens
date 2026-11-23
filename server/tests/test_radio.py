@@ -1304,3 +1304,16 @@ async def test_has_admin_session_follows_remote_cache_age():
     assert h.conn.has_admin_session(0x42) is True
     h.now += SESSION_MAX_AGE + 1
     assert h.conn.has_admin_session(0x42) is False
+
+
+async def test_running_true_between_retries_false_after_stop():
+    """M7: tra due tentativi (stato error/reconnecting) il connettore possiede ancora la porta."""
+    h = Harness(lambda cfg, n: (_ for _ in ()).throw(OSError("porta occupata")))
+    h.gate.clear()  # il backoff resta in attesa
+    assert h.conn.running is False
+    await h.conn.start()
+    await h.until(lambda: h.conn.state()["state"] in ("error", "reconnecting"))
+    assert h.conn.running is True
+    h.gate.set()
+    await h.conn.stop()
+    assert h.conn.running is False

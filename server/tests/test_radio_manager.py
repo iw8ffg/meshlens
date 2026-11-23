@@ -795,3 +795,18 @@ async def test_traceroute_db_failure_after_send_keeps_the_slot():
     e.store.add_traceroute = real
     with pytest.raises(TracerouteThrottled):
         await e.mgr.traceroute(TARGET, r["id"])
+
+
+async def test_connector_running_and_admin_session_open():
+    e = Env()
+    r = await e.mgr.add("usb", "COM5", "A")
+    fc = FakeConnector.instances[0]
+    fc.running = True
+    assert e.mgr.connector_running(r["id"]) is True
+    fc.running = False
+    assert e.mgr.connector_running(r["id"]) is False
+    with pytest.raises(KeyError):
+        e.mgr.connector_running("nope")
+    assert e.mgr.admin_session_open(0x42) is False
+    fc.has_admin_session = lambda num: num == 0x42
+    assert e.mgr.admin_session_open(0x42) is True and e.mgr.admin_session_open(0x43) is False
