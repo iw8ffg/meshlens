@@ -27,6 +27,7 @@
   import { keyChangedRecently } from '../lib/reactions'
   import { t, type MsgKey } from '../lib/i18n/index.svelte'
   import type { Node } from '../lib/types'
+  import { isGuest } from '../lib/guest.svelte'
 
   type Pos = { time: number; lat: number; lon: number; precision_bits: number | null; source: string }
   let {
@@ -42,6 +43,9 @@
     onclose: () => void
     onchat: () => void
   } = $props()
+
+  // ospite (E19): sola lettura, nessun pulsante che scrive o apre messaggi e configurazione
+  const readonly = $derived(isGuest())
 
   const heard = $derived(
     Object.entries(node.heard_by ?? {})
@@ -241,17 +245,21 @@
     <span class="ui-muted">{ago(contactMinutes(node.last_heard, now))}</span>
   </div>
 
-  <div class="flags">
-    <Button icon="star" aria-pressed={!!node.is_favorite} disabled={favBusy} onclick={toggleFavorite} class={node.is_favorite ? 'fav on' : 'fav'}>{t('nodes.favorite')}</Button>
-    <Button icon="house" aria-pressed={!!node.is_mine} disabled={mineBusy} onclick={toggleMine} class={node.is_mine ? 'mine on' : 'mine'}>{t('nodes.mine')}</Button>
-    <NodeFlags {node} />
-  </div>
+  {#if !readonly}
+    <div class="flags">
+      <Button icon="star" aria-pressed={!!node.is_favorite} disabled={favBusy} onclick={toggleFavorite} class={node.is_favorite ? 'fav on' : 'fav'}>{t('nodes.favorite')}</Button>
+      <Button icon="house" aria-pressed={!!node.is_mine} disabled={mineBusy} onclick={toggleMine} class={node.is_mine ? 'mine on' : 'mine'}>{t('nodes.mine')}</Button>
+      <NodeFlags {node} />
+    </div>
+  {/if}
 
   <div class="acts">
-    {#if !node.is_local_radio}
+    {#if !readonly && !node.is_local_radio}
       <Button icon="chat" disabled={!firstRadio} title={firstRadio ? '' : t('nodes.tr.connectRadio')} onclick={directMessage}>{t('nodes.detail.directMessage')}</Button>
     {/if}
-    <Button icon="settings" disabled={!firstRadio} title={firstRadio ? '' : t('nodes.tr.connectRadio')} onclick={() => openConfig(node.id)}>{t('nodes.detail.configure')}</Button>
+    {#if !readonly}
+      <Button icon="settings" disabled={!firstRadio} title={firstRadio ? '' : t('nodes.tr.connectRadio')} onclick={() => openConfig(node.id)}>{t('nodes.detail.configure')}</Button>
+    {/if}
     {#if node.lat !== null}
       <Button icon="route" disabled={loading} onclick={toggleTrack}>{shown ? t('nodes.detail.hideTrack') : loading ? t('shell.loading') : t('nodes.detail.showTrack')}</Button>
     {/if}
@@ -268,7 +276,7 @@
       <div class="gap"><Button icon="download" onclick={exportGpx}>{t('nodes.detail.exportGpx')}</Button></div>
     {/if}
   {/if}
-  {#if !firstRadio}<p class="hint">{t('nodes.detail.needRadio')}</p>{/if}
+  {#if !firstRadio && !readonly}<p class="hint">{t('nodes.detail.needRadio')}</p>{/if}
   {#if msg}
     <div class="gap">
       <Banner kind="warn" title={t(msg)}>
@@ -279,7 +287,7 @@
     </div>
   {/if}
 
-  {#if localRadio}
+  {#if localRadio && !readonly}
     <div class="gap"><PrivacyBanner nodeId={node.id} compact /></div>
   {/if}
 
@@ -318,8 +326,8 @@
 
   <NodeCharts nodeId={node.id} />
   <SensorSection {node} />
-  <Traceroute {node} />
-  <TraceSchedule {node} />
+  <Traceroute {node} {readonly} />
+  {#if !readonly}<TraceSchedule {node} />{/if}
 </section>
 
 <style>

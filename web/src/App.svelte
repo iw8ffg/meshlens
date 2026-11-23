@@ -49,6 +49,9 @@ import { safeStorage } from './lib/storage'
   import { serialRunner } from './lib/serial'
   import { app, upsertNodes, addMessage, addRadioHistory, addMqttHistory,setMessageStatus, setStatus, setRadios, setAlerts, setTraceroute, persistFilter, persistFeedFilter, coverage, setCoverageSessions, applyCoverage, configUi, setConfigJob, setMapJob, setUpdateStatus, setUpdateJob, openChat, carryOpenChat, setWaypoints, upsertWaypoint, removeWaypoint } from './lib/stores.svelte'
   import type { AuthStatus, Message, Node, Radio } from './lib/types'
+  import GuestSettings from './components/settings/GuestSettings.svelte'
+  import { isGuest, setRole, session } from './lib/guest.svelte'
+  import { safeTab, tabsFor } from './lib/guest'
 
   let auth = $state<AuthStatus | null>(null)
   let error = $state(false)
@@ -76,7 +79,9 @@ import { safeStorage } from './lib/storage'
   const origin = $derived(myOrigin(app.nodes, app.radios, geopos.pos))
   const selected = $derived(app.selectedId ? (app.nodes.get(app.selectedId) ?? null) : null)
   // Su desktop "Mappa" e "Altro" non esistono come schede: la mappa e' sempre visibile
-  const activeTab = $derived<Tab>(effectiveTab(tab, viewport.phone))
+  // l'ospite (E19) non ha Messaggi, Radio, Copertura: una scheda non ammessa ricade su Nodi
+  const activeTab = $derived<Tab>(safeTab(effectiveTab(tab, viewport.phone), session.role))
+  const guest = $derived(session.role === 'guest')
   const alertCount = $derived(app.alerts.length)
   const unreadTotal = $derived(totalUnread(unread.counts))
 
@@ -146,6 +151,7 @@ import { safeStorage } from './lib/storage'
   async function refresh() {
     try {
       auth = await getJSON<AuthStatus>('/auth/status')
+      setRole(auth.role)
       error = false
     } catch {
       error = true
@@ -199,6 +205,17 @@ import { safeStorage } from './lib/storage'
     if (!auth?.authenticated) return
     // un caricamento alla volta: un resync arrivato a metà riparte dopo, non si sovrappone
     const loader = serialRunner(() => {
+      if (isGuest()) {
+        // ospite: solo nodi e avvisi dei nodi (il resto il server lo nega)
+        return Promise.allSettled([
+          getJSON<Node[]>('/nodes').then((list) => {
+            upsertNodes(list)
+            nodesLoaded = true
+            void resolvePending()
+          }),
+          fetchAlerts().then(setAlerts),
+        ])
+      }
       const jobs: Promise<unknown>[] = [
         getJSON<Node[]>('/nodes').then((list) => {
           upsertNodes(list)
@@ -288,6 +305,8 @@ import { safeStorage } from './lib/storage'
     <Chat {now} onpick={pickId} expanded={chatWide} canExpand={!viewport.phone} ontoggleexpand={() => setChatExpanded(!chatExpanded)} />
   {:else if activeTab === 'radio'}
     <Radios />
+  {:else if activeTab === 'settings' && guest}
+    <GuestSettings onlogout={refresh} />
   {:else if activeTab === 'settings'}
     <Settings onlogout={refresh} />
   {/if}
@@ -306,9 +325,11 @@ import { safeStorage } from './lib/storage'
   <Login status={auth} onsuccess={refresh} />
 {:else}
   <div class="app">
-    <Onboarding />
-    <GlobalSearch />
-    <WhatsNew />
+    {#if !guest}
+      <Onboarding />
+      <GlobalSearch />
+      <WhatsNew />
+    {/if}
     <TopBar visible={visible.length} {now} tab={activeTab} onselect={goTab} onupdate={() => goTab('settings')} onpickalert={pickId} />
     <ConnectionBar />
     <div class="main">
@@ -343,7 +364,7 @@ import { safeStorage } from './lib/storage'
         <Sheet bind:snap label={t('shell.panel')}>
           {#if tab === 'more'}
             <ul class="more">
-              {#each MORE_TABS as m (m.id)}
+              {#each tabsFor(MORE_TABS, session.role) as m (m.id)}
                 <li>
                   <button type="button" onclick={() => goTab(m.id)}>
                     <Icon name={m.icon} size={20} /><span>{t(m.labelKey)}</span><Icon name="chevR" size={18} />
@@ -367,7 +388,7 @@ import { safeStorage } from './lib/storage'
       <BottomNav tab={tab} alerts={alertCount} unread={unreadTotal} onselect={goTab} />
     {/if}
   </div>
-  {#if configUi.target}
+  {#if configUi.target && !guest}
     <ConfigPanel nodeId={configUi.target.nodeId} radioId={configUi.target.radioId} initialTab={configUi.target.tab} {now} onclose={() => (configUi.target = null)} />
   {/if}
 {/if}

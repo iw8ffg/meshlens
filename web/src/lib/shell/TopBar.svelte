@@ -15,6 +15,8 @@
   import AlertsList from './AlertsList.svelte'
   import { alertTone } from '../alerts'
   import { openGlobalSearch } from '../globalsearch.svelte'
+  import { tabsFor } from '../guest'
+  import { session } from '../guest.svelte'
 
   interface Props {
     visible: number
@@ -32,6 +34,8 @@
   const hasWarnAlert = $derived(app.alerts.some((a) => alertTone(a.kind) === 'warn'))
   const unreadTotal = $derived(totalUnread(unread.counts))
   const radiosOn = $derived(app.radios.filter((r) => r.state === 'connected').length)
+  // ospite (E19): niente ricerca (anche messaggi), radio, aggiornamenti, impostazioni MQTT
+  const guest = $derived(session.role === 'guest')
 
   let open = $state<'alerts' | 'menu' | 'mqtt' | null>(null)
   let root = $state<HTMLElement>()
@@ -62,11 +66,12 @@
   <div class="brand">
     <Logo size={viewport.phone ? 28 : 26} />
     {#if !viewport.phone}<span class="name">MeshLens</span>{/if}
+    {#if guest}<span class="guest" title={t('guest.badge')}><Icon name="eye" size={14} />{viewport.phone ? t('guest.badgeShort') : t('guest.badge')}</span>{/if}
   </div>
 
   {#if !viewport.phone}
     <nav class="tabs" aria-label={t('nav.sections')}>
-      {#each DESKTOP_TABS as d (d.id)}
+      {#each tabsFor(DESKTOP_TABS, session.role) as d (d.id)}
         <button type="button" class:on={tab === d.id} aria-current={tab === d.id ? 'page' : undefined} onclick={() => onselect(d.id)}>
           <Icon name={d.icon} size={16} />{t(d.labelKey)}{#if d.id === 'chat' && unreadTotal > 0}<span class="bdg" aria-label={tn('shell.unread', unreadTotal)}>{num(unreadTotal)}</span>{/if}
         </button>
@@ -84,10 +89,12 @@
         <div class="pop mqtt" role="dialog" aria-label={t('shell.mqttStatus')}>
           <MqttStatusDetail
             status={mqtt}
-            onsettings={() => {
-              open = null
-              onselect('settings')
-            }} />
+            onsettings={guest
+              ? undefined
+              : () => {
+                  open = null
+                  onselect('settings')
+                }} />
         </div>
       {/if}
     </div>
@@ -95,12 +102,16 @@
       <span class="it ui-mono">{mqtt ? num(mqtt.msgs_per_s, 1) : '–'} msg/s</span>
     {/if}
     <span class="it"><Icon name="nodes" size={16} />{num(visible)}{#if !viewport.phone}&nbsp;{t('shell.nodesWord')}{/if}</span>
-    <span class="it"><Icon name="radio" size={16} />{radiosOn}/{app.radios.length}{#if !viewport.phone}&nbsp;{t('shell.radiosWord')}{/if}</span>
+    {#if !guest}
+      <span class="it"><Icon name="radio" size={16} />{radiosOn}/{app.radios.length}{#if !viewport.phone}&nbsp;{t('shell.radiosWord')}{/if}</span>
+    {/if}
   </div>
 
   <div class="acts">
-    <button type="button" class="ib" aria-label={t('search.open')} title={t('search.open')} onclick={openGlobalSearch}><Icon name="search" size={18} /></button>
-    {#if upd}
+    {#if !guest}
+      <button type="button" class="ib" aria-label={t('search.open')} title={t('search.open')} onclick={openGlobalSearch}><Icon name="search" size={18} /></button>
+    {/if}
+    {#if upd && !guest}
       <button type="button" class="upd" onclick={onupdate}>
         <Icon name="download" size={16} />{#if viewport.phone}{t('shell.updateShort')}{:else}{t('shell.updateAvailable', { version: upd })}{/if}
       </button>
@@ -141,6 +152,7 @@
   .tb { position: relative; flex: none; display: flex; align-items: center; gap: var(--space-4); height: var(--topbar-h); padding: 0 var(--space-3); box-sizing: border-box; background: var(--surface); border-bottom: 1px solid var(--line-strong); color: var(--ink); z-index: var(--z-topbar); font: 400 14px/20px var(--font-sans); }
   .brand { display: flex; align-items: center; gap: var(--space-2); flex: none; }
   .name { font: 600 16px/24px var(--font-sans); }
+  .guest { display: inline-flex; align-items: center; gap: 4px; height: 24px; padding: 0 var(--space-2); border-radius: var(--radius-pill); background: var(--accent-soft); color: var(--accent-ink); font: 600 13px/16px var(--font-sans); white-space: nowrap; }
   .tabs { display: flex; gap: 2px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
   .tabs button { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 var(--space-3); border: 0; border-radius: var(--radius-md); background: none; color: var(--ink-muted); font: 500 14px/20px var(--font-sans); cursor: pointer; white-space: nowrap; }
   .tabs button:hover { color: var(--ink); background: var(--surface-sunken); }

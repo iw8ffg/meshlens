@@ -64,6 +64,7 @@ import { safeStorage } from '../lib/storage'
   import { waypointData } from '../lib/waypoints'
   import { deleteWaypoint } from '../lib/api'
   import type { Waypoint } from '../lib/types'
+  import { isGuest } from '../lib/guest.svelte'
   import ActiveFilters from './ActiveFilters.svelte'
 
   let {
@@ -588,7 +589,7 @@ import { safeStorage } from '../lib/storage'
     if (origin && pos && !isOrigin) rows.push({ label: t('nodes.distance'), value: `${formatMeters(haversineM(origin, pos))} ${origin.label}` })
     const radio = app.radios.find((r) => r.state === 'connected')
     const actions: NonNullable<PopupProps['actions']> = []
-    if (radio) {
+    if (radio && !isGuest()) {
       actions.push({
         label: t('nodes.detail.directMessage'),
         icon: 'send',
@@ -673,7 +674,7 @@ import { safeStorage } from '../lib/storage'
   }
 
   function showContextMenu(at: maplibregl.LngLat) {
-    if (picking || tool !== 'none') return
+    if (picking || tool !== 'none' || isGuest()) return // ospite (E19): niente waypoint
     openPopup(at, {
       title: t('waypoints.contextTitle'),
       subtitle: `${at.lat.toFixed(5)}, ${at.lng.toFixed(5)}`,
