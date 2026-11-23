@@ -149,7 +149,8 @@ class BackupManager:
         return out
 
     def prune(self) -> None:
-        items = self.list()  # dal piu' recente
+        pending = self.pending_restore()  # mai eliminato e non conta nel limite del motivo
+        items = [b for b in self.list() if b["name"] != pending]  # dal piu' recente
         doomed = []
         for reason, keep in KEEP_BY_REASON.items():
             doomed += [b for b in items if b["reason"] == reason][keep:]

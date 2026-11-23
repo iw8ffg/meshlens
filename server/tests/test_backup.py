@@ -393,3 +393,22 @@ def test_delete_single_backup(tmp_path):
         m.delete("meshlens-20200101-000000-manuale.db")
     m.delete(b)
     assert not (m.dir / b).exists() and (m.dir / a).exists()
+
+
+def test_prune_never_deletes_pending_restore(tmp_path):
+    clock = Clock(1_700_000_000)
+    conn, m = mgr(tmp_path, clock)
+    first = None
+    for i in range(2):
+        clock.t += 100
+        info = m.create_sync(conn, "manuale")
+        first = first or info["name"]
+    m.schedule_restore(first)
+    for _ in range(3):
+        clock.t += 100
+        m.create_sync(conn, "manuale")
+    names = [b["name"] for b in m.list()]
+    assert first in names
+    # il pendente non conta nel limite: restano anche 2 manuali "normali"
+    assert len(names) == 3
+    conn.close()
