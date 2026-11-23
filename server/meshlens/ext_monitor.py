@@ -43,7 +43,7 @@ def install(rt, ctx) -> None:
     engine.reload()
     sensors = SensorService(ctx.conn, ctx.store, ctx.bus.publish,
                             lambda num: ctx.live.nodes.get(num), rt.ingestor.persists,
-                            on_detection=engine.on_detection)
+                            on_detection=engine.on_detection, is_ignored=ctx.live.is_ignored)
     ctx.ext["alert_rules"] = engine
     ctx.ext["sensors"] = sensors
     ctx.alert_sources.append(engine.alert_source)

@@ -426,6 +426,10 @@ def _num_from_id(node_id) -> int | None:
         return None
 
 
+def _semantics(r: Rule) -> tuple:
+    return (r.kind, r.node_num, r.channel, r.threshold, json.dumps(r.params, sort_keys=True))
+
+
 def _plain(x: float) -> float | int:
     return int(x) if float(x).is_integer() else x
 
@@ -456,6 +460,7 @@ class RuleEngine:
         self._events: dict[str, dict] = {}
         self._last_fire: dict[tuple[int, int], float] = {}
         self._seeded = False
+        self._no_seed: set[int] = set()  # regole il cui last_fired non vale piu' (semantica cambiata)
         self._active_keys: set[str] = set()  # avvisi di stato presenti all'ultimo calcolo
 
     # ---- gestione ----
@@ -479,8 +484,11 @@ class RuleEngine:
         new = {r.id: r for r in self.store.list()}
         self._rules = new
         live_ids = {i for i, r in new.items() if r.enabled}
-        changed = {i for i, r in new.items() if i in old and old[i].updated != r.updated}
-        self._events = {k: e for k, e in self._events.items()
+        # Una modifica di nome, cooldown o abilitazione non cambia cio' che la regola osserva:
+        # lo stato (pausa, eventi, zone) resta. Solo parametri, soglia, nodo, canale o tipo lo azzerano.
+        changed = {i for i, r in new.items() if i in old and _semantics(old[i]) != _semantics(r)}
+        self._no_seed = {i for i in self._no_seed if i in new} | changed
+        self._events = {k: {**e, "rule": new[e["rule"].id]} for k, e in self._events.items()
                         if e["rule"].id in live_ids and e["rule"].id not in changed}
         self._last_fire = {k: v for k, v in self._last_fire.items()
                            if k[0] in live_ids and k[0] not in changed}
@@ -505,10 +513,13 @@ class RuleEngine:
     # ---- pausa e avvisi a evento ----
     def _may_fire(self, rule: Rule, num: int, now: float) -> bool:
         last = self._last_fire.get((rule.id, num))
+        if last is None and rule.node_num == num and rule.id not in self._no_seed:
+            last = rule.last_fired  # sopravvive a riavvio e riabilitazione (regole su un solo nodo)
         return last is None or now - last >= rule.cooldown_min * 60
 
     def _mark_fired(self, rule: Rule, num: int, now: float) -> None:
         self._last_fire[(rule.id, num)] = now
+        self._no_seed.discard(rule.id)
         self.store.touch_fired(rule.id, now)
         cached = self._rules.get(rule.id)
         if cached is not None:
@@ -585,6 +596,16 @@ class RuleEngine:
             return  # posizione offuscata: darebbe falsi scatti
         if self.ignored(num):
             return
+        # Posizioni che l'ingestione non applica (replay del node DB della radio: packet_id 0,
+        # orario di ultimo ascolto; pacchetti fuori ordine): non devono muovere lo stato.
+        if getattr(ev, "packet_id", None) == 0:
+            return
+        rx = getattr(ev, "rx_time", None)
+        if rx is not None and rx <= 0:
+            return
+        pos_time = (self.get_nodes().get(num) or {}).get("position_time")
+        if rx is not None and pos_time is not None and rx < pos_time:
+            return
         now = self.clock()
         for rule in self._enabled("geofence"):
             if rule.node_num != num:
@@ -605,7 +626,7 @@ class RuleEngine:
 
     def on_detection(self, num: int, text: str, value: float | None) -> None:
         try:
-            if self.ignored(num):
+            if not (text or "").strip() or self.ignored(num):
                 return
             now = self.clock()
             folded = fold(text)

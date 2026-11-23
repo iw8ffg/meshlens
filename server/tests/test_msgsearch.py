@@ -251,3 +251,27 @@ def test_uses_ro_connection(tmp_path):
         assert search_nodes(ro, "zz") == []
     finally:
         ro.close()
+
+
+def test_fts_non_alnum_term_still_required(engine):
+    conn, _ = engine
+    store = Store(conn)
+    add(store, "k1", "hello \U0001F600", 1.0)
+    add(store, "k2", "hello world", 2.0)
+    r = search_messages(conn, "hello \U0001F600")
+    assert [h["message"]["key"] for h in r["hits"]] == ["k1"]
+
+
+def test_snippet_only_for_returned_page_prefix_and_accents(engine):
+    conn, kind = engine
+    store = Store(conn)
+    for i in range(5):
+        add(store, f"k{i}", f"Perche' ciao a tutti {i}", float(i))
+    add(store, "k9", "Perch\u00e9 ci vediamo", 9.0)
+    r = search_messages(conn, "perche", limit=2)
+    assert len(r["hits"]) == 2 and r["next"] is not None
+    if kind == "fts5":  # LIKE non ignora gli accenti
+        assert SNIP_OPEN + "Perch\u00e9" + SNIP_CLOSE in r["hits"][0]["snippet"]
+    r = search_messages(conn, "a", limit=50)
+    sn = [h["snippet"] for h in r["hits"] if h["message"]["key"] == "k0"][0]
+    assert SNIP_OPEN + "a" + SNIP_CLOSE in sn

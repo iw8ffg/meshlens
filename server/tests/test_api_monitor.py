@@ -195,3 +195,11 @@ def test_guest_paths_are_registered_routes():
     get_paths = {r.path for r in app.routes if "GET" in getattr(r, "methods", ())}
     assert api_monitor.GUEST_GET_PATHS
     assert set(api_monitor.GUEST_GET_PATHS) <= get_paths
+
+
+async def test_node_id_overflow_is_400():
+    async with logged(make_ctx()) as c:
+        r = await c.get("/api/nodes/!ffffffffffffffffffff/sensor-events")
+        assert r.status_code == 400
+        r = await c.post("/api/alert-rules", json={**BATTERY, "node_id": "!ffffffffffffffffffff"})
+        assert r.status_code == 400

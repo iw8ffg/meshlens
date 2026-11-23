@@ -400,6 +400,20 @@ def test_geofence_ignores_imprecise_and_replayed_and_dup():
     assert len(h.sent) == 1
 
 
+def test_geofence_ignores_nodedb_replay_and_out_of_order_positions():
+    h = Harness([nd(9, lat=45, lon=12, precision_bits=32, position_time=1000)])
+    h.add(**{**GEO_RULE, "params": {"polygon": SQUARE, "trigger": "both"}})
+    h.engine.on_event(h.pos(45, 12, rx_time=1000, packet_id=5), "new")  # seme: fuori
+    # replay del node DB della radio (packet_id 0, orario vecchio): dentro
+    h.engine.on_event(h.pos(40.5, 10.5, rx_time=500, packet_id=0), "new")
+    # pacchetto fuori ordine, piu' vecchio della posizione corrente del nodo
+    h.engine.on_event(h.pos(40.5, 10.5, rx_time=600, packet_id=7), "new")
+    h.engine.on_event(h.pos(45, 12, rx_time=1100, packet_id=8), "new")
+    assert h.sent == []
+    h.engine.on_event(h.pos(40.5, 10.5, rx_time=1200, packet_id=9), "new")
+    assert [k for k, *_ in h.sent] == ["rule_geofence_enter"]
+
+
 def test_geofence_reload_seeds_from_live_nodes():
     h = Harness([nd(9, lat=40.5, lon=10.5, precision_bits=32)])
     h.add(**GEO_RULE)
@@ -716,3 +730,37 @@ def test_build_installs_monitor_extension(tmp_path):
     from test_app import FakeConnector
     app, rt = build(tmp_path, connector_factory=FakeConnector, static_dir=None)
     assert "alert_rules" in rt.ctx.ext and "sensors" in rt.ctx.ext
+
+
+def test_cooldown_survives_edit_and_restart():
+    h = Harness()
+    rule = kwrule(h, node_num=9, cooldown_min=60)
+    h.engine.on_message(h.msg("aiuto"), LIVE)
+    assert len(h.sent) == 1
+    # rinomina: lo stato resta, niente nuovo avviso
+    h.store.update(rule.id, validate_rule({"name": "Altro nome"}, h.store.get(rule.id)), h.t + 1)
+    h.engine.reload()
+    h.t += 10
+    h.engine.on_message(h.msg("aiuto"), LIVE)
+    assert len(h.sent) == 1
+    # riavvio: motore nuovo sulla stessa tabella, last_fired persistito
+    from meshlens.alert_rules import RuleEngine
+    e2 = RuleEngine(h.store, get_nodes=lambda: h.nodes, get_local_ids=lambda: set(),
+                    notify=lambda kind, key, **f: h.sent.append((kind, key, f)),
+                    notify_ready=lambda now: True, clock=lambda: h.t)
+    e2.reload()
+    e2.on_message(h.msg("aiuto"), LIVE)
+    assert len(h.sent) == 1
+    # cambio di parole chiave: la regola e' un'altra, il cooldown riparte
+    h.store.update(rule.id, validate_rule({"params": {"words": ["soccorso"]}},
+                                          h.store.get(rule.id)), h.t + 2)
+    e2.reload()
+    e2.on_message(h.msg("soccorso"), LIVE)
+    assert len(h.sent) == 2
+
+
+def test_empty_detection_text_does_not_fire_rule():
+    h = Harness()
+    h.add(kind="detection")
+    h.engine.on_detection(9, "", None)
+    assert h.sent == []

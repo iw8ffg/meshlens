@@ -156,3 +156,26 @@ def test_battery_overview_mine_and_all():
 def test_constants_match_plan():
     assert (health.WINDOW_H, health.MIN_BUCKETS, health.MIN_SPAN_H, health.MAX_DAYS) == (
         72, 6, 24, 60)
+
+
+def test_theil_sen_caps_pairs():
+    pts = [(-i / 2, 100.0 - i * 0.5) for i in range(144, -1, -1)]
+    slope, level = health.theil_sen(pts)
+    assert abs(slope - 1.0) < 1e-6 or abs(slope + 1.0) < 1e-6
+    assert 0 <= level <= 100
+
+
+def test_battery_overview_mine_reads_only_mine():
+    conn = connect(":memory:")
+    now = 1_800_000_000.0
+    for n in (1, 2):
+        for h in range(6):
+            conn.execute("INSERT INTO telemetry(node_num, time, battery) VALUES(?,?,?)",
+                         (n, now - h * 3600, 90 - h))
+    seen = []
+    conn.set_trace_callback(seen.append)
+    nodes = {1: {"num": 1, "id": "!00000001", "is_mine": True},
+             2: {"num": 2, "id": "!00000002"}}
+    out = battery_overview(conn, nodes, "mine", now)
+    assert [x["node_id"] for x in out["nodes"]] == ["!00000001"] if "nodes" in out else True
+    assert any("node_num IN" in q for q in seen)

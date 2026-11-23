@@ -220,8 +220,24 @@ def test_install_registers_hook_and_ext():
     rt = SimpleNamespace(add_event_hook=hooks.append,
                          ingestor=SimpleNamespace(persists=lambda n, s: True))
     ctx = SimpleNamespace(store=SimpleNamespace(conn=conn), bus=SimpleNamespace(publish=print),
-                          live=SimpleNamespace(nodes={}), ext={})
+                          live=SimpleNamespace(nodes={}, is_ignored=lambda n: False), ext={})
     install(rt, ctx)
     assert isinstance(ctx.ext["tak"], TakService)
     assert hooks == [ctx.ext["tak"].on_event]
     assert time.time() > 0
+
+
+def test_ignored_node_contact_saved_but_not_broadcast():
+    e = Env()
+    e.svc.is_ignored = lambda n: True
+    e.svc.on_event(make_ev(), "new")
+    assert len(e.rows()) == 1 and e.events == []
+
+
+def test_pli_without_fix_keeps_old_time():
+    e = Env()
+    e.svc.on_event(make_ev(rx=1000.0), "new")
+    nofix = {k: v for k, v in FULL.items() if k not in ("lat", "lon")}
+    e.svc.on_event(make_ev(make_packet(**nofix), rx=3000.0), "new")
+    r = e.conn.execute("SELECT lat, time FROM tak_contacts").fetchone()
+    assert r["lat"] is not None and r["time"] == 1000.0
