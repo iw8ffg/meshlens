@@ -155,6 +155,8 @@ export interface SessionInfo {
   user_agent: string | null
   ip: string | null
   current: boolean
+  /** Ruolo della sessione (1.6, E19): le sessioni ospite sono in sola lettura. */
+  role?: Role
 }
 
 // Impostazioni: la forma esatta e' definita dal backend (task successivi).
@@ -705,3 +707,15 @@ export interface ProfilePreview {
 // ---- 1.6: WP5 ----
 
 // ---- 1.6: WP6 ----
+
+/** Stato dell'accesso ospite (GET /api/auth/guest, solo admin). */
+export interface GuestStatus {
+  enabled: boolean
+  pin_set: boolean
+  /** Richiesta da questo PC: solo da qui si imposta il PIN e si accende l'accesso. */
+  local: boolean
+  lan_access: boolean
+  /** Sessioni ospite aperte. */
+  sessions: number
+  pin_min: number
+}
