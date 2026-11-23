@@ -1,6 +1,6 @@
 import type { IconName } from './ui/icons'
 import type { Alert } from './types'
-import { num } from './format'
+import { num, signed } from './format'
 import { t } from './i18n/index.svelte'
 
 /** Testo di un avviso nella lingua corrente, senza nome del nodo. */
@@ -18,6 +18,21 @@ export function alertLabel(a: Pick<Alert, 'kind' | 'value' | 'detail'> & { node_
       return t('shell.alertBackOnline', { n: Math.round(a.value) })
     case 'firmware_old':
       return t('shell.alertFirmware', { version: (a.detail ?? '').split('.').slice(0, 3).join('.') })
+    // 1.6: avvisi delle regole su misura (value/detail: vedi piano WP2, D3)
+    case 'rule_keyword':
+      return t('alertrules.alert.keyword', { word: a.detail ?? '' })
+    case 'rule_snr':
+      return t('alertrules.alert.snr', { n: signed(a.value, 1) })
+    case 'rule_geofence':
+      return t(a.value >= 1 ? 'alertrules.alert.geoEnter' : 'alertrules.alert.geoExit', {
+        zone: a.detail || t('alertrules.alert.zoneFallback'),
+      })
+    case 'rule_battery':
+      return t('alertrules.alert.battery', { n: Math.round(a.value) })
+    case 'rule_silent':
+      return t('alertrules.alert.silent', { n: num(a.value, 1) })
+    case 'sensor_detection':
+      return t('alertrules.alert.detection', { text: a.detail ?? '' })
     default:
       return t('shell.alertGeneric')
   }
@@ -40,6 +55,18 @@ export function alertIcon(kind: string): IconName {
       return 'key'
     case 'back_online':
       return 'check'
+    case 'rule_keyword':
+      return 'chat'
+    case 'rule_snr':
+      return 'bars'
+    case 'rule_geofence':
+      return 'pin'
+    case 'rule_battery':
+      return 'battery'
+    case 'rule_silent':
+      return 'clock'
+    case 'sensor_detection':
+      return 'eye'
     default:
       return 'alert'
   }

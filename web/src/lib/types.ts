@@ -605,6 +605,23 @@ export type ZonePolygon = [number, number][]
 // ---- 1.6: WP1 ----
 
 // ---- 1.6: WP2 ----
+export type CompareMetric = 'battery' | 'voltage' | 'channel_util' | 'air_util_tx' | 'snr'
+export type AutonomyStatus = 'falling' | 'charging' | 'stable' | 'insufficient' | 'external' | 'solar'
+export type SolarTrend = 'charging' | 'falling' | 'stable'
+export interface HealthNode {
+  node_id: string; name: string; is_mine: boolean; is_favorite: boolean
+  battery: number | null; samples: number; last_sample: number | null
+  voltage: number | null; current_ma: number | null; uptime_s: number | null; reboots: number
+  status: AutonomyStatus; level: number | null; slope_per_day: number | null; days_left: number | null
+  solar: boolean; solar_trend: SolarTrend | null; solar_peak: number | null
+}
+export interface HealthResponse {
+  generated: number; window_h: number; scope: 'mine' | 'all'; truncated: boolean; nodes: HealthNode[]
+}
+export interface AlertRuleBody {
+  kind: AlertRuleKind; name: string; enabled: boolean; node_id: string | null; channel: string | null
+  threshold: number | null; params: Record<string, unknown>; cooldown_min: number
+}
 
 // ---- 1.6: WP3 ----
 

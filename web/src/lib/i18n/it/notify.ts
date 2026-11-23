@@ -35,4 +35,5 @@ export const notify = {
   'notify.keywordsLabel': 'Parole chiave in chat (separate da virgola)',
   'notify.keywordsHint': 'Almeno 2 caratteri ciascuna, al massimo 20.',
   'notify.save': 'Salva notifiche',
+  'notify.rulesHint': 'Per avvisi per singolo nodo, parole chiave in un canale e zone vedi «Avvisi su misura».',
 } as const
