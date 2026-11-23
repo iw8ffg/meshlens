@@ -1,14 +1,18 @@
 """Rotte di WP5a: traceroute periodici, bot, webhook."""
 import json
+import time
 
 import pytest
 from fastapi import HTTPException
 
 from meshlens import api_automation, api_maintenance
 from meshlens.api import create_app
+from meshlens.bot import Bot
 from meshlens.settings import load_settings, save_settings
 from meshlens.trace_scheduler import TraceScheduler
+from meshlens.webhook import WebhookService
 from test_api import client, logged, make_ctx
+from test_webhook import server  # noqa: F401 - fixture
 
 
 class FakeRadios:
@@ -32,8 +36,12 @@ class FakeRadios:
 def auto_ctx():
     ctx = make_ctx()
     ctx.radios = FakeRadios()
+    settings = lambda: load_settings(ctx.conn)  # noqa: E731
     ctx.ext["trace_scheduler"] = TraceScheduler(
-        ctx.conn, ctx.store, ctx.radios, ctx.live, ctx.bus, lambda: load_settings(ctx.conn))
+        ctx.conn, ctx.store, ctx.radios, ctx.live, ctx.bus, settings)
+    ctx.ext["bot"] = Bot(settings, time.time, ctx.radios, None, ctx.live, ctx.radios.local_ids,
+                         lambda: set(), lambda num: {}, ctx.bus.publish, "1.6.0")
+    ctx.ext["webhook"] = WebhookService(settings, time.time, version="1.6.0")
     return ctx
 
 
@@ -53,6 +61,16 @@ def test_ext_helper_returns_service():
     class Ctx:
         ext = {"bot": object()}
     assert api_automation._ext(Ctx(), "bot") is Ctx.ext["bot"]
+
+
+def test_app_imports_without_cycles():
+    import subprocess
+    import sys
+    from pathlib import Path
+    server = Path(__file__).parents[1]
+    r = subprocess.run([sys.executable, "-c", "import meshlens.app"], cwd=server,
+                       capture_output=True, text=True, timeout=60)
+    assert r.returncode == 0, r.stderr
 
 
 def test_guest_get_paths_empty():
@@ -134,7 +152,10 @@ async def test_requires_auth(actx):
                              ("PUT", "/api/trace-targets/!00000010"),
                              ("DELETE", "/api/trace-targets/!00000010"),
                              ("POST", "/api/trace-targets/enable"),
-                             ("GET", "/api/trace-targets/!00000010/history")]:
+                             ("GET", "/api/trace-targets/!00000010/history"),
+                             ("GET", "/api/bot"), ("POST", "/api/bot/enable"),
+                             ("POST", "/api/bot/preview"), ("GET", "/api/webhook"),
+                             ("POST", "/api/webhook/test"), ("POST", "/api/webhook/enable")]:
             r = await c.request(method, path, json={})
             assert r.status_code == 401, (method, path)
 
@@ -143,6 +164,8 @@ async def test_routes_503_without_extension():
     ctx = make_ctx()
     async with logged(ctx) as c:
         assert (await c.get("/api/trace-targets")).status_code == 503
+        assert (await c.get("/api/bot")).status_code == 503
+        assert (await c.get("/api/webhook")).status_code == 503
 
 
 def insert_trace(ctx, num, t, status, route, auto=False):
@@ -199,3 +222,128 @@ def test_annotate_history_same_time_uses_id(actx):
     assert rows[0]["id"] == b
     out = api_automation.annotate_history(actx.conn, rows)
     assert out[0]["prev_route"] == "!a" and out[0]["route_changed"] is True and a < b
+
+
+# ---- bot -------------------------------------------------------------------
+RF_T = {"kind": "radio", "radio_id": "r1", "channel_index": 0}
+MQ_T = {"kind": "mqtt", "broker": "b1", "channel": "LongFast"}
+
+
+async def test_bot_status_route(actx):
+    async with logged(actx) as c:
+        body = (await c.get("/api/bot")).json()
+    assert set(body["status"]) == {"enabled", "queued", "sent_last_hour", "paused_until",
+                                   "last_error", "dropped"}
+    assert body["commands"] == ["ping", "info", "nodes", "time", "weather"]
+
+
+async def test_enable_requires_confirm_and_json(actx):
+    save_settings(actx.conn, {"bot_targets": [RF_T]})
+    async with logged(actx) as c:
+        r = await c.post("/api/bot/enable", json={"enabled": True})
+        assert r.status_code == 400 and r.json()["detail"] == "Conferma richiesta"
+        r = await c.post("/api/bot/enable", content="{}", headers={"content-type": "text/plain"})
+        assert r.status_code == 415
+        assert load_settings(actx.conn)["bot_enabled"] is False
+
+
+async def test_enable_requires_target(actx):
+    async with logged(actx) as c:
+        r = await c.post("/api/bot/enable", json={"enabled": True, "confirm": True})
+    assert r.status_code == 400
+    assert r.json()["detail"] == "Per attivare il bot scegli almeno un canale"
+
+
+async def test_enable_requires_loopback(actx, monkeypatch):
+    save_settings(actx.conn, {"bot_targets": [RF_T]})
+    async with logged(actx) as c:
+        monkeypatch.setattr(api_automation, "is_loopback_request", lambda request: False)
+        r = await c.post("/api/bot/enable", json={"enabled": True, "confirm": True})
+        assert r.status_code == 403
+        r = await c.post("/api/bot/enable", json={"enabled": False})
+        assert r.status_code == 200 and r.json()["status"]["enabled"] is False
+
+
+async def test_enable_rejects_unconfirmed_mqtt_broker(actx):
+    brokers = load_settings(actx.conn)["mqtt_brokers"]
+    brokers = [*brokers, {**brokers[0], "id": "b1", "name": "Privato", "host": "example.org"}]
+    save_settings(actx.conn, {"mqtt_brokers": brokers, "bot_targets": [RF_T, MQ_T]})
+    async with logged(actx) as c:
+        r = await c.post("/api/bot/enable", json={"enabled": True, "confirm": True})
+        assert r.status_code == 400 and "b1" in r.json()["detail"]
+        save_settings(actx.conn, {"mqtt_send_confirmed_brokers": ["b1"]})
+        n = len(actx.changed)
+        r = await c.post("/api/bot/enable", json={"enabled": True, "confirm": True})
+        assert r.status_code == 200 and r.json()["status"]["enabled"] is True
+    assert load_settings(actx.conn)["bot_enabled"] is True
+    assert len(actx.changed) == n + 1
+
+
+async def test_enable_off_clears_state(actx):
+    save_settings(actx.conn, {"bot_targets": [RF_T]})
+    bot = actx.ext["bot"]
+    async with logged(actx) as c:
+        await c.post("/api/bot/enable", json={"enabled": True, "confirm": True})
+        from meshlens.bot import Job
+        bot._queue.append(Job(RF_T, "[bot] x", 1, "!000000aa", time.time()))
+        r = await c.post("/api/bot/enable", json={"enabled": False})
+    assert load_settings(actx.conn)["bot_enabled"] is False
+    assert bot.status()["queued"] == 0 and r.json()["status"]["queued"] == 0
+
+
+async def test_preview_does_not_send(actx):
+    save_settings(actx.conn, {"bot_replies": [{"trigger": "orari", "text": "Bus alle 8"}]})
+    async with logged(actx) as c:
+        r = (await c.post("/api/bot/preview", json={"text": "!ora"})).json()
+        assert r["command"] == "time" and r["reply"].startswith("[bot] Ora:")
+        r = (await c.post("/api/bot/preview", json={"text": "ciao"})).json()
+        assert r["command"] is None and r["reply"] is None
+        r = (await c.post("/api/bot/preview", json={"text": "!ping"})).json()
+        assert r["sample"] is True and r["reply"].startswith("[bot] pong!")
+        r = (await c.post("/api/bot/preview", json={"text": "Orari?"})).json()
+        assert r["trigger"] == "orari" and r["reply"] == "[bot] Bus alle 8"
+        r = await c.post("/api/bot/preview", json={"text": "x" * 201})
+        assert r.status_code == 422
+    assert actx.radios.sent == []
+
+
+# ---- webhook ---------------------------------------------------------------
+async def test_webhook_status_never_exposes_url(actx):
+    save_settings(actx.conn, {"webhook_url": "https://example.org/hook?token=SEGRETO1"})
+    async with logged(actx) as c:
+        w = await c.get("/api/webhook")
+        s = await c.get("/api/settings")
+    assert w.json()["configured"] is True and "SEGRETO1" not in w.text
+    assert "SEGRETO1" not in s.text and "example.org" not in w.text
+
+
+async def test_webhook_test_route(actx, server):  # noqa: F811
+    async with logged(actx) as c:
+        r = await c.post("/api/webhook/test", json={})
+        assert r.status_code == 400 and r.json()["detail"] == "Webhook non configurato"
+        save_settings(actx.conn, {"webhook_url": f"http://127.0.0.1:{server.server_port}/h"})
+        r = await c.post("/api/webhook/test", json={})
+        assert r.json() == {"ok": True, "code": "ok"}
+        assert json.loads(server.hits[0]["body"])["event"] == "test"
+        r = await c.post("/api/webhook/test", json={})
+        assert r.status_code == 429
+        assert r.json()["detail"] == "Attendi qualche secondo prima di un'altra prova"
+
+
+async def test_webhook_enable_route(actx, monkeypatch):
+    async with logged(actx) as c:
+        r = await c.put("/api/settings", json={"webhook_enabled": True})
+        assert r.status_code == 400  # interruttore dedicato
+        r = await c.post("/api/webhook/enable", json={"enabled": True})
+        assert r.status_code == 400 and r.json()["detail"] == "Webhook non configurato"
+        save_settings(actx.conn, {"webhook_url": "https://example.org/hook"})
+        monkeypatch.setattr(api_automation, "is_loopback_request", lambda request: False)
+        r = await c.post("/api/webhook/enable", json={"enabled": True})
+        assert r.status_code == 403
+        monkeypatch.undo()
+        r = await c.post("/api/webhook/enable", json={"enabled": True})
+        assert r.status_code == 200 and r.json()["enabled"] is True
+        assert "example.org" not in r.text
+        assert load_settings(actx.conn)["webhook_enabled"] is True
+        r = await c.post("/api/webhook/enable", json={"enabled": False})
+        assert r.json()["enabled"] is False

@@ -7,25 +7,42 @@ Le rotte di manutenzione stanno in api_maintenance (registrato da qui).
 Gli interruttori dedicati (traceroute_auto_enabled, bot_enabled, webhook_enabled) si accendono
 solo da qui: PUT /api/settings puo' soltanto spegnerli (contratto §2).
 """
+import asyncio
 import re
+import time
 
-from fastapi import Depends, HTTPException, Query
+from fastapi import Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from . import api_maintenance
 from .api_data import run_read
-from .settings import load_settings, save_settings
+from .mqtt_publish import is_confirmed
+from .settings import BOT_COMMANDS, load_settings, save_settings
 from .store import Store
 
 EXT_UNAVAILABLE_MSG = "Automazioni non disponibili"
 BAD_NODE_ID_MSG = "Identificativo del nodo non valido"
 BAD_LIMIT_MSG = "Numero di risultati non valido: da 1 a 100"
+CONFIRM_MSG = "Conferma richiesta"
+BOT_LOCAL_ONLY_MSG = "Per attivare il bot apri MeshLens da questo PC"
+BOT_NO_TARGET_MSG = "Per attivare il bot scegli almeno un canale"
+WEBHOOK_LOCAL_ONLY_MSG = "Per attivare il webhook apri MeshLens da questo PC"
+WEBHOOK_NOT_CONFIGURED_MSG = "Webhook non configurato"
+WEBHOOK_WAIT_MSG = "Attendi qualche secondo prima di un'altra prova"
+WEBHOOK_TEST_GAP_S = 10
 HISTORY_DEFAULT = 20
 HISTORY_MAX = 100
 _NODE_ID = re.compile(r"![0-9a-fA-F]{8}")
 
 # percorsi GET (esattamente come registrati) leggibili dall'ospite: nessuno
 GUEST_GET_PATHS: tuple[str, ...] = (*api_maintenance.GUEST_GET_PATHS,)
+
+
+def is_loopback_request(request) -> bool:
+    """Richiesta da questo PC (api.is_loopback_request; import ritardato: api importa
+    questo modulo)."""
+    from .api import is_loopback_request as check
+    return check(request)
 
 
 def _ext(ctx, key: str):
@@ -76,6 +93,15 @@ class TraceTargetBody(BaseModel):
 
 class SwitchBody(BaseModel):
     enabled: bool
+
+
+class BotEnableBody(BaseModel):
+    enabled: bool
+    confirm: bool = False
+
+
+class BotPreviewBody(BaseModel):
+    text: str = Field(max_length=200)
 
 
 def register(app, ctx, require_auth, require_json) -> None:
@@ -130,5 +156,71 @@ def register(app, ctx, require_auth, require_json) -> None:
         def read(conn):
             return annotate_history(conn, Store(conn).traceroutes(num, limit, before))
         return await run_read(ctx, read)
+
+    # ---- bot ---------------------------------------------------------------------------
+    @app.get("/api/bot", dependencies=auth)
+    async def bot_status():
+        bot = _ext(ctx, "bot")
+        return {"status": bot.status(), "commands": list(BOT_COMMANDS)}
+
+    @app.post("/api/bot/enable", dependencies=write)
+    async def bot_enable(body: BotEnableBody, request: Request):
+        bot = _ext(ctx, "bot")
+        if body.enabled:
+            # opt-in esplicito: dalla pagina guidata di questo PC, con conferma
+            if not is_loopback_request(request):
+                raise HTTPException(403, BOT_LOCAL_ONLY_MSG)
+            if not body.confirm:
+                raise HTTPException(400, CONFIRM_MSG)
+            current = load_settings(ctx.conn)
+            targets = current.get("bot_targets") or []
+            if not targets:
+                raise HTTPException(400, BOT_NO_TARGET_MSG)
+            for t in targets:
+                if t.get("kind") == "mqtt" and not is_confirmed(current, t["broker"]):
+                    raise HTTPException(400, f"Il broker {t['broker']} non ha ancora la "
+                                             "conferma di pubblicazione: invia prima un "
+                                             "messaggio dalla Chat su quel broker")
+            await save({"bot_enabled": True})
+        else:
+            await save({"bot_enabled": False})
+            bot.reset()
+        return {"status": bot.status()}
+
+    @app.post("/api/bot/preview", dependencies=write)
+    async def bot_preview(body: BotPreviewBody):
+        return _ext(ctx, "bot").preview(body.text)
+
+    # ---- webhook -----------------------------------------------------------------------
+    last_test = {"t": float("-inf")}
+
+    @app.get("/api/webhook", dependencies=auth)
+    async def webhook_status():
+        return _ext(ctx, "webhook").status()
+
+    @app.post("/api/webhook/enable", dependencies=write)
+    async def webhook_enable(body: SwitchBody, request: Request):
+        webhook = _ext(ctx, "webhook")
+        if body.enabled:
+            if not is_loopback_request(request):
+                raise HTTPException(403, WEBHOOK_LOCAL_ONLY_MSG)
+            if not load_settings(ctx.conn).get("webhook_url"):
+                raise HTTPException(400, WEBHOOK_NOT_CONFIGURED_MSG)
+        await save({"webhook_enabled": body.enabled})
+        return webhook.status()
+
+    @app.post("/api/webhook/test", dependencies=write)
+    async def webhook_test():
+        webhook = _ext(ctx, "webhook")
+        url = load_settings(ctx.conn).get("webhook_url") or ""
+        if not url:
+            raise HTTPException(400, WEBHOOK_NOT_CONFIGURED_MSG)
+        now = time.monotonic()
+        if now - last_test["t"] < WEBHOOK_TEST_GAP_S:
+            raise HTTPException(429, WEBHOOK_WAIT_MSG)
+        last_test["t"] = now
+        result = await asyncio.to_thread(
+            webhook.deliver, "test", {"message": "MeshLens webhook test"}, url=url)
+        return {"ok": result["ok"], "code": result["code"]}
 
     api_maintenance.register(app, ctx, require_auth, require_json)

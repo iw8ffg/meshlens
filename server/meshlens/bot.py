@@ -473,6 +473,23 @@ class Bot:
             self._published = core
             self.publish({"type": "bot", "status": st})
 
+    def preview(self, text: str) -> dict:
+        """Risposta che il bot darebbe a `text` (nessun invio; per !ping valori di esempio)."""
+        s = self.get_settings()
+        now = self.clock()
+        req = parse_request(text, s.get("bot_commands") or [], s.get("bot_replies") or [])
+        if req is None:
+            return {"command": None, "trigger": None, "reply": None, "sample": False}
+        sample = req.kind == "command" and req.name == "ping"
+        h1, h24, total = self._counts(now)
+        rctx = ReplyContext(snr=6.0, rssi=-90, hops=1, via_mqtt=False, version=self.version,
+                            now=now, nodes_active_1h=h1, nodes_total=total, heard_1h=h1,
+                            heard_24h=h24,
+                            weather=self._weather(s, now) if req.name == "weather" else None)
+        return {"command": req.name if req.kind == "command" else None,
+                "trigger": req.name if req.kind == "reply" else None,
+                "reply": build_reply(req, rctx), "sample": sample}
+
     def reset(self) -> None:
         """Bot spento dall'utente: coda e invii in attesa dimenticati (la pausa resta)."""
         self._queue.clear()
