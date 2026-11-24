@@ -3,6 +3,106 @@
 Il formato segue [Keep a Changelog](https://keepachangelog.com/it-IT/1.1.0/) e il progetto usa il [versionamento semantico](https://semver.org/lang/it/).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [1.6.0] - 2026-11-24
+
+### Italiano
+
+> **Nota:** le funzioni che parlano con la radio (profili, comandi admin, messaggi predefiniti, preferiti e ignorati, traceroute automatici, bot) sono state provate con radio simulate, non ancora con radio reali. Provale prima su un nodo di prova e segnalaci ogni differenza.
+
+#### Aggiunto
+- **Primo avvio guidato e stati vuoti:** al primo avvio una lista di passi (collega una radio o un broker, scegli i canali, segna i tuoi nodi) ti accompagna; le pagine ancora vuote mostrano pulsanti per fare il passo successivo invece di una schermata bianca.
+- **Ricerca globale (Ctrl+K):** da qualsiasi pagina trovi al volo azioni, nodi, conversazioni, impostazioni e messaggi.
+- **Ricerca nei messaggi ed esportazione:** cerchi nel testo dei messaggi e salti al punto della conversazione; ogni conversazione si esporta in **TXT, CSV o JSON**.
+- **Messaggi rapidi con variabili:** risposte pronte con segnaposto ({batteria}, {posizione}, {ora}) da inserire con un tocco; si gestiscono da Impostazioni.
+- **Avvisi su misura:** crei regole tue: parola chiave in un canale, segnale debole, **ingresso o uscita da una zona disegnata sulla mappa**, soglie di batteria e di silenzio per singolo nodo. Dopo un avviso la regola resta in pausa per non ripeterlo di continuo.
+- **Detection Sensor e Paxcounter:** gli eventi dei sensori di rilevamento compaiono nella scheda del nodo e il conteggio dei dispositivi del Paxcounter ha il suo grafico.
+- **Pagina «Salute rete»:** stato delle batterie con **autonomia stimata** («circa N giorni»; per i nodi a pannello solare si tiene conto dell'andamento) e **confronto fra nodi**.
+- **Strati della mappa:** cerchi di precisione della posizione, mappa di densità, solo infrastruttura (router e ripetitori), **etichette SNR sui collegamenti** e contatti **ATAK**.
+- **Grafico della topologia:** in Rete vedi la rete come grafo, con nodi **cerniera** (se cadono dividono la rete), **hub** e **isolati**. Puoi attivare Neighbor Info sulla tua radio; ha dei limiti: si invia al massimo ogni 4 ore e passa in radio solo con un canale primario non predefinito.
+- **Preferiti e nodi ignorati sincronizzati con la radio:** segni un nodo come preferito o da ignorare e lo stato passa alla radio. I nodi ignorati spariscono da mappa, elenchi, messaggi e avvisi; l'operazione si annulla in ogni momento. Un tuo nodo si ignora solo in MeshLens, mai sulle radio.
+- **Profili di configurazione e confronto fra radio:** salvi la configurazione di una radio come profilo, la applichi a un'altra con anteprima delle differenze e confronti due radio. I profili **non copiano mai** chiavi, nome proprietario, canali, regione, WiFi e console seriale.
+- **Messaggi predefiniti per T-Deck e T-Pager:** leggi e modifichi le frasi pronte della radio (fino a 200 caratteri).
+- **Avviso sulla privacy della posizione:** se un canale pubblico o MQTT diffonde la posizione con precisione migliore di circa 1,5 km, MeshLens avvisa e propone una correzione guidata.
+- **Condivisione dei canali:** link di condivisione e **codice QR** del canale (solo da questo PC), generatore di chiavi (PSK) e **avviso per le chiavi deboli**.
+- **Comandi admin remoti:** riavvio, impostazione dell'ora, azzeramento dell'elenco nodi e spegnimento, con **conferma rafforzata** e, per i nodi remoti, solo se la tua chiave pubblica è tra le loro chiavi admin.
+- **Traceroute periodici:** programmi un traceroute automatico per nodo (al massimo uno ogni ora per nodo) e consulti lo **storico dei percorsi** con i cambi di strada.
+- **Bot (a scelta, canale per canale):** risponde via radio e MQTT a `!ping`, `!info`, `!ora`, `!meteo` e a risposte personalizzate. Le risposte iniziano con `[bot]` e ci sono limiti di frequenza. È spento finché non lo attivi; attivazione e canali si cambiano solo da questo PC.
+- **Webhook in uscita:** invia eventi scelti a un indirizzo tuo, solo **https verso Internet**, senza proxy; non raggiunge questo PC né la rete locale.
+- **Finestra «Novità»:** dopo un aggiornamento mostra le note della nuova versione.
+- **Diagnosi del collegamento radio:** una procedura guidata controlla porta, rete e risposta della radio e dà consigli concreti. Si prova solo su radio già salvate.
+- **Spazio per tabella e conservazione per broker:** in Manutenzione vedi quanto spazio occupa ogni tabella e imposti per quanto tempo tenere i messaggi MQTT di ciascun broker; lo storico dei traceroute resta 365 giorni.
+- **Accesso ospite con un secondo PIN:** chi lo inserisce vede solo mappa, nodi e statistiche, in **sola lettura**. Si attiva da Impostazioni, solo da questo PC.
+- **Per chi sviluppa:** radio finta e strumenti di replay dei pacchetti per provare MeshLens senza hardware.
+
+#### Modificato
+- **Importazione impostazioni e ripristino backup:** non attivano mai da soli bot, webhook, accesso ospite e traceroute automatici.
+- **Ispettore dei pacchetti:** mostra i tipi Sensore, Paxcounter e ATAK.
+- **Nodi aggiornati:** i pacchetti Detection, Paxcounter e ATAK ora aggiornano anche il nodo (ultimo contatto e dati).
+
+#### Corretto
+- **Decifratura:** in rari casi un'impostazione cifrata non leggibile poteva risultare letta correttamente.
+- **Icona nell'area di notifica:** alla chiusura vengono mostrati i toast già in coda (al massimo 2 secondi).
+- **Messaggi predefiniti:** una lettura senza risposta non mostra più il testo precedente.
+- **Traceroute automatici:** dopo un errore del database non vengono ripetuti a raffica, e l'intervallo resta se il nodo viene riaggiunto; tetto orario, intervallo minimo e pausa del bot restano dopo il riavvio.
+- **Zone e ricerca:** le zone non scattano più su posizioni riprodotte dallo storico; ricerca più robusta.
+- **Profili:** non copiano i campi che possono scollegare la radio e mostrano un'anteprima con avviso.
+- **Interfaccia:** le graffe scritte a mano non bloccano più l'invio; le variabili dei messaggi rapidi si azzerano cambiando conversazione; grafo della topologia più stabile; correzioni di accessibilità.
+
+#### Sicurezza
+- **Documentazione automatica di FastAPI disattivata** (`/docs`, `/redoc`, `/openapi.json`).
+- **Accesso ospite:** negato per impostazione predefinita su ogni rotta; l'ospite non vede mai testi liberi di sensori né avvisi personalizzati; massimo 20 sessioni ospite.
+- **Bot e webhook:** con la funzione attiva, la configurazione non si cambia dalla rete locale.
+- **Nodi:** non si ignora un nodo con una sessione admin aperta.
+
+### English
+
+> **Note:** features that talk to the radio (profiles, admin commands, canned messages, favorites and ignored nodes, automatic traceroutes, bots) were tested with simulated radios, not yet with real hardware. Try them on a spare node first and tell us about any difference.
+
+#### Added
+- **Guided first start and empty states:** on first launch a checklist (connect a radio or broker, pick channels, mark your nodes) guides you; pages that are still empty show buttons for the next step instead of a blank screen.
+- **Global search (Ctrl+K):** from any page, quickly find actions, nodes, conversations, settings and messages.
+- **Message search and export:** search message text and jump to the spot in the conversation; any conversation exports as **TXT, CSV or JSON**.
+- **Quick replies with variables:** ready-made replies with placeholders ({batteria}, {posizione}, {ora}) inserted with one tap; managed in Settings.
+- **Custom alerts:** create your own rules: a keyword in a channel, weak signal, **entering or leaving a zone drawn on the map**, per-node battery and silence thresholds. After an alert the rule pauses so it does not repeat constantly.
+- **Detection Sensor and Paxcounter:** detection sensor events appear in the node page and the Paxcounter device count has its own chart.
+- **Network "Health" page:** battery status with **estimated autonomy** ("about N days"; for solar nodes the trend is taken into account) and **node comparison**.
+- **Map layers:** position precision circles, density map, infrastructure only (routers and repeaters), **SNR labels on links** and **ATAK** contacts.
+- **Topology graph:** in Network you see the mesh as a graph, with **hinge** nodes (if they fail the network splits), **hubs** and **isolated** nodes. You can enable Neighbor Info on your radio; it has limits: it is sent at most every 4 hours and goes over the air only with a non-default primary channel.
+- **Favorites and ignored nodes synced with the radio:** mark a node as favorite or ignored and the state is sent to the radio. Ignored nodes disappear from the map, lists, messages and alerts; this can be undone at any time. One of your own nodes is ignored only in MeshLens, never on the radios.
+- **Configuration profiles and radio comparison:** save a radio's configuration as a profile, apply it to another radio with a preview of the differences, and compare two radios. Profiles **never copy** keys, owner name, channels, region, WiFi or the serial console.
+- **Canned messages for T-Deck and T-Pager:** read and edit the radio's ready phrases (up to 200 characters).
+- **Position privacy warning:** if a public or MQTT channel shares your position with precision better than about 1.5 km, MeshLens warns you and offers a guided fix.
+- **Channel sharing:** share link and **QR code** for a channel (from this PC only), key (PSK) generator and **weak key warning**.
+- **Remote admin commands:** reboot, set the time, reset the node list and shut down, with **strong confirmation** and, for remote nodes, only if your public key is among their admin keys.
+- **Periodic traceroute:** schedule an automatic traceroute per node (at most one per hour per node) and browse the **route history** with path changes.
+- **Bots (opt-in, channel by channel):** replies over radio and MQTT to `!ping`, `!info`, `!ora`, `!meteo` and to custom replies. Replies start with `[bot]` and rate limits apply. It stays off until you enable it; enabling and channel scope can only be changed from this PC.
+- **Outgoing webhooks:** send chosen events to an address of yours, **https to the Internet only**, no proxy; it cannot reach this PC or the local network.
+- **"What's new" window:** after an update it shows the notes of the new version.
+- **Radio connection diagnosis:** a guided procedure checks port, network and radio response and gives concrete advice. It only runs on saved radios.
+- **Storage per table and per-broker retention:** in Maintenance see how much space each table uses and set how long MQTT messages are kept for each broker; traceroute history is kept for 365 days.
+- **Guest access with a second PIN:** whoever enters it sees only the map, nodes and statistics, **read-only**. Enable it in Settings, from this PC only.
+- **For developers:** a fake radio and packet replay tools to try MeshLens without hardware.
+
+#### Changed
+- **Settings import and backup restore:** they never turn on bots, webhooks, guest access or automatic traceroutes by themselves.
+- **Packet inspector:** shows the Sensor, Paxcounter and ATAK types.
+- **Updated nodes:** Detection, Paxcounter and ATAK packets now also update the node (last contact and data).
+
+#### Fixed
+- **Decryption:** in rare cases an unreadable encrypted setting could appear to be read correctly.
+- **Notification-area icon:** on exit, toasts already queued are shown (2 seconds at most).
+- **Canned messages:** a read with no answer no longer shows the previous text.
+- **Automatic traceroutes:** after a database error they are not repeated in a burst, and the interval is kept if the node is added again; the bot's hourly cap, minimum interval and pause survive a restart.
+- **Zones and search:** zones no longer trigger on positions replayed from history; more robust search.
+- **Profiles:** they do not copy fields that could disconnect the radio and show a preview with a warning.
+- **Interface:** hand-typed braces no longer block sending; quick-reply variables reset when you switch conversation; steadier topology graph; accessibility fixes.
+
+#### Security
+- **FastAPI automatic documentation disabled** (`/docs`, `/redoc`, `/openapi.json`).
+- **Guest access:** denied by default on every route; the guest never sees free-text sensor events or custom alerts; at most 20 guest sessions.
+- **Bots and webhooks:** while the feature is on, its configuration cannot be changed from the local network.
+- **Nodes:** a node with an open admin session cannot be ignored.
+
 ## [1.5.1] - 2026-11-23
 
 ### Italiano
@@ -389,6 +489,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 [1.2.3]: https://github.com/iw8ffg/meshlens/releases/tag/v1.2.3
 [1.3.0]: https://github.com/iw8ffg/meshlens/releases/tag/v1.3.0
 [1.4.0]: https://github.com/iw8ffg/meshlens/releases/tag/v1.4.0
+[1.6.0]: https://github.com/iw8ffg/meshlens/releases/tag/v1.6.0
 [1.5.1]: https://github.com/iw8ffg/meshlens/releases/tag/v1.5.1
 [1.5.0]: https://github.com/iw8ffg/meshlens/releases/tag/v1.5.0
 [1.4.5]: https://github.com/iw8ffg/meshlens/releases/tag/v1.4.5

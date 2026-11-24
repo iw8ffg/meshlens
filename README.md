@@ -5,7 +5,7 @@
 <p align="center">
   <img alt="Licenza GPL-3.0" src="https://img.shields.io/badge/licenza-GPL--3.0-blue">
   <img alt="Piattaforma Windows" src="https://img.shields.io/badge/piattaforma-Windows%2010%2F11-0078D6">
-  <img alt="Versione 1.5.1" src="https://img.shields.io/badge/versione-1.5.1-brightgreen">
+  <img alt="Versione 1.6.0" src="https://img.shields.io/badge/versione-1.6.0-brightgreen">
 </p>
 
 **MeshLens** è un'applicazione locale per Windows che riunisce in un'unica mappa interattiva tutto ciò che accade su una rete [Meshtastic](https://meshtastic.org): i nodi sentiti da **Internet (MQTT)** e dalle **tue radio** collegate via USB o Bluetooth. Osservi la rete, gestisci i tuoi nodi e chatti via radio, anche senza Internet. Si usa dal PC e dal telefono sulla stessa Wi-Fi.
@@ -33,6 +33,8 @@
 - Mappa: distanze e azioni rapide nei popup, **righello**, raggruppamento dei nodi attivabile, **ricerca di un nodo**, **"Dove sono"** e **waypoint** ricevuti.
 - Ordinamento dei nodi e ricerca anche per modello e ruolo; la vista viene ricordata.
 - Feed dei messaggi pubblici MQTT, filtrabile per nazione, con l'indicazione del broker di provenienza.
+- **Strati della mappa** dalla legenda: cerchi di precisione, densità, solo infrastruttura, **etichette SNR sui collegamenti** e contatti **ATAK**.
+- **Primo avvio guidato** con checklist e pulsanti d'azione nelle pagine ancora vuote.
 
 ### 📻 Radio e chat
 - Più radio insieme, via **USB** e **Bluetooth**, con riconnessione automatica.
@@ -46,6 +48,8 @@
 - **Waypoint**: quelli ricevuti compaiono sulla mappa; i tuoi si inviano solo via radio.
 - **Notifiche esterne**: notifiche di Windows dall'icona nell'area di notifica e, se lo attivi, **bot Telegram** (token salvato cifrato).
 - **Recupera messaggi persi** (Store & Forward): dalla scheda Radio chiedi a un nodo router lo storico dei messaggi che ti sei perso, senza duplicati.
+- **Ricerca nei messaggi** (e globale con **Ctrl+K**) ed **esportazione** di una conversazione in TXT, CSV o JSON.
+- **Messaggi rapidi con variabili** (batteria, posizione, ora) da inserire con un tocco.
 
 ### 🌐 Più broker MQTT e canali personalizzati
 - Collega **più broker MQTT insieme**, ognuno con il proprio stato e i propri interruttori **Crittografia** e **TLS** (spenti per i broker nuovi; il broker predefinito mantiene la crittografia).
@@ -57,6 +61,11 @@
 - "I miei nodi": marca i tuoi, viste e avvisi si concentrano su di loro.
 - Mappa dei collegamenti colorata per SNR e **traceroute** a richiesta.
 - Barra "connessione persa" e pulsanti **Riprova** quando qualcosa non risponde.
+- Pagina **Salute rete**: batterie con **autonomia stimata** («circa N giorni», anche per i nodi solari) e **confronto fra nodi**.
+- **Topologia** a grafo con nodi cerniera, hub e isolati; attivazione di Neighbor Info (con i suoi limiti).
+- **Traceroute periodici** per nodo (al massimo uno ogni ora) con **storico dei percorsi**.
+- **Preferiti e nodi ignorati** sincronizzati con la radio: gli ignorati spariscono da mappa, messaggi e avvisi, in modo reversibile.
+- **Detection Sensor** e grafico **Paxcounter** nella scheda del nodo.
 
 ### 📈 Dati e statistiche
 - **Telemetria** di ambiente, qualità dell'aria, alimentazione e statistiche locali dei nodi, da MQTT e da radio.
@@ -75,6 +84,24 @@
 ### ⚙️ Configurazione
 - Lettura e modifica della configurazione delle radio collegate e dei nodi remoti (chiavi admin PKI).
 - Ogni modifica passa da un **riepilogo delle differenze**, una **conferma esplicita** e una **copia di sicurezza ripristinabile**.
+- **Profili di configurazione** e **confronto fra due radio**; i profili non copiano mai chiavi, proprietario, canali, regione, WiFi e console seriale.
+- **Messaggi predefiniti** di T-Deck e T-Pager (200 caratteri) e **comandi admin remoti** (riavvio, ora, azzeramento elenco nodi, spegnimento) con conferma rafforzata e chiave admin.
+- **Privacy della posizione:** avviso se un canale pubblico o MQTT la diffonde con precisione migliore di circa 1,5 km.
+- **Condivisione dei canali** con link e **QR**, generatore di chiavi e avviso per le **chiavi deboli**.
+
+### 🤖 Automazioni
+- **Avvisi su misura:** parola chiave in un canale, segnale debole, **ingresso o uscita da una zona** disegnata sulla mappa, soglie di batteria e silenzio per nodo.
+- **Bot** opt-in canale per canale (radio e MQTT): `!ping`, `!info`, `!ora`, `!meteo` e risposte personalizzate, con prefisso `[bot]` e limiti di frequenza; si attiva solo da questo PC.
+- **Webhook in uscita** su eventi scelti: solo https verso Internet, senza proxy.
+- Importare impostazioni o ripristinare un backup non attiva mai bot, webhook, accesso ospite e traceroute automatici.
+
+### 🔎 Ricerca
+- **Ricerca globale (Ctrl+K)** su azioni, nodi, conversazioni, impostazioni e messaggi.
+
+### 👤 Accesso ospite
+- Un **secondo PIN** apre una vista in **sola lettura** con solo mappa, nodi e statistiche.
+
+> **Nota sulle prove:** le funzioni che parlano con la radio (profili, comandi admin, messaggi predefiniti, preferiti e ignorati, traceroute automatici, bot) sono state provate con radio simulate, non ancora con radio reali.
 
 ### 🌍 Offline e lingua
 - Mappe PMTiles scaricabili con un passo guidato: mondo a basso dettaglio, Italia e aree a scelta.
@@ -93,6 +120,9 @@
 - **Esporta e importa le impostazioni** (i segreti restano esclusi salvo richiesta dal PC).
 - **Pacchetto diagnostico** scaricabile (zip, senza password né chiavi) e log con rotazione.
 - **Manutenzione del database:** pulizia a blocchi, statistiche e pulsante **"Compatta database"**.
+- **Diagnosi del collegamento radio** guidata, con consigli concreti.
+- **Spazio per tabella** e **conservazione per broker** dei messaggi MQTT; finestra **«Novità»** dopo gli aggiornamenti.
+- Radio finta e strumenti di replay per chi sviluppa (prove senza hardware).
 
 ## Requisiti
 

@@ -5,7 +5,7 @@
 <p align="center">
   <img alt="License GPL-3.0" src="https://img.shields.io/badge/license-GPL--3.0-blue">
   <img alt="Platform Windows" src="https://img.shields.io/badge/platform-Windows%2010%2F11-0078D6">
-  <img alt="Version 1.5.1" src="https://img.shields.io/badge/version-1.5.1-brightgreen">
+  <img alt="Version 1.6.0" src="https://img.shields.io/badge/version-1.6.0-brightgreen">
 </p>
 
 **MeshLens** is a local Windows application that brings everything happening on a [Meshtastic](https://meshtastic.org) network onto one interactive map: nodes heard over the **Internet (MQTT)** and by **your own radios** connected over USB or Bluetooth. Watch the network, manage your nodes and chat over radio, even without Internet. Use it from your PC and from your phone on the same Wi-Fi.
@@ -33,6 +33,8 @@
 - Map: distances and quick actions in popups, a **ruler**, optional node clustering, **node search**, **"Where am I"** and received **waypoints**.
 - Node sorting and search by model and role too; your view is remembered.
 - Public MQTT message feed, filterable by country, showing which broker each message came from.
+- **Map layers** from the legend: precision circles, density, infrastructure only, **SNR labels on links** and **ATAK** contacts.
+- **Guided first start** with a checklist and action buttons on pages that are still empty.
 
 ### 📻 Radios and chat
 - Several radios at once, over **USB** and **Bluetooth**, with automatic reconnection.
@@ -46,6 +48,8 @@
 - **Waypoints**: received ones appear on the map; you send your own over radio only.
 - **External notifications**: Windows notifications from the notification-area icon and, if you enable it, a **Telegram bot** (token stored encrypted).
 - **Recover missed messages** (Store & Forward): from the Radio tab, ask a router node for the history of messages you missed, without duplicates.
+- **Message search** (and global search with **Ctrl+K**) and **export** of a conversation as TXT, CSV or JSON.
+- **Quick replies with variables** (battery, position, time) inserted with one tap.
 
 ### 🌐 Several MQTT brokers and custom channels
 - Connect **several MQTT brokers at once**, each with its own status and its own **Encryption** and **TLS** toggles (off for new brokers; the default broker keeps encryption).
@@ -57,6 +61,11 @@
 - "My nodes": mark yours, and views and alerts focus on them.
 - Link map colored by SNR and on-demand **traceroute**.
 - "Connection lost" bar and **Retry** buttons when something does not respond.
+- **Network Health** page: batteries with **estimated autonomy** ("about N days", solar nodes too) and **node comparison**.
+- **Topology** graph with hinge nodes, hubs and isolated nodes; Neighbor Info enabling (with its limits).
+- **Periodic traceroutes** per node (at most one per hour) with **route history**.
+- **Favorites and ignored nodes** synced with the radio: ignored ones disappear from the map, messages and alerts, reversibly.
+- **Detection Sensor** and **Paxcounter** chart in the node page.
 
 ### 📈 Data and statistics
 - **Telemetry** for environment, air quality, power and local node statistics, from MQTT and from radio.
@@ -75,6 +84,24 @@
 ### ⚙️ Configuration
 - Read and edit the configuration of connected radios and remote nodes (PKI admin keys).
 - Every change goes through a **diff summary**, an **explicit confirmation** and a **restorable safety copy**.
+- **Configuration profiles** and **comparison of two radios**; profiles never copy keys, owner, channels, region, WiFi or the serial console.
+- **Canned messages** for T-Deck and T-Pager (200 characters) and **remote admin commands** (reboot, time, node list reset, shutdown) with strong confirmation and the admin key.
+- **Position privacy:** warning if a public or MQTT channel shares it with precision better than about 1.5 km.
+- **Channel sharing** with link and **QR**, key generator and **weak key** warning.
+
+### 🤖 Automations
+- **Custom alerts:** keyword in a channel, weak signal, **entering or leaving a zone** drawn on the map, per-node battery and silence thresholds.
+- **Bots**, opt-in channel by channel (radio and MQTT): `!ping`, `!info`, `!ora`, `!meteo` and custom replies, with a `[bot]` prefix and rate limits; enabled only from this PC.
+- **Outgoing webhooks** on chosen events: https to the Internet only, no proxy.
+- Importing settings or restoring a backup never turns on bots, webhooks, guest access or automatic traceroutes.
+
+### 🔎 Search
+- **Global search (Ctrl+K)** across actions, nodes, conversations, settings and messages.
+
+### 👤 Guest access
+- A **second PIN** opens a **read-only** view with the map, nodes and statistics only.
+
+> **Testing note:** features that talk to the radio (profiles, admin commands, canned messages, favorites and ignored nodes, automatic traceroutes, bots) were tested with simulated radios, not yet with real hardware.
 
 ### 🌍 Offline and language
 - PMTiles maps downloadable with a guided step: low-detail world, Italy and areas of your choice.
@@ -93,6 +120,9 @@
 - **Export and import settings** (secrets are excluded unless requested from the PC).
 - Downloadable **diagnostic bundle** (zip, without passwords or keys) and rotating logs.
 - **Database maintenance:** chunked purge, statistics and a **"Compact database"** button.
+- Guided **radio connection diagnosis** with concrete advice.
+- **Storage per table** and **per-broker retention** for MQTT messages; **"What's new"** window after updates.
+- Fake radio and replay tools for developers (testing without hardware).
 
 ## Requirements
 
