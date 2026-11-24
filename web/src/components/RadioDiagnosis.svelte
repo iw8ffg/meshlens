@@ -4,7 +4,7 @@
   import { ApiError } from '../lib/api'
   import { t } from '../lib/i18n/index.svelte'
   import {
-    adviceSteps, adviceTitleKey, checkLabelKey, diagnoseAddress, diagnoseSaved, statusKind, statusLabelKey,
+    adviceSteps, adviceTitleKey, checkLabelKey, diagnoseAddress, diagnoseSaved, needsSave, statusKind, statusLabelKey,
     type Diagnosis,
   } from '../lib/radiodiag'
   import type { RadioKind } from '../lib/types'
@@ -74,13 +74,16 @@
           </li>
         {/each}
       </ul>
+      {#if needsSave(result)}
+        <Banner kind="info" title={t('radiodiag.notSaved')}>{t('radiodiag.notSavedText')}</Banner>
+      {/if}
       {#if main}
         <Banner kind="warn" title={t(adviceTitleKey(main.code))} />
         <h4>{t('radiodiag.steps')}</h4>
         <ol class="steps">
           {#each adviceSteps(main.code, main.params) as step (step)}<li>{t(step)}</li>{/each}
         </ol>
-      {:else}
+      {:else if !needsSave(result)}
         <Banner kind="ok" title={t('radiodiag.allOk')} />
       {/if}
     {/if}

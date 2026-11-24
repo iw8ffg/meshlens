@@ -92,8 +92,10 @@ describe('webhookCodeLabel', () => {
     expect(webhookCodeLabel('ok')).toBe('riuscito')
     expect(webhookCodeLabel('http_404')).toBe('risposta HTTP 404')
     expect(webhookCodeLabel('strano')).toBe('errore')
+    expect(webhookCodeLabel('blocked_target')).toBe('indirizzo non consentito (locale o privato)')
     i18n.lang = 'en'
     expect(webhookCodeLabel('redirect')).toBe('redirect not followed')
+    expect(webhookCodeLabel('blocked_target')).toBe('address not allowed (local or private)')
   })
 })
 

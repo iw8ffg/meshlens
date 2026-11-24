@@ -3,7 +3,7 @@
   // Props fissate dal contratto §10.2.
   import { onDestroy, untrack } from 'svelte'
   import { ApiError } from '../../lib/api'
-  import { getRadioFlags, nodeName, setIgnored, setRadioFlags } from '../../lib/nodes'
+  import { getRadioFlags, ignoreWarning, nodeName, setIgnored, setRadioFlags } from '../../lib/nodes'
   import { app, upsertNodes } from '../../lib/stores.svelte'
   import { onWsResync } from '../../lib/wsext'
   import { t } from '../../lib/i18n/index.svelte'
@@ -96,9 +96,12 @@
       const res = await setIgnored(node.id, !node.is_ignored, alsoRadios && connected.length > 0)
       upsertNodes([res.node])
       const bad = failures(res.radios)
-      if (bad) error = t('nodeflags.radiosFailed', { list: bad })
+      // avviso del server (es. un tuo nodo: ignorato solo in MeshLens, mai sulle radio)
+      error = [ignoreWarning(res), bad ? t('nodeflags.radiosFailed', { list: bad }) : ''].filter(Boolean).join(' · ')
     } catch (e) {
-      error = e instanceof ApiError ? e.message : t('nodeflags.failed')
+      // 400/409 (radio propria, sessione admin remota aperta sul nodo): il testo del server,
+      // gia' tradotto, spiega cosa fare
+      error = e instanceof ApiError && e.message ? e.message : t('nodeflags.failed')
     } finally {
       ignoreBusy = false
       await load()

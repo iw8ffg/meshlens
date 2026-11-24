@@ -32,6 +32,10 @@ CORE_GUEST_GET_PATHS: tuple[str, ...] = (
 # eventi del WebSocket per l'ospite; `status` e `alerts` passano ridotti (vedi guest_event)
 GUEST_WS_TYPES = frozenset({"nodes", "traceroute", "sensor_event", "tak_contact", "resync",
                             "status", "alerts"})
+# avvisi per l'ospite (allowlist): stato dei nodi, mai regole (rule_*) ne' sensor_detection
+GUEST_ALERT_KINDS = frozenset({"battery_low", "silent", "chutil_high", "back_online",
+                               "firmware_old", "autonomy_low"})
+_ALERT_FIELDS = ("key", "kind", "node_id", "node_name", "value", "since", "detail")
 # stato MQTT per l'ospite: niente host dei broker, errori, topic rifiutati
 _MQTT_KEYS = ("connected", "msgs_per_s", "connected_since", "last_msg_age_s")
 
@@ -112,14 +116,26 @@ def guest_get_paths() -> frozenset[str]:
 
 
 def guest_alerts(alerts: list[dict]) -> list[dict]:
-    """Avvisi dei nodi senza quelli delle regole (`rule_*`: testi dei messaggi, nomi e
-    configurazione delle regole) e senza `rule_id`."""
+    """Solo gli avvisi di `GUEST_ALERT_KINDS` (allowlist: mai le regole, con testi dei messaggi
+    e configurazione, ne' i rilevamenti dei sensori, ne' i tipi futuri), con i soli campi di
+    `_ALERT_FIELDS` e una chiave senza id di regola."""
     out = []
     for a in alerts:
-        if str(a.get("kind") or "").startswith("rule_"):
+        kind = a.get("kind")
+        if kind not in GUEST_ALERT_KINDS:
             continue
-        out.append({k: v for k, v in a.items() if k != "rule_id"})
+        b = {k: a[k] for k in _ALERT_FIELDS if k in a}
+        if str(b.get("key") or "").startswith("rule:"):
+            b["key"] = f"{kind}:{a.get('node_id')}"
+        out.append(b)
     return out
+
+
+def guest_sensor_event(ev: dict) -> dict:
+    """Evento del sensore per l'ospite: nodo, ora e rilevato/cessato, senza il testo libero
+    del dispositivo (l'interfaccia mostra allora "Rilevato"/"Cessato")."""
+    return {"id": ev.get("id"), "node_id": ev.get("node_id"), "time": ev.get("time"),
+            "kind": ev.get("kind"), "text": None, "value": ev.get("value")}
 
 
 def guest_mqtt_status(status: dict | None) -> dict | None:
@@ -141,4 +157,6 @@ def guest_event(msg: dict) -> dict | None:
         return {"type": "status", "mqtt": guest_mqtt_status(msg.get("mqtt"))}
     if kind == "alerts":
         return {"type": "alerts", "alerts": guest_alerts(msg.get("alerts") or [])}
+    if kind == "sensor_event":
+        return {"type": "sensor_event", "event": guest_sensor_event(msg.get("event") or {})}
     return msg

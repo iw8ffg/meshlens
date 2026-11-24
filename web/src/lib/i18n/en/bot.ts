@@ -78,7 +78,7 @@ export const bot: Record<keyof typeof itArea, string> = {
   'bot.webhook.intro': 'Sends a JSON POST to a service of yours when something happens.',
   'bot.webhook.switch': 'Webhook on',
   'bot.webhook.url': 'Address (URL)',
-  'bot.webhook.urlHint': 'https, or http only towards this PC',
+  'bot.webhook.urlHint': 'https to Internet services only: no local or private addresses, no proxy',
   'bot.webhook.urlSet': 'Address configured (hidden)',
   'bot.webhook.urlNone': 'No address configured',
   'bot.webhook.replace': 'Replace',
@@ -103,6 +103,7 @@ export const bot: Record<keyof typeof itArea, string> = {
   'bot.webhook.code.tls': 'TLS certificate error',
   'bot.webhook.code.redirect': 'redirect not followed',
   'bot.webhook.code.invalid_url': 'invalid address',
+  'bot.webhook.code.blocked_target': 'address not allowed (local or private)',
   'bot.webhook.code.error': 'error',
   'bot.webhook.code.http': 'HTTP response {n}',
 }

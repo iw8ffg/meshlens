@@ -87,7 +87,13 @@ export function checkLabelKey(check: string): MsgKey {
   return ((CHECKS as readonly string[]).includes(check) ? `radiodiag.check.${check}` : 'radiodiag.check.unknown') as MsgKey
 }
 
-export const diagnoseSaved = (radioId: string) =>
+/** Il server ha saltato i controlli di rete perche' la radio non e' salvata (M8: si
+ * collega solo all'host:porta di una radio salvata): va salvata e la diagnosi ripetuta. */
+export function needsSave(d: Diagnosis | null | undefined): boolean {
+  return !!d?.checks.some((c) => c.params?.reason === 'not_saved')
+}
+
+export const diagnoseSaved =(radioId: string) =>
   send<Diagnosis>('POST', `/radios/${encodeURIComponent(radioId)}/diagnose`, {})
 export const diagnoseAddress = (kind: RadioKind, address: string) =>
   send<Diagnosis>('POST', '/radios/diagnose', { kind, address })

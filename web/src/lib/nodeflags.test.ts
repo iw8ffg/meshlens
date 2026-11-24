@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 vi.mock('./api', () => ({ getJSON: vi.fn(async () => ({})), send: vi.fn(async () => ({})) }))
 
 import { getJSON, send } from './api'
-import { getIgnoredNodes, getRadioFlags, ignoredNodes, setIgnored, setRadioFlags } from './nodes'
+import { getIgnoredNodes, getRadioFlags, ignoredNodes, ignoreWarning, setIgnored, setRadioFlags } from './nodes'
 import type { Node } from './types'
 
 beforeEach(() => vi.clearAllMocks())
@@ -31,5 +31,13 @@ describe('flag dei nodi (WP4)', () => {
     expect(send).toHaveBeenLastCalledWith('PUT', '/nodes/!00000042/radio-flags', { ignored: false, radio_id: 'r1' })
     await getIgnoredNodes()
     expect(getJSON).toHaveBeenLastCalledWith('/nodes/ignored')
+  })
+})
+
+describe('avviso di PUT /nodes/{id}/ignored', () => {
+  it('testo dell’avviso del server, vuoto se assente', () => {
+    expect(ignoreWarning({})).toBe('')
+    expect(ignoreWarning({ warning: null })).toBe('')
+    expect(ignoreWarning({ warning: 'qualcosa' })).toBe('qualcosa')
   })
 })

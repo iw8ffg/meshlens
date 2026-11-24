@@ -162,6 +162,7 @@ const WEBHOOK_CODES: Record<string, MsgKey> = {
   tls: 'bot.webhook.code.tls',
   redirect: 'bot.webhook.code.redirect',
   invalid_url: 'bot.webhook.code.invalid_url',
+  blocked_target: 'bot.webhook.code.blocked_target',
   error: 'bot.webhook.code.error',
 }
 
