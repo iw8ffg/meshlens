@@ -47,6 +47,7 @@ SETTLE = 0.05  # attesa per dare tempo al pacchetto ROUTING di arrivare dal hub
 MSG_ADMIN_UNAUTH = ("Il nodo non ha la chiave admin di questa radio: aggiungila seguendo la "
                     "guida")
 MSG_ADMIN_TIMEOUT = "Nessuna risposta dal nodo entro 60 s"
+MSG_CANNED_NO_REPLY = "Nessuna risposta dalla radio: messaggi predefiniti non letti"
 MSG_ADMIN_BUSY = "Un'operazione precedente sulla radio è ancora in corso: riprova tra poco"
 BAD_SESSION_REASONS = {"ADMIN_BAD_SESSION_KEY", "36"}
 UNAUTH_REASONS = {"ADMIN_PUBLIC_KEY_UNAUTHORIZED", "NOT_AUTHORIZED", "37", "33"}
@@ -1141,6 +1142,9 @@ class RadioConnector:
             if not node.module_available(mesh_pb2.CANNEDMSG_CONFIG):
                 raise AdminError("error", MSG_NO_CANNED)
             node.cannedPluginMessage = None  # la libreria tiene una cache
+            # anche il testo dell'ultima risposta: se non arriva una risposta nuova la
+            # libreria restituirebbe quello della lettura precedente (M9)
+            node.cannedPluginMessageMessages = None
             node.gotResponse = False
             try:
                 text = await self._admin_call(node.get_canned_message,
@@ -1150,6 +1154,8 @@ class RadioConnector:
                 self._release_canned_wait(node)
             if text is None:
                 raise AdminError("error", MSG_NO_CANNED)
+            if node.cannedPluginMessageMessages is None:  # uscita senza risposta
+                raise AdminError("timeout", MSG_CANNED_NO_REPLY)
             return text or ""
 
     async def set_canned(self, node_num: int | None, text: str,

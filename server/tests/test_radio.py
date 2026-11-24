@@ -628,6 +628,8 @@ class FakeNode:
         # messaggi predefiniti (come la libreria: cache, attesa attiva, sys.exit oltre 200)
         self.canned_available = True
         self.cannedPluginMessage = None
+        self.cannedPluginMessageMessages = None  # testo dell'ultima risposta (cache)
+        self.canned_no_reply_early = False  # la libreria esce senza risposta (es. errore)
         self.gotResponse = None
         self.canned_reply = None
         self.canned_event = None
@@ -706,6 +708,10 @@ class FakeNode:
         try:
             if self.canned_event is not None:
                 self.canned_event.wait(5)
+            if self.canned_no_reply_early:  # come la libreria: usa la cache dei messaggi
+                return self.cannedPluginMessageMessages or ""
+            if self.canned_reply is not None:
+                self.cannedPluginMessageMessages = self.canned_reply  # risposta arrivata
             if self.canned_reply is None:
                 self.gotResponse = False  # come la libreria, prima dell'attesa attiva
                 while self.gotResponse is False:
@@ -1244,6 +1250,19 @@ async def test_get_canned_resets_cache_and_returns_text():
     iface.local.canned_reply = "Ciao|Arrivo|OK"
     assert await h.conn.get_canned(None) == "Ciao|Arrivo|OK"
     assert iface.local.canned_seen is None  # cache azzerata prima della chiamata
+    await h.conn.stop()
+
+
+async def test_get_canned_without_reply_never_returns_stale_text():
+    """M9: una lettura senza risposta non restituisce mai il testo della lettura precedente."""
+    h, iface = await admin_connected()
+    iface.local.cannedPluginMessageMessages = "Vecchio|Testo"
+    iface.local.canned_no_reply_early = True
+    with pytest.raises(AdminError):
+        await h.conn.get_canned(None)
+    iface.local.canned_no_reply_early = False
+    iface.local.canned_reply = ""  # risposta vera: elenco vuoto
+    assert await h.conn.get_canned(None) == ""
     await h.conn.stop()
 
 
