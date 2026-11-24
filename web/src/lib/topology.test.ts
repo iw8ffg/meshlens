@@ -77,11 +77,28 @@ describe('layout', () => {
     const { nodes, edges } = graph()
     for (const p of layout(nodes, edges).values()) {
       expect(Number.isFinite(p.x) && Number.isFinite(p.y)).toBe(true)
-      expect(p.x).toBeGreaterThanOrEqual(24)
-      expect(p.x).toBeLessThanOrEqual(976)
-      expect(p.y).toBeGreaterThanOrEqual(24)
-      expect(p.y).toBeLessThanOrEqual(676)
+      expect(p.x).toBeGreaterThanOrEqual(40)
+      expect(p.x).toBeLessThanOrEqual(960)
+      expect(p.y).toBeGreaterThanOrEqual(40)
+      expect(p.y).toBeLessThanOrEqual(660)
     }
+  })
+  it('grafo a piu componenti: nessun nodo sui bordi, margine >= 40', () => {
+    const nodes = Array.from({ length: 10 }, (_, i) => tn(`d${i}`))
+    const edges = [te('d0', 'd1'), te('d1', 'd2'), te('d2', 'd3'), te('d3', 'd4'), te('d4', 'd0'), te('d5', 'd6'), te('d6', 'd7'), te('d8', 'd9')]
+    const pts = [...layout(nodes, edges).values()]
+    for (const p of pts) {
+      expect(p.x).toBeGreaterThan(48)
+      expect(p.x).toBeLessThan(952)
+      expect(p.y).toBeGreaterThan(48)
+      expect(p.y).toBeLessThan(652)
+    }
+    const xs = pts.map((p) => p.x)
+    const ys = pts.map((p) => p.y)
+    expect(Math.min(...xs)).toBeGreaterThanOrEqual(40)
+    expect(Math.max(...xs)).toBeLessThanOrEqual(960)
+    expect(Math.min(...ys)).toBeGreaterThanOrEqual(40)
+    expect(Math.max(...ys)).toBeLessThanOrEqual(660)
   })
   it('casi limite', () => {
     expect(layout([], []).size).toBe(0)

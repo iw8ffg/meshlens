@@ -13,6 +13,6 @@
   }
 </script>
 
-<button type="button" class="ui-switch" role="switch" aria-checked={checked} {disabled} onclick={toggle}>
+<button type="button" class="ui-switch" role="switch" aria-checked={checked} aria-label={label} {disabled} onclick={toggle}>
   <span class="trk"></span><span>{label}</span>
 </button>
