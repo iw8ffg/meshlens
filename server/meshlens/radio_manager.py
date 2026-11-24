@@ -507,6 +507,23 @@ class RadioManager:
         if early is not None:
             self.ingestor.set_status(f"out:{message['radio_id']}:{packet_id}", *early)
 
+    def connector_running(self, radio_id: str) -> bool:
+        """Il connettore della radio e' avviato (collegato o tra due tentativi)."""
+        self._get(radio_id)
+        conn = self._connectors[radio_id]
+        running = getattr(conn, "running", None)
+        if running is None:  # connettore senza la proprieta': vale lo stato
+            return conn.state()["state"] != "disconnected"
+        return bool(running)
+
+    def admin_session_open(self, num: int) -> bool:
+        """Una delle radio ha una sessione admin remota aperta verso il nodo."""
+        for conn in self._connectors.values():
+            check = getattr(conn, "has_admin_session", None)
+            if check is not None and check(num):
+                return True
+        return False
+
     # ---- waypoint -----------------------------------------------------
     def local_ids(self) -> set[str]:
         """Id dei nodi delle radio configurate (quelli noti)."""
@@ -633,6 +650,7 @@ class RadioManager:
             raise TracerouteThrottled(math.ceil(TRACEROUTE_INTERVAL - (now - last)))
         self._last_trace[radio_id] = now  # prenota subito: un solo invio alla volta
         self._tracing.add(radio_id)
+        sent = False
         try:
             try:
                 packet_id = await conn.send_traceroute(num)
@@ -640,10 +658,12 @@ class RadioManager:
                 raise
             except Exception as exc:
                 raise ValueError(str(exc)) from exc
+            sent = True  # il pacchetto e' partito: il limite di 30 s resta comunque
             tid = self.store.add_traceroute(radio_id, num, now, auto)
             self.store.commit()
         except BaseException:
-            self._last_trace.pop(radio_id, None)  # niente invio utile: libera il limite
+            if not sent:
+                self._last_trace.pop(radio_id, None)  # niente invio: libera il limite
             raise
         finally:
             self._tracing.discard(radio_id)

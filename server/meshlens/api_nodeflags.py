@@ -2,6 +2,12 @@
 
 "Ignora" scrive sempre in MeshLens (AppContext.set_node_ignored) e prova sulle radio locali;
 un errore radio non annulla l'ignorato locale (esito per radio).
+
+Nodi propri (M4): il nodo di una radio collegata non si puo' ignorare (400), ne' un nodo con
+una sessione admin remota aperta (409: il firmware scarterebbe le risposte admin). Un altro
+nodo tuo (is_mine) viene ignorato solo in MeshLens, mai sulle radio, con un avviso
+("warning" nella risposta): ignorato nel NodeDB, il firmware ne scarterebbe ogni pacchetto,
+risposte admin e traceroute compresi, e smetterebbe di ritrasmetterlo.
 """
 import logging
 
@@ -15,6 +21,10 @@ log = logging.getLogger(__name__)
 GUEST_GET_PATHS: tuple[str, ...] = ()
 
 MSG_OWN_RADIO = "Non puoi ignorare il nodo di una tua radio"
+MSG_ADMIN_SESSION = ("Stai amministrando questo nodo da remoto: non si può ignorare "
+                     "finché la sessione è aperta (circa 4 minuti dall'ultima lettura)")
+MSG_MINE_LOCAL_ONLY = ("Nodo tuo: ignorato solo in MeshLens e non sulle radio, che altrimenti "
+                       "scarterebbero anche le sue risposte di amministrazione")
 MSG_NO_FLAG = "Nessun flag indicato"
 MSG_NO_CONFIG = "Configurazione radio non disponibile"
 
@@ -80,16 +90,26 @@ def register(app, ctx, require_auth, require_json) -> None:
         nid = f"!{num:08x}"
         if body.ignored and nid in own_radio_ids():
             raise HTTPException(400, MSG_OWN_RADIO)
+        session_open = getattr(ctx.radios, "admin_session_open", None)
+        if body.ignored and session_open is not None and session_open(num):
+            raise HTTPException(409, MSG_ADMIN_SESSION)
+        mine = bool((ctx.live.nodes.get(num) or {}).get("is_mine"))
         node = ctx.set_node_ignored(num, body.ignored)
         if node is None:
             raise HTTPException(404, "Nodo non trovato")
         radios: list[dict] = []
-        if body.radio and ctx.config is not None and ctx.radios is not None:
+        warning = None
+        if body.ignored and mine and body.radio:
+            warning = MSG_MINE_LOCAL_ONLY  # mai ignorato sulle radio: resta amministrabile
+        elif body.radio and ctx.config is not None and ctx.radios is not None:
             try:
                 radios = await ctx.config.set_radio_flags(nid, ignored=body.ignored)
             except Exception as exc:  # mai 500 per la radio: l'ignorato locale resta
                 log.warning("flag ignorato sulle radio non scritto: %s", type(exc).__name__)
-        return {"node": _public(node), "radios": radios}
+        out = {"node": _public(node), "radios": radios}
+        if warning:
+            out["warning"] = warning
+        return out
 
     @app.get("/api/nodes/{node_id}/radio-flags", dependencies=[Depends(require_auth)])
     async def get_radio_flags(node_id: str):

@@ -606,7 +606,7 @@ async def test_chat_ack_during_traceroute_send_reaches_message():
     assert e.store.traceroutes(0x42)[0]["status"] == "pending"
 
 
-async def test_traceroute_slot_released_if_store_fails():
+async def test_traceroute_slot_kept_if_store_fails_after_send():
     e = Env()
     r = await e.mgr.add("usb", "COM5", "A")
 
@@ -616,7 +616,8 @@ async def test_traceroute_slot_released_if_store_fails():
     e.store.add_traceroute = boom
     with pytest.raises(RuntimeError):
         await e.mgr.traceroute(TARGET, r["id"])
-    assert r["id"] not in e.mgr._last_trace and e.mgr._tracing == set()
+    # il pacchetto e' partito: il limite resta prenotato (I1)
+    assert r["id"] in e.mgr._last_trace and e.mgr._tracing == set()
 
 
 async def test_traceroute_early_reply_returns_final_state_and_canonical_target():
@@ -776,3 +777,36 @@ async def test_traceroute_auto_flag_stored():
     res2 = await e.mgr.traceroute(TARGET, None)
     row = e.store.conn.execute("SELECT auto FROM traceroutes WHERE id=?", (res2["id"],)).fetchone()
     assert row[0] == 0 and res2["auto"] is False
+
+
+async def test_traceroute_db_failure_after_send_keeps_the_slot():
+    """I1: se il pacchetto e' partito e poi il DB fallisce, il limite di 30 s resta."""
+    import sqlite3
+    e = Env()
+    r = await e.mgr.add("usb", "COM5", "A")
+
+    def boom(*a, **k):
+        raise sqlite3.OperationalError("database or disk is full")
+
+    real = e.store.add_traceroute
+    e.store.add_traceroute = boom
+    with pytest.raises(sqlite3.OperationalError):
+        await e.mgr.traceroute(TARGET, r["id"])
+    e.store.add_traceroute = real
+    with pytest.raises(TracerouteThrottled):
+        await e.mgr.traceroute(TARGET, r["id"])
+
+
+async def test_connector_running_and_admin_session_open():
+    e = Env()
+    r = await e.mgr.add("usb", "COM5", "A")
+    fc = FakeConnector.instances[0]
+    fc.running = True
+    assert e.mgr.connector_running(r["id"]) is True
+    fc.running = False
+    assert e.mgr.connector_running(r["id"]) is False
+    with pytest.raises(KeyError):
+        e.mgr.connector_running("nope")
+    assert e.mgr.admin_session_open(0x42) is False
+    fc.has_admin_session = lambda num: num == 0x42
+    assert e.mgr.admin_session_open(0x42) is True and e.mgr.admin_session_open(0x43) is False

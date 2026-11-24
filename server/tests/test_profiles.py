@@ -250,3 +250,10 @@ def test_no_secret_reaches_the_database():
     dump = "\n".join(r["data"] for r in conn.execute("SELECT data FROM config_profiles"))
     assert secrets_in(dump) == []
     assert all(s.decode() not in dump for s in SECRET_TEXTS)
+
+
+def test_link_cutting_fields_are_excluded():
+    """I3: campi che possono tagliare il collegamento USB/API o bloccare la radio."""
+    for path in ("module_config.serial.override_console_serial_port",
+                 "config.device.serial_enabled", "config.device.is_managed"):
+        assert pr.is_excluded(path), path

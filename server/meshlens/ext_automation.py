@@ -10,6 +10,7 @@ Registra:
 """
 import logging
 import time
+from pathlib import Path
 
 from .bot import Bot, weather_lookup
 from .trace_scheduler import TICK_S, TraceScheduler
@@ -20,6 +21,7 @@ log = logging.getLogger(__name__)
 BUS_TICK_S = 1.0
 BOT_PUMP_S = 2.0
 BUS_SERVICES = ("trace_scheduler", "bot", "webhook")
+BOT_STATE_FILE = "bot_state.json"  # invii dell'ultima ora e pausa del bot (cartella dati)
 
 
 def drain_bus(q, ext: dict) -> int:
@@ -54,10 +56,11 @@ def install(rt, ctx) -> None:
     rt.add_periodic("trace_scheduler", TICK_S, sched.tick, first_delay_s=TICK_S)
     ctx.ext["trace_scheduler"] = sched
 
+    data_dir = getattr(ctx, "data_dir", None)
     bot = Bot(settings, time.time, rt.radios, getattr(ctx, "mqtt_sender", None), rt.live,
               lambda: rt.radios.local_ids(), lambda: set(),
               lambda num: weather_lookup(ctx.conn, num, time.time()), rt.bus.publish,
-              __version__)
+              __version__, state_path=Path(data_dir) / BOT_STATE_FILE if data_dir else None)
     rt.add_message_hook(bot.on_message)
     rt.add_periodic("bot_pump", BOT_PUMP_S, bot.pump, first_delay_s=BOT_PUMP_S)
     ctx.ext["bot"] = bot

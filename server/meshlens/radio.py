@@ -47,6 +47,7 @@ SETTLE = 0.05  # attesa per dare tempo al pacchetto ROUTING di arrivare dal hub
 MSG_ADMIN_UNAUTH = ("Il nodo non ha la chiave admin di questa radio: aggiungila seguendo la "
                     "guida")
 MSG_ADMIN_TIMEOUT = "Nessuna risposta dal nodo entro 60 s"
+MSG_CANNED_NO_REPLY = "Nessuna risposta dalla radio: messaggi predefiniti non letti"
 MSG_ADMIN_BUSY = "Un'operazione precedente sulla radio è ancora in corso: riprova tra poco"
 BAD_SESSION_REASONS = {"ADMIN_BAD_SESSION_KEY", "36"}
 UNAUTH_REASONS = {"ADMIN_PUBLIC_KEY_UNAUTHORIZED", "NOT_AUTHORIZED", "37", "33"}
@@ -266,6 +267,11 @@ class RadioConnector:
             "error": self._error, "my_node_id": self._my_node_id,
             "my_node_name": self._my_node_name, "channels": list(self._channels),
         }
+
+    @property
+    def running(self) -> bool:
+        """Ciclo di collegamento attivo (collegata, in collegamento o tra due tentativi)."""
+        return self._task is not None and not self._task.done()
 
     def _set_state(self, state: str, error: str | None = None) -> None:
         self._state, self._error = state, error
@@ -936,6 +942,11 @@ class RadioConnector:
             else:
                 cur.CopyFrom(c)
 
+    def has_admin_session(self, node_num: int) -> bool:
+        """Lettura remota recente del nodo: chiave di sessione admin ancora valida."""
+        cached = self._remote_nodes.get(node_num)
+        return cached is not None and self._clock() - cached[1] <= SESSION_MAX_AGE
+
     def _drop_session(self, node_num: int) -> None:
         entry = (getattr(self._iface, "nodesByNum", None) or {}).get(node_num)
         if entry is not None:
@@ -1131,6 +1142,9 @@ class RadioConnector:
             if not node.module_available(mesh_pb2.CANNEDMSG_CONFIG):
                 raise AdminError("error", MSG_NO_CANNED)
             node.cannedPluginMessage = None  # la libreria tiene una cache
+            # anche il testo dell'ultima risposta: se non arriva una risposta nuova la
+            # libreria restituirebbe quello della lettura precedente (M9)
+            node.cannedPluginMessageMessages = None
             node.gotResponse = False
             try:
                 text = await self._admin_call(node.get_canned_message,
@@ -1140,6 +1154,8 @@ class RadioConnector:
                 self._release_canned_wait(node)
             if text is None:
                 raise AdminError("error", MSG_NO_CANNED)
+            if node.cannedPluginMessageMessages is None:  # uscita senza risposta
+                raise AdminError("timeout", MSG_CANNED_NO_REPLY)
             return text or ""
 
     async def set_canned(self, node_num: int | None, text: str,

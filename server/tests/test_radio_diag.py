@@ -14,8 +14,9 @@ SENTINEL = "PSK-SEGRETA-123"
 
 
 class FakeManager:
-    def __init__(self, radios=None, ports=None, ble=None, ble_error=None):
+    def __init__(self, radios=None, ports=None, ble=None, ble_error=None, running=()):
         self._radios = radios or []
+        self.running = set(running)
         self._ports = ports if ports is not None else []
         self._ble = ble or []
         self.ble_error = ble_error
@@ -23,6 +24,9 @@ class FakeManager:
 
     def radios(self):
         return [dict(r) for r in self._radios]
+
+    def connector_running(self, radio_id):
+        return radio_id in self.running
 
     async def ports(self):
         self.calls.append("ports")
@@ -247,21 +251,26 @@ async def test_tcp_dns_failure():
     assert r["advice"] == "tcp_not_found" and p.counts["probe_tcp"] == 0
 
 
+def tcp_saved(addr="192.0.2.1"):
+    """Radio TCP salvata e ferma: le sonde di rete vanno solo verso radio configurate (M8)."""
+    return FakeManager(radios=[radio("tcp", addr, "disconnected")])
+
+
 async def test_tcp_refused():
-    r = await diag(FakeManager(), FakeProbes(tcp_error=ConnectionRefusedError()), kind="tcp",
+    r = await diag(tcp_saved(), FakeProbes(tcp_error=ConnectionRefusedError()), kind="tcp",
                    address="192.0.2.1")
     assert r["advice"] == "tcp_refused"
 
 
 async def test_tcp_unreachable_timeout():
     for err in (socket.timeout(), TimeoutError(), OSError("no route")):
-        r = await diag(FakeManager(), FakeProbes(tcp_error=err), kind="tcp",
+        r = await diag(tcp_saved(), FakeProbes(tcp_error=err), kind="tcp",
                        address="192.0.2.1:4403")
         assert r["advice"] == "tcp_unreachable"
 
 
 async def test_tcp_not_meshtastic_or_busy():
-    r = await diag(FakeManager(), FakeProbes(frames=False), kind="tcp", address="192.0.2.1")
+    r = await diag(tcp_saved(), FakeProbes(frames=False), radio_id="r1")
     assert check(r, "meshtastic_probe")["advice"] == "tcp_not_meshtastic_or_busy"
 
 
@@ -376,3 +385,37 @@ def test_problem_usb_parsing():
     assert chips_from_instance_ids(ids) == [{"chip": "CP210x"}, {"chip": "CH340"}]
     assert paired_from_instance_ids(["BTHLE\\DEV_AABBCCDDEEFF\\7&1", "BTHENUM\\x"]) == \
         {"AABBCCDDEEFF"}
+
+
+
+# ---- M7: mai aprire una porta di un connettore che sta riprovando -----------------------
+async def test_probes_skipped_while_connector_retries():
+    for kind, addr in (("usb", "COM5"), ("tcp", "192.0.2.1")):
+        m = FakeManager(radios=[radio(kind, addr, "error")], ports=[port()], running={"r1"})
+        p = FakeProbes()
+        r = await diag(m, p, radio_id="r1")
+        for name in ("probe_serial_open", "probe_frames_serial", "probe_tcp",
+                     "probe_frames_tcp"):
+            assert p.counts[name] == 0, (kind, name)
+        assert any(c["advice"] == "in_use_by_meshlens" for c in r["checks"])
+        p = FakeProbes()
+        await diag(m, p, kind=kind, address=addr.lower())  # stesso indirizzo, non salvato
+        assert p.counts["probe_serial_open"] == 0 and p.counts["probe_tcp"] == 0
+
+
+# ---- M8: sonda TCP solo verso l'host:porta di una radio salvata --------------------------
+async def test_tcp_probe_only_towards_saved_radio():
+    p = FakeProbes()
+    r = await diag(FakeManager(), p, kind="tcp", address="192.0.2.7:4403")
+    assert p.counts["probe_tcp"] == 0 and p.counts["probe_frames_tcp"] == 0
+    assert check(r, "tcp_connect")["status"] == "skip"
+    assert check(r, "tcp_connect")["params"] == {"reason": "not_saved"}
+    assert check(r, "address_valid")["status"] == "ok"
+    # stesso host ma porta diversa: non e' la radio salvata
+    p = FakeProbes()
+    await diag(tcp_saved("192.0.2.7"), p, kind="tcp", address="192.0.2.7:8080")
+    assert p.counts["probe_tcp"] == 0
+    # radio salvata (porta predefinita 4403, maiuscole diverse): sonde ammesse
+    p = FakeProbes()
+    await diag(tcp_saved("Radio.Local"), p, kind="tcp", address="radio.local:4403")
+    assert p.counts["probe_tcp"] == 1

@@ -174,6 +174,11 @@ def test_build_script_signing_is_optional_and_secret_free():
     assert not re.search(r"PASSWORD\s*=\s*['\"]\w", ps, re.I)
     assert not re.search(r"\b[0-9a-fA-F]{40}\b", ps)  # nessun thumbprint scritto
     assert all(ord(ch) < 128 for ch in ps)  # PowerShell 5.1 legge il file come ANSI
+    # M5: la password del .pfx mai sulla riga di comando di signtool (visibile ad altri
+    # processi): il certificato passa dall'archivio di Windows e si firma con /sha1
+    assert '"/p"' not in ps and "'/p'" not in ps
+    assert '"/f"' not in ps
+    assert "Import-PfxCertificate" in ps and "Remove-Item" in ps
 
 
 def test_build_script_parses():

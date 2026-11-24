@@ -50,6 +50,10 @@ EXCLUDED_FIELDS: frozenset[str] = frozenset({
     "config.power.adc_multiplier_override", "config.power.device_battery_ina_address",
     # calibrazione del quarzo della singola radio (come i parametri del front-end)
     "config.lora.frequency_offset",
+    # possono tagliare il collegamento USB/API o bloccare la configurazione locale (I3):
+    # la console seriale ceduta al modulo seriale, i doppioni deprecati di config.security
+    "module_config.serial.override_console_serial_port",
+    "config.device.serial_enabled", "config.device.is_managed",
 })
 # famiglie di campi (anche futuri) escluse per prefisso
 _EXCLUDED_PREFIXES = ("module_config.external_notification.output", "module_config.audio.i2s_")

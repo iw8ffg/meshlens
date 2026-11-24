@@ -4,9 +4,14 @@ Sola lettura su RadioManager (radios(), ports(), ble_scan()) e sonde indipendent
 modifica a radio.py/radio_manager.py. Se il connettore della radio e' collegato o in
 collegamento, le sonde che aprono la porta o il socket NON partono (il firmware TCP ammette
 un solo client e aprire la COM puo' resettare alcune schede): risultano "skip" con il
-consiglio in_use_by_meshlens. Una diagnosi alla volta, al massimo 30 s.
+consiglio in_use_by_meshlens. Lo stesso vale se il connettore sta ancora lavorando tra due
+tentativi (stato "error" con un nuovo tentativo in arrivo): la porta resta sua.
+Le sonde TCP (connessione e frame) partono solo verso l'host:porta di una radio salvata:
+per un indirizzo non salvato si controllano solo formato e DNS. Una diagnosi alla volta, al
+massimo 30 s.
 """
 import asyncio
+import functools
 import logging
 import re
 import secrets
@@ -179,6 +184,17 @@ class Probes:
         return socket.getaddrinfo(host, None)
 
 
+def _address_key(kind: str, address: str):
+    """Indirizzo confrontabile: (host, porta) per TCP, maiuscolo senza spazi per gli altri."""
+    if kind == "tcp":
+        try:
+            host, port = parse_tcp_address(address)
+        except ValueError:
+            return None
+        return host.casefold(), port
+    return (address or "").strip().upper()
+
+
 def _check(name: str, status: str, advice: str | None = None, **params) -> dict:
     return {"check": name, "status": status, "advice": advice, "params": params}
 
@@ -211,27 +227,39 @@ class RadioDiagnoser:
             r = next((r for r in radios if r["id"] == radio_id), None)
             if r is None:
                 raise KeyError(radio_id)
-            return r["kind"], r["address"], r.get("state"), r.get("error")
+            return r["kind"], r["address"], r.get("state"), r.get("error"), r["id"]
         if kind not in KINDS:
             raise ValueError(BAD_KIND_MSG)
         address = (address or "").strip()
         if not address:
             raise ValueError(NO_ADDRESS_MSG)
+        key = _address_key(kind, address)
         same = next((r for r in radios if r["kind"] == kind
-                     and r["address"].strip().upper() == address.upper()), None)
+                     and _address_key(kind, r["address"]) == key), None)
         if same is not None:  # stessa radio gia' salvata: vale il suo stato
-            return kind, address, same.get("state"), same.get("error")
-        return kind, address, None, None
+            return kind, address, same.get("state"), same.get("error"), same["id"]
+        return kind, address, None, None, None
+
+    def _connector_running(self, rid: str | None) -> bool:
+        """Il connettore della radio sta lavorando (anche tra due tentativi): la sua porta
+        non va aperta dalla diagnosi."""
+        check = getattr(self.manager, "connector_running", None)
+        try:
+            return bool(rid is not None and check is not None and check(rid))
+        except KeyError:
+            return False
 
     async def diagnose(self, *, radio_id: str | None = None, kind: str | None = None,
                        address: str | None = None) -> dict:
-        kind, address, state, error = self._find_radio(radio_id, kind, address)
+        kind, address, state, error, rid = self._find_radio(radio_id, kind, address)
         if self._lock.locked():
             raise DiagBusy(DIAG_BUSY_MSG)
         async with self._lock:
             checks: list[dict] = []
-            in_use = state in IN_USE_STATES
+            in_use = state in IN_USE_STATES or self._connector_running(rid)
             runner = {"usb": self._usb, "ble": self._ble, "tcp": self._tcp}[kind]
+            if kind == "tcp":
+                runner = functools.partial(self._tcp, saved=rid is not None)
             try:
                 await asyncio.wait_for(runner(address, in_use, error, checks),
                                        self.total_timeout)
@@ -329,7 +357,8 @@ class RadioDiagnoser:
             checks.append(_check("ble_pairing", "ok", paired=is_paired))
 
     # ---- TCP -------------------------------------------------------------------------
-    async def _tcp(self, address: str, in_use: bool, error, checks: list) -> None:
+    async def _tcp(self, address: str, in_use: bool, error, checks: list, *,
+                   saved: bool = True) -> None:
         try:
             host, port = parse_tcp_address(address)
         except ValueError:
@@ -346,6 +375,12 @@ class RadioDiagnoser:
             checks.append(_check("meshtastic_probe", "skip"))
             return
         checks.append(_check("dns", "ok"))
+        if not saved:
+            # M8: connessioni solo verso l'host:porta di una radio salvata (niente sonda di
+            # porte arbitrarie); per un indirizzo nuovo: salva la radio e ripeti la diagnosi
+            checks.append(_check("tcp_connect", "skip", reason="not_saved"))
+            checks.append(_check("meshtastic_probe", "skip", reason="not_saved"))
+            return
         if in_use:
             checks.append(_check("tcp_connect", "skip", IN_USE))
             checks.append(_check("meshtastic_probe", "skip", IN_USE))

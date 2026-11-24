@@ -136,6 +136,9 @@ class CfgConnector(FakeConnector):
     async def remove_fixed_position(self, node_num):
         self.fixed.append((node_num, None))
 
+    def has_admin_session(self, node_num):
+        return node_num in self.fresh_remote
+
     def node_flags(self, num):
         if self.state_name != "connected":
             return None

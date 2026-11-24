@@ -4,9 +4,11 @@
 
  Firma del codice (facoltativa, configurata SOLO da variabili d'ambiente; nessun certificato,
  thumbprint o password nel repository):
-   MESHLENS_SIGN_THUMBPRINT     certificato nell'archivio di Windows (nessuna password)
+   MESHLENS_SIGN_THUMBPRINT     certificato nell'archivio di Windows (consigliato, nessuna password)
    MESHLENS_SIGN_PFX            in alternativa: file .pfx ...
-   MESHLENS_SIGN_PFX_PASSWORD   ... e la sua password
+   MESHLENS_SIGN_PFX_PASSWORD   ... e la sua password. Il .pfx viene importato in
+                                Cert:\CurrentUser\My solo per la firma (poi rimosso) e signtool
+                                usa /sha1: la password non compare mai sulla sua riga di comando.
    MESHLENS_SIGN_TIMESTAMP      server di marca temporale (predefinito DigiCert)
  Senza configurazione (o con -NoSign) la build prosegue senza firma e lo dice.
  Configurata ma non riuscita: la build si ferma (mai un eseguibile non firmato spacciato per firmato).
@@ -40,17 +42,26 @@ function Invoke-OptionalSign([string]$File) {
     if (-not $tool) { throw "Firma configurata ma signtool non trovato (installa il Windows SDK)" }
     $ts = $env:MESHLENS_SIGN_TIMESTAMP
     if (-not $ts) { $ts = "http://timestamp.digicert.com" }
-    $signArgs = @("sign", "/fd", "sha256", "/tr", $ts, "/td", "sha256")
-    if ($thumb) {
-        $signArgs += @("/sha1", $thumb)
-    } else {
+    $imported = $null
+    if (-not $thumb) {
+        # .pfx: importato per la sola durata della firma in Cert:\CurrentUser\My (non
+        # esportabile) e usato con /sha1. La password resta in questo processo: mai sulla
+        # riga di comando di signtool, che altri processi possono leggere.
         if (-not (Test-Path $pfx)) { throw "Il certificato indicato in MESHLENS_SIGN_PFX non esiste" }
-        $signArgs += @("/f", $pfx)
-        if ($env:MESHLENS_SIGN_PFX_PASSWORD) { $signArgs += @("/p", $env:MESHLENS_SIGN_PFX_PASSWORD) }
+        $importArgs = @{ FilePath = $pfx; CertStoreLocation = "Cert:\CurrentUser\My" }
+        if ($env:MESHLENS_SIGN_PFX_PASSWORD) {
+            $importArgs.Password = ConvertTo-SecureString $env:MESHLENS_SIGN_PFX_PASSWORD -AsPlainText -Force
+        }
+        $imported = Import-PfxCertificate @importArgs | Where-Object { $_.HasPrivateKey } | Select-Object -First 1
+        if (-not $imported) { throw "Certificato di MESHLENS_SIGN_PFX non importato" }
+        $thumb = $imported.Thumbprint
     }
-    # la riga di comando (con l'eventuale password) non viene mai stampata
-    & $tool @signArgs $File | Out-Null
-    if ($LASTEXITCODE) { throw "Firma del codice non riuscita" }
+    try {
+        & $tool sign /fd sha256 /tr $ts /td sha256 /sha1 $thumb $File | Out-Null
+        if ($LASTEXITCODE) { throw "Firma del codice non riuscita" }
+    } finally {
+        if ($imported) { Remove-Item -Path ("Cert:\CurrentUser\My\" + $imported.Thumbprint) -DeleteKey -ErrorAction SilentlyContinue }
+    }
     & $tool verify /pa $File | Out-Null
     if ($LASTEXITCODE) { throw "Verifica della firma non riuscita" }
     Write-Host "Firmato: $File"

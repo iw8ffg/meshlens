@@ -325,6 +325,15 @@ def _risk(kind, section, field, new, context: dict) -> str | None:
             return "Il ruolo REPEATER nasconde il nodo e cambia il comportamento della rete"
         if (section == "network" and kind_radio in _NET_KINDS and context.get("is_local")):
             return "Cambiare la rete su una radio collegata via rete può scollegarla"
+        if section == "power" and field == "is_power_saving":
+            return "Il risparmio energetico può spegnere USB e Bluetooth tra un pacchetto e l'altro"
+        if section == "lora" and field == "ignore_incoming":
+            return "La radio scarterà ogni pacchetto dei nodi in elenco"
+        if section == "lora" and field == "serial_hal_only":
+            return "Con questa opzione la radio può smettere di trasmettere via LoRa"
+    if (kind == "module_config" and section == "serial"
+            and field == "override_console_serial_port"):
+        return "Cedere la console seriale al modulo seriale può scollegare la radio via USB"
     if kind == "channels" and section == 0:
         return "Modificare il canale 0 può isolare il nodo dagli altri"
     return None

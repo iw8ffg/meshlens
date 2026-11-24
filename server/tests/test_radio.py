@@ -628,6 +628,8 @@ class FakeNode:
         # messaggi predefiniti (come la libreria: cache, attesa attiva, sys.exit oltre 200)
         self.canned_available = True
         self.cannedPluginMessage = None
+        self.cannedPluginMessageMessages = None  # testo dell'ultima risposta (cache)
+        self.canned_no_reply_early = False  # la libreria esce senza risposta (es. errore)
         self.gotResponse = None
         self.canned_reply = None
         self.canned_event = None
@@ -706,6 +708,10 @@ class FakeNode:
         try:
             if self.canned_event is not None:
                 self.canned_event.wait(5)
+            if self.canned_no_reply_early:  # come la libreria: usa la cache dei messaggi
+                return self.cannedPluginMessageMessages or ""
+            if self.canned_reply is not None:
+                self.cannedPluginMessageMessages = self.canned_reply  # risposta arrivata
             if self.canned_reply is None:
                 self.gotResponse = False  # come la libreria, prima dell'attesa attiva
                 while self.gotResponse is False:
@@ -1247,6 +1253,19 @@ async def test_get_canned_resets_cache_and_returns_text():
     await h.conn.stop()
 
 
+async def test_get_canned_without_reply_never_returns_stale_text():
+    """M9: una lettura senza risposta non restituisce mai il testo della lettura precedente."""
+    h, iface = await admin_connected()
+    iface.local.cannedPluginMessageMessages = "Vecchio|Testo"
+    iface.local.canned_no_reply_early = True
+    with pytest.raises(AdminError):
+        await h.conn.get_canned(None)
+    iface.local.canned_no_reply_early = False
+    iface.local.canned_reply = ""  # risposta vera: elenco vuoto
+    assert await h.conn.get_canned(None) == ""
+    await h.conn.stop()
+
+
 async def test_get_canned_timeout_releases_busy_wait(monkeypatch):
     import meshlens.radio as radio_mod
     monkeypatch.setattr(radio_mod, "CANNED_TIMEOUT", 0.2)
@@ -1293,3 +1312,27 @@ async def test_library_system_exit_becomes_admin_error():
         await h.conn._simple_admin(None, lambda n: sys.exit(1))
     assert ei.value.message == "Operazione fallita: SystemExit"
     await h.conn.stop()
+
+
+async def test_has_admin_session_follows_remote_cache_age():
+    """M4: sessione admin aperta = lettura remota recente (chiave di sessione valida)."""
+    from meshlens.radio import SESSION_MAX_AGE
+    h = Harness(lambda cfg, n: FakeIface())
+    assert h.conn.has_admin_session(0x42) is False
+    h.conn._remote_nodes[0x42] = (object(), h.now)
+    assert h.conn.has_admin_session(0x42) is True
+    h.now += SESSION_MAX_AGE + 1
+    assert h.conn.has_admin_session(0x42) is False
+
+
+async def test_running_true_between_retries_false_after_stop():
+    """M7: tra due tentativi (stato error/reconnecting) il connettore possiede ancora la porta."""
+    h = Harness(lambda cfg, n: (_ for _ in ()).throw(OSError("porta occupata")))
+    h.gate.clear()  # il backoff resta in attesa
+    assert h.conn.running is False
+    await h.conn.start()
+    await h.until(lambda: h.conn.state()["state"] in ("error", "reconnecting"))
+    assert h.conn.running is True
+    h.gate.set()
+    await h.conn.stop()
+    assert h.conn.running is False

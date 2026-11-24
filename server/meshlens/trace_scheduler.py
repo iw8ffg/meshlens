@@ -121,10 +121,15 @@ class TraceScheduler:
             count = self.conn.execute("SELECT COUNT(*) FROM trace_targets").fetchone()[0]
             if count >= MAX_TRACE_TARGETS:
                 raise ValueError(TOO_MANY_MSG)
+            # Ultimo automatico gia' trasmesso verso il nodo: rimuovere e riaggiungere
+            # il bersaglio non azzera l'intervallo.
+            last = self.conn.execute(
+                "SELECT MAX(time) FROM traceroutes WHERE target_num=? AND auto=1",
+                (num,)).fetchone()[0]
             self.conn.execute(
-                "INSERT INTO trace_targets(node_num, enabled, interval_min, radio_id, created) "
-                "VALUES(?,?,?,?,?)", (num, 1 if enabled else 0, interval_min, radio_id,
-                                      self.clock()))
+                "INSERT INTO trace_targets(node_num, enabled, interval_min, radio_id, created, "
+                "last_run) VALUES(?,?,?,?,?,?)", (num, 1 if enabled else 0, interval_min,
+                                                   radio_id, self.clock(), last))
         else:
             _update(self.conn, num, enabled=1 if enabled else 0, interval_min=interval_min,
                     radio_id=radio_id)
@@ -183,10 +188,12 @@ class TraceScheduler:
             if rid is not None and now - self._last_auto.get(rid, float("-inf")) < RADIO_GAP_S:
                 self._defer[num] = self._last_auto[rid] + RADIO_GAP_S
                 continue
-            return await self._run(num, rid, now)
+            return await self._run(num, rid, now, r["interval_min"])
         return None
 
-    async def _run(self, num: int, rid: str | None, now: float) -> str:
+    async def _run(self, num: int, rid: str | None, now: float,
+                   interval_min: int = MIN_INTERVAL_MIN) -> str:
+        r_interval = interval_min
         try:
             result = await self.manager.traceroute(_node_id(num), rid, auto=True)
         except TracerouteThrottled as e:
@@ -206,6 +213,19 @@ class TraceScheduler:
             self.conn.execute(
                 "UPDATE trace_targets SET last_run=?, last_status='failed', "
                 "fail_count=fail_count+1 WHERE node_num=?", (now, num))
+        except Exception:  # noqa: BLE001 - es. DB in errore dopo l'invio
+            # Il pacchetto potrebbe essere partito: mai ritrasmettere al giro dopo.
+            # Rinvio in memoria (vale anche se il DB non accetta scritture).
+            log.exception("Traceroute automatico verso %s: errore inatteso", _node_id(num))
+            self._defer[num] = now + max(r_interval * 60, DEFER_NOT_SENT_S)
+            if rid:
+                self._last_auto[rid] = now
+            try:
+                _update(self.conn, num, last_run=now, last_status="error")
+                self.conn.commit()
+            except Exception:  # noqa: BLE001 - best-effort
+                log.warning("Traceroute automatico: stato del nodo non salvato")
+            return "error"
         else:
             outcome = "sent"
             _update(self.conn, num, last_run=now, last_status="pending",

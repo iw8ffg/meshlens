@@ -218,11 +218,15 @@ def test_bot_commands_and_replies_validation(conn):
 
 def test_webhook_url_validation(conn):
     from meshlens.settings import MASK
-    for good in ("", MASK, "https://example.org/hook?t=abc", "http://127.0.0.1:8080/x",
-                 "http://localhost/x"):
+    for good in ("", MASK, "https://example.org/hook?t=abc", "https://8.8.8.8/x"):
         save_settings(conn, {"webhook_url": good})
+    # M1: solo https, mai verso questo PC o la rete locale (indirizzi scritti a mano)
     for bad in ("http://example.org/x", "ftp://x", "https://", "https://e.org/#f",
-                "https://e.org/" + "a" * 2035, 5):
+                "https://e.org/" + "a" * 2035, 5, "http://127.0.0.1:8080/x",
+                "http://localhost/x", "https://localhost/x", "https://127.0.0.1/x",
+                "https://[::1]/x", "https://192.168.1.10/x", "https://10.0.0.1/x",
+                "https://169.254.169.254/latest", "https://224.0.0.1/x", "https://0.0.0.0/x",
+                "https://[fe80::1]/x", "https://[::ffff:127.0.0.1]/x"):
         _rejects(conn, "webhook_url", bad)
 
 

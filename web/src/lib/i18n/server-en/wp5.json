@@ -12,7 +12,8 @@
     "Webhook non configurato": "Webhook not configured",
     "Attendi qualche secondo prima di un'altra prova": "Wait a few seconds before another test",
     "Diagnosi già in corso": "A diagnosis is already running",
-    "Radio non disponibili": "Radios not available"
+    "Radio non disponibili": "Radios not available",
+    "webhook_url deve essere un URL https verso un servizio su Internet: non sono ammessi questo PC né gli indirizzi della rete locale": "webhook_url must be an https URL of an Internet service: this PC and local network addresses are not allowed"
   },
   "patterns": [
     [

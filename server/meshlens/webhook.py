@@ -4,9 +4,15 @@
   alert (solo avvisi nuovi), sensor, traceroute (esito finale, una volta per id), node_new.
 - Consegna: un thread daemon per invio, timeout 5 s, nessun redirect seguito, un solo
   tentativo, al massimo WEBHOOK_MAX_PER_MIN al minuto e MAX_INFLIGHT in volo.
+- Bersagli (M1): solo https verso indirizzi pubblici. Dopo la risoluzione DNS ogni
+  indirizzo deve essere globale (niente loopback, reti private, link-local, multicast,
+  riservati); l'indirizzo davvero collegato viene ricontrollato prima del TLS (difesa dal DNS
+  rebinding). Connessione diretta, senza proxy, perche' il controllo valga davvero.
 - L'URL e' un segreto: non compare mai nei log, negli esiti, negli errori, negli eventi; il
   corpo passa da sanitize() (difesa in profondita' contro chiavi e token).
 """
+import http.client
+import ipaddress
 import json
 import logging
 import socket
@@ -40,6 +46,53 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
         return None  # un 3xx diventa HTTPError: classificato come "redirect"
 
 
+class BlockedTarget(OSError):
+    """Il webhook punterebbe a questo PC o alla rete locale."""
+
+
+def blocked_ip(addr: str) -> bool:
+    """True se l'indirizzo non e' pubblico (loopback, privato, link-local, multicast, ...)."""
+    try:
+        ip = ipaddress.ip_address(addr.split("%", 1)[0])
+    except ValueError:
+        return True
+    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
+        ip = ip.ipv4_mapped
+    return not ip.is_global or ip.is_multicast
+
+
+def check_url(url: str, resolve: Callable = socket.getaddrinfo) -> str | None:
+    """None se l'URL e' un https verso indirizzi pubblici, altrimenti il codice dell'esito."""
+    try:
+        p = urllib.parse.urlsplit(url)
+        port = p.port or 443
+    except ValueError:
+        return "invalid_url"
+    if p.scheme != "https" or not p.hostname:
+        return "invalid_url"
+    try:
+        infos = resolve(p.hostname, port, 0, socket.SOCK_STREAM)
+    except (OSError, UnicodeError):
+        return "dns"
+    if not infos or any(blocked_ip(str(info[4][0])) for info in infos):
+        return "blocked_target"
+    return None
+
+
+class _GuardedHTTPSConnection(http.client.HTTPSConnection):
+    def connect(self):
+        http.client.HTTPConnection.connect(self)  # solo TCP
+        if blocked_ip(str(self.sock.getpeername()[0])):
+            self.sock.close()
+            raise BlockedTarget("blocked")
+        self.sock = self._context.wrap_socket(self.sock, server_hostname=self.host)
+
+
+class _GuardedHTTPSHandler(urllib.request.HTTPSHandler):
+    def https_open(self, req):
+        return self.do_open(_GuardedHTTPSConnection, req, context=self._context)
+
+
 def sanitize(data):
     """Toglie ricorsivamente le chiavi che possono contenere segreti."""
     if isinstance(data, dict):
@@ -65,6 +118,8 @@ def classify_error(exc: BaseException) -> str:
     if isinstance(exc, urllib.error.HTTPError):
         return "redirect" if 300 <= exc.code < 400 else f"http_{exc.code}"
     reason = exc.reason if isinstance(exc, urllib.error.URLError) else exc
+    if isinstance(reason, BlockedTarget):
+        return "blocked_target"
     if isinstance(reason, (TimeoutError, socket.timeout)):
         return "timeout"
     if isinstance(reason, ConnectionRefusedError):
@@ -93,9 +148,12 @@ def _spawn_thread(fn: Callable[[], None]) -> None:
 class WebhookService:
     def __init__(self, get_settings: Callable[[], dict], clock: Callable[[], float] = time.time,
                  opener=None, spawn: Callable | None = None, version: str = "",
-                 timeout: float = TIMEOUT_S, started: float | None = None):
+                 timeout: float = TIMEOUT_S, started: float | None = None,
+                 check_target: Callable[[str], str | None] = check_url):
         self.get_settings, self.clock, self.version = get_settings, clock, version
-        self.opener = opener or urllib.request.build_opener(_NoRedirect)
+        self.opener = opener or urllib.request.build_opener(
+            urllib.request.ProxyHandler({}), _GuardedHTTPSHandler(), _NoRedirect)
+        self.check_target = check_target
         self.spawn = spawn or _spawn_thread
         self.timeout = timeout
         self.started = clock() if started is None else started
@@ -137,8 +195,9 @@ class WebhookService:
         if url is None:
             url = self.get_settings().get("webhook_url") or ""
         code = "ok"
-        if not _valid_url(url):
-            code = "invalid_url"
+        blocked = self.check_target(url) if _valid_url(url) else "invalid_url"
+        if blocked:
+            code = blocked
         else:
             req = urllib.request.Request(
                 url, data=self._body(event, data), method="POST",
