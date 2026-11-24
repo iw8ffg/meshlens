@@ -1,4 +1,32 @@
 // Testi inglesi: area «guest» (WP6, accesso ospite). Il tipo obbliga a tradurre ogni chiave italiana.
 import type { guest as itArea } from '../it/guest'
 
-export const guest: Record<keyof typeof itArea, string> = {}
+export const guest: Record<keyof typeof itArea, string> = {
+  'guest.badge': 'Guest — read only',
+  'guest.badgeShort': 'Guest',
+  'guest.settings.title': 'Guest access',
+  'guest.settings.intro': 'You are using MeshLens as a guest: you can see the map, nodes and statistics, without messages or changes.',
+  'guest.settings.appearance': 'Appearance',
+  'guest.card.title': 'Guest access',
+  'guest.card.intro': 'A second PIN for people who only need to look: they see the map, nodes and statistics, never messages, settings or radios, and cannot send anything.',
+  'guest.card.localOnly': 'The guest PIN and turning access on are managed only from the PC running MeshLens. From here you can only turn access off.',
+  'guest.card.lanOff': 'Network access is off: guests will only be able to sign in from this PC.',
+  'guest.card.enabled': 'Guest access on',
+  'guest.card.noPin': 'Set a guest PIN first to turn access on.',
+  'guest.card.pinSet': 'Guest PIN set',
+  'guest.card.pinMissing': 'No guest PIN',
+  'guest.card.newPin': 'New guest PIN',
+  'guest.card.repeat': 'Repeat the guest PIN',
+  'guest.card.hint': '{min} to {max} digits, different from your PIN',
+  'guest.card.setPin': 'Set guest PIN',
+  'guest.card.changePin': 'Change guest PIN',
+  'guest.card.clearPin': 'Remove guest PIN',
+  'guest.card.pinSaved': 'Guest PIN saved: connected guests will have to sign in again',
+  'guest.card.pinCleared': 'Guest PIN removed and guest access turned off',
+  'guest.card.sessions': 'Connected guests: {n}',
+  'guest.card.loadFailed': 'Could not read the guest access status',
+  'guest.card.failed': 'Operation failed',
+  'guest.mismatch': 'The two PINs do not match',
+  'guest.pinError': 'The guest PIN must have {min} to {max} digits',
+  'guest.sessionRole': 'guest',
+}

@@ -13,7 +13,8 @@
   import { diffRoute, HISTORY_PAGE, loadHistory } from '../lib/tracesched'
   import type { Node, Traceroute, TracerouteHop } from '../lib/types'
 
-  let { node }: { node: Node } = $props()
+  // readonly (ospite, E19): solo lo storico, nessun traceroute nuovo
+  let { node, readonly = false }: { node: Node; readonly?: boolean } = $props()
 
   const connected = $derived(app.radios.filter((r) => r.state === 'connected'))
   let radioId = $state('')
@@ -173,16 +174,18 @@
 </script>
 
 <h3>{t('nodes.tr.title')}</h3>
-<div class="row">
-  <Button icon="route" disabled={connected.length === 0 || pending} onclick={run}>{pending ? t('nodes.tr.running') : t('nodes.tr.title')}</Button>
-  {#if connected.length > 1}
-    <Select bind:value={radioId} aria-label={t('nodes.tr.radioAria')}>
-      <option value="">{t('nodes.tr.radioAuto')}</option>
-      {#each connected as r (r.id)}<option value={r.id}>{r.name}</option>{/each}
-    </Select>
-  {/if}
-</div>
-{#if connected.length === 0}<p class="none">{t('nodes.tr.connectRadio')}</p>{/if}
+{#if !readonly}
+  <div class="row">
+    <Button icon="route" disabled={connected.length === 0 || pending} onclick={run}>{pending ? t('nodes.tr.running') : t('nodes.tr.title')}</Button>
+    {#if connected.length > 1}
+      <Select bind:value={radioId} aria-label={t('nodes.tr.radioAria')}>
+        <option value="">{t('nodes.tr.radioAuto')}</option>
+        {#each connected as r (r.id)}<option value={r.id}>{r.name}</option>{/each}
+      </Select>
+    {/if}
+  </div>
+  {#if connected.length === 0}<p class="none">{t('nodes.tr.connectRadio')}</p>{/if}
+{/if}
 {#if error}<div class="gap"><Banner kind="danger" title={error} /></div>{/if}
 {#if pending}
   <p class="none" role="status">{t('nodes.tr.runningMax')}</p>

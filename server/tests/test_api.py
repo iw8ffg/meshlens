@@ -209,7 +209,8 @@ async def test_sessions_api(ctx):
                 assert len(rows) == 3
                 me = [r for r in rows if r["current"]]
                 assert len(me) == 1 and me[0]["ip"] == "127.0.0.1"
-                assert set(me[0]) == {"id", "created", "last_seen", "user_agent", "ip", "current"}
+                assert set(me[0]) == {"id", "created", "last_seen", "user_agent", "ip", "current",
+                                      "role"}
                 phone = next(r for r in rows if r["user_agent"] == "Telefono")
                 assert (await c.request("DELETE", f"/api/auth/sessions/{phone['id']}", json={})).status_code == 200
                 assert (await c.request("DELETE", f"/api/auth/sessions/{phone['id']}", json={})).status_code == 404

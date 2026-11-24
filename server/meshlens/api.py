@@ -27,7 +27,8 @@ from . import api_prediction, api_storeforward
 from . import api_automation, api_monitor, api_radioadmin, api_search, api_topology
 from .api_data import register_data_routes
 from .alerts import CHUTIL_MIN_SAMPLES, CHUTIL_WINDOW_S, compute_alerts, sort_key
-from .auth import LOOPBACK, MIN_PIN, MIN_PIN_LAN, Auth, LockedError
+from .auth import LOOPBACK, MIN_PIN, MIN_PIN_LAN, ROLE_ADMIN, ROLE_GUEST, Auth, LockedError
+from . import guest
 from .bus import Bus
 from .channel_link import parse_channel_url
 from .ingest import revive_node
@@ -508,9 +509,36 @@ def create_app(ctx: AppContext) -> FastAPI:
         if ctype != "application/json":
             raise HTTPException(415, "Content-Type non supportato")
 
+    guest_paths = guest.guest_get_paths()
+
+    def guest_allowed_now() -> bool:
+        """Difesa in profondita': con l'accesso ospite spento nessuna sessione ospite vale
+        (es. dopo un ripristino): le si revoca."""
+        if load_settings(ctx.conn).get("guest_enabled") is True:
+            return True
+        ctx.auth.revoke_role(ROLE_GUEST)
+        return False
+
+    def current_role(conn: Request | WebSocket) -> str | None:
+        role = ctx.auth.check_role(session_token(conn))
+        if role is not None and role != ROLE_ADMIN and not guest_allowed_now():
+            return None
+        return role
+
     async def require_auth(request: Request) -> None:
-        if not ctx.auth.check(session_token(request)):
+        """Sessione valida e, per impostazione predefinita, ruolo admin: l'ospite (E19) passa
+        solo con GET su un percorso dell'allowlist (template della rotta)."""
+        role = current_role(request)
+        if role is None:
             raise HTTPException(401, "Accesso richiesto")
+        if role != ROLE_ADMIN:
+            route = request.scope.get("route")
+            if request.method != "GET" or getattr(route, "path", None) not in guest_paths:
+                raise HTTPException(403, guest.GUEST_FORBIDDEN)
+        request.state.role = role
+
+    def is_admin(request: Request) -> bool:
+        return getattr(request.state, "role", None) == ROLE_ADMIN
 
     # ---- istanza singola e chiusura ----
     @app.get("/api/ping")
@@ -543,11 +571,14 @@ def create_app(ctx: AppContext) -> FastAPI:
         # (PIN di una versione precedente: si impara al prossimo login riuscito)
         length = ctx.auth.pin_length()
         lan = load_settings(ctx.conn)["lan_access"]
-        authenticated = ctx.auth.check(session_token(request))
+        role = current_role(request)
+        authenticated = role is not None
         out = {"pin_set": ctx.auth.pin_is_set(),
                "authenticated": authenticated,
                "is_local": is_local(request)}
-        if authenticated or is_local(request):
+        if authenticated:
+            out["role"] = role
+        if role == ROLE_ADMIN or (not authenticated and is_local(request)):
             # chi non e' autenticato e viene dalla rete non deve sapere se il PIN e' corto
             out["pin_short"] = None if length is None else bool(lan and length < MIN_PIN_LAN)
             # cifre minime per un PIN nuovo (primo PIN o cambio)
@@ -577,9 +608,11 @@ def create_app(ctx: AppContext) -> FastAPI:
 
     @app.post("/api/auth/login", dependencies=[Depends(require_json)])
     async def auth_login(body: PinBody, request: Request, response: Response):
+        # il PIN ospite apre una sessione solo con l'accesso ospite attivo (E19)
+        guest_ok = load_settings(ctx.conn).get("guest_enabled") is True
         try:
             token = await ctx.auth.alogin(body.pin, client_ip(request),
-                                          request.headers.get("user-agent"))
+                                          request.headers.get("user-agent"), guest_ok=guest_ok)
         except LockedError as e:
             return locked_response(e)
         except PermissionError:
@@ -683,8 +716,9 @@ def create_app(ctx: AppContext) -> FastAPI:
         return ctx.store.links(time.time() - hours * 3600)
 
     @app.get("/api/alerts", dependencies=[Depends(require_auth)])
-    async def list_alerts():
-        return ctx.alerts()
+    async def list_alerts(request: Request):
+        alerts = ctx.alerts()
+        return alerts if is_admin(request) else guest.guest_alerts(alerts)
 
     # ---- messaggi ----
     @app.get("/api/messages", dependencies=[Depends(require_auth)])
@@ -757,6 +791,11 @@ def create_app(ctx: AppContext) -> FastAPI:
         if any(current.get(k) is not True for k in wanted):
             raise HTTPException(400, DEDICATED_SWITCH_MSG)
 
+    def revoke_guests_if_off(saved: dict) -> None:
+        """Accesso ospite spento: le sessioni ospite aperte si chiudono subito (E19)."""
+        if saved.get("guest_enabled") is not True:
+            ctx.auth.revoke_role(ROLE_GUEST)
+
     @app.put("/api/settings", dependencies=[Depends(require_auth), Depends(require_json)])
     async def put_settings(changes: dict):
         changes = dict(changes)
@@ -786,6 +825,7 @@ def create_app(ctx: AppContext) -> FastAPI:
             saved = save_settings(ctx.conn, changes)
         except ValueError as e:
             raise HTTPException(400, str(e))
+        revoke_guests_if_off(saved)
         await ctx.on_settings_changed(saved)
         ctx.alerts()  # soglie cambiate: pubblica subito gli avvisi aggiornati
         return _mask_settings(saved)
@@ -808,6 +848,7 @@ def create_app(ctx: AppContext) -> FastAPI:
             saved = save_settings(ctx.conn, changes)
         except ValueError as e:
             raise HTTPException(400, str(e))
+        revoke_guests_if_off(saved)
         await ctx.on_settings_changed(saved)
         ctx.alerts()
         return {"settings": mask_secrets(saved), "skipped": skipped}
@@ -1507,9 +1548,12 @@ def create_app(ctx: AppContext) -> FastAPI:
             await ws.close(code=4403)
             return
         token = session_token(ws)
-        if not ctx.auth.check(token):
+        role = current_role(ws)
+        if role is None:
             await ws.close(code=4401)
             return
+        # ospite (E19): solo gli eventi di guest_event (nodi, statistiche, stato ridotto)
+        shape = (lambda m: m) if role == ROLE_ADMIN else guest.guest_event
         # sessione revocata (logout, "Esci", cambio PIN) o scaduta: chiusura con 4401
         token_hash, revoked_event = ctx.auth.watch(token)
         q = ctx.bus.subscribe()
@@ -1529,7 +1573,8 @@ def create_app(ctx: AppContext) -> FastAPI:
                         break
                     recv = asyncio.ensure_future(ws.receive())  # frame del client: ignorato
                 if get in done:
-                    if not await send_with_timeout(ws, get.result()):
+                    msg = shape(get.result())
+                    if msg is not None and not await send_with_timeout(ws, msg):
                         # client troppo lento: si ricollega (dopo 3 s) e ricarica
                         with contextlib.suppress(Exception):
                             await asyncio.wait_for(ws.close(code=1013), 2)
@@ -1553,6 +1598,7 @@ def create_app(ctx: AppContext) -> FastAPI:
     api_topology.register(app, ctx, require_auth, require_json)     # WP3
     api_radioadmin.register(app, ctx, require_auth, require_json)   # WP4
     api_automation.register(app, ctx, require_auth, require_json)   # WP5
+    guest.register_guest_routes(app, ctx, require_auth, require_json)  # WP6 (E19)
 
     # ---- statici (ultimi: catch-all) ----
     if ctx.static_dir is not None and Path(ctx.static_dir).exists():

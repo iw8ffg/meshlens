@@ -3,13 +3,15 @@
   import { t, tn } from '../i18n/index.svelte'
   import { num } from '../format'
   import { PHONE_NAV, navActive, type Tab } from './nav'
+  import { tabsFor } from '../guest'
+  import { session } from '../guest.svelte'
 
   let { tab, alerts = 0, unread = 0, onselect }: { tab: Tab; alerts?: number; unread?: number; onselect: (t: Tab) => void } = $props()
   const active = $derived(navActive(tab))
 </script>
 
 <nav class="bn" aria-label={t('nav.sections')}>
-  {#each PHONE_NAV as it (it.id)}
+  {#each tabsFor(PHONE_NAV, session.role) as it (it.id)}
     <button type="button" class:on={active === it.id} aria-current={active === it.id ? 'page' : undefined} onclick={() => onselect(it.id)}>
       <span class="ic">
         <Icon name={it.icon} size={22} />

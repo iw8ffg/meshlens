@@ -1,4 +1,9 @@
 {
-  "exact": {},
+  "exact": {
+    "Non disponibile con l'accesso ospite": "Not available with guest access",
+    "L'accesso ospite si gestisce solo da questo PC": "Guest access can only be managed from this PC",
+    "Imposta prima il PIN ospite": "Set the guest PIN first",
+    "Il PIN ospite deve essere diverso dal PIN principale": "The guest PIN must be different from the main PIN"
+  },
   "patterns": []
 }
