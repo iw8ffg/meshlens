@@ -8,7 +8,10 @@
 //     2*pi*i/n + jitter (+-0,1 rad dal PRNG).
 //  3. k = 0,9*sqrt(w*h/n); a ogni iterazione repulsione k^2/d tra tutte le coppie, attrazione
 //     d^2/k lungo gli archi, gravita' verso il centro 0,02*d; spostamento limitato alla
-//     temperatura T = (w/10)*(1 - it/iterazioni); coordinate confinate nel riquadro con margine 24.
+//     temperatura T = (w/10)*(1 - it/iterazioni); coordinate confinate nel riquadro con margine 48.
+//     Gravita' per componente connessa: ogni componente e' attratta dal centro della propria cella
+//     (griglia ceil(sqrt(c)) colonne, componenti ordinate per dimensione), cosi' i componenti stanno
+//     affiancati e non vengono spinti sui bordi; posizione iniziale su un cerchio attorno a quel centro.
 //  4. Iterazioni: n <= 150 -> 300, n <= 400 -> 180, altrimenti 120; n = 0 -> vuoto, n = 1 -> centro;
 //     coppie coincidenti (d < 1e-6) si separano con una spinta casuale (mai NaN).
 import { getJSON } from './api'
@@ -76,7 +79,7 @@ export interface LayoutJob {
 export function layoutJob(nodes: Pick<TopologyNode, 'id' | 'degree'>[], edges: Pick<TopologyEdge, 'a' | 'b'>[], opts: LayoutOpts = {}): LayoutJob {
   const W = opts.width ?? 1000
   const H = opts.height ?? 700
-  const PAD = 24
+  const PAD = 48
   const ids = [...new Set(nodes.map((n) => n.id))].sort()
   const n = ids.length
   const out = new Map<string, Pt>()
@@ -97,9 +100,40 @@ export function layoutJob(nodes: Pick<TopologyNode, 'id' | 'degree'>[], edges: P
   }
   const es = [...pairs].sort((a, b) => a - b).map((p) => [Math.floor(p / n), p % n] as const)
 
+  // componenti connesse (union-find) e centro di cella di ciascuna
+  const parent = Array.from({ length: n }, (_, i) => i)
+  const find = (a: number): number => {
+    while (parent[a] !== a) a = parent[a] = parent[parent[a]]
+    return a
+  }
+  for (const [i, j] of es) parent[find(i)] = find(j)
+  const members = new Map<number, number[]>()
+  for (let i = 0; i < n; i++) {
+    const r = find(i)
+    const m = members.get(r)
+    if (m) m.push(i)
+    else members.set(r, [i])
+  }
+  const comps = [...members.values()].sort((a, b) => b.length - a.length || a[0] - b[0])
+  const cols = Math.ceil(Math.sqrt(comps.length))
+  const rows = Math.ceil(comps.length / cols)
+  const comp = new Int32Array(n)
+  const cx = new Float64Array(n)
+  const cy = new Float64Array(n)
+  const cr = new Float64Array(n)
+  comps.forEach((m, c) => {
+    const ccx = (((c % cols) + 0.5) * W) / cols
+    const ccy = ((Math.floor(c / cols) + 0.5) * H) / rows
+    const rad = Math.min(0.35 * Math.min(W / cols, H / rows), 12 * Math.sqrt(m.length) + 20)
+    for (const i of m) {
+      comp[i] = c
+      cx[i] = ccx
+      cy[i] = ccy
+      cr[i] = rad
+    }
+  })
   const x = new Float64Array(n)
   const y = new Float64Array(n)
-  const r0 = 0.35 * Math.min(W, H)
   let seeded = 0
   for (let i = 0; i < n; i++) {
     const ang = (2 * Math.PI * i) / n + (rnd() - 0.5) * 0.2
@@ -109,8 +143,8 @@ export function layoutJob(nodes: Pick<TopologyNode, 'id' | 'degree'>[], edges: P
       y[i] = sp.y
       seeded++
     } else {
-      x[i] = W / 2 + r0 * Math.cos(ang)
-      y[i] = H / 2 + r0 * Math.sin(ang)
+      x[i] = cx[i] + cr[i] * Math.cos(ang)
+      y[i] = cy[i] + cr[i] * Math.sin(ang)
     }
   }
   // con posizioni di partenza basta un assestamento breve e "freddo": il grafo non salta
@@ -118,7 +152,7 @@ export function layoutJob(nodes: Pick<TopologyNode, 'id' | 'degree'>[], edges: P
   const base = n <= 150 ? 300 : n <= 400 ? 180 : 120
   const iterations = opts.iterations ?? (warm ? Math.max(30, Math.round(base / 4)) : base)
   const tScale = warm ? 0.25 : 1
-  const k = 0.9 * Math.sqrt((W * H) / n)
+  const k = (0.9 * Math.sqrt((W * H) / n)) / Math.sqrt(comps.length) // con piu componenti ognuna ha solo la sua cella
   const k2 = k * k
   const dx = new Float64Array(n)
   const dy = new Float64Array(n)
@@ -136,7 +170,7 @@ export function layoutJob(nodes: Pick<TopologyNode, 'id' | 'degree'>[], edges: P
           vy = rnd() - 0.5 || 0.001
           d = Math.hypot(vx, vy)
         }
-        const f = k2 / d / d
+        const f = (k2 / d / d) * (comp[i] === comp[j] ? 1 : 0.02) // tra componenti diverse quasi nessuna repulsione: le separano le celle
         dx[i] += vx * f
         dy[i] += vy * f
         dx[j] -= vx * f
@@ -156,8 +190,8 @@ export function layoutJob(nodes: Pick<TopologyNode, 'id' | 'degree'>[], edges: P
     }
     const temp = (W / 10) * tScale * (1 - it / iterations)
     for (let i = 0; i < n; i++) {
-      dx[i] -= 0.02 * (x[i] - W / 2)
-      dy[i] -= 0.02 * (y[i] - H / 2)
+      dx[i] -= 0.1 * (x[i] - cx[i])
+      dy[i] -= 0.1 * (y[i] - cy[i])
       const len = Math.hypot(dx[i], dy[i])
       if (len > 1e-9) {
         const lim = Math.min(len, temp)

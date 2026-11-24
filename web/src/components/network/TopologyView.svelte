@@ -446,12 +446,11 @@
     overflow: hidden;
   }
   .tools {
-    position: absolute;
-    top: var(--space-2);
-    right: var(--space-2);
     display: flex;
+    justify-content: flex-end;
     gap: var(--space-2);
-    z-index: 1;
+    padding: var(--space-2);
+    border-bottom: 1px solid var(--line);
   }
   svg {
     display: block;
