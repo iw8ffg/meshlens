@@ -7,6 +7,9 @@ Nodi, nomi e posizioni sono finti (citta' italiane con scostamenti casuali ma
 riproducibili). MQTT punta a 127.0.0.1:1, quindi resta sempre disconnesso.
 Comprende anche conversazioni (risposte, reazioni, PKI, non letti), waypoint, metriche,
 pacchetti e statistiche orarie, e una copertura prevista calcolata su un terreno sintetico.
+Per la 1.6: batterie a 72 ore (in scarica, solare, in carica), sensori, regole di avviso,
+traceroute programmati, contatti TAK, topologia, nodo ignorato, messaggi rapidi, profilo
+di configurazione; bot, webhook e ospite restano spenti.
 """
 import base64
 import json
@@ -271,6 +274,151 @@ def _seed_prediction(out_dir: Path, rng, now) -> None:
     (d / f"{pid}.meta.json").write_text(json.dumps(meta), encoding="utf-8")
 
 
+def _seed_v16(store, nums, now) -> dict:
+    """Dati dimostrativi delle funzioni 1.6: tutto inventato, nessuna notifica reale."""
+    conn = store.conn
+    rng = random.Random(DEMO_SEED + 16)
+    # --- batterie: 73 campioni orari su 72 ore per tre nodi miei ---
+    drain, solar, charge = nums[0], nums[1], nums[2]
+    conn.execute("DELETE FROM telemetry WHERE node_num IN (?,?,?)", (drain, solar, charge))
+    final = {}
+    for h in range(72, -1, -1):
+        t = now - h * 3600
+        age = 72 - h  # ore dall'inizio della finestra
+        levels = {
+            drain: 90 - 15 * age / 24 + rng.uniform(-0.6, 0.6),  # circa 3 giorni residui
+            solar: 68 + 22 * math.sin((age % 24 - 9) / 24 * 2 * math.pi) + rng.uniform(-1, 1),
+            charge: min(100, 38 + 0.95 * age + rng.uniform(-0.8, 0.8)),
+        }
+        for num, lv in levels.items():
+            lv = int(round(max(1, min(100, lv))))
+            final[num] = lv
+            # il nodo in scarica si riavvia una volta (a meta' finestra)
+            if num == drain:
+                uptime = (age - 40) * 3600 if age >= 40 else (age + 5) * 3600
+            else:
+                uptime = age * 3600 + 86400
+            volt = (round(4.9 + rng.uniform(0, .1), 2) if num == charge
+                    else round(3.3 + lv / 100 * 0.85, 2))
+            store.add_telemetry(num, t, TelemetryData(
+                battery_level=101 if num == charge and lv >= 98 else lv, voltage=volt,
+                channel_utilization=round(rng.uniform(2, 14), 1),
+                air_util_tx=round(rng.uniform(0, 2.5), 1), uptime_seconds=uptime))
+            if h % 2 == 0:
+                cur = {drain: -rng.uniform(40, 70), charge: rng.uniform(380, 460),
+                       solar: rng.uniform(-60, 220) if 9 <= age % 24 <= 16 else -rng.uniform(20, 60),
+                       }[num]
+                store.add_metrics(num, t, "power", {"ch1_voltage": volt,
+                                                    "ch1_current": round(cur, 1)})
+    for num, lv in final.items():
+        conn.execute("UPDATE nodes SET battery=? WHERE num=?", (lv, num))
+    store.set_favorite(nums[8], True)  # un favorito che non e' mio
+
+    # --- sensore di rilevamento e paxcounter su un solo nodo ---
+    sensor = nums[12]
+    for k, (ago, text, val) in enumerate([
+            (50 * 3600, "Movimento rilevato", 1), (50 * 3600 - 40, "Movimento cessato", 0),
+            (21 * 3600, "Porta aperta", 1), (21 * 3600 - 90, "Porta chiusa", 0),
+            (3 * 3600, "Movimento rilevato", 1), (3 * 3600 - 30, "Movimento cessato", 0)]):
+        conn.execute(
+            "INSERT INTO sensor_events(node_num, time, kind, text, value, source, radio_id, "
+            "broker, packet_id) VALUES (?,?,?,?,?,?,?,?,?)",
+            (sensor, now - ago, "detection", text, float(val), "rf", RADIO, None, 6000 + k))
+    for k in range(48):
+        crowd = max(0.0, math.sin(k / 48 * 2 * math.pi - 1.2))
+        store.add_metrics(sensor, now - (48 - k) * 1800, "paxcounter", {
+            "wifi": float(round(40 * crowd + rng.uniform(0, 6))),
+            "ble": float(round(25 * crowd + rng.uniform(0, 5))), "uptime": float(k * 1800)})
+
+    # --- regole di avviso (solo regole: nessun canale di notifica configurato) ---
+    cx, cy, d = 43.7696, 11.2558, 0.06  # zona dimostrativa di Firenze
+    polygon = [[cy - d, cx - d], [cy + d, cx - d], [cy + d, cx + d], [cy - d, cx + d]]
+    for kind, name, node, channel, thr, params, cool in [
+            ("keyword", "Parole chiave Escursioni", None, f"ch:{RADIO}:1", None,
+             {"words": ["aiuto", "emergenza"], "whole_word": True}, 30),
+            ("snr_low", "Segnale debole Cima Bella", nums[21], None, -10.0,
+             {"window_min": 60, "min_samples": 3}, 120),
+            ("geofence", "Area Colli (uscita)", nums[3], None, None,
+             {"polygon": polygon, "trigger": "exit"}, 60),
+            ("battery", "Batteria Base Colli sotto il 30%", nums[0], None, 30.0, {}, 360)]:
+        conn.execute(
+            "INSERT INTO alert_rules(kind, name, enabled, node_num, channel, threshold, params,"
+            " cooldown_min, created, updated) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (kind, name, 1, node, channel, thr, json.dumps(params), cool, now - 86400, now - 86400))
+
+    # --- traceroute programmati: due bersagli, uno con un cambio di percorso ---
+    def run(target, ago, status, hops):
+        tid = store.add_traceroute(RADIO, target, now - ago, auto=True)
+        ok = status == "ok"
+        fwd = [{"id": f"!{nums[h]:08x}", "snr": round(rng.uniform(-9, 7), 1)} for h in hops]
+        bck = [{"id": f"!{nums[h]:08x}", "snr": round(rng.uniform(-9, 7), 1)} for h in hops[::-1]]
+        store.update_traceroute(tid, status, None if ok else "Nessuna risposta",
+                                fwd if ok else [], bck if ok else [])
+        return tid
+    t1, t2 = nums[8], nums[7]
+    last = {}
+    for ago, hops in [(15, [4, 5]), (12, [4, 5]), (9, [4, 5]), (6, [4, 9, 5]), (3, [4, 9, 5])]:
+        last[t1] = (ago * 3600, run(t1, ago * 3600, "ok", hops))  # dal 4o giro: nuovo percorso
+    for ago, st, hops in [(14, "ok", [6]), (11, "ok", [6]), (8, "timeout", []), (5, "ok", [6])]:
+        last[t2] = (ago * 3600, run(t2, ago * 3600, st, hops))
+    for num, (ago, tid) in last.items():
+        status = conn.execute("SELECT status FROM traceroutes WHERE id=?", (tid,)).fetchone()[0]
+        conn.execute(
+            "INSERT INTO trace_targets(node_num, enabled, interval_min, radio_id, created, "
+            "last_run, last_status, last_traceroute_id, fail_count) VALUES (?,?,?,?,?,?,?,?,?)",
+            (num, 1, 180, None, now - 20 * 3600, now - ago, status, tid, 0))
+
+    # --- contatti TAK vicini a due nodi ---
+    for who, call, team, role, bat, speed, course in [
+            (3, "DEMO-1", "CYAN", "TEAM_MEMBER", 82, 3, 120),
+            (8, "DEMO-2", "GREEN", "TEAM_LEAD", 54, 0, 0)]:
+        lat, lon = conn.execute("SELECT lat, lon FROM nodes WHERE num=?", (nums[who],)).fetchone()
+        conn.execute(
+            "INSERT INTO tak_contacts(node_num, callsign, device_callsign, team, role, battery, "
+            "lat, lon, altitude, speed, course, compressed, time, source, radio_id, broker) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (nums[who], call, f"{call}-A", team, role, bat, lat + 0.004, lon - 0.005, 120,
+             speed, course, 0, now - 600 * (who - 1), "rf", RADIO, None))
+
+    # --- topologia: una cerniera (nodo 2), componenti separate, un nodo isolato (20) ---
+    for a, b, src, snr in [(0, 1, "neighborinfo", 6.5), (1, 2, "neighborinfo", 4.0),
+                           (0, 2, "neighborinfo", 2.5), (0, 1, "rf_direct", 7.0),
+                           (2, 3, "traceroute", -3.5), (2, 4, "traceroute", -6.0),
+                           (6, 7, "neighborinfo", 5.0), (7, 9, "neighborinfo", -1.5),
+                           (6, 9, "mqtt_gateway", 0.5), (10, 11, "neighborinfo", -8.0)]:
+        store.upsert_link(nums[a], nums[b], src, snr, now - 900)
+    for num in (0, 1, 2, 3, 4, 6, 7, 9, 10, 11, 20):
+        conn.execute("UPDATE nodes SET last_heard=? WHERE num=?", (now - 300, nums[num]))
+
+    # --- nodo ignorato con un messaggio che deve restare nascosto ---
+    ignored = nums[30]
+    store.set_ignored(ignored, True)
+    _msg(store, "c0:ign", ignored, "Messaggio di un nodo ignorato: non deve comparire", 200, now,
+         packet_id=5990)
+
+    # --- profilo di configurazione salvato (nessun segreto) ---
+    conn.execute(
+        "INSERT INTO config_profiles(name, created, updated, source_node_num, source_hw, "
+        "firmware, sections, data, notes) VALUES (?,?,?,?,?,?,?,?,?)",
+        ("Ripetitore standard", now - 5 * 86400, now - 5 * 86400, nums[0], "HELTEC_V3", "2.7.11",
+         json.dumps(["config.lora", "config.device"]),
+         json.dumps({"config": {"lora": {"hop_limit": 3, "tx_enabled": True, "use_preset": True},
+                                "device": {"node_info_broadcast_secs": 10800}},
+                     "module_config": {}}), "Profilo dimostrativo, senza segreti"))
+    return {"battery_nodes": [drain, solar, charge], "ignored": ignored}
+
+
+def _v16_settings() -> dict:
+    """Bot, webhook, ospite e traceroute automatici: configurati ma SPENTI."""
+    return {"onboarding_done": True, "guest_enabled": False,
+            "quick_replies": ["Ricevuto, grazie", "Batteria {batteria}, arrivo tra poco"],
+            "bot_enabled": False, "bot_commands": ["ping", "info", "time"],
+            "bot_targets": [{"kind": "radio", "radio_id": RADIO, "channel_index": 1}],
+            "bot_replies": [{"trigger": "ciao", "text": "Ciao dalla rete dimostrativa!"}],
+            "webhook_enabled": False, "webhook_events": ["alert", "sensor"],
+            "traceroute_auto_enabled": False}
+
+
 def build(out_dir: Path | str, now: float | None = None) -> dict:
     out_dir = Path(out_dir)
     now = time.time() if now is None else now
@@ -339,13 +487,15 @@ def build(out_dir: Path | str, now: float | None = None) -> dict:
             "channel": "LongFast", "country": "IT"})
     _seed_metrics(store, rng, nums, now)
     _seed_packets(store, rng, nums, now)
+    v16 = _seed_v16(store, nums, now)
     store.commit()
     _seed_prediction(out_dir, rng, now)
     # MQTT resta disconnesso: broker locale su una porta chiusa
     save_settings(conn, {"mqtt": {"host": "127.0.0.1", "port": 1, "topics": []},
-                         "saved_countries": ["IT"], "packet_log_mode": "archived"})
+                         "saved_countries": ["IT"], "packet_log_mode": "archived",
+                         **_v16_settings()})
     conn.close()
-    return {"nodes": len(NAMES), "session": sid, "base": base, "pki_peer": peer}
+    return {"nodes": len(NAMES), "session": sid, "base": base, "pki_peer": peer, **v16}
 
 
 def main(argv: list[str] | None = None) -> int:
