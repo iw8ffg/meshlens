@@ -13,7 +13,7 @@ import { it as itCat } from './i18n/it'
 import { en as enCat } from './i18n/en'
 import {
   ADVICE_CODES, adviceSteps, adviceTitleKey, CHECKS, checkLabelKey, diagnoseAddress, diagnoseSaved,
-  statusKind, statusLabelKey,
+  needsSave, statusKind, statusLabelKey, type Diagnosis,
 } from './radiodiag'
 
 const has = (k: string) => Object.hasOwn(itCat, k) && !!(enCat as Record<string, string>)[k]
@@ -66,5 +66,20 @@ describe('chiamate', () => {
       ['POST', '/radios/r%201/diagnose', {}],
       ['POST', '/radios/diagnose', { kind: 'tcp', address: '192.0.2.1' }],
     ])
+  })
+})
+
+describe('needsSave', () => {
+  const diag = (checks: Diagnosis['checks']): Diagnosis =>
+    ({ kind: 'tcp', address: '10.0.0.5', checks, advice: null, radio_state: null })
+  it('vero se il server ha saltato i controlli TCP perché la radio non è salvata', () => {
+    expect(needsSave(diag([
+      { check: 'address_valid', status: 'ok', advice: null, params: {} },
+      { check: 'tcp_connect', status: 'skip', advice: null, params: { reason: 'not_saved' } },
+    ]))).toBe(true)
+    expect(needsSave(diag([{ check: 'tcp_connect', status: 'skip', advice: null, params: {} }]))).toBe(false)
+    expect(needsSave(null)).toBe(false)
+    expect(has('radiodiag.notSaved')).toBe(true)
+    expect((itCat as Record<string, string>)['radiodiag.notSaved']).toBe('Salva la radio e ripeti la diagnosi')
   })
 })

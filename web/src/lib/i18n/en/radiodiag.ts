@@ -9,6 +9,8 @@ export const radiodiag: Record<keyof typeof itArea, string> = {
   'radiodiag.allOk': 'No problem found: try connecting the radio.',
   'radiodiag.steps': 'What to do',
   'radiodiag.failed': 'Diagnosis failed',
+  'radiodiag.notSaved': 'Save the radio and repeat the diagnosis',
+  'radiodiag.notSavedText': 'For safety MeshLens only connects to the addresses of saved radios: add the radio, then repeat the diagnosis.',
   'radiodiag.status.ok': 'OK',
   'radiodiag.status.warn': 'Warning',
   'radiodiag.status.fail': 'Problem',

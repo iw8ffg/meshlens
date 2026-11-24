@@ -76,7 +76,7 @@ export const bot = {
   'bot.webhook.intro': 'Invia un POST JSON a un tuo servizio quando succede qualcosa.',
   'bot.webhook.switch': 'Webhook attivo',
   'bot.webhook.url': 'Indirizzo (URL)',
-  'bot.webhook.urlHint': 'https, oppure http solo verso questo PC',
+  'bot.webhook.urlHint': 'Solo https verso servizi su Internet: niente indirizzi locali o privati, nessun proxy',
   'bot.webhook.urlSet': 'Indirizzo configurato (nascosto)',
   'bot.webhook.urlNone': 'Nessun indirizzo configurato',
   'bot.webhook.replace': 'Sostituisci',
@@ -101,6 +101,7 @@ export const bot = {
   'bot.webhook.code.tls': 'errore del certificato TLS',
   'bot.webhook.code.redirect': 'reindirizzamento non seguito',
   'bot.webhook.code.invalid_url': 'indirizzo non valido',
+  'bot.webhook.code.blocked_target': 'indirizzo non consentito (locale o privato)',
   'bot.webhook.code.error': 'errore',
   'bot.webhook.code.http': 'risposta HTTP {n}',
 } as const

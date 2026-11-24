@@ -243,7 +243,6 @@
     "bot_commands deve contenere solo comandi tra ping, info, nodes, time, weather, senza doppioni": "bot_commands must contain only commands among ping, info, nodes, time, weather, without duplicates",
     "bot_weather_node deve essere vuoto oppure nel formato !xxxxxxxx": "bot_weather_node must be empty or in the format !xxxxxxxx",
     "bot_replies deve essere una lista di al massimo 20 risposte (parola da 2 a 32 caratteri, testo da 1 a 200 byte, parole diverse)": "bot_replies must be a list of at most 20 replies (word of 2 to 32 characters, text of 1 to 200 bytes, distinct words)",
-    "webhook_url deve essere un URL https (http solo verso questo PC)": "webhook_url must be an https URL (http only towards this PC)",
     "webhook_events deve contenere solo eventi tra message, alert, sensor, traceroute, node_new, senza doppioni": "webhook_events must contain only events among message, alert, sensor, traceroute, node_new, without duplicates",
     "update_channel deve essere stable oppure beta": "update_channel must be stable or beta",
     "last_seen_version deve essere vuoto oppure un numero di versione": "last_seen_version must be empty or a version number",

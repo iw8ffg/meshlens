@@ -5,6 +5,7 @@ import type { SourceKind } from './ui/logic'
 import type { Alert, Node, RadioFlagResult, RadioFlags } from './types'
 import { alertLabel } from './alerts'
 import { t, type MsgKey } from './i18n/index.svelte'
+import { translateServer } from './i18n/server'
 import { getJSON, send } from './api'
 
 // ---- 1.6 (WP4): nodi ignorati e flag nel NodeDB delle radio collegate ----
@@ -12,7 +13,11 @@ const flagPath = (id: string) => `/nodes/${encodeURIComponent(id)}`
 
 /** Ignora/ripristina in MeshLens (e, con radio, anche sulle radio collegate). */
 export const setIgnored = (id: string, ignored: boolean, radio = true) =>
-  send<{ node: Node; radios: RadioFlagResult[] }>('PUT', `${flagPath(id)}/ignored`, { ignored, radio })
+  send<{ node: Node; radios: RadioFlagResult[]; warning?: string | null }>('PUT', `${flagPath(id)}/ignored`, { ignored, radio })
+/** Avviso del server (es. un tuo nodo ignorato solo in MeshLens, mai sulle radio), tradotto. */
+export function ignoreWarning(res: { warning?: string | null }): string {
+  return res.warning ? translateServer(res.warning) : ''
+}
 export const getRadioFlags = (id: string) => getJSON<{ radios: RadioFlags[] }>(`${flagPath(id)}/radio-flags`)
 export const setRadioFlags = (id: string, flags: { favorite?: boolean; ignored?: boolean }, radioId?: string | null) =>
   send<{ radios: RadioFlagResult[] }>('PUT', `${flagPath(id)}/radio-flags`, { ...flags, radio_id: radioId ?? null })

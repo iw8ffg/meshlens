@@ -37,12 +37,45 @@ def test_guest_alerts_drop_rules():
         {"key": "b", "kind": "rule_keyword", "node_id": "!00000002", "rule_id": 3,
          "detail": {"word": "sos", "text": "aiuto sos"}},
         {"key": "c", "kind": "rule_snr", "node_id": "!00000002", "rule_id": 4},
-        {"key": "d", "kind": "sensor_detection", "node_id": "!00000003", "rule_id": None},
+        {"key": "rule:7:!00000003", "kind": "sensor_detection", "node_id": "!00000003",
+         "rule_id": 7, "detail": "porta aperta"},
     ]
     out = guest.guest_alerts(alerts)
-    assert [a["key"] for a in out] == ["a", "d"]
+    assert [a["key"] for a in out] == ["a"]
     assert all("rule_id" not in a for a in out)
-    assert alerts[3]["rule_id"] is None  # l'originale non cambia
+    assert alerts[3]["rule_id"] == 7  # l'originale non cambia
+
+
+def test_guest_alerts_allowlist_of_kinds():
+    """M3: allowlist; i tipi futuri o sconosciuti non arrivano all'ospite."""
+    safe = ["battery_low", "silent", "chutil_high", "back_online", "firmware_old",
+            "autonomy_low"]
+    alerts = [{"key": f"{k}:!00000001", "kind": k, "node_id": "!00000001", "value": 1,
+               "since": 5.0, "node_name": "N"} for k in safe]
+    for bad in ("rule_keyword", "rule_geofence", "sensor_detection", "futuro", None,
+                "key_changed"):
+        alerts.append({"key": "x", "kind": bad, "node_id": "!00000001", "detail": "segreto"})
+    out = guest.guest_alerts(alerts)
+    assert [a["kind"] for a in out] == safe
+    assert "segreto" not in str(out)
+    # una chiave di regola non passa mai (nemmeno su un tipo ammesso), e niente campi extra
+    out = guest.guest_alerts([{"key": "rule:9:!00000001", "kind": "battery_low",
+                               "node_id": "!00000001", "value": 3, "rule_id": 9,
+                               "extra": {"cfg": 1}}])
+    assert out == [{"key": "battery_low:!00000001", "kind": "battery_low",
+                    "node_id": "!00000001", "value": 3}]
+
+
+def test_guest_sensor_event_without_text():
+    """M4: l'ospite vede nodo, ora e rilevato/cessato, mai il testo del sensore."""
+    ev = {"id": 3, "node_id": "!00000001", "time": 10.0, "kind": "detection",
+          "text": "Porta garage aperta", "value": 1.0, "source": "radio"}
+    out = guest.guest_sensor_event(ev)
+    assert out == {"id": 3, "node_id": "!00000001", "time": 10.0, "kind": "detection",
+                   "text": None, "value": 1.0}
+    assert ev["text"] == "Porta garage aperta"
+    msg = guest.guest_event({"type": "sensor_event", "event": ev})
+    assert msg == {"type": "sensor_event", "event": out}
 
 
 def test_guest_mqtt_status_is_reduced():
@@ -57,7 +90,7 @@ def test_guest_mqtt_status_is_reduced():
 
 def test_guest_event_filter():
     ok = [{"type": "nodes", "nodes": []}, {"type": "resync"},
-          {"type": "sensor_event", "event": {}}, {"type": "tak_contact", "contact": {}},
+          {"type": "tak_contact", "contact": {}},
           {"type": "traceroute", "result": {"forward": []}}]
     for m in ok:
         assert guest.guest_event(m) == m
@@ -180,6 +213,60 @@ def test_every_non_public_route_uses_require_auth(gctx):
             continue
         names = {getattr(d.call, "__name__", "") for d in r.dependant.dependencies}
         assert "require_auth" in names, f"{r.path} senza require_auth"
+
+
+# rotte che non sono APIRoute (niente dipendenze FastAPI): solo queste. /ws controlla la
+# sessione da se' (test_ws_*), "/" e' il mount dei file statici dell'interfaccia.
+PUBLIC_NON_API = {("APIWebSocketRoute", "/ws"), ("Mount", "")}
+
+
+@pytest.mark.parametrize("with_static", [False, True])
+def test_non_api_routes_are_exactly_the_known_ones(tmp_path, with_static):
+    """M5: ogni add_route/mount/websocket futuro deve passare da qui (anche /docs e simili)."""
+    if with_static:
+        (tmp_path / "index.html").write_text("<html></html>", encoding="utf-8")
+    ctx = make_ctx(static_dir=tmp_path if with_static else None)
+    app = create_app(ctx)
+    found = {(type(r).__name__, r.path) for r in app.routes if not isinstance(r, APIRoute)}
+    expected = {("APIWebSocketRoute", "/ws")} | ({("Mount", "")} if with_static else set())
+    assert found == expected, found
+    assert found <= PUBLIC_NON_API
+
+
+async def test_openapi_and_docs_disabled(gctx):
+    async with client_with(gctx, "") as c:
+        for path in ("/openapi.json", "/docs", "/redoc", "/docs/oauth2-redirect"):
+            r = await c.get(path)
+            assert r.status_code == 404, path
+
+
+async def test_guest_sensor_events_route_without_text(gctx):
+    gctx.conn.execute("INSERT INTO sensor_events(node_num, time, kind, text, value, source) "
+                      "VALUES(1, strftime('%s','now'), 'detection', 'Porta garage aperta', 1, "
+                      "'radio')")
+    gctx.conn.commit()
+    async with client_with(gctx, guest_token(gctx)) as c:
+        r = await c.get("/api/nodes/!00000001/sensor-events")
+        assert r.status_code == 200
+        rows = r.json()
+        assert len(rows) == 1 and rows[0]["value"] == 1 and rows[0]["text"] is None
+        assert "Porta garage" not in r.text and "source" not in rows[0]
+    async with client_with(gctx, admin_token(gctx)) as c:
+        rows = (await c.get("/api/nodes/!00000001/sensor-events")).json()
+        assert rows[0]["text"] == "Porta garage aperta"
+
+
+def test_ws_guest_sensor_event_without_text(gctx):
+    token = guest_token(gctx)
+    ev = {"id": 1, "node_id": "!00000001", "time": 5.0, "kind": "detection",
+          "text": "Porta garage aperta", "value": 1.0, "source": "radio"}
+    with TestClient(create_app(gctx), base_url="http://127.0.0.1") as tc:
+        tc.cookies.set("meshlens_session", token)
+        with tc.websocket_connect("/ws", headers={"host": "127.0.0.1"}) as ws:
+            gctx.bus.publish({"type": "sensor_event", "event": ev})
+            got = ws.receive_json()
+    assert got["type"] == "sensor_event" and got["event"]["text"] is None
+    assert got["event"]["value"] == 1.0 and "Porta" not in str(got)
 
 
 async def test_matrix_admin_never_forbidden_for_role(gctx):

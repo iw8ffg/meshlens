@@ -5,12 +5,14 @@ Prefissi riservati (contratto 5.3): /api/alert-rules, /api/nodes/{node_id}/senso
 import time
 from typing import Literal
 
-from fastapi import Depends, HTTPException, Query
+from fastapi import Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from .alert_rules import MSG_RULE_UNKNOWN, MSG_RULES_UNAVAILABLE, validate_rule
 from .api_data import run_read
 from .api_storeforward import MSG_BAD_ID
+from .auth import ROLE_ADMIN
+from .guest import guest_sensor_event
 from .health import battery_overview
 from .sensors import list_events
 
@@ -124,13 +126,17 @@ def register(app, ctx, require_auth, require_json) -> None:
         return {"ok": True}
 
     @app.get("/api/nodes/{node_id}/sensor-events", dependencies=[Depends(require_auth)])
-    async def sensor_events(node_id: str, hours: float = Query(168, gt=0, le=8784),
+    async def sensor_events(request: Request, node_id: str,
+                            hours: float = Query(168, gt=0, le=8784),
                             limit: int = Query(200, ge=1, le=1000)):
         num = _node_num(node_id)
         if num is None:
             raise HTTPException(400, MSG_BAD_ID)
         since = time.time() - hours * 3600
-        return await run_read(ctx, lambda conn: list_events(conn, num, since, limit))
+        rows = await run_read(ctx, lambda conn: list_events(conn, num, since, limit))
+        if getattr(request.state, "role", None) != ROLE_ADMIN:
+            rows = [guest_sensor_event(r) for r in rows]  # ospite: senza testo libero
+        return rows
 
     @app.get("/api/health/batteries", dependencies=[Depends(require_auth)])
     async def health_batteries(scope: Literal["mine", "all"] = "mine"):

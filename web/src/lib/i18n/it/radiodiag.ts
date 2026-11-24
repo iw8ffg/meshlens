@@ -7,6 +7,8 @@ export const radiodiag = {
   'radiodiag.allOk': 'Nessun problema trovato: prova a collegare la radio.',
   'radiodiag.steps': 'Cosa fare',
   'radiodiag.failed': 'Diagnosi non riuscita',
+  'radiodiag.notSaved': 'Salva la radio e ripeti la diagnosi',
+  'radiodiag.notSavedText': 'Per sicurezza MeshLens si collega solo agli indirizzi delle radio salvate: aggiungi la radio, poi ripeti la diagnosi.',
   'radiodiag.status.ok': 'OK',
   'radiodiag.status.warn': 'Attenzione',
   'radiodiag.status.fail': 'Problema',
