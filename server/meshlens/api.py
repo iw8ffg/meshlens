@@ -65,6 +65,12 @@ INTERNAL_KEYS = ()
 # interruttori che si accendono solo dalle rotte dedicate (bot, webhook: WP5; ospite: WP6):
 # PUT /api/settings e l'importazione possono solo spegnerli
 DEDICATED_SWITCHES = AUTOMATIC_SWITCHES  # bot, webhook, ospite, traceroute automatici
+# Chiavi dell'ambito di bot e webhook: con la funzione accesa si cambiano solo da questo PC
+AUTOMATION_SCOPE_KEYS = ("bot_targets", "bot_replies", "bot_commands", "bot_min_interval_s",
+                         "bot_max_per_hour", "bot_node_cooldown_s", "bot_weather_node",
+                         "webhook_url", "webhook_events")
+AUTOMATION_SCOPE_MSG = ("Con bot o webhook accesi queste impostazioni si cambiano solo "
+                        "da questo PC")
 DEDICATED_SWITCH_MSG = "Questa funzione si attiva dalla sua pagina in Impostazioni"
 
 
@@ -483,7 +489,7 @@ def session_token(conn: Request | WebSocket) -> str | None:
 
 
 def create_app(ctx: AppContext) -> FastAPI:
-    app = FastAPI(title="MeshLens")
+    app = FastAPI(title="MeshLens", docs_url=None, redoc_url=None, openapi_url=None)
 
     @app.middleware("http")
     async def check_host(request: Request, call_next):
@@ -791,16 +797,27 @@ def create_app(ctx: AppContext) -> FastAPI:
         if any(current.get(k) is not True for k in wanted):
             raise HTTPException(400, DEDICATED_SWITCH_MSG)
 
+    def check_automation_scope(changes: dict, request: Request) -> None:
+        """Bot o webhook accesi: dalla rete non se ne cambia l'ambito (canali, testi, URL)."""
+        if is_loopback_request(request):
+            return
+        current = load_settings(ctx.conn)
+        if not (current.get("bot_enabled") is True or current.get("webhook_enabled") is True):
+            return
+        if any(k in changes and changes[k] != current.get(k) for k in AUTOMATION_SCOPE_KEYS):
+            raise HTTPException(403, AUTOMATION_SCOPE_MSG)
+
     def revoke_guests_if_off(saved: dict) -> None:
         """Accesso ospite spento: le sessioni ospite aperte si chiudono subito (E19)."""
         if saved.get("guest_enabled") is not True:
             ctx.auth.revoke_role(ROLE_GUEST)
 
     @app.put("/api/settings", dependencies=[Depends(require_auth), Depends(require_json)])
-    async def put_settings(changes: dict):
+    async def put_settings(changes: dict, request: Request):
         changes = dict(changes)
         check_lan_pin(changes)
         check_dedicated_switches(changes)
+        check_automation_scope(changes, request)
         if "mqtt_brokers" in changes:
             changes.pop("mqtt", None)  # vista di compatibilita': vale la lista dei broker
             try:
@@ -839,12 +856,13 @@ def create_app(ctx: AppContext) -> FastAPI:
         return JSONResponse(doc, headers={"Content-Disposition": f'attachment; filename="{fname}"'})
 
     @app.post("/api/settings/import", dependencies=[Depends(require_auth), Depends(require_json)])
-    async def import_settings(body: dict):
+    async def import_settings(body: dict, request: Request):
         try:
             changes, skipped = prepare_import(body, load_settings(ctx.conn))
             check_lan_pin(changes)
             # prepare_import li porta tutti a False: il controllo resta come difesa in profondita'
             check_dedicated_switches(changes)
+            check_automation_scope(changes, request)
             saved = save_settings(ctx.conn, changes)
         except ValueError as e:
             raise HTTPException(400, str(e))

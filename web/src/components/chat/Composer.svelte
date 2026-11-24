@@ -81,12 +81,15 @@ import { safeStorage } from '../../lib/storage'
   })
 
   // Bozza: si carica al cambio di conversazione (qui) e si salva in `oninput` (non in un effetto)
+  // variabili dei messaggi rapidi ancora da risolvere: valgono per la conversazione corrente
+  let pendingVars = $state<string[]>([])
   let draftConv: string | null = null
   $effect.pre(() => {
     const c = conv
     if (c === draftConv) return
     draftConv = c
     text = loadDraft(safeStorage(), c)
+    pendingVars = []
   })
 
   const dmTo = $derived(conv.startsWith('dm:') ? splitKey(conv)[2] : '')
@@ -160,7 +163,6 @@ import { safeStorage } from '../../lib/storage'
 
   const bc = $derived(byteCount(text))
   // Messaggi rapidi: una variabile non risolta ({batteria} senza dato...) non parte mai come testo
-  let pendingVars = $state<string[]>([])
   const unresolved = $derived(blockingVariables(text, pendingVars).map((v) => `{${v}}`))
   const quickMissing = $derived(pendingVars.length > 0)
   let taEl: HTMLTextAreaElement | undefined = $state()
