@@ -1,6 +1,7 @@
 {
   "exact": {
     "Automazioni non disponibili": "Automations not available",
+    "Con bot o webhook accesi queste impostazioni si cambiano solo da questo PC": "While the bot or webhook is on, these settings can only be changed from this PC",
     "Intervallo non valido: da 60 minuti a 7 giorni": "Invalid interval: from 60 minutes to 7 days",
     "Non si può programmare un traceroute verso un tuo nodo": "You cannot schedule a traceroute to one of your own nodes",
     "Radio non valida": "Invalid radio",
