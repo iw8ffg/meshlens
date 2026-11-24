@@ -184,8 +184,11 @@ class ToastQueue:
             except Exception as e:  # noqa: BLE001 - un errore della shell non arriva mai al server
                 log.warning("Notifica di Windows non riuscita: %s", e)
 
-    def close(self) -> None:
+    def close(self, timeout: float = 2.0) -> None:
+        """Ferma il thread dopo aver mostrato i toast gia' in coda (al massimo `timeout` s:
+        una shell bloccata non trattiene l'uscita)."""
         self._q.put(None)
+        self._thread.join(timeout)
 
 
 APP_MUTEX = "MeshLensAppMutex"
