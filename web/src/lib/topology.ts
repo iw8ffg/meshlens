@@ -73,6 +73,8 @@ export interface LayoutJob {
   /** Esegue al massimo `n` iterazioni; true se il layout e' completo. */
   step(n: number): boolean
   readonly done: boolean
+  /** Stima delle iterazioni ancora da eseguire. */
+  remaining(): number
   result(): Map<string, Pt>
 }
 
@@ -220,6 +222,10 @@ class CompLayout {
 
   get done(): boolean {
     return this.it >= this.iterations
+  }
+
+  get left(): number {
+    return Math.max(0, this.iterations - this.it)
   }
 
   private repelExact(): void {
@@ -404,11 +410,11 @@ export function layoutJob(nodes: Pick<TopologyNode, 'id' | 'degree'>[], edges: P
   const ids = [...new Set(nodes.map((n) => n.id))].sort()
   const n = ids.length
   const out = new Map<string, Pt>()
-  if (n === 0) return { step: () => true, done: true, result: () => out }
+  if (n === 0) return { step: () => true, done: true, remaining: () => 0, result: () => out }
   if (n === 1) {
     const s1 = opts.seeds?.get(ids[0])
     out.set(ids[0], s1 ? { ...s1 } : { x: (opts.width ?? 1000) / 2, y: (opts.height ?? 700) / 2 })
-    return { step: () => true, done: true, result: () => out }
+    return { step: () => true, done: true, remaining: () => 0, result: () => out }
   }
   const rnd = mulberry32(opts.seed ?? fnv1a(ids.join('|')))
   const index = new Map(ids.map((id, i) => [id, i]))
@@ -520,6 +526,13 @@ export function layoutJob(nodes: Pick<TopologyNode, 'id' | 'degree'>[], edges: P
     for (const [c, sx, sy] of slots) put(c, sx, sy + oy)
   }
 
+  const estimate = (c: number): number => {
+    const mm = comps[c]
+    if (opts.iterations !== undefined) return opts.iterations
+    const seeded = opts.seeds ? mm.filter((g) => opts.seeds!.has(ids[g])).length : 0
+    const base = iterationsFor(mm.length)
+    return seeded >= mm.length / 2 ? Math.max(25, Math.round(base / 4)) : base
+  }
   const isDone = () => ci >= comps.length
   const job: LayoutJob = {
     step(count) {
@@ -532,6 +545,11 @@ export function layoutJob(nodes: Pick<TopologyNode, 'id' | 'degree'>[], edges: P
     },
     get done() {
       return isDone()
+    },
+    remaining() {
+      let left = 0
+      for (let c = ci; c < comps.length; c++) left += layouts[c] ? layouts[c]!.left : estimate(c)
+      return left
     },
     result() {
       if (!packed && isDone()) {
@@ -551,21 +569,48 @@ export function layout(nodes: Pick<TopologyNode, 'id' | 'degree'>[], edges: Pick
   return job.result()
 }
 
-/** Layout senza bloccare il thread: blocchi di iterazioni da ~`budgetMs` ciascuno, con `yieldFn` (rAF) in mezzo. */
+/** Cede il controllo: al frame successivo, ma al piu' dopo 40 ms (nelle schede in secondo piano rAF e' rallentato). */
+const nextFrame = (): Promise<void> =>
+  new Promise((r) => {
+    let done = false
+    const go = () => {
+      if (!done) ((done = true), r())
+    }
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(go)
+    setTimeout(go, 40)
+  })
+
+/**
+ * Layout senza bloccare il thread. A ogni giro esegue quante iterazioni stanno in `budgetMs` (misurato con `now`),
+ * poi cede con `yieldFn`. Se il lavoro residuo stimato (iterazioni rimaste x durata media) e' sotto `finishMs`,
+ * lo conclude subito in un colpo solo.
+ */
 export async function layoutAsync(
   nodes: Pick<TopologyNode, 'id' | 'degree'>[],
   edges: Pick<TopologyEdge, 'a' | 'b'>[],
   opts: LayoutOpts = {},
   isStale: () => boolean = () => false,
-  yieldFn: () => Promise<void> = () => new Promise((r) => requestAnimationFrame(() => r())),
-  budgetMs = 8,
+  yieldFn: () => Promise<void> = nextFrame,
+  budgetMs = 12,
+  now: () => number = () => performance.now(),
+  finishMs = 50,
 ): Promise<Map<string, Pt> | null> {
   const job = layoutJob(nodes, edges, opts)
+  let perIter = 0
   while (!job.done) {
-    const t0 = performance.now()
-    do job.step(1)
-    while (!job.done && performance.now() - t0 < budgetMs)
+    const t0 = now()
+    let n = 0
+    do {
+      job.step(1)
+      n++
+    } while (!job.done && now() - t0 < budgetMs)
     if (job.done) break
+    const per = (now() - t0) / n
+    perIter = perIter === 0 ? per : 0.5 * perIter + 0.5 * per
+    if (job.remaining() * perIter < finishMs) {
+      job.step(Infinity)
+      break
+    }
     await yieldFn()
     if (isStale()) return null
   }

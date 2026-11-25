@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 vi.mock('./api', () => ({ getJSON: vi.fn() }))
 
 import {
-  MIN_SEP, fitViewBox, geoLayout, hasPosition, labelText, layout, layoutJob, mainComponentIds, mercator, nodesWithinHops, pickLabels, relaxSeparate, subgraph, topologyData,
+  MIN_SEP, fitViewBox, layoutAsync, geoLayout, hasPosition, labelText, layout, layoutJob, mainComponentIds, mercator, nodesWithinHops, pickLabels, relaxSeparate, subgraph, topologyData,
 } from './topology'
 import type { LabelItem } from './topology'
 import type { TopologyEdge, TopologyNode } from './types'
@@ -343,5 +343,35 @@ describe('disposizione geografica', () => {
     const nodes = [tn('mi', MI), tn('rm', RM), tn('x'), tn('y')]
     const edges = [te('x', 'mi'), te('y', 'x')]
     expect(geoLayout(nodes, edges)).toEqual(geoLayout([...nodes].reverse(), [...edges].reverse()))
+  })
+})
+
+describe('layoutAsync adattivo (orologio finto)', () => {
+  const { nodes, edges } = bigGraph()
+  const expected = layout(nodes, edges)
+  it('ogni giro riempie il budget: pochi cedimenti, stesso risultato', async () => {
+    let t = 0
+    let yields = 0
+    const r = await layoutAsync(nodes, edges, {}, () => false, async () => void yields++, 12, () => ++t, 0)
+    expect(r).toEqual(expected)
+    const total = layoutJob(nodes, edges).remaining()
+    expect(yields).toBeGreaterThan(2)
+    expect(yields).toBeLessThan(total / 4) // con 1 ms per lettura un giro vale ~6 iterazioni, non 1
+  })
+  it('se il lavoro residuo stimato e sotto la soglia conclude subito, senza cedere', async () => {
+    let t = 0
+    let yields = 0
+    const r = await layoutAsync(nodes, edges, {}, () => false, async () => void yields++, 12, () => (t += 0.001), 50)
+    expect(yields).toBe(0)
+    expect(r).toEqual(expected)
+  })
+  it('si interrompe se superato', async () => {
+    let t = 0
+    expect(await layoutAsync(nodes, edges, {}, () => true, async () => {}, 12, () => ++t, 0)).toBeNull()
+  })
+  it('con posizioni di partenza il rilayout e piu rapido (meno iterazioni)', () => {
+    const cold = layoutJob(nodes, edges).remaining()
+    const warm = layoutJob(nodes, edges, { seeds: expected }).remaining()
+    expect(warm).toBeLessThan(cold)
   })
 })

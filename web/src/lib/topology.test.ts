@@ -31,13 +31,13 @@ describe('layout incrementale e stabile', () => {
   it('layoutAsync cede il controllo e da lo stesso risultato', async () => {
     const { nodes, edges } = graph()
     let yields = 0
-    const r = await layoutAsync(nodes, edges, {}, () => false, async () => void yields++, 0)
+    const r = await layoutAsync(nodes, edges, {}, () => false, async () => void yields++, 0, () => performance.now(), 0)
     expect(yields).toBeGreaterThan(0)
     expect(r).toEqual(layout(nodes, edges))
   })
   it('layoutAsync si interrompe se superato', async () => {
     const { nodes, edges } = graph()
-    expect(await layoutAsync(nodes, edges, {}, () => true, async () => {}, 0)).toBeNull()
+    expect(await layoutAsync(nodes, edges, {}, () => true, async () => {}, 0, () => performance.now(), 0)).toBeNull()
   })
   it('con posizioni di partenza il grafo resta vicino (niente salti) e fa meno iterazioni', () => {
     const { nodes, edges } = graph()
