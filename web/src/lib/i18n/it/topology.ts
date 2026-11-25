@@ -62,6 +62,7 @@ export const topology = {
   'topology.legend.mine': 'Mio nodo',
   'topology.layout.label': 'Disposizione',
   'topology.layout.links': 'Per collegamenti',
+  'topology.layout.busy': 'Calcolo della disposizione…',
   'topology.layout.geo': 'Geografica',
   'topology.layout.geoNone': 'Nessun nodo ha una posizione nota: mostro la disposizione per collegamenti.',
   'topology.layout.geoNote': 'I nodi senza posizione stanno vicino alla media dei loro vicini, oppure in una colonna a destra.',

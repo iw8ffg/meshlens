@@ -25,7 +25,7 @@ describe('TopologyView', () => {
     expect(v).toContain("'wheel'")
   })
   it('disposizione, gruppo principale e fuoco: preferenze in safeStorage, controlli con etichetta', () => {
-    for (const s of ['safeStorage', 'meshlens.topology.layout', 'meshlens.topology.main', 'geoLayout(', 'mainComponentIds(', 'nodesWithinHops(', 'pickLabels(', 'visibleNodes(', 'topology.focus.clear', 'topology.focus.apply', 'for="topo-focus-q"', 'pointerenter']) {
+    for (const s of ['safeStorage', 'meshlens.topology.layout', 'meshlens.topology.main', 'geoLayout(', 'mainComponentIds(', 'nodesWithinHops(', 'pickLabels(', 'visibleNodes(', 'topology.focus.clear', 'topology.focus.apply', 'for="topo-focus-q"', 'pointerenter', 'layoutBusy', 'topology.layout.busy']) {
       expect(v).toContain(s)
     }
   })

@@ -64,6 +64,7 @@ export const topology: Record<keyof typeof itArea, string> = {
   'topology.legend.mine': 'My node',
   'topology.layout.label': 'Layout',
   'topology.layout.links': 'By links',
+  'topology.layout.busy': 'Computing the layout…',
   'topology.layout.geo': 'Geographic',
   'topology.layout.geoNone': 'No node has a known position: showing the by-links layout instead.',
   'topology.layout.geoNote': 'Nodes without a position sit near the average of their neighbours, or in a column on the right.',
