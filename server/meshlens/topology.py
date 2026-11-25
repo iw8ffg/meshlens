@@ -188,13 +188,15 @@ def _node_out(num: int, n: dict | None, an: Analysis) -> dict:
 
 def build_topology(conn: sqlite3.Connection, now: float, hours: int,
                    sources: tuple[str, ...] = SOURCES, countries: tuple[str, ...] = (),
-                   limit: int = DEFAULT_LIMIT) -> dict:
+                   limit: int = DEFAULT_LIMIT, main_only: bool = False) -> dict:
     since = now - hours * 3600
     wanted = {"none" if str(c).lower() == "none" else str(c).upper() for c in countries}
     universe, merged = _collect(conn, since, tuple(sources), wanted)
     an = analyze(universe.keys(), merged.keys())
 
     drawn = [n for n in universe if an.degree.get(n, 0) > 0]
+    if main_only:  # solo il gruppo principale (componente 0): il limite si riempie da li'
+        drawn = [n for n in drawn if an.component.get(n) == 0]
     # priorita' di uscita: cerniere per impatto decrescente, poi hub, poi grado, poi numero
     ranked = sorted(drawn, key=lambda n: (n not in an.cut, -an.cut.get(n, 0),
                                           n not in an.hubs, -an.degree[n], n))

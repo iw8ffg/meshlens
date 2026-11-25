@@ -106,10 +106,12 @@ def register(app, ctx, require_auth, require_json) -> None:
 
     @app.get("/api/topology", dependencies=[Depends(require_auth)])
     async def topology(hours: str = Query("168"), sources: str | None = Query(None),
-                       countries: str | None = Query(None), limit: str | None = Query(None)):
+                       countries: str | None = Query(None), limit: str | None = Query(None),
+                       main: str | None = Query(None)):
         h = _parse_hours(hours, 168)
         srcs = _parse_sources(sources)
         cts = _parse_countries(countries)
         lim = _parse_limit(limit)
         now = time.time()
-        return await run_read(ctx, lambda c: build_topology(c, now, h, srcs, cts, lim))
+        return await run_read(ctx, lambda c: build_topology(c, now, h, srcs, cts, lim,
+                                                                main in ("1", "true")))
