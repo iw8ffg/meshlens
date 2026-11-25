@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onMount, tick } from 'svelte'
   import Banner from '../lib/ui/Banner.svelte'
   import Button from '../lib/ui/Button.svelte'
   import Card from '../lib/ui/Card.svelte'
@@ -32,6 +32,7 @@
   import { formatDate, countryName } from '../lib/format'
   import { i18n, setLang, t, LANGS, LANG_LABELS, type Lang, type MsgKey } from '../lib/i18n/index.svelte'
   import { translateServer } from '../lib/i18n/server'
+  import { JUMP_EVENT, pickActive, sectionDomId, takeSettingsJump, visibleSections } from '../lib/settingsnav'
 
   let { onlogout }: { onlogout: () => void } = $props()
 
@@ -182,6 +183,65 @@
     }
   }
 
+  // Navigazione rapida: chip in alto, sezione in vista evidenziata, salto con messa a fuoco del titolo.
+  const sections = $derived(visibleSections(loaded))
+  let active = $state('appearance')
+  let root: HTMLDivElement | undefined = $state()
+  let navEl: HTMLElement | undefined = $state()
+
+  function sectionEl(id: string) {
+    return document.getElementById(sectionDomId(id))
+  }
+
+  function updateActive() {
+    const line = (navEl?.getBoundingClientRect().bottom ?? 0) + 24
+    const tops = sections.flatMap((s) => {
+      const el = sectionEl(s.id)
+      return el ? [{ id: s.id, top: el.getBoundingClientRect().top }] : []
+    })
+    const id = pickActive(tops, line)
+    if (id) active = id
+  }
+
+  async function jump(id: string) {
+    await tick()
+    const el = sectionEl(id)
+    if (!el) return
+    const calm = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    active = id
+    el.scrollIntoView({ behavior: calm ? 'auto' : 'smooth', block: 'start' })
+    const h = el.querySelector<HTMLElement>('h3')
+    if (h) {
+      h.tabIndex = -1
+      h.focus({ preventScroll: true })
+    }
+  }
+
+  onMount(() => {
+    const onJump = () => {
+      const id = takeSettingsJump()
+      if (id) void jump(id)
+    }
+    window.addEventListener(JUMP_EVENT, onJump)
+    return () => window.removeEventListener(JUMP_EVENT, onJump)
+  })
+
+  $effect(() => {
+    if (!root) return
+    const els = sections.map((s) => sectionEl(s.id)).filter((e): e is HTMLElement => !!e)
+    const io = new IntersectionObserver(updateActive, { rootMargin: '-64px 0px -55% 0px', threshold: [0, 1] })
+    for (const e of els) io.observe(e)
+    updateActive()
+    return () => io.disconnect()
+  })
+
+  // Salto richiesto dalla ricerca globale mentre la scheda non c'era ancora
+  $effect(() => {
+    if (!loaded && !loadFailed) return
+    const id = takeSettingsJump()
+    if (id) void jump(id)
+  })
+
   async function logout() {
     try {
       await send('POST', '/auth/logout')
@@ -192,23 +252,31 @@
   }
 </script>
 
-<div class="settings">
+<div class="settings" bind:this={root}>
   <h2>{t('settings.title')}</h2>
 
-  <Card>
-    <section class="sec">
-      <h3>{t('settings.appearance')}</h3>
-      <div class="fld">
-        <span class="ui-lbl">{t('shell.theme')}</span>
-        <Segmented items={themeItems} bind:value={themePref} label={t('shell.theme')} onchange={(v) => getTheme().setPref(v)} />
-        <span class="ui-hint">{t('settings.themeHint')}</span>
-      </div>
-      <div class="fld">
-        <span class="ui-lbl">{t('shell.language')}</span>
-        <Segmented items={langItems} value={i18n.lang} label={t('shell.language')} onchange={(l) => setLang(l)} />
-      </div>
-    </section>
-  </Card>
+  <nav class="jump" aria-label={t('settings.nav.aria')} bind:this={navEl}>
+    {#each sections as s (s.id)}
+      <button type="button" class="chip" class:on={active === s.id} aria-current={active === s.id ? 'true' : undefined} onclick={() => jump(s.id)}>{t(s.labelKey)}</button>
+    {/each}
+  </nav>
+
+  <div class="anch" id="set-appearance">
+    <Card>
+      <section class="sec">
+        <h3>{t('settings.appearance')}</h3>
+        <div class="fld">
+          <span class="ui-lbl">{t('shell.theme')}</span>
+          <Segmented items={themeItems} bind:value={themePref} label={t('shell.theme')} onchange={(v) => getTheme().setPref(v)} />
+          <span class="ui-hint">{t('settings.themeHint')}</span>
+        </div>
+        <div class="fld">
+          <span class="ui-lbl">{t('shell.language')}</span>
+          <Segmented items={langItems} value={i18n.lang} label={t('shell.language')} onchange={(l) => setLang(l)} />
+        </div>
+      </section>
+    </Card>
+  </div>
 
   {#if loadFailed}
     <Banner kind="danger" title={t('settings.loadFailed')} />
@@ -217,155 +285,169 @@
     <Skeleton tall />
   {:else}
     <form onsubmit={save}>
-      <Card>
-        <section class="sec">
-          <h3>{t('settings.countries')}</h3>
-          <ul class="countries">
-            {#each options as c (c.code)}
-              <li>
-                <label class="ui-check">
-                  <input type="checkbox" checked={saved.includes(c.code)} onchange={() => toggle(c.code)} />
-                  <span class="bx">{#if saved.includes(c.code)}<Icon name="check" size={14} />{/if}</span>
-                  <span class="cn"><Flag code={c.code} name={countryName(c.code, c.name)} /> {countryName(c.code, c.name)}</span>
-                </label>
-              </li>
-            {/each}
-          </ul>
-        </section>
-      </Card>
+      <div class="anch" id="set-countries">
+        <Card>
+          <section class="sec">
+            <h3>{t('settings.countries')}</h3>
+            <ul class="countries">
+              {#each options as c (c.code)}
+                <li>
+                  <label class="ui-check">
+                    <input type="checkbox" checked={saved.includes(c.code)} onchange={() => toggle(c.code)} />
+                    <span class="bx">{#if saved.includes(c.code)}<Icon name="check" size={14} />{/if}</span>
+                    <span class="cn"><Flag code={c.code} name={countryName(c.code, c.name)} /> {countryName(c.code, c.name)}</span>
+                  </label>
+                </li>
+              {/each}
+            </ul>
+          </section>
+        </Card>
+      </div>
 
-      <Card>
-        <section class="sec">
-          <h3>{t('settings.retention')}</h3>
-          <div class="grid">
-            <Field label={t('settings.ret.messages')} for="set-ret-msg">{#snippet children()}<input id="set-ret-msg" class="ui-input ui-mono" type="number" min="1" bind:value={retMsg} />{/snippet}</Field>
-            <Field label={t('settings.ret.positions')} for="set-ret-pos">{#snippet children()}<input id="set-ret-pos" class="ui-input ui-mono" type="number" min="1" bind:value={retPos} />{/snippet}</Field>
-            <Field label={t('settings.ret.telemetry')} for="set-ret-tel">{#snippet children()}<input id="set-ret-tel" class="ui-input ui-mono" type="number" min="1" bind:value={retTel} />{/snippet}</Field>
-            <Field label={t('settings.ret.cap')} for="set-cap">{#snippet children()}<input id="set-cap" class="ui-input ui-mono" type="number" min="1" bind:value={capMb} />{/snippet}</Field>
-            <Field label={t('settings.ret.packets')} for="set-ret-pkt">{#snippet children()}<input id="set-ret-pkt" class="ui-input ui-mono" type="number" min="1" max="168" bind:value={retPackets} />{/snippet}</Field>
-            <Field label={t('settings.ret.inspector')} for="set-pkt-mode">{#snippet children()}
-              <Select id="set-pkt-mode" bind:value={packetMode}>
-                <option value="off">{t('settings.ret.off')}</option>
-                <option value="archived">{t('settings.ret.archived')}</option>
-                <option value="all">{t('settings.ret.all')}</option>
-              </Select>
-            {/snippet}</Field>
-          </div>
-          <p class="ui-hint">{t('settings.ret.hint')}</p>
-        </section>
-      </Card>
-
-      <Maintenance />
-
-      <Card>
-        <section class="sec">
-          <h3>{t('settings.alerts.title')}</h3>
-          <div class="grid">
-            <Field label={t('settings.alerts.battery')} for="set-batt">{#snippet children()}<input id="set-batt" class="ui-input ui-mono" type="number" min="1" max="99" bind:value={batteryPct} />{/snippet}</Field>
-            <Field label={t('settings.alerts.silent')} for="set-silent">{#snippet children()}<input id="set-silent" class="ui-input ui-mono" type="number" min="1" max="168" bind:value={silentH} />{/snippet}</Field>
-          </div>
-        </section>
-      </Card>
-
-      <Notifications />
-      <QuickReplies />
-      <AlertRules />
-      <Automations />
-
-      <Card>
-        <section class="sec">
-          <h3>{t('settings.net.title')}</h3>
-          <Switch bind:checked={lan} label={t('settings.net.lan')} />
-          <p class="ui-hint">{t('settings.net.restart')}</p>
-          <Switch bind:checked={lanHttps} disabled={!lan} label={t('settings.net.https')} />
-          {#if lan && lanHttps}<p class="ui-hint">{httpsNote(tls?.port)}</p>{/if}
-          {#if tls?.fingerprint_sha256}
-            <div class="fld">
-              <span class="ui-lbl">{t('settings.net.fp')}</span>
-              <code class="ui-mono fp">{tls.fingerprint_sha256}</code>
-              <span class="ui-hint">{t('settings.net.expires', { date: formatDate(tls.not_after) })}</span>
+      <div class="anch" id="set-retention">
+        <Card>
+          <section class="sec">
+            <h3>{t('settings.retention')}</h3>
+            <div class="grid">
+              <Field label={t('settings.ret.messages')} for="set-ret-msg">{#snippet children()}<input id="set-ret-msg" class="ui-input ui-mono" type="number" min="1" bind:value={retMsg} />{/snippet}</Field>
+              <Field label={t('settings.ret.positions')} for="set-ret-pos">{#snippet children()}<input id="set-ret-pos" class="ui-input ui-mono" type="number" min="1" bind:value={retPos} />{/snippet}</Field>
+              <Field label={t('settings.ret.telemetry')} for="set-ret-tel">{#snippet children()}<input id="set-ret-tel" class="ui-input ui-mono" type="number" min="1" bind:value={retTel} />{/snippet}</Field>
+              <Field label={t('settings.ret.cap')} for="set-cap">{#snippet children()}<input id="set-cap" class="ui-input ui-mono" type="number" min="1" bind:value={capMb} />{/snippet}</Field>
+              <Field label={t('settings.ret.packets')} for="set-ret-pkt">{#snippet children()}<input id="set-ret-pkt" class="ui-input ui-mono" type="number" min="1" max="168" bind:value={retPackets} />{/snippet}</Field>
+              <Field label={t('settings.ret.inspector')} for="set-pkt-mode">{#snippet children()}
+                <Select id="set-pkt-mode" bind:value={packetMode}>
+                  <option value="off">{t('settings.ret.off')}</option>
+                  <option value="archived">{t('settings.ret.archived')}</option>
+                  <option value="all">{t('settings.ret.all')}</option>
+                </Select>
+              {/snippet}</Field>
             </div>
-          {/if}
-          {#if tls?.error}<Banner kind="danger" title={translateServer(tls.error)} />{/if}
-        </section>
-      </Card>
+            <p class="ui-hint">{t('settings.ret.hint')}</p>
+          </section>
+        </Card>
+      </div>
 
-      <Devices />
-      <GuestAccess />
-      <IgnoredNodes />
+      <div class="anch" id="set-db"><Maintenance /></div>
 
-      <Card>
-        <section class="sec">
-          <h3>{t('settings.mqtt.title')}</h3>
-          <MqttStatusDetail status={app.status?.mqtt ?? null} />
-          <Brokers bind:brokers {dirty} onimported={applyBrokers} />
-          <Field
-            label={t('settings.mqtt.nodeId')}
-            for="set-nodeid"
-            error={nodeIdCheck.ok ? undefined : nodeIdCheck.error}
-            hint={t('settings.mqtt.nodeIdHint')}
-          >
-            {#snippet children({ describedby, invalid })}
-              <input id="set-nodeid" class="ui-input ui-mono" class:err={invalid} type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder={t('settings.mqtt.nodeIdPh')} aria-describedby={describedby} aria-invalid={invalid} bind:value={nodeId} />
-            {/snippet}
-          </Field>
-        </section>
-      </Card>
+      <div class="anch" id="set-alerts">
+        <Card>
+          <section class="sec">
+            <h3>{t('settings.alerts.title')}</h3>
+            <div class="grid">
+              <Field label={t('settings.alerts.battery')} for="set-batt">{#snippet children()}<input id="set-batt" class="ui-input ui-mono" type="number" min="1" max="99" bind:value={batteryPct} />{/snippet}</Field>
+              <Field label={t('settings.alerts.silent')} for="set-silent">{#snippet children()}<input id="set-silent" class="ui-input ui-mono" type="number" min="1" max="168" bind:value={silentH} />{/snippet}</Field>
+            </div>
+          </section>
+        </Card>
+      </div>
 
-      <Card>
-        <section class="sec">
-          <h3>{t('settings.chan.title')}</h3>
-          <Segmented
-            label={t('settings.chan.aria')}
-            items={[
-              { value: 'all', label: t('settings.chan.all') },
-              { value: 'chosen', label: t('settings.chan.chosen') },
-            ]}
-            value={onlyChosen ? 'chosen' : 'all'}
-            onchange={(v) => (onlyChosen = v === 'chosen')}
-          />
-          {#if channels.length > 6}
-            <input class="ui-input chan-search" type="search" aria-label={t('settings.chan.searchAria')} placeholder={t('settings.chan.searchPh')} bind:value={chanQuery} />
-          {/if}
-          <ul class="countries">
-            {#each shownChannels as c (c.name)}
-              <li>
-                <label class="ui-check chan">
-                  <input type="checkbox" disabled={!onlyChosen} checked={chosen.includes(c.name)} onchange={() => toggleChannel(c.name)} />
-                  <span class="bx">{#if chosen.includes(c.name)}<Icon name="check" size={14} />{/if}</span>
-                  <span>{c.name}</span>
-                  <span class="n ui-mono">{t('settings.chan.count', { n: c.count })}</span>
-                </label>
-              </li>
-            {:else}
-              <li class="ui-hint">{t('settings.chan.none')}</li>
-            {/each}
-          </ul>
-          {#if chosen.length}<p class="ui-hint">{t('settings.chan.selected', { n: chosen.length })}</p>{/if}
-          <p class="ui-hint">{t('settings.chan.hint')}</p>
-        </section>
-      </Card>
+      <div class="anch" id="set-notify"><Notifications /></div>
+      <div class="anch" id="set-quick"><QuickReplies /></div>
+      <div class="anch" id="set-alertrules"><AlertRules /></div>
+      <div class="anch" id="set-automations"><Automations /></div>
+
+      <div class="anch" id="set-net">
+        <Card>
+          <section class="sec">
+            <h3>{t('settings.net.title')}</h3>
+            <Switch bind:checked={lan} label={t('settings.net.lan')} />
+            <p class="ui-hint">{t('settings.net.restart')}</p>
+            <Switch bind:checked={lanHttps} disabled={!lan} label={t('settings.net.https')} />
+            {#if lan && lanHttps}<p class="ui-hint">{httpsNote(tls?.port)}</p>{/if}
+            {#if tls?.fingerprint_sha256}
+              <div class="fld">
+                <span class="ui-lbl">{t('settings.net.fp')}</span>
+                <code class="ui-mono fp">{tls.fingerprint_sha256}</code>
+                <span class="ui-hint">{t('settings.net.expires', { date: formatDate(tls.not_after) })}</span>
+              </div>
+            {/if}
+            {#if tls?.error}<Banner kind="danger" title={translateServer(tls.error)} />{/if}
+          </section>
+        </Card>
+      </div>
+
+      <div class="anch" id="set-dev"><Devices /></div>
+      <div class="anch" id="set-guest"><GuestAccess /></div>
+      <div class="anch" id="set-ignored"><IgnoredNodes /></div>
+
+      <div class="anch" id="set-mqtt">
+        <Card>
+          <section class="sec">
+            <h3>{t('settings.mqtt.title')}</h3>
+            <MqttStatusDetail status={app.status?.mqtt ?? null} />
+            <Brokers bind:brokers {dirty} onimported={applyBrokers} />
+            <Field
+              label={t('settings.mqtt.nodeId')}
+              for="set-nodeid"
+              error={nodeIdCheck.ok ? undefined : nodeIdCheck.error}
+              hint={t('settings.mqtt.nodeIdHint')}
+            >
+              {#snippet children({ describedby, invalid })}
+                <input id="set-nodeid" class="ui-input ui-mono" class:err={invalid} type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder={t('settings.mqtt.nodeIdPh')} aria-describedby={describedby} aria-invalid={invalid} bind:value={nodeId} />
+              {/snippet}
+            </Field>
+          </section>
+        </Card>
+      </div>
+
+      <div class="anch" id="set-chan">
+        <Card>
+          <section class="sec">
+            <h3>{t('settings.chan.title')}</h3>
+            <Segmented
+              label={t('settings.chan.aria')}
+              items={[
+                { value: 'all', label: t('settings.chan.all') },
+                { value: 'chosen', label: t('settings.chan.chosen') },
+              ]}
+              value={onlyChosen ? 'chosen' : 'all'}
+              onchange={(v) => (onlyChosen = v === 'chosen')}
+            />
+            {#if channels.length > 6}
+              <input class="ui-input chan-search" type="search" aria-label={t('settings.chan.searchAria')} placeholder={t('settings.chan.searchPh')} bind:value={chanQuery} />
+            {/if}
+            <ul class="countries">
+              {#each shownChannels as c (c.name)}
+                <li>
+                  <label class="ui-check chan">
+                    <input type="checkbox" disabled={!onlyChosen} checked={chosen.includes(c.name)} onchange={() => toggleChannel(c.name)} />
+                    <span class="bx">{#if chosen.includes(c.name)}<Icon name="check" size={14} />{/if}</span>
+                    <span>{c.name}</span>
+                    <span class="n ui-mono">{t('settings.chan.count', { n: c.count })}</span>
+                  </label>
+                </li>
+              {:else}
+                <li class="ui-hint">{t('settings.chan.none')}</li>
+              {/each}
+            </ul>
+            {#if chosen.length}<p class="ui-hint">{t('settings.chan.selected', { n: chosen.length })}</p>{/if}
+            <p class="ui-hint">{t('settings.chan.hint')}</p>
+          </section>
+        </Card>
+      </div>
 
       {#if error}<Banner kind="danger" title={error} />{/if}
       {#if ok}<Banner kind="ok" title={ok} />{/if}
       <div><Button type="submit" kind="primary" disabled={busy || !nodeIdCheck.ok || !brokersOk}>{t('settings.save')}</Button></div>
     </form>
 
-    <OfflineMaps />
-    <Updates />
+    <div class="anch" id="set-maps"><OfflineMaps /></div>
+    <div class="anch" id="set-updates"><Updates /></div>
   {/if}
 
-  <Diagnostics />
+  <div class="anch" id="set-diag"><Diagnostics /></div>
 
-  <Card>
-    <section class="sec">
-      <h3>{t('settings.about.title')}</h3>
-      <p class="line">MeshLens <b class="ui-mono">{version || '—'}</b></p>
-      <p class="ui-hint">{t('settings.about.license')}</p>
-      <p class="ui-hint">{t('settings.about.map')}</p>
-      <MeshtasticBadge />
-    </section>
-  </Card>
+  <div class="anch" id="set-about">
+    <Card>
+      <section class="sec">
+        <h3>{t('settings.about.title')}</h3>
+        <p class="line">MeshLens <b class="ui-mono">{version || '—'}</b></p>
+        <p class="ui-hint">{t('settings.about.license')}</p>
+        <p class="ui-hint">{t('settings.about.map')}</p>
+        <MeshtasticBadge />
+      </section>
+    </Card>
+  </div>
 
   <div class="out"><Button icon="power" onclick={logout}>{t('settings.logout')}</Button></div>
 </div>
@@ -374,6 +456,14 @@
   .settings { display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-4); max-width: 760px; margin: 0 auto; box-sizing: border-box; color: var(--ink); }
   h2 { margin: 0; font: 600 18px/24px var(--font-sans); }
   h3 { margin: 0; font: 600 15px/20px var(--font-sans); }
+  h3:focus { outline: none; }
+  h3:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; border-radius: 4px; }
+  .anch { display: flex; flex-direction: column; gap: var(--space-3); scroll-margin-top: 64px; }
+  .jump { position: sticky; top: 0; z-index: 2; display: flex; gap: 6px; overflow-x: auto; scrollbar-width: thin; margin: 0 calc(-1 * var(--space-4)); padding: var(--space-2) var(--space-4); background: var(--surface); border-bottom: 1px solid var(--line); }
+  .chip { flex: none; min-height: 32px; padding: 0 12px; border: 1px solid var(--line-strong); border-radius: var(--radius-pill); background: var(--surface); color: var(--ink); font: 500 13px/1 var(--font-sans); cursor: pointer; white-space: nowrap; }
+  .chip:hover { background: var(--accent-soft); }
+  .chip.on { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+  :global(.vp-phone) .chip { min-height: 40px; font-size: 14px; }
   form { display: flex; flex-direction: column; gap: var(--space-3); }
   .sec { display: flex; flex-direction: column; gap: var(--space-3); }
   .fld { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }

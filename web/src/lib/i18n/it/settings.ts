@@ -1,6 +1,11 @@
 // Testi italiani: area «settings». Chiavi piatte a punti (settings.*), una frase per chiave.
 export const settings = {
   'settings.title': 'Impostazioni',
+  'settings.nav.aria': 'Vai a una sezione',
+  'settings.nav.countries': 'Nazioni',
+  'settings.nav.alerts': 'Avvisi',
+  'settings.nav.automations': 'Bot e traceroute',
+  'settings.nav.chan': 'Canali',
   'settings.appearance': 'Aspetto',
   'settings.themeHint': 'Auto segue il tema del dispositivo.',
   'settings.loadFailed': 'Impostazioni non disponibili',
