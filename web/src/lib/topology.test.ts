@@ -73,32 +73,26 @@ describe('layout', () => {
     const sh = [...edges].reverse()
     expect(layout(shuffled, sh)).toEqual(a)
   })
-  it('coordinate finite e dentro il riquadro', () => {
+  it('coordinate finite, senza bordi fissi', () => {
     const { nodes, edges } = graph()
-    for (const p of layout(nodes, edges).values()) {
-      expect(Number.isFinite(p.x) && Number.isFinite(p.y)).toBe(true)
-      expect(p.x).toBeGreaterThanOrEqual(40)
-      expect(p.x).toBeLessThanOrEqual(960)
-      expect(p.y).toBeGreaterThanOrEqual(40)
-      expect(p.y).toBeLessThanOrEqual(660)
-    }
+    for (const p of layout(nodes, edges).values()) expect(Number.isFinite(p.x) && Number.isFinite(p.y)).toBe(true)
   })
-  it('grafo a piu componenti: nessun nodo sui bordi, margine >= 40', () => {
+  it('grafo a piu componenti: le componenti non si sovrappongono', () => {
     const nodes = Array.from({ length: 10 }, (_, i) => tn(`d${i}`))
     const edges = [te('d0', 'd1'), te('d1', 'd2'), te('d2', 'd3'), te('d3', 'd4'), te('d4', 'd0'), te('d5', 'd6'), te('d6', 'd7'), te('d8', 'd9')]
-    const pts = [...layout(nodes, edges).values()]
-    for (const p of pts) {
-      expect(p.x).toBeGreaterThan(48)
-      expect(p.x).toBeLessThan(952)
-      expect(p.y).toBeGreaterThan(48)
-      expect(p.y).toBeLessThan(652)
+    const p = layout(nodes, edges)
+    const box = (ids: string[]) => {
+      const xs = ids.map((i) => p.get(i)!.x)
+      const ys = ids.map((i) => p.get(i)!.y)
+      return { x0: Math.min(...xs), x1: Math.max(...xs), y0: Math.min(...ys), y1: Math.max(...ys) }
     }
-    const xs = pts.map((p) => p.x)
-    const ys = pts.map((p) => p.y)
-    expect(Math.min(...xs)).toBeGreaterThanOrEqual(40)
-    expect(Math.max(...xs)).toBeLessThanOrEqual(960)
-    expect(Math.min(...ys)).toBeGreaterThanOrEqual(40)
-    expect(Math.max(...ys)).toBeLessThanOrEqual(660)
+    const boxes = [box(['d0', 'd1', 'd2', 'd3', 'd4']), box(['d5', 'd6', 'd7']), box(['d8', 'd9'])]
+    for (let i = 0; i < boxes.length; i++)
+      for (let j = i + 1; j < boxes.length; j++) {
+        const a = boxes[i]
+        const b = boxes[j]
+        expect(a.x0 < b.x1 && a.x1 > b.x0 && a.y0 < b.y1 && a.y1 > b.y0).toBe(false)
+      }
   })
   it('casi limite', () => {
     expect(layout([], []).size).toBe(0)

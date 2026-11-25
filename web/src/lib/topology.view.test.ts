@@ -24,6 +24,11 @@ describe('TopologyView', () => {
     expect(v).toContain('preventDefault')
     expect(v).toContain("'wheel'")
   })
+  it('disposizione, gruppo principale e fuoco: preferenze in safeStorage, controlli con etichetta', () => {
+    for (const s of ['safeStorage', 'meshlens.topology.layout', 'meshlens.topology.main', 'geoLayout(', 'mainComponentIds(', 'nodesWithinHops(', 'pickLabels(', 'visibleNodes(', 'topology.focus.clear', 'topology.focus.apply', 'for="topo-focus-q"', 'pointerenter']) {
+      expect(v).toContain(s)
+    }
+  })
   it('nessun colore scritto a mano', () => {
     expect(v).not.toMatch(/#[0-9a-fA-F]{3,8}\b/)
   })
@@ -47,5 +52,17 @@ describe('spiegazione di Neighbor Info', () => {
     expect(it_['topology.ni.explain']).toContain('canale primario')
     expect(en['topology.ni.explain']).toContain('4 hours')
     expect(en['topology.ni.explain']).toContain('primary channel')
+  })
+})
+
+describe('testi nuovi della topologia', () => {
+  const keys = ['layout.label', 'layout.links', 'layout.geo', 'layout.geoNone', 'main.label', 'main.hint', 'focus.title', 'focus.search', 'focus.none', 'focus.hops.1', 'focus.hops.2', 'focus.hops.3', 'focus.apply', 'focus.clear', 'focus.active', 'labels.hint', 'list.all']
+  it('presenti in italiano e inglese, e diversi tra loro', () => {
+    for (const k of keys) {
+      const key = `topology.${k}` as keyof typeof it_
+      expect(it_[key], key).toBeTruthy()
+      expect((en as Record<string, string>)[key], key).toBeTruthy()
+      expect((en as Record<string, string>)[key]).not.toBe(it_[key])
+    }
   })
 })
