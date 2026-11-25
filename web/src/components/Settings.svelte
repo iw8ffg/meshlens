@@ -189,18 +189,34 @@
   let root: HTMLDivElement | undefined = $state()
   let navEl: HTMLElement | undefined = $state()
 
+  /** Porta in vista il chip attivo scorrendo solo la barra (mai la pagina). */
+  function showChip(id: string) {
+    const chip = navEl?.querySelector<HTMLElement>(`[data-sec="${id}"]`)
+    if (!navEl || !chip || navEl.scrollWidth <= navEl.clientWidth) return
+    const left = chip.getBoundingClientRect().left - navEl.getBoundingClientRect().left + navEl.scrollLeft
+    navEl.scrollLeft = left - (navEl.clientWidth - chip.offsetWidth) / 2
+  }
+
   function sectionEl(id: string) {
     return document.getElementById(sectionDomId(id))
   }
 
+  // durante un salto la sezione scelta resta evidenziata finche' lo scorrimento non si ferma
+  let lockUntil = 0
+
   function updateActive() {
-    const line = (navEl?.getBoundingClientRect().bottom ?? 0) + 24
+    if (performance.now() < lockUntil) return
+    // linea di lettura: sotto la barra dei salti se e' visibile (telefono), altrimenti sotto la barra in alto
+    const line = Math.max(navEl?.getBoundingClientRect().bottom ?? 0, 60) + 24
     const tops = sections.flatMap((s) => {
       const el = sectionEl(s.id)
       return el ? [{ id: s.id, top: el.getBoundingClientRect().top }] : []
     })
     const id = pickActive(tops, line)
-    if (id) active = id
+    if (id && id !== active) {
+      active = id
+      showChip(id)
+    }
   }
 
   async function jump(id: string) {
@@ -209,6 +225,8 @@
     if (!el) return
     const calm = window.matchMedia('(prefers-reduced-motion: reduce)').matches
     active = id
+    showChip(id)
+    lockUntil = Number.POSITIVE_INFINITY // fino al prossimo scorrimento fatto dall'utente
     el.scrollIntoView({ behavior: calm ? 'auto' : 'smooth', block: 'start' })
     const h = el.querySelector<HTMLElement>('h3')
     if (h) {
@@ -231,8 +249,23 @@
     const els = sections.map((s) => sectionEl(s.id)).filter((e): e is HTMLElement => !!e)
     const io = new IntersectionObserver(updateActive, { rootMargin: '-64px 0px -55% 0px', threshold: [0, 1] })
     for (const e of els) io.observe(e)
+    // anche alla fine di ogni scorrimento (l'observer scatta solo alle soglie)
+    let raf = 0
+    const onScroll = () => {
+      cancelAnimationFrame(raf)
+      raf = requestAnimationFrame(updateActive)
+    }
+    window.addEventListener('scroll', onScroll, { passive: true, capture: true })
+    // un gesto dell'utente sblocca l'evidenziazione scelta con un salto
+    const unlock = () => { lockUntil = 0 }
+    for (const ev of ['wheel', 'touchmove', 'keydown', 'pointerdown'] as const) window.addEventListener(ev, unlock, { passive: true, capture: true })
     updateActive()
-    return () => io.disconnect()
+    return () => {
+      io.disconnect()
+      cancelAnimationFrame(raf)
+      window.removeEventListener('scroll', onScroll, { capture: true })
+      for (const ev of ['wheel', 'touchmove', 'keydown', 'pointerdown'] as const) window.removeEventListener(ev, unlock, { capture: true })
+    }
   })
 
   // Salto richiesto dalla ricerca globale mentre la scheda non c'era ancora
@@ -257,7 +290,7 @@
 
   <nav class="jump" aria-label={t('settings.nav.aria')} bind:this={navEl}>
     {#each sections as s (s.id)}
-      <button type="button" class="chip" class:on={active === s.id} aria-current={active === s.id ? 'true' : undefined} onclick={() => jump(s.id)}>{t(s.labelKey)}</button>
+      <button type="button" class="chip" data-sec={s.id} class:on={active === s.id} aria-current={active === s.id ? 'true' : undefined} onclick={() => jump(s.id)}>{t(s.labelKey)}</button>
     {/each}
   </nav>
 
@@ -459,11 +492,15 @@
   h3:focus { outline: none; }
   h3:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; border-radius: 4px; }
   .anch { display: flex; flex-direction: column; gap: var(--space-3); scroll-margin-top: 64px; }
-  .jump { position: sticky; top: 0; z-index: 2; display: flex; gap: 6px; overflow-x: auto; scrollbar-width: thin; margin: 0 calc(-1 * var(--space-4)); padding: var(--space-2) var(--space-4); background: var(--surface); border-bottom: 1px solid var(--line); }
+  .jump { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 calc(-1 * var(--space-4)); padding: var(--space-2) var(--space-4); background: var(--surface); border-bottom: 1px solid var(--line); }
   .chip { flex: none; min-height: 32px; padding: 0 12px; border: 1px solid var(--line-strong); border-radius: var(--radius-pill); background: var(--surface); color: var(--ink); font: 500 13px/1 var(--font-sans); cursor: pointer; white-space: nowrap; }
   .chip:hover { background: var(--accent-soft); }
   .chip.on { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
   :global(.vp-phone) .chip { min-height: 40px; font-size: 14px; }
+  /* sul telefono una riga sola che scorre, per non coprire mezza pagina */
+  :global(.vp-phone) .jump { position: sticky; top: 0; z-index: 2; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: thin; }
+  /* il titolo della sezione raggiunta non finisce sotto la barra fissa (telefono) */
+  :global(.vp-phone) [id^='set-'] { scroll-margin-top: 64px; }
   form { display: flex; flex-direction: column; gap: var(--space-3); }
   .sec { display: flex; flex-direction: column; gap: var(--space-3); }
   .fld { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
