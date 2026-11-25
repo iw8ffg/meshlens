@@ -415,6 +415,9 @@ async def test_static_spa(tmp_path):
     async with client(ctx) as c:
         assert "SPA" in (await c.get("/")).text
         assert (await c.get("/a.js")).text == "x=1"
+        assert (await c.get("/")).headers["cache-control"] == "no-cache"
+        assert (await c.get("/some/route")).headers["cache-control"] == "no-cache"
+        assert "no-cache" not in (await c.get("/a.js")).headers.get("cache-control", "")
         assert "SPA" in (await c.get("/some/route")).text
         r = await c.get("/api/unknown")
         assert r.status_code == 404 and "SPA" not in r.text

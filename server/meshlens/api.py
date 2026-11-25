@@ -464,6 +464,13 @@ mimetypes.add_type("text/javascript", ".mjs")
 
 
 class _SpaStaticFiles(StaticFiles):
+    def file_response(self, full_path, *args, **kwargs):
+        resp = super().file_response(full_path, *args, **kwargs)
+        # index.html non deve restare in cache: dopo un aggiornamento punta ad asset con hash nuovi
+        if str(full_path).replace("\\", "/").rsplit("/", 1)[-1] == "index.html":
+            resp.headers["Cache-Control"] = "no-cache"
+        return resp
+
     async def get_response(self, path, scope):
         try:
             return await super().get_response(path, scope)

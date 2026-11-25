@@ -33,6 +33,8 @@ export const shell = {
   'shell.connOffline': 'Il dispositivo è offline: i dati sono fermi',
   'shell.connLost': 'Connessione al server persa: i dati sono fermi dalle {time}. Nuovo tentativo in corso…',
   'shell.connRestored': 'Connessione ripristinata',
+  'shell.updatedReload': 'MeshLens è stato aggiornato alla versione {version}. Ricarica la pagina per usare la nuova interfaccia.',
+  'shell.reload': 'Ricarica',
   'shell.retryNow': 'Riprova ora',
   'shell.alertBattery': 'Batteria al {n}%',
   'shell.alertSilent': 'Silenzioso da {n} h',
