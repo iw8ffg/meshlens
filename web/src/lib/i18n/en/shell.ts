@@ -35,6 +35,8 @@ export const shell: Record<keyof typeof itArea, string> = {
   'shell.connOffline': 'This device is offline: data is frozen',
   'shell.connLost': 'Connection to the server lost: data has been frozen since {time}. Retrying…',
   'shell.connRestored': 'Connection restored',
+  'shell.updatedReload': 'MeshLens has been updated to version {version}. Reload the page to use the new interface.',
+  'shell.reload': 'Reload',
   'shell.retryNow': 'Retry now',
   'shell.alertBattery': 'Battery at {n}%',
   'shell.alertSilent': 'Silent for {n} h',

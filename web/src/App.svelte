@@ -21,6 +21,8 @@ import { safeStorage } from './lib/storage'
   import Panel from './lib/shell/Panel.svelte'
   import BottomNav from './lib/shell/BottomNav.svelte'
   import ConnectionBar from './lib/shell/ConnectionBar.svelte'
+  import UpdatedBanner from './lib/shell/UpdatedBanner.svelte'
+  import { checkServerVersion } from './lib/appversion.svelte'
   import Icon from './lib/ui/Icon.svelte'
   import Sheet from './lib/ui/Sheet.svelte'
   import Empty from './lib/ui/Empty.svelte'
@@ -255,7 +257,12 @@ import { safeStorage } from './lib/storage'
         notifyWsResync()
       },
       authLost: resetConn,
-      connection: (on) => (on ? markOnline(Date.now()) : markOffline(Date.now())),
+      connection: (on) => {
+        if (on) {
+          markOnline(Date.now())
+          void checkServerVersion()
+        } else markOffline(Date.now())
+      },
       nodes: upsertNodes,
       message: (m) => {
         addMessage(m)
@@ -277,7 +284,12 @@ import { safeStorage } from './lib/storage'
       sf_job: applySfJob,
       sf_routers: setSfRouters,
     })
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void checkServerVersion()
+    }
+    document.addEventListener('visibilitychange', onVisible)
     return () => {
+      document.removeEventListener('visibilitychange', onVisible)
       loader.dispose()
       stopWS()
     }
@@ -332,6 +344,7 @@ import { safeStorage } from './lib/storage'
     {/if}
     <TopBar visible={visible.length} {now} tab={activeTab} onselect={goTab} onupdate={() => goTab('settings')} onpickalert={pickId} />
     <ConnectionBar />
+    <UpdatedBanner />
     <div class="main">
       {#if routeError}
         <div class="route-toast"><Toast kind="warn" onclose={() => (routeError = '')}>{t('shell.nodeNotFound', { id: routeError })}</Toast></div>
