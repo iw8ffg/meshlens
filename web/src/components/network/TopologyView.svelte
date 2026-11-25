@@ -15,7 +15,7 @@
     DEFAULT_PERIOD, PERIODS, fitViewBox, geoLayout, labelText, layoutAsync, listCuts, listHubs, mainComponentIds, needsNeighborInfoHelp,
     neighborsOf, nodeClass, nodesWithinHops, panBy, pickLabels, snrClass, subgraph, topologyData, topologySignature, zoomAt,
   } from '../../lib/topology'
-  import type { LabelItem, Pt, ViewBox } from '../../lib/topology'
+  import type { LabelItem, LabelPlace, Pt, ViewBox } from '../../lib/topology'
   import type { Link, TopologyEdge, TopologyNode, TopologyResult } from '../../lib/types'
   import Banner from '../../lib/ui/Banner.svelte'
   import Button from '../../lib/ui/Button.svelte'
@@ -149,6 +149,8 @@
   const geoPos = $derived(layoutMode === 'geo' ? geoLayout(shown.nodes, shown.edges, 1600, 30) : null)
   let forcePos = $state<Map<string, Pt>>(new Map())
   let layoutSig = ''
+  /** Layout in corso: le etichette restano nascoste finche' le posizioni non si assestano. */
+  let layoutBusy = $state(false)
   $effect(() => {
     const sg = shownSig
     const g = shown
@@ -156,15 +158,21 @@
     if (!data) {
       forcePos = new Map()
       layoutSig = ''
+      layoutBusy = false
       return
     }
-    if (skip || sg === layoutSig) return
+    if (skip || sg === layoutSig) {
+      layoutBusy = false
+      return
+    }
+    layoutBusy = true
     let stale = false
     const seeds = untrack(() => forcePos)
     layoutAsync(g.nodes, g.edges, { seeds }, () => stale).then((r) => {
       if (stale || !r) return
       layoutSig = sg
       forcePos = r
+      layoutBusy = false
     })
     return () => {
       stale = true
@@ -230,6 +238,7 @@
   }
   const nodeR = (n: TopologyNode): number => (n.hub ? 8 : n.cut ? 6 : 4.5) + (n.cut ? 4 : 0)
   const labels = $derived.by(() => {
+    if (layoutBusy) return new Map<string, LabelPlace>()
     const v = labelVb.w > 1 ? labelVb : vb
     const lk = v.w / Math.max(1, svgW)
     const margin = 60 * lk
@@ -451,6 +460,9 @@
       {/if}
     </section>
 
+    {#if layoutBusy}
+      <p class="ui-muted" role="status">{t('topology.layout.busy')}</p>
+    {/if}
     {#if geoMissing}
       <p class="ui-muted">{t('topology.layout.geoNone')}</p>
     {:else if layoutMode === 'geo'}
