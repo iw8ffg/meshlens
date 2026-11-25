@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 vi.mock('./api', () => ({ getJSON: vi.fn() }))
 
 import {
-  fitViewBox, geoLayout, hasPosition, labelText, layout, layoutJob, mainComponentIds, mercator, nodesWithinHops, pickLabels, subgraph, topologyData,
+  MIN_SEP, fitViewBox, geoLayout, hasPosition, labelText, layout, layoutJob, mainComponentIds, mercator, nodesWithinHops, pickLabels, relaxSeparate, subgraph, topologyData,
 } from './topology'
 import type { LabelItem } from './topology'
 import type { TopologyEdge, TopologyNode } from './types'
@@ -180,60 +180,110 @@ describe('messa a fuoco (salti)', () => {
 })
 
 describe('etichette', () => {
-  const item = (id: string, x: number, y: number, o: Partial<LabelItem> = {}): LabelItem => ({ id, name: id.padEnd(8, 'x'), x, y, cut: false, hub: false, impact: 0, degree: 1, ...o })
+  const item = (id: string, x: number, y: number, o: Partial<LabelItem> = {}): LabelItem => ({ id, name: id.padEnd(8, 'x'), x, y, cut: false, hub: false, impact: 0, degree: 1, r: 5, ...o })
+  const ids = (m: Map<string, unknown>) => [...m.keys()].sort()
   it('mostra solo cerniere e hub, i normali no', () => {
     const items = [item('c', 0, 0, { cut: true, impact: 3 }), item('h', 1000, 0, { hub: true, degree: 6 }), item('n', 2000, 0)]
-    expect([...pickLabels(items, { k: 1 })].sort()).toEqual(['c', 'h'])
+    expect(ids(pickLabels(items, { k: 1 }))).toEqual(['c', 'h'])
   })
-  it('il nodo sotto il puntatore e i vicini compaiono sempre', () => {
+  it('nodo sotto il puntatore sempre, vicini con precedenza ma scartabili', () => {
     const items = [item('n', 0, 0), item('m', 3000, 0), item('c', 6000, 0, { cut: true, impact: 1 })]
-    const r = pickLabels(items, { k: 1, forced: new Set(['n', 'm']) })
-    expect(r.has('n') && r.has('m') && r.has('c')).toBe(true)
+    const r = pickLabels(items, { k: 1, forced: new Set(['n']), near: new Set(['m']) })
+    expect(ids(r)).toEqual(['c', 'm', 'n'])
   })
-  it('scarta quelle che si sovrappongono, con precedenza all\'impatto maggiore', () => {
+  it("le sovrapposte si spostano o si scartano, con precedenza all'impatto maggiore", () => {
     const items = [item('a', 0, 0, { cut: true, impact: 2 }), item('b', 5, 0, { cut: true, impact: 9 }), item('c', 2000, 0, { cut: true, impact: 1 })]
     const r = pickLabels(items, { k: 1 })
-    expect(r.has('b')).toBe(true)
-    expect(r.has('a')).toBe(false)
-    expect(r.has('c')).toBe(true)
+    expect(r.has('b') && r.has('c')).toBe(true)
+    if (r.has('a')) {
+      const A = r.get('a')!
+      const B = r.get('b')!
+      expect(A.x0 < B.x1 && A.x1 > B.x0 && A.y0 < B.y1 && A.y1 > B.y0).toBe(false)
+    }
   })
-  it('le obbligatorie restano anche se si sovrappongono e fanno spazio alle altre', () => {
-    const items = [item('f1', 0, 0), item('f2', 5, 0), item('h', 8, 0, { hub: true, degree: 9 })]
-    const r = pickLabels(items, { k: 1, forced: new Set(['f1', 'f2']) })
-    expect([...r].sort()).toEqual(['f1', 'f2'])
+  it('prova 4 posizioni: due nodi vicini in orizzontale mostrano entrambi i nomi', () => {
+    const items = [item('a', 0, 0, { hub: true, degree: 5 }), item('b', 40, 0, { hub: true, degree: 4 })]
+    expect(pickLabels(items, { k: 1 }).size).toBe(2)
+  })
+  it("un cerchio altrui e' un ostacolo", () => {
+    const items = [item('a', 0, 0, { hub: true, degree: 5 }), item('x', 40, 0, { r: 30 })]
+    const r = pickLabels(items, { k: 1 }).get('a')
+    if (r) expect(r.x0 < 70 && r.x1 > 10 && r.y0 < 30 && r.y1 > -30).toBe(false)
   })
   it('con zoom avanzato (showAll) compaiono anche i nodi normali che non collidono', () => {
-    const items = [item('c', 0, 0, { cut: true, impact: 1 }), item('n1', 1000, 0), item('n2', 1004, 0), item('n3', 0, 1000)]
-    const r = pickLabels(items, { k: 1, showAll: true })
-    expect(r.has('c') && r.has('n1') && r.has('n3')).toBe(true)
-    expect(r.has('n2')).toBe(false)
-  })
-  it('lo zoom cambia lo spazio: stesso grafo, con k piccolo (ingrandito) le etichette non si toccano piu\'', () => {
-    const items = [item('a', 0, 0, { hub: true, degree: 5 }), item('b', 60, 0, { hub: true, degree: 4 })]
-    expect(pickLabels(items, { k: 1 }).size).toBe(1)
-    expect(pickLabels(items, { k: 0.2 }).size).toBe(2)
+    const items = [item('c', 0, 0, { cut: true, impact: 1 }), item('n1', 1000, 0), item('n3', 0, 1000)]
+    expect(ids(pickLabels(items, { k: 1, showAll: true }))).toEqual(['c', 'n1', 'n3'])
   })
   it('labelText accorcia i nomi lunghi', () => {
     expect(labelText('Breve')).toBe('Breve')
     expect(labelText('x'.repeat(40)).length).toBe(22)
   })
-  it('molti nodi: veloce e senza sovrapposizioni tra le scelte', () => {
-    const rnd = prng(3)
-    const items = Array.from({ length: 400 }, (_, i) => item(`n${i}`, rnd() * 3000, rnd() * 2000, { hub: i % 4 === 0, degree: 1 + (i % 9) }))
-    const t0 = performance.now()
-    const r = pickLabels(items, { k: 2, showAll: true })
-    expect(performance.now() - t0).toBeLessThan(200)
-    expect(r.size).toBeGreaterThan(20)
-    const picked = items.filter((i) => r.has(i.id))
-    for (let i = 0; i < picked.length; i++)
-      for (let j = i + 1; j < picked.length; j++) {
-        const a = picked[i]
-        const b = picked[j]
-        const w = (it: LabelItem) => labelText(it.name).length * 7 * 2 + 12
-        const overlapX = Math.abs(a.x - b.x) < (w(a) + w(b)) / 2
-        const overlapY = Math.abs(a.y - b.y) < 32
-        expect(overlapX && overlapY).toBe(false)
-      }
+  for (const zoom of [1, 3]) {
+    it(`500 nodi a zoom ${zoom}: nessuna etichetta sovrapposta ad altre o ai cerchi, in pixel`, () => {
+      const { nodes, edges } = bigGraph()
+      const pos = layout(nodes, edges)
+      const fit = fitViewBox([...pos.values()], 40, 1.7)
+      const W = 1500
+      const k = fit.w / W / zoom
+      const cx = fit.x + fit.w / 2
+      const cy = fit.y + fit.h / 2
+      const items: LabelItem[] = nodes
+        .map((n, i) => ({ n, i, p: pos.get(n.id)! }))
+        .filter(({ p }) => Math.abs(p.x - cx) < (W / 2) * k && Math.abs(p.y - cy) < (W / 1.7 / 2) * k)
+        .map(({ n, i, p }) => item(n.id, p.x, p.y, { name: `Nodo ${n.id.slice(1)} Torre`, hub: i % 7 === 0, cut: i % 23 === 0, impact: i % 5, degree: 1 + (i % 6), r: i % 7 === 0 ? 8 : 4.5 }))
+      const t0 = performance.now()
+      const r = pickLabels(items, { k, showAll: zoom >= 3 })
+      expect(performance.now() - t0).toBeLessThan(250)
+      expect(r.size).toBeGreaterThan(5)
+      const boxes = [...r.entries()].map(([id, b]) => ({ id, ...b }))
+      for (let i = 0; i < boxes.length; i++)
+        for (let j = i + 1; j < boxes.length; j++) {
+          const a = boxes[i]
+          const b = boxes[j]
+          expect(a.x0 < b.x1 && a.x1 > b.x0 && a.y0 < b.y1 && a.y1 > b.y0, `${a.id}/${b.id}`).toBe(false)
+        }
+      for (const b of boxes)
+        for (const it of items) {
+          if (it.id === b.id) continue
+          const rr = (it.r ?? 5) * k
+          expect(b.x0 < it.x + rr && b.x1 > it.x - rr && b.y0 < it.y + rr && b.y1 > it.y - rr, `${b.id} su ${it.id}`).toBe(false)
+        }
+    })
+  }
+})
+
+describe('impacchettamento e distanza minima', () => {
+  it('20 componenti piccole stanno in piu colonne, non in una sola', () => {
+    const nodes: TopologyNode[] = []
+    const edges: TopologyEdge[] = []
+    const bid = (i: number) => `big${String(i).padStart(3, '0')}`
+    for (let i = 0; i < 100; i++) nodes.push(tn(bid(i)))
+    for (let i = 1; i < 100; i++) edges.push(te(bid(i), bid(Math.floor((i - 1) / 2))))
+    const sid = (g: number, l: string) => `s${String(g).padStart(2, '0')}${l}`
+    for (let g = 0; g < 20; g++) {
+      nodes.push(tn(sid(g, 'a')), tn(sid(g, 'b')), tn(sid(g, 'c')))
+      edges.push(te(sid(g, 'a'), sid(g, 'b')), te(sid(g, 'b'), sid(g, 'c')))
+    }
+    const p = layout(nodes, edges)
+    const xs = new Set<number>()
+    for (let g = 0; g < 20; g++) xs.add(Math.round(Math.min(...['a', 'b', 'c'].map((l) => p.get(sid(g, l))!.x)) / 20))
+    expect(xs.size).toBeGreaterThanOrEqual(3)
+    const bigMaxX = Math.max(...[...p.entries()].filter(([id]) => id.startsWith('big')).map(([, q]) => q.x))
+    const smallMinX = Math.min(...[...p.entries()].filter(([id]) => !id.startsWith('big')).map(([, q]) => q.x))
+    expect(smallMinX).toBeGreaterThan(bigMaxX)
+  })
+  it('500 nodi: distanza minima tra due nodi quasi rispettata (>= 0,8 x MIN_SEP)', () => {
+    const { nodes, edges } = bigGraph()
+    const pts = [...layout(nodes, edges).values()]
+    let min = Infinity
+    for (let i = 0; i < pts.length; i++) for (let j = i + 1; j < pts.length; j++) min = Math.min(min, Math.hypot(pts[i].x - pts[j].x, pts[i].y - pts[j].y))
+    expect(min).toBeGreaterThanOrEqual(MIN_SEP * 0.8)
+  })
+  it('relaxSeparate separa i punti coincidenti', () => {
+    const x = [0, 0, 0, 100]
+    const y = [0, 0, 0, 0]
+    relaxSeparate(x, y, 30)
+    for (let i = 0; i < 4; i++) for (let j = i + 1; j < 4; j++) expect(Math.hypot(x[i] - x[j], y[i] - y[j])).toBeGreaterThan(24)
   })
 })
 

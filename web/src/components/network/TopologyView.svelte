@@ -146,7 +146,7 @@
   // ---- posizioni ----
   // Geografica: calcolo immediato. Per collegamenti: layout a blocchi (rAF) senza bloccare il thread;
   // riparte solo se nodi/archi mostrati sono cambiati e usa come seme le posizioni precedenti.
-  const geoPos = $derived(layoutMode === 'geo' ? geoLayout(shown.nodes, shown.edges) : null)
+  const geoPos = $derived(layoutMode === 'geo' ? geoLayout(shown.nodes, shown.edges, 1600, 30) : null)
   let forcePos = $state<Map<string, Pt>>(new Map())
   let layoutSig = ''
   $effect(() => {
@@ -202,26 +202,45 @@
   const allShown = $derived([...shown.nodes].sort((a, b) => a.name.localeCompare(b.name)))
   const truncTotal = $derived(data ? (mainOnly ? (data.components[0]?.size ?? data.stats.nodes) : data.stats.nodes) : 0)
 
-  // ---- etichette: solo dove servono, senza sovrapposizioni ----
-  const forcedLabels = $derived.by(() => {
+  // ---- etichette: solo dove servono, senza sovrapposizioni (calcolo in pixel dello schermo, al massimo a ogni frame) ----
+  const nearLabels = $derived.by(() => {
     const s = new Set<string>()
-    for (const id of [hoverId, selectedId]) {
-      if (id === null) continue
-      s.add(id)
-      for (const v of adjacency.get(id) ?? []) s.add(v)
-    }
+    for (const id of [hoverId, selectedId]) if (id !== null) for (const v of adjacency.get(id) ?? []) s.add(v)
     return s
   })
+  const mainLabels = $derived(new Set([hoverId, selectedId].filter((x): x is string => x !== null)))
+  let labelVb = $state<ViewBox>({ x: 0, y: 0, w: 1, h: 1 })
+  let labelRaf = 0
+  $effect(() => {
+    void vb
+    if (labelRaf) return
+    labelRaf = requestAnimationFrame(() => {
+      labelRaf = 0
+      labelVb = vb // sempre l'ultimo valore: piu' cambi nello stesso frame contano come uno
+    })
+  })
+  $effect(() => () => labelRaf && cancelAnimationFrame(labelRaf))
+  let measureCtx: CanvasRenderingContext2D | null | undefined
+  const measure = (text: string): number => {
+    if (measureCtx === undefined) {
+      measureCtx = typeof document === 'undefined' ? null : document.createElement('canvas').getContext('2d')
+      if (measureCtx) measureCtx.font = `13px ${svgEl ? getComputedStyle(svgEl).fontFamily : 'sans-serif'}`
+    }
+    return measureCtx ? measureCtx.measureText(text).width : text.length * 7.5
+  }
+  const nodeR = (n: TopologyNode): number => (n.hub ? 8 : n.cut ? 6 : 4.5) + (n.cut ? 4 : 0)
   const labels = $derived.by(() => {
-    const margin = 40 * k
+    const v = labelVb.w > 1 ? labelVb : vb
+    const lk = v.w / Math.max(1, svgW)
+    const margin = 60 * lk
     const items: LabelItem[] = []
     for (const n of shown.nodes) {
       const p = pos.get(n.id)
-      if (!p || p.x < vb.x - margin || p.x > vb.x + vb.w + margin || p.y < vb.y - margin || p.y > vb.y + vb.h + margin) continue
-      items.push({ id: n.id, name: n.name, x: p.x, y: p.y, cut: n.cut, hub: n.hub, impact: n.impact, degree: n.degree })
+      if (!p || p.x < v.x - margin || p.x > v.x + v.w + margin || p.y < v.y - margin || p.y > v.y + v.h + margin) continue
+      items.push({ id: n.id, name: n.name, x: p.x, y: p.y, cut: n.cut, hub: n.hub, impact: n.impact, degree: n.degree, r: nodeR(n) })
     }
-    const showAll = shown.nodes.length <= 40 || zoomLevel >= 2.5
-    return pickLabels(items, { k, forced: forcedLabels, showAll })
+    const showAll = shown.nodes.length <= 40 || fitted.w / v.w >= 2.5
+    return pickLabels(items, { k: lk, forced: mainLabels, near: nearLabels, showAll, measure })
   })
   const dimOthers = $derived(selectedId !== null || hoverId !== null)
   const lit = $derived(selectedId !== null ? neighborSet : hoverId !== null ? new Set(adjacency.get(hoverId) ?? []) : new Set<string>())
@@ -504,7 +523,8 @@
           {#each shown.nodes as n (n.id)}
             {@const p = pos.get(n.id)}
             {#if p && labels.has(n.id)}
-              <text class="lbl-t" x={p.x} y={p.y - 11 * k} text-anchor="middle" font-size={13 * k} stroke-width={3 * k}>{labelText(n.name)}</text>
+              {@const pl = labels.get(n.id)!}
+              <text class="lbl-t" x={pl.x} y={pl.y} text-anchor={pl.anchor} font-size={13 * k} stroke-width={3 * k}>{labelText(n.name)}</text>
             {/if}
           {/each}
         </svg>

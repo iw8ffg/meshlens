@@ -78,6 +78,57 @@ export interface LayoutJob {
 
 /** Lunghezza ideale di un arco, in unita' del grafo. */
 const EDGE_LEN = 60
+/** Repulsione piu' forte della lunghezza ideale: i gruppi densi non collassano in una palla. */
+const REP2 = (EDGE_LEN * 1.35) ** 2
+/** Distanza minima finale tra due nodi (unita' del grafo). */
+export const MIN_SEP = 44
+
+/** Allontana i punti piu' vicini di `min` (passate Gauss-Seidel su griglia, deterministico). Modifica x e y sul posto. */
+export function relaxSeparate(x: ArrayLike<number> & { [i: number]: number }, y: ArrayLike<number> & { [i: number]: number }, min: number, passes = 20): void {
+  const n = x.length
+  const D2 = min * min
+  for (let pass = 0; pass < passes; pass++) {
+    const grid = new Map<number, number[]>()
+    const key = (cx: number, cy: number) => (cx + 32768) * 65536 + (cy + 32768)
+    for (let i = 0; i < n; i++) {
+      const k = key(Math.floor(x[i] / min), Math.floor(y[i] / min))
+      const g = grid.get(k)
+      if (g) g.push(i)
+      else grid.set(k, [i])
+    }
+    let moved = false
+    for (let i = 0; i < n; i++) {
+      const cx = Math.floor(x[i] / min)
+      const cy = Math.floor(y[i] / min)
+      for (let ax = -1; ax <= 1; ax++)
+        for (let ay = -1; ay <= 1; ay++) {
+          const g = grid.get(key(cx + ax, cy + ay))
+          if (!g) continue
+          for (const j of g) {
+            if (j <= i) continue
+            let vx = x[i] - x[j]
+            let vy = y[i] - y[j]
+            let d2 = vx * vx + vy * vy
+            if (d2 >= D2) continue
+            if (d2 < 1e-9) {
+              const a = (i * 2.399963 + j * 1.618) % (2 * Math.PI)
+              vx = Math.cos(a)
+              vy = Math.sin(a)
+              d2 = 1
+            }
+            const d = Math.sqrt(d2)
+            const push = (min - d) / 2 / d
+            x[i] += vx * push
+            y[i] += vy * push
+            x[j] -= vx * push
+            y[j] -= vy * push
+            moved = true
+          }
+        }
+    }
+    if (!moved) break
+  }
+}
 const THETA2 = 0.9 * 0.9
 const EXACT_MAX = 64
 const MAX_DEPTH = 28
@@ -93,6 +144,7 @@ class CompLayout {
   private readonly dy: Float64Array
   private readonly ea: Int32Array
   private readonly eb: Int32Array
+  private readonly el: Float64Array
   readonly iterations: number
   private readonly tScale: number
   private readonly temp0: number
@@ -126,6 +178,8 @@ class CompLayout {
     this.dy = new Float64Array(m)
     this.ea = Int32Array.from(localEdges.map((e) => e[0]))
     this.eb = Int32Array.from(localEdges.map((e) => e[1]))
+    // lunghezza ideale dell'arco cresce col grado dei suoi estremi: attorno agli hub serve piu' spazio
+    this.el = Float64Array.from(localEdges.map((e) => EDGE_LEN * (1 + 0.12 * Math.sqrt(Math.max(deg[e[0]], deg[e[1]]) - 1))))
     // visita in ampiezza dal nodo di grado maggiore: i vicini finiscono vicini sulla spirale
     let root = 0
     for (let i = 1; i < m; i++) if (deg[i] > deg[root]) root = i
@@ -152,7 +206,7 @@ class CompLayout {
         this.x[i] = p.x - ox
         this.y[i] = p.y - oy
       } else {
-        const r = EDGE_LEN * 0.9 * Math.sqrt(t + 0.5)
+        const r = EDGE_LEN * 1.2 * Math.sqrt(t + 0.5)
         const ang = t * GOLD + (rnd() - 0.5) * 0.3
         this.x[i] = r * Math.cos(ang)
         this.y[i] = r * Math.sin(ang)
@@ -170,7 +224,7 @@ class CompLayout {
 
   private repelExact(): void {
     const { m, x, y, dx, dy } = this
-    const k2 = EDGE_LEN * EDGE_LEN
+    const k2 = REP2
     for (let i = 0; i < m; i++) {
       for (let j = i + 1; j < m; j++) {
         let vx = x[i] - x[j]
@@ -271,7 +325,7 @@ class CompLayout {
   private repelTree(): void {
     this.buildTree()
     const { m, x, y, dx, dy, stack } = this
-    const k2 = EDGE_LEN * EDGE_LEN
+    const k2 = REP2
     for (let i = 0; i < m; i++) {
       stack.length = 0
       stack.push(0)
@@ -322,7 +376,7 @@ class CompLayout {
       const vy = y[i] - y[j]
       const d = Math.hypot(vx, vy)
       if (d < 1e-6) continue
-      const f = d / EDGE_LEN // d^2/k diviso d per normalizzare il vettore
+      const f = d / this.el[e] // d^2/k diviso d per normalizzare il vettore
       dx[i] -= vx * f
       dy[i] -= vy * f
       dx[j] += vx * f
@@ -341,6 +395,7 @@ class CompLayout {
       }
     }
     this.it++
+    if (this.it >= this.iterations) relaxSeparate(this.x, this.y, MIN_SEP, 24)
   }
 }
 
@@ -411,7 +466,7 @@ export function layoutJob(nodes: Pick<TopologyNode, 'id' | 'degree'>[], edges: P
   }
 
   const pack = () => {
-    const GAP = 70
+    const GAP = 90
     const boxes = comps.map((mm, c) => {
       const L = layouts[c]!
       let x0 = Infinity
@@ -436,16 +491,19 @@ export function layoutJob(nodes: Pick<TopologyNode, 'id' | 'degree'>[], edges: P
     }
     put(0, 0, 0)
     if (comps.length === 1) return
+    // le altre componenti: blocco compatto a colonne, alto circa quanto e' largo (non una colonna unica)
     let area = 0
     let maxH = 0
     for (let c = 1; c < comps.length; c++) {
       area += (boxes[c].w + GAP) * (boxes[c].h + GAP)
       maxH = Math.max(maxH, boxes[c].h)
     }
-    const limit = Math.max(boxes[0].h, maxH, 1.3 * Math.sqrt(area))
-    let colX = boxes[0].w + GAP * 1.5
+    const limit = Math.max(maxH, 1.15 * Math.sqrt(area))
+    const slots: [number, number, number][] = []
+    let colX = boxes[0].w + GAP * 2
     let colW = 0
     let cy = 0
+    let blockH = 0
     for (let c = 1; c < comps.length; c++) {
       const b = boxes[c]
       if (cy > 0 && cy + b.h > limit) {
@@ -453,10 +511,13 @@ export function layoutJob(nodes: Pick<TopologyNode, 'id' | 'degree'>[], edges: P
         colW = 0
         cy = 0
       }
-      put(c, colX, cy)
+      slots.push([c, colX, cy])
       colW = Math.max(colW, b.w)
       cy += b.h + GAP
+      blockH = Math.max(blockH, cy - GAP)
     }
+    const oy = Math.max(0, (boxes[0].h - blockH) / 2) // il blocco sta a meta' altezza della principale
+    for (const [c, sx, sy] of slots) put(c, sx, sy + oy)
   }
 
   const isDone = () => ci >= comps.length
@@ -647,62 +708,98 @@ export interface LabelItem {
   hub: boolean
   impact: number
   degree: number
+  /** Raggio del cerchio disegnato, in pixel (anche l'anello delle cerniere). */
+  r?: number
 }
 export interface LabelOpts {
   /** Unita' del grafo per pixel (dimensione sullo schermo costante). */
   k: number
-  /** Etichette sempre visibili (nodo sotto il puntatore, selezionato e vicini). */
+  /** Nodi sempre etichettati (sotto il puntatore o selezionato): se nessuna posizione e' libera, si usa la prima. */
   forced?: ReadonlySet<string>
+  /** Vicini di quelli: precedenza alta, ma scartati se si sovrappongono. */
+  near?: ReadonlySet<string>
   /** Con zoom avanzato: tutte le etichette che non si sovrappongono. */
   showAll?: boolean
+  /** Larghezza in pixel del testo; di base ~ charPx per carattere. */
+  measure?: (text: string) => number
   charPx?: number
   heightPx?: number
+}
+export interface LabelPlace {
+  /** Punto del testo (ancora e linea di base) in unita' del grafo. */
+  x: number
+  y: number
+  anchor: 'start' | 'middle' | 'end'
+  /** Riquadro occupato, in unita' del grafo. */
+  x0: number
+  x1: number
+  y0: number
+  y1: number
 }
 
 export const LABEL_MAX = 22
 /** Testo mostrato: nomi lunghi accorciati. */
-export const labelText = (name: string): string => (name.length > LABEL_MAX ? `${name.slice(0, LABEL_MAX - 1)}…` : name)
+export const labelText = (name: string): string => (name.length > LABEL_MAX ? `${name.slice(0, LABEL_MAX - 1)}\u2026` : name)
 
 /**
- * Etichette da disegnare: prima le obbligatorie, poi cerniere (impatto), hub (grado) e, se `showAll`,
- * tutte le altre (grado); le non obbligatorie si saltano se il loro riquadro (sopra il nodo) si sovrappone
- * a uno gia' scelto. Scelta greedy, deterministica.
+ * Etichette da disegnare, con posizione. Ordine di precedenza: nodo sotto il puntatore/selezionato, suoi vicini,
+ * cerniere (impatto), hub (grado) e, se `showAll`, tutte le altre (grado). Per ognuna si provano 4 posizioni
+ * (destra, sinistra, sopra, sotto); se nessuna e' libera da altre etichette e da altri cerchi, l'etichetta si scarta.
+ * Il confronto avviene in pixel dello schermo (k unita'/pixel). Greedy, deterministico.
  */
-export function pickLabels(items: LabelItem[], o: LabelOpts): Set<string> {
-  const charW = (o.charPx ?? 7) * o.k
-  const hgt = (o.heightPx ?? 16) * o.k
-  const rank = (it: LabelItem): number => (o.forced?.has(it.id) ? 0 : it.cut ? 1 : it.hub ? 2 : 3)
+export function pickLabels(items: LabelItem[], o: LabelOpts): Map<string, LabelPlace> {
+  const k = o.k
+  const hgt = (o.heightPx ?? 15) * k
+  const pad = 3 * k
+  const rank = (it: LabelItem): number => (o.forced?.has(it.id) ? 0 : o.near?.has(it.id) ? 1 : it.cut ? 2 : it.hub ? 3 : 4)
   const cand = items
-    .filter((it) => rank(it) < 3 || o.showAll)
-    .sort((a, b) => rank(a) - rank(b) || (rank(a) === 1 ? b.impact - a.impact : 0) || b.degree - a.degree || (a.id < b.id ? -1 : 1))
-  const cell = Math.max(1e-6, 170 * o.k)
-  const grid = new Map<string, { x0: number; x1: number; y0: number; y1: number }[]>()
-  const out = new Set<string>()
-  for (const it of cand) {
-    const w = labelText(it.name).length * charW + 6 * o.k
-    const x0 = it.x - w / 2
-    const x1 = it.x + w / 2
-    const y1 = it.y - 6 * o.k
-    const y0 = y1 - hgt
+    .filter((it) => rank(it) < 4 || o.showAll)
+    .sort((a, b) => rank(a) - rank(b) || (rank(a) === 2 ? b.impact - a.impact : 0) || b.degree - a.degree || (a.id < b.id ? -1 : 1))
+  const cell = Math.max(1e-6, 120 * k)
+  type Box = { x0: number; x1: number; y0: number; y1: number; owner?: string }
+  const grid = new Map<string, Box[]>()
+  const cellsOf = (b: Box): string[] => {
     const keys: string[] = []
-    for (let cx = Math.floor(x0 / cell); cx <= Math.floor(x1 / cell); cx++) for (let cy = Math.floor(y0 / cell); cy <= Math.floor(y1 / cell); cy++) keys.push(`${cx},${cy}`)
-    const forced = rank(it) === 0
-    if (!forced) {
-      let hit = false
-      for (const key of keys) {
-        for (const b of grid.get(key) ?? []) {
-          if (x0 < b.x1 && x1 > b.x0 && y0 < b.y1 && y1 > b.y0) {
-            hit = true
-            break
-          }
-        }
-        if (hit) break
-      }
-      if (hit) continue
-    }
-    out.add(it.id)
-    const box = { x0, x1, y0, y1 }
-    for (const key of keys) (grid.get(key) ?? grid.set(key, []).get(key)!).push(box)
+    for (let cx = Math.floor(b.x0 / cell); cx <= Math.floor(b.x1 / cell); cx++) for (let cy = Math.floor(b.y0 / cell); cy <= Math.floor(b.y1 / cell); cy++) keys.push(`${cx},${cy}`)
+    return keys
+  }
+  const insert = (b: Box) => {
+    for (const key of cellsOf(b)) (grid.get(key) ?? grid.set(key, []).get(key)!).push(b)
+  }
+  const hits = (b: Box, self: string): boolean => {
+    for (const key of cellsOf(b)) for (const c of grid.get(key) ?? []) if (c.owner !== self && b.x0 < c.x1 && b.x1 > c.x0 && b.y0 < c.y1 && b.y1 > c.y0) return true
+    return false
+  }
+  // i cerchi disegnati sono ostacoli
+  for (const it of items) {
+    const r = ((it.r ?? 5) + 1.5) * k
+    insert({ x0: it.x - r, x1: it.x + r, y0: it.y - r, y1: it.y + r, owner: it.id })
+  }
+  const out = new Map<string, LabelPlace>()
+  for (const it of cand) {
+    const text = labelText(it.name)
+    const w = ((o.measure ? o.measure(text) : text.length * (o.charPx ?? 7.5)) + 6) * k
+    const r = ((it.r ?? 5) + 2.5) * k
+    const mk = (anchor: LabelPlace['anchor'], bx0: number, by0: number): LabelPlace => ({
+      x: anchor === 'start' ? bx0 + pad : anchor === 'end' ? bx0 + w - pad : bx0 + w / 2,
+      y: by0 + hgt / 2 + 4.5 * k,
+      anchor,
+      x0: bx0,
+      x1: bx0 + w,
+      y0: by0,
+      y1: by0 + hgt,
+    })
+    const options = [
+      mk('start', it.x + r, it.y - hgt / 2), // destra
+      mk('end', it.x - r - w, it.y - hgt / 2), // sinistra
+      mk('middle', it.x - w / 2, it.y - r - hgt), // sopra
+      mk('middle', it.x - w / 2, it.y + r), // sotto
+    ]
+    let pick = options.find((p) => !hits({ x0: p.x0, x1: p.x1, y0: p.y0, y1: p.y1 }, it.id))
+    if (!pick && rank(it) === 0) pick = options[0]
+    if (!pick) continue
+    out.set(it.id, pick)
+    insert({ x0: pick.x0, x1: pick.x1, y0: pick.y0, y1: pick.y1, owner: `label:${it.id}` })
   }
   return out
 }
@@ -727,6 +824,7 @@ export function geoLayout(
   nodes: Pick<TopologyNode, 'id' | 'lat' | 'lon'>[],
   edges: Pick<TopologyEdge, 'a' | 'b'>[],
   size = 1600,
+  minSep = 26,
 ): Map<string, Pt> | null {
   const list = [...new Map(nodes.map((n) => [n.id, n])).values()].sort((a, b) => (a.id < b.id ? -1 : 1))
   const withPos = list.filter(hasPosition)
@@ -777,11 +875,11 @@ export function geoLayout(
   const ROWS = 25
   pending.forEach((id, i) => placed.set(id, { x: w + 160 + Math.floor(i / ROWS) * 90, y: (i % ROWS) * 34 }))
 
-  // sparge i punti troppo vicini (stessa cella da 14 unita') con una spirale deterministica
+  // sparge i punti troppo vicini: spirale per i coincidenti, poi una leggera separazione (restano a pochi pixel dal vero)
   const CELL = 14
   const taken = new Set<string>()
   const key = (p: Pt) => `${Math.floor(p.x / CELL)},${Math.floor(p.y / CELL)}`
-  const out = new Map<string, Pt>()
+  const spread: Pt[] = []
   for (const n of list) {
     const p = placed.get(n.id)!
     let q = p
@@ -790,7 +888,12 @@ export function geoLayout(
       q = { x: p.x + r * Math.cos(j * 2.399963), y: p.y + r * Math.sin(j * 2.399963) }
     }
     taken.add(key(q))
-    out.set(n.id, q)
+    spread.push(q)
   }
+  const xs = spread.map((p) => p.x)
+  const ys = spread.map((p) => p.y)
+  relaxSeparate(xs, ys, minSep, 12)
+  const out = new Map<string, Pt>()
+  list.forEach((n, i) => out.set(n.id, { x: xs[i], y: ys[i] }))
   return out
 }
