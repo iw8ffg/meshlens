@@ -3,6 +3,26 @@
 Il formato segue [Keep a Changelog](https://keepachangelog.com/it-IT/1.1.0/) e il progetto usa il [versionamento semantico](https://semver.org/lang/it/).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [1.6.2] - 2026-11-25
+
+### Italiano
+
+#### Aggiunto
+- **Salto rapido nelle Impostazioni:** in cima alla pagina un pulsante per ogni sezione porta direttamente lì; la sezione raggiunta è evidenziata. Sul telefono i pulsanti stanno in una riga fissa che scorre di lato. Anche la ricerca (Ctrl+K) porta alla sezione giusta.
+- **Avviso dopo un aggiornamento:** se MeshLens si aggiorna mentre la pagina è aperta, compare un avviso con il pulsante «Ricarica» per passare alla nuova interfaccia.
+
+#### Corretto
+- **Pagina vecchia dopo l'aggiornamento:** la pagina principale non viene più tenuta nella cache del browser.
+
+### English
+
+#### Added
+- **Quick jump in Settings:** at the top of the page a button for each section takes you straight there; the section you reach is highlighted. On phones the buttons sit in a fixed row that scrolls sideways. Search (Ctrl+K) also jumps to the right section.
+- **Notice after an update:** if MeshLens is updated while the page is open, a notice with a "Reload" button lets you switch to the new interface.
+
+#### Fixed
+- **Old page after updating:** the main page is no longer kept in the browser cache.
+
 ## [1.6.1] - 2026-11-25
 
 ### Italiano
@@ -511,6 +531,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 [1.2.3]: https://github.com/iw8ffg/meshlens/releases/tag/v1.2.3
 [1.3.0]: https://github.com/iw8ffg/meshlens/releases/tag/v1.3.0
 [1.4.0]: https://github.com/iw8ffg/meshlens/releases/tag/v1.4.0
+[1.6.2]: https://github.com/iw8ffg/meshlens/releases/tag/v1.6.2
 [1.6.1]: https://github.com/iw8ffg/meshlens/releases/tag/v1.6.1
 [1.6.0]: https://github.com/iw8ffg/meshlens/releases/tag/v1.6.0
 [1.5.1]: https://github.com/iw8ffg/meshlens/releases/tag/v1.5.1
