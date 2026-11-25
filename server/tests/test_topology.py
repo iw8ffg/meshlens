@@ -179,3 +179,19 @@ def test_truncation_keeps_cuts_first():
     assert all(e["a"] in kept and e["b"] in kept for e in r["edges"])
     assert r["stats"]["cut"] == 28
     assert max(n["impact"] for n in r["nodes"]) == 14
+
+
+def test_main_only_fills_limit_from_main_component():
+    c = make_db()
+    for n in range(1, 41):
+        add_node(c, n)
+    for n in range(1, 30):  # catena da 30 nodi: gruppo principale
+        add_link(c, n, n + 1, "traceroute")
+    for n in range(31, 40):  # secondo gruppo da 10 nodi con hub
+        add_link(c, 31, n + 1, "traceroute")
+    r = build_topology(c, NOW, 168, SOURCES, (), limit=20, main_only=True)
+    assert {n["component"] for n in r["nodes"]} == {0}
+    assert len(r["nodes"]) == 20 and r["truncated"] is True
+    r = build_topology(c, NOW, 168, SOURCES, (), limit=100, main_only=True)
+    assert len(r["nodes"]) == 30 and r["truncated"] is False
+    assert r["stats"]["components"] == 2
