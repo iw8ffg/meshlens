@@ -3,6 +3,28 @@
 Il formato segue [Keep a Changelog](https://keepachangelog.com/it-IT/1.1.0/) e il progetto usa il [versionamento semantico](https://semver.org/lang/it/).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [1.6.1] - 2026-11-25
+
+### Italiano
+
+#### Modificato
+- **Grafico della topologia per reti grandi:** i nodi non si schiacciano più contro i bordi; il gruppo principale sta al centro e i gruppi piccoli in una griglia ordinata a lato. L'area cresce con la rete, con zoom dalla rotellina (o con due dita), trascinamento e «Adatta».
+- **Etichette leggibili:** i nomi compaiono per cerniere, hub, il nodo sotto il puntatore e i suoi vicini; ingrandendo compaiono gli altri, sempre senza sovrapporsi.
+- **Disposizione geografica:** un interruttore mette i nodi con posizione GPS nel punto reale; gli altri vanno vicino ai loro collegamenti.
+- **Focus su un nodo:** scegli un nodo e vedi solo lui e i vicini entro 1, 2 o 3 salti; «Mostra tutta la rete» torna alla vista completa.
+- **Solo il gruppo principale:** nasconde i gruppi staccati; il limite di 400 nodi si riempie dal gruppo principale.
+- **Più veloce:** il grafo si calcola in una frazione di secondo e mentre si calcola compare «Calcolo della disposizione…».
+
+### English
+
+#### Changed
+- **Topology graph for large networks:** nodes no longer pile up against the edges; the main group sits in the middle and small groups in a tidy grid beside it. The area grows with the network, with wheel (or two-finger) zoom, dragging and "Fit".
+- **Readable labels:** names appear for hinge nodes, hubs, the node under the pointer and its neighbours; zooming in shows the others, never overlapping.
+- **Geographic layout:** a switch places nodes with a GPS position at their real location; the others go near their links.
+- **Focus on a node:** pick a node and see only it and its neighbours within 1, 2 or 3 hops; "Show the whole network" goes back to the full view.
+- **Main group only:** hides detached groups; the 400-node limit is filled from the main group.
+- **Faster:** the graph is laid out in a fraction of a second, showing "Computing the layout…" meanwhile.
+
 ## [1.6.0] - 2026-11-24
 
 ### Italiano
@@ -489,6 +511,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 [1.2.3]: https://github.com/iw8ffg/meshlens/releases/tag/v1.2.3
 [1.3.0]: https://github.com/iw8ffg/meshlens/releases/tag/v1.3.0
 [1.4.0]: https://github.com/iw8ffg/meshlens/releases/tag/v1.4.0
+[1.6.1]: https://github.com/iw8ffg/meshlens/releases/tag/v1.6.1
 [1.6.0]: https://github.com/iw8ffg/meshlens/releases/tag/v1.6.0
 [1.5.1]: https://github.com/iw8ffg/meshlens/releases/tag/v1.5.1
 [1.5.0]: https://github.com/iw8ffg/meshlens/releases/tag/v1.5.0
