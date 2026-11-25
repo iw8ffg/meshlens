@@ -32,7 +32,7 @@ export const GROUP_LIMITS: { group: Exclude<ResultGroup, 'message'>; limit: numb
   { group: 'setting', limit: 4 },
 ]
 
-/** Sezioni della scheda Impostazioni: la voce apre la scheda (non scorre alla sezione). */
+/** Sezioni della scheda Impostazioni: la voce apre la scheda e scorre alla sezione (id come in settingsnav). */
 export const SETTINGS_ENTRIES: { id: string; titleKey: MsgKey }[] = [
   { id: 'alerts', titleKey: 'settings.alerts.title' },
   { id: 'net', titleKey: 'settings.net.title' },

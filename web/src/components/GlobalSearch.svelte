@@ -21,6 +21,7 @@
   import { viewport } from '../lib/viewport.svelte'
   import type { MessageSearchHit } from '../lib/types'
   import Icon from '../lib/ui/Icon.svelte'
+  import { requestSettingsJump } from '../lib/settingsnav'
 
   const uid = $props.id()
   const TABS: Tab[] = ['map', 'nodes', 'network', 'coverage', 'chat', 'radio', 'settings']
@@ -68,7 +69,7 @@
       ? rankLocal(
           q,
           { nodes: mergeNodeHits(localNodes, remoteNodes, ignoredIds), conversations, settings: settingsItems((k) => t(k), t('nav.settings')), actions },
-          { node: openNode, conversation: (key) => { openChat(key); navigate('chat') }, setting: () => navigate('settings') },
+          { node: openNode, conversation: (key) => { openChat(key); navigate('chat') }, setting: (id) => { requestSettingsJump(id); navigate('settings') } },
         )
       : [],
   )

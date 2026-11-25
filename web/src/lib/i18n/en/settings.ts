@@ -3,6 +3,11 @@ import type { settings as itArea } from '../it/settings'
 
 export const settings: Record<keyof typeof itArea, string> = {
   'settings.title': 'Settings',
+  'settings.nav.aria': 'Jump to a section',
+  'settings.nav.countries': 'Countries',
+  'settings.nav.alerts': 'Alerts',
+  'settings.nav.automations': 'Bots and traceroute',
+  'settings.nav.chan': 'Channels',
   'settings.appearance': 'Appearance',
   'settings.themeHint': 'Auto follows the device theme.',
   'settings.loadFailed': 'Settings not available',
