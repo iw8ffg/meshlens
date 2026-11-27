@@ -28,6 +28,7 @@
   import { t, type MsgKey } from '../lib/i18n/index.svelte'
   import type { Node } from '../lib/types'
   import { isGuest } from '../lib/guest.svelte'
+  import AcceptKey from '../lib/shell/AcceptKey.svelte'
 
   type Pos = { time: number; lat: number; lon: number; precision_bits: number | null; source: string }
   let {
@@ -293,7 +294,9 @@
 
   {#if keyChangedRecently(node, now)}
     <div class="gap">
-      <Banner kind="warn" title={t('chat.keyChangedBanner', { name: nodeName(node), date: formatDate(node.key_changed ?? null) })} />
+      <Banner kind="warn" title={t('chat.keyChangedBanner', { name: nodeName(node), date: formatDate(node.key_changed ?? null) })}>
+        {#snippet action()}<AcceptKey nodeId={node.id} />{/snippet}
+      </Banner>
     </div>
   {/if}
 

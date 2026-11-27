@@ -40,7 +40,7 @@ import { safeStorage } from './lib/storage'
   import { loadView, saveView } from './lib/viewstate'
   import { applyPredictionJob } from './lib/prediction.svelte'
   import { applySfJob, setSfRouters } from './lib/storeforward.svelte'
-  import { ApiError, getJSON, alerts as fetchAlerts, conversations, waypoints as fetchWaypoints, coverageSessions, coverageSession, updateStatus, AUTH_REQUIRED } from './lib/api'
+  import { ApiError, getJSON, alerts as fetchAlerts, alertsHidden as fetchAlertsHidden, conversations, waypoints as fetchWaypoints, coverageSessions, coverageSession, updateStatus, AUTH_REQUIRED } from './lib/api'
   import { connectWS } from './lib/ws'
   import { notifyWsResync } from './lib/wsext'
   import { onIncoming } from './lib/incoming'
@@ -228,6 +228,7 @@ import { safeStorage } from './lib/storage'
         getJSON<Message[]>('/messages?limit=200').then(addMqttHistory),
         getJSON<Radio[]>('/radios').then(setRadios),
         fetchAlerts().then(setAlerts),
+        fetchAlertsHidden().then((r) => { app.alertsHidden = r.count }),
         conversations().then(applySummaries),
         fetchWaypoints().then(setWaypoints),
         coverageSessions().then(setCoverageSessions),

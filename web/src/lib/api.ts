@@ -122,6 +122,11 @@ export const setFavorite = (id: string, favorite: boolean) => send<Node>('PUT', 
 export const setMine = (id: string, mine: boolean) => send<Node>('PUT', `${nodePath(id)}/mine`, { mine })
 export const links = (hours = 24) => getJSON<Link[]>(`/links?hours=${hours}`)
 export const alerts = () => getJSON<Alert[]>('/alerts')
+export const alertsHidden = () => getJSON<{ count: number }>('/alerts/hidden')
+export const dismissAlert = (key: string) =>
+  send<{ hidden: number }>('POST', `/alerts/${encodeURIComponent(key)}/dismiss`)
+export const restoreAlerts = () => send<{ hidden: number }>('POST', '/alerts/dismissed/restore')
+export const acceptKey = (id: string) => send<Node>('POST', `${nodePath(id)}/accept-key`)
 export const traceroute = (id: string, radioId?: string) =>
   send<Traceroute>('POST', `${nodePath(id)}/traceroute`, radioId ? { radio_id: radioId } : {})
 export const traceroutes = (id: string) => getJSON<Traceroute[]>(`${nodePath(id)}/traceroutes`)

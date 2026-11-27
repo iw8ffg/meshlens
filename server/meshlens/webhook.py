@@ -260,7 +260,9 @@ class WebhookService:
         quiet = now - self.started < STARTUP_QUIET_S
         if kind == "alerts":
             items = msg.get("alerts") or []
-            keys = {a.get("key") for a in items}
+            # active_keys: tutti gli avvisi attivi, anche quelli chiusi dall'utente (riaprirli
+            # non e' una novita' da inviare)
+            keys = {a.get("key") for a in items} | set(msg.get("active_keys") or [])
             new = [a for a in items if a.get("key") not in self._alert_keys]
             self._alert_keys = keys
             if quiet:

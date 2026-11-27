@@ -22,6 +22,8 @@ export const app = $state({
   feedFilter: loadFeedFilter(safeStorage()) as FeedFilter,
   selectedId: null as string | null,
   alerts: [] as Alert[],
+  /** Avvisi attivi chiusi dall'utente (nascosti): `Avvisi nascosti: N`. */
+  alertsHidden: 0,
   traceroutes: new SvelteMap<string, Traceroute>(),
   waypoints: new SvelteMap<number, Waypoint>(),
   reconnects: 0, // contatore: cresce a ogni riconnessione del WebSocket
@@ -139,8 +141,10 @@ export function setRadios(list: Radio[]): void {
   app.radios = list
 }
 
-export function setAlerts(list: Alert[]): void {
+/** `hidden` (conteggio degli avvisi chiusi) si aggiorna solo se il server lo manda. */
+export function setAlerts(list: Alert[], hidden?: number): void {
   app.alerts = list
+  if (typeof hidden === 'number') app.alertsHidden = hidden
 }
 
 /** Ultimo traceroute per nodo di destinazione. */

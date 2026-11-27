@@ -133,7 +133,9 @@ class AppContext:
     ext: dict[str, object] = field(default_factory=dict)
     alert_sources: list[Callable[[float, dict, dict[str, dict]], list[dict]]] = field(
         default_factory=list)
-    _alerts: list = field(default_factory=list)
+    _alerts: list = field(default_factory=list)  # visibili (senza quelli chiusi)
+    _alerts_all: list = field(default_factory=list)  # tutti quelli attivi, chiusi compresi
+    _alerts_hidden: int = 0  # quanti degli attivi sono chiusi
     _alerts_ready: bool = False
 
     def __post_init__(self) -> None:
@@ -176,9 +178,12 @@ class AppContext:
         return node
 
     def alerts(self, mute_node: str | None = None) -> list[dict]:
-        """Ricalcola gli avvisi; pubblica sul WS solo se key o value cambiano. mute_node: gli
-        avvisi nuovi di quel nodo non si notificano (nodo appena ripristinato)."""
-        old = self._alerts
+        """Ricalcola gli avvisi; pubblica sul WS solo se key, value o avvisi chiusi cambiano.
+        mute_node: gli avvisi nuovi di quel nodo non si notificano (nodo appena ripristinato).
+        Un avviso chiuso resta nascosto finche' la sua chiave e' attiva senza interruzione; quando
+        la condizione finisce la chiusura si scorda (se ritorna, si rivede). Le notifiche vedono
+        sempre tutti gli avvisi attivi: chiudere o riaprire non e' una notizia."""
+        old, old_visible, old_hidden = self._alerts_all, self._alerts, self._alerts_hidden
         now = time.time()
         mine = [n for n in self.live.nodes.values() if n.get("is_mine")]
         stats = self.store.channel_util_stats([n["num"] for n in mine], now - CHUTIL_WINDOW_S)
@@ -196,9 +201,21 @@ class AppContext:
         # nodi ignorati: nessun avviso, nemmeno dalle sorgenti delle estensioni
         new = [a for a in new if not self.live.is_ignored_id(a.get("node_id"))]
         new.sort(key=sort_key)
-        self._alerts = new
-        if [(a["key"], a["value"]) for a in new] != [(a["key"], a["value"]) for a in old]:
-            self.bus.publish({"type": "alerts", "alerts": new})
+        active = {a["key"] for a in new}
+        dismissed = list(settings.get("dismissed_alerts") or [])
+        if self._alerts_ready:  # il primo calcolo non scorda nulla (sorgenti ancora da registrare)
+            kept = [k for k in dismissed if k in active]
+            if kept != dismissed:
+                save_settings(self.conn, {"dismissed_alerts": kept})
+                dismissed = kept
+        hidden_keys = set(dismissed) & active
+        visible = [a for a in new if a["key"] not in hidden_keys]
+        self._alerts_all, self._alerts, self._alerts_hidden = new, visible, len(hidden_keys)
+        if ([(a["key"], a["value"]) for a in visible]
+                != [(a["key"], a["value"]) for a in old_visible]
+                or len(hidden_keys) != old_hidden):
+            self.bus.publish({"type": "alerts", "alerts": visible, "hidden": len(hidden_keys),
+                              "active_keys": sorted(active)})
         if self._alerts_ready:
             try:
                 seen = old
@@ -211,7 +228,43 @@ class AppContext:
                 logging.getLogger(__name__).exception("Notifiche degli avvisi non riuscite")
         # il primo calcolo (avvio) non notifica: un nodo muto da giorni non avvisa a ogni avvio
         self._alerts_ready = True
-        return new
+        return visible
+
+    def alerts_hidden(self) -> int:
+        return self._alerts_hidden
+
+    def dismiss_alert(self, key: str) -> bool:
+        """Chiude un avviso attivo (resta nascosto finche' la condizione dura). False se la
+        chiave non e' tra gli avvisi attivi."""
+        self.alerts()  # stato fresco: la condizione potrebbe essere finita un attimo fa
+        if key not in {a["key"] for a in self._alerts_all}:
+            return False
+        dismissed = list(load_settings(self.conn).get("dismissed_alerts") or [])
+        if key not in dismissed:
+            save_settings(self.conn, {"dismissed_alerts": [*dismissed, key]})
+        self.alerts()
+        return True
+
+    def restore_dismissed(self) -> None:
+        """Mostra di nuovo tutti gli avvisi chiusi."""
+        save_settings(self.conn, {"dismissed_alerts": []})
+        self.alerts()
+
+    def accept_key(self, num: int) -> dict | None:
+        """Accetta la nuova chiave di un nodo: toglie `key_changed` (database e memoria), ricalcola
+        gli avvisi e avvisa i client. None se il nodo non e' noto. Se la chiave cambia ancora,
+        l'ingest rimette `key_changed` e l'avviso torna."""
+        node = self.live.nodes.get(num)
+        if node is None:
+            if self.store.get_node(num) is None:
+                return None
+            node = self.live.nodes[num] = revive_node(self.store, num)
+        node["key_changed"] = None
+        self.store.upsert_node(node)
+        self.store.commit()
+        self.live.mark_changed(num)  # i client ricevono il nodo aggiornato
+        self.alerts()
+        return node
 
 
 class MapsEstimateBody(BaseModel):
@@ -713,6 +766,14 @@ def create_app(ctx: AppContext) -> FastAPI:
         ctx.alerts()
         return _public(node)
 
+    @app.post("/api/nodes/{node_id}/accept-key",
+              dependencies=[Depends(require_auth), Depends(require_json)])
+    async def accept_key(node_id: str):
+        node = ctx.accept_key(_num_from_id(node_id))
+        if node is None:
+            raise HTTPException(404, "Nodo non trovato")
+        return _public(node)
+
     @app.put("/api/nodes/{node_id}/favorite",
              dependencies=[Depends(require_auth), Depends(require_json)])
     async def set_favorite(node_id: str, body: FavoriteBody):
@@ -732,6 +793,25 @@ def create_app(ctx: AppContext) -> FastAPI:
     async def list_alerts(request: Request):
         alerts = ctx.alerts()
         return alerts if is_admin(request) else guest.guest_alerts(alerts)
+
+    @app.get("/api/alerts/hidden", dependencies=[Depends(require_auth)])
+    async def hidden_alerts():
+        ctx.alerts()
+        return {"count": ctx.alerts_hidden()}
+
+    # chiudere un avviso e' una scelta dell'amministratore: all'ospite risponde il 403 comune
+    @app.post("/api/alerts/dismissed/restore",
+              dependencies=[Depends(require_auth), Depends(require_json)])
+    async def restore_alerts():
+        ctx.restore_dismissed()
+        return {"hidden": ctx.alerts_hidden()}
+
+    @app.post("/api/alerts/{key}/dismiss",
+              dependencies=[Depends(require_auth), Depends(require_json)])
+    async def dismiss_alert(key: str):
+        if not ctx.dismiss_alert(key):
+            raise HTTPException(404, "Avviso non trovato")
+        return {"hidden": ctx.alerts_hidden()}
 
     # ---- messaggi ----
     @app.get("/api/messages", dependencies=[Depends(require_auth)])

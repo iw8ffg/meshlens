@@ -5,6 +5,7 @@
   import { isMqttConv, localNodeIds, mqttConvBroker, olderPage, splitKey, statusIcon } from '../../lib/chat'
   import { convLabel } from '../../lib/conversations'
   import { mqttDelivery, mqttFailText, statusAria } from '../../lib/send'
+  import AcceptKey from '../../lib/shell/AcceptKey.svelte'
   import { keyChangedRecently, routingErrorText, threadItems } from '../../lib/reactions'
   import { app, addRadioHistory } from '../../lib/stores.svelte'
   import { markRead } from '../../lib/unread.svelte'
@@ -183,7 +184,9 @@
 
   {#if keyChanged}
     <div class="keywarn">
-      <Banner kind="warn" title={t('chat.keyChangedBanner', { name: nodeName(keyChanged.id), date: formatDate(keyChanged.key_changed ?? null) })} />
+      <Banner kind="warn" title={t('chat.keyChangedBanner', { name: nodeName(keyChanged.id), date: formatDate(keyChanged.key_changed ?? null) })}>
+        {#snippet action()}<AcceptKey nodeId={keyChanged.id} />{/snippet}
+      </Banner>
     </div>
   {/if}
 

@@ -71,3 +71,13 @@ export function alertIcon(kind: string): IconName {
       return 'alert'
   }
 }
+
+/** Elenco senza l'avviso `key` (subito dopo averlo chiuso, in attesa dell'evento del server). */
+export function withoutAlert(list: Alert[], key: string): Alert[] {
+  return list.filter((a) => a.key !== key)
+}
+
+/** Elenco senza l'avviso di chiave cambiata del nodo (subito dopo averla accettata). */
+export function withoutKeyChanged(list: Alert[], nodeId: string): Alert[] {
+  return list.filter((a) => !(a.kind === 'key_changed' && a.node_id === nodeId))
+}

@@ -405,7 +405,15 @@ def _seed_v16(store, nums, now) -> dict:
          json.dumps({"config": {"lora": {"hop_limit": 3, "tx_enabled": True, "use_preset": True},
                                 "device": {"node_info_broadcast_secs": 10800}},
                      "module_config": {}}), "Profilo dimostrativo, senza segreti"))
-    return {"battery_nodes": [drain, solar, charge], "ignored": ignored}
+    # --- avvisi da provare nel browser: un mio nodo con la batteria scarica e uno con la chiave
+    # pubblica cambiata da poco (per "Chiudi" e "Accetta la nuova chiave") ---
+    low, rekeyed = nums[3], nums[4]
+    conn.execute("UPDATE nodes SET battery=12, last_heard=? WHERE num=?", (now - 300, low))
+    conn.execute("UPDATE nodes SET public_key=?, key_changed=?, last_heard=? WHERE num=?",
+                 (base64.b64encode(bytes(range(32))).decode("ascii"), now - 900, now - 300,
+                  rekeyed))
+    return {"battery_nodes": [drain, solar, charge], "ignored": ignored,
+            "low_battery": low, "key_changed": rekeyed}
 
 
 def _v16_settings() -> dict:
