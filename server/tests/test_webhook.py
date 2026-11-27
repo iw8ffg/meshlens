@@ -198,6 +198,16 @@ def test_alert_event_only_new_keys(server):
     assert json.loads(server.hits[1]["body"])["data"]["key"] == "silent:!2"
 
 
+def test_alert_dismissed_then_restored_not_sent_again(server):
+    svc, _ = make(url_of(server))
+    svc.on_bus(alerts("battery:!1"))
+    assert len(server.hits) == 1
+    hidden = {**alerts(), "hidden": 1, "active_keys": ["battery:!1"]}  # chiuso dall'utente
+    svc.on_bus(hidden)
+    svc.on_bus(alerts("battery:!1"))  # riaperto: non e' una novita'
+    assert len(server.hits) == 1
+
+
 def test_alerts_seeded_during_startup_quiet(server):
     svc, clock = make(url_of(server))
     clock.t = T0 + 10

@@ -79,3 +79,16 @@ def test_demo_seed_exercises_1_6_features(tmp_path):
     assert st["bot_targets"] and st["webhook_events"]
     assert st["mqtt"]["host"] == "127.0.0.1" and st["mqtt"]["port"] == 1
     assert json.loads(conn.execute("SELECT data FROM config_profiles").fetchone()[0])["config"]
+
+
+def test_demo_seed_has_battery_and_key_changed_alerts(tmp_path):
+    from meshlens.alerts import compute_alerts
+    seed = load_seed()
+    now = 1_800_000_000.0
+    info = seed.build(tmp_path, now=now)
+    conn = connect(tmp_path / "meshlens.db")
+    nodes = [n for n in Store(conn).load_nodes() if n["is_mine"]]
+    out = compute_alerts(nodes, load_settings(conn), now, {})
+    kinds = {(a["kind"], a["node_id"]) for a in out}
+    assert ("battery_low", f"!{info['low_battery']:08x}") in kinds
+    assert ("key_changed", f"!{info['key_changed']:08x}") in kinds

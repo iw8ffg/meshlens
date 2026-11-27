@@ -10,6 +10,9 @@ import { safeStorage } from '../lib/storage'
   import { downloadText } from '../lib/download'
   import { fileStamp, networkCsv } from '../lib/export'
   import Banner from '../lib/ui/Banner.svelte'
+  import AlertDismiss from '../lib/shell/AlertDismiss.svelte'
+  import AlertsHidden from '../lib/shell/AlertsHidden.svelte'
+  import AcceptKey from '../lib/shell/AcceptKey.svelte'
   import Button from '../lib/ui/Button.svelte'
   import BatteryBadge from '../lib/ui/BatteryBadge.svelte'
   import Badge from '../lib/ui/Badge.svelte'
@@ -77,11 +80,20 @@ import { safeStorage } from '../lib/storage'
     <div class="alerts">
       {#each alertRows as n (n.id)}
         {#each alerts.get(n.id) ?? [] as a (a.key)}
-          <Banner kind={alertTone(a.kind)} title={nodeName(n)}>{alertText(a)}</Banner>
+          <Banner kind={alertTone(a.kind)} title={nodeName(n)}>
+            {alertText(a)}
+            {#snippet action()}
+              <span class="acts">
+                {#if a.kind === 'key_changed'}<AcceptKey nodeId={a.node_id} />{/if}
+                <AlertDismiss alertKey={a.key} text={`${nodeName(n)}: ${alertText(a)}`} />
+              </span>
+            {/snippet}
+          </Banner>
         {/each}
       {/each}
     </div>
   {/if}
+  <AlertsHidden />
 
   {#if onlyMine && !hasMine}
     <Empty icon="star" title={t('network.empty.mineTitle')}>{t('network.empty.mineHint')}</Empty>
@@ -145,6 +157,12 @@ import { safeStorage } from '../lib/storage'
   }
   .mk.fav {
     color: var(--brand-amber);
+  }
+  .acts {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    flex-wrap: wrap;
   }
   .alerts {
     display: flex;

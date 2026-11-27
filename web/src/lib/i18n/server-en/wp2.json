@@ -17,7 +17,9 @@
     "Parametri dell'avviso non validi": "Invalid alert parameters",
     "Hai raggiunto il limite di 100 avvisi su misura": "You have reached the limit of 100 custom alerts",
     "Avviso su misura non trovato": "Custom alert not found",
-    "Gli avvisi su misura non sono disponibili": "Custom alerts are not available"
+    "Gli avvisi su misura non sono disponibili": "Custom alerts are not available",
+    "Avviso non trovato": "Alert not found",
+    "dismissed_alerts deve essere una lista di al massimo 500 chiavi di avviso (testi da 1 a 200 caratteri, senza doppioni)": "dismissed_alerts must be a list of at most 500 alert keys (texts of 1 to 200 characters, no duplicates)"
   },
   "patterns": []
 }

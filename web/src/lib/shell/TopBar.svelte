@@ -13,6 +13,7 @@
   import { num } from '../format'
   import { DESKTOP_TABS, type Tab } from './nav'
   import AlertsList from './AlertsList.svelte'
+  import AlertsHidden from './AlertsHidden.svelte'
   import { alertTone } from '../alerts'
   import { openGlobalSearch } from '../globalsearch.svelte'
   import { tabsFor } from '../guest'
@@ -130,6 +131,7 @@
                 open = null
                 onpickalert(id)
               }} />
+            <AlertsHidden />
           </div>
         {/if}
       </div>

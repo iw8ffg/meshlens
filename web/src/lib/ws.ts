@@ -9,7 +9,7 @@ export interface WSHandlers {
   message(m: Message): void
   status(s: Status): void
   radios(r: Radio[]): void
-  alerts(a: Alert[]): void
+  alerts(a: Alert[], hidden?: number): void
   traceroute(t: Traceroute): void
   coverage(session: CoverageSession, point: CoveragePoint | null, trackPoint?: CoverageTrackPoint | null): void
   messageStatus(key: string, status: MessageStatus, error?: string | null, heardBy?: string[] | null): void
@@ -53,7 +53,7 @@ export function dispatch(msg: unknown, h: WSHandlers): void {
   if (m.type === 'nodes') h.nodes(m.nodes)
   else if (m.type === 'message') h.message(m.message)
   else if (m.type === 'radios') h.radios(m.radios)
-  else if (m.type === 'alerts') h.alerts(m.alerts)
+  else if (m.type === 'alerts') (typeof m.hidden === 'number' ? h.alerts(m.alerts, m.hidden) : h.alerts(m.alerts))
   else if (m.type === 'traceroute') h.traceroute(m.result)
   else if (m.type === 'coverage') h.coverage(m.session, m.point ?? null, m.track_point ?? null)
   else if (m.type === 'message_status') {

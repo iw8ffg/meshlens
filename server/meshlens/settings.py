@@ -79,6 +79,7 @@ DEFAULTS: dict = {
     "guest_enabled": False,
     "retention_traceroutes_days": 365,
     "retention_broker_days": {},
+    "dismissed_alerts": [],  # chiavi degli avvisi chiusi (solo finche' l'avviso resta attivo)
 }
 
 BOT_COMMANDS = ("ping", "info", "nodes", "time", "weather")
@@ -89,7 +90,7 @@ MAX_BOT_TARGETS = 16
 MAX_BOT_REPLIES = 20
 # scelte di questo PC: non si esportano e un file di impostazioni importato non le cambia mai
 LOCAL_ONLY_KEYS = ("onboarding_done", "last_seen_version", "guest_enabled", "bot_enabled",
-                   "webhook_enabled", "traceroute_auto_enabled")
+                   "webhook_enabled", "traceroute_auto_enabled", "dismissed_alerts")
 # invii automatici e accesso ospite: si accendono solo dalle loro rotte; l'importazione e il
 # ripristino di un backup li spengono sempre
 AUTOMATIC_SWITCHES = ("bot_enabled", "webhook_enabled", "guest_enabled", "traceroute_auto_enabled")
@@ -473,6 +474,19 @@ def _unique_subset(value, allowed: tuple) -> bool:
             and len(set(value)) == len(value))
 
 
+MAX_DISMISSED_ALERTS = 500
+_DISMISSED_ALERTS_ERR = ("dismissed_alerts deve essere una lista di al massimo 500 chiavi di "
+                         "avviso (testi da 1 a 200 caratteri, senza doppioni)")
+
+
+def _validate_dismissed_alerts(value) -> None:
+    if not (isinstance(value, list) and len(value) <= MAX_DISMISSED_ALERTS
+            and all(isinstance(k, str) and 1 <= len(k) <= 200
+                    and not any(ord(c) < 32 for c in k) for k in value)
+            and len(set(value)) == len(value)):
+        raise ValueError(_DISMISSED_ALERTS_ERR)
+
+
 def _validate(key: str, value) -> None:
     if key not in DEFAULTS:
         raise ValueError(f"Impostazione sconosciuta: {key}")
@@ -569,6 +583,8 @@ def _validate(key: str, value) -> None:
         if not (isinstance(value, str) and (value == "" or (
                 len(value) <= 32 and _VERSION_RE.fullmatch(value)))):
             raise ValueError("last_seen_version deve essere vuoto oppure un numero di versione")
+    elif key == "dismissed_alerts":
+        _validate_dismissed_alerts(value)
     elif key == "retention_broker_days":
         if not (isinstance(value, dict) and len(value) <= MAX_BROKERS and all(
                 isinstance(k, str) and _BROKER_ID_RE.fullmatch(k) and _is_int(v)
