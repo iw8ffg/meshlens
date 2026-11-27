@@ -596,7 +596,10 @@ def test_engine_exceptions_in_one_rule_do_not_break_others(caplog):
     assert kinds == ["rule_battery", "rule_keyword"]
     assert any(k == "rule_keyword" for k, *_ in h.sent) and good
     assert str(bad.id) in caplog.text
-    assert "segreto" not in caplog.text and "45" not in caplog.text
+    # testi e coordinate non finiscono nei messaggi di log (i traceback contengono percorsi:
+    # si controllano solo i messaggi, non i nomi delle cartelle)
+    msgs = " ".join(r.getMessage() for r in caplog.records)
+    assert "segreto" not in caplog.text and "45" not in msgs
 
 
 def replace_params(rule, params):
