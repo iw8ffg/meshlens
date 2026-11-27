@@ -3,6 +3,20 @@
 Il formato segue [Keep a Changelog](https://keepachangelog.com/it-IT/1.1.0/) e il progetto usa il [versionamento semantico](https://semver.org/lang/it/).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [1.6.3] - 2026-11-27
+
+### Italiano
+
+#### Aggiunto
+- **Chiudi gli avvisi:** ogni avviso (in Rete → Nodi e nell'elenco in alto) ha una «×» per nasconderlo. Resta nascosto, anche dopo un riavvio e senza nuove notifiche, finché la situazione dura; se finisce e poi si ripresenta, l'avviso torna. «Avvisi nascosti: N — Mostra» li fa ricomparire.
+- **Accetta la nuova chiave:** quando la chiave pubblica di un nodo cambia (ad esempio perché l'hai rigenerata tu), il pulsante «Accetta la nuova chiave» sull'avviso, nella scheda del nodo e nella conversazione toglie la segnalazione ovunque. Se la chiave cambia di nuovo, l'avviso ricompare.
+
+### English
+
+#### Added
+- **Dismiss alerts:** every alert (in Network → Nodes and in the list at the top) has a "×" to hide it. It stays hidden, even after a restart and without new notifications, while the situation lasts; if it ends and happens again, the alert comes back. "Hidden alerts: N — Show" brings them back.
+- **Accept the new key:** when a node's public key changes (for example because you regenerated it), the "Accept the new key" button on the alert, in the node card and in the conversation clears the warning everywhere. If the key changes again, the warning returns.
+
 ## [1.6.2] - 2026-11-25
 
 ### Italiano
@@ -531,6 +545,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 [1.2.3]: https://github.com/iw8ffg/meshlens/releases/tag/v1.2.3
 [1.3.0]: https://github.com/iw8ffg/meshlens/releases/tag/v1.3.0
 [1.4.0]: https://github.com/iw8ffg/meshlens/releases/tag/v1.4.0
+[1.6.3]: https://github.com/iw8ffg/meshlens/releases/tag/v1.6.3
 [1.6.2]: https://github.com/iw8ffg/meshlens/releases/tag/v1.6.2
 [1.6.1]: https://github.com/iw8ffg/meshlens/releases/tag/v1.6.1
 [1.6.0]: https://github.com/iw8ffg/meshlens/releases/tag/v1.6.0
